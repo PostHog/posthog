@@ -13,7 +13,6 @@ class Command(BaseCommand):
     help = "Wrap celery in djangos auto reload functionality"
 
     def handle(self, *args, **options):
-        return
         autoreload.run_with_reloader(self.run_celery_worker)
 
     def run_celery_worker(self):
