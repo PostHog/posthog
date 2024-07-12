@@ -32,7 +32,6 @@ class TestSessionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         actual_properties = {entry["name"] for entry in response.json()["results"]}
         expected_properties = {
-            "$autocapture_count",
             "$channel_type",
             "$end_timestamp",
             "$entry_current_url",
@@ -47,7 +46,6 @@ class TestSessionsAPI(APIBaseTest):
             "$entry_utm_medium",
             "$entry_utm_source",
             "$entry_utm_term",
-            "$pageview_count",
             "$session_duration",
             "$start_timestamp",
             "$is_bounce",

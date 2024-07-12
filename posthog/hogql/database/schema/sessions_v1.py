@@ -78,9 +78,6 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
-    "$event_count_map": DatabaseField(name="$event_count_map"),
-    "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
-    "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
     "$channel_type": StringDatabaseField(name="$channel_type"),
     "$session_duration": IntegerDatabaseField(name="$session_duration"),
     "duration": IntegerDatabaseField(

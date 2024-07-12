@@ -10,6 +10,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     SessionTableVersion,
 )
+from posthog.utils import get_instance_region
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -50,7 +51,11 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
         modifiers.optimizeJoinedFilters = False
 
     if modifiers.bounceRatePageViewMode is None:
-        modifiers.bounceRatePageViewMode = BounceRatePageViewMode.COUNT_PAGEVIEWS
+        modifiers.bounceRatePageViewMode = (
+            BounceRatePageViewMode.UNIQ_URLS
+            if get_instance_region() == "EU"
+            else BounceRatePageViewMode.COUNT_PAGEVIEWS
+        )
 
     if modifiers.sessionTableVersion is None:
         modifiers.sessionTableVersion = SessionTableVersion.AUTO
