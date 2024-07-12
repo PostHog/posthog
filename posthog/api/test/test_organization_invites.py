@@ -6,11 +6,8 @@ from rest_framework import status
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.organization import (
-    Organization,
-    OrganizationInvite,
-    OrganizationMembership,
-)
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
 
