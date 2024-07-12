@@ -286,7 +286,11 @@ def create_hogql_database(
     warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
-    for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
+    for table in (
+        DataWarehouseTable.objects.filter(team_id=team.pk)
+        .exclude(deleted=True)
+        .select_related("credential", "external_data_source")
+    ):
         s3_table = table.hogql_definition(modifiers)
 
         # If the warehouse table has no _properties_ field, then set it as a virtual table

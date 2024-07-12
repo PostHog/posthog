@@ -31,6 +31,7 @@ interface DataTableVisualizationProps {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    readOnly?: boolean
 }
 
 let uniqueNode = 0
@@ -70,6 +71,7 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
 }
 
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
+    const { readOnly } = props
     const { query, visualizationType, showEditingUI, showResultControls, sourceFeatures, response, responseLoading } =
         useValues(dataVisualizationLogic)
 
@@ -112,7 +114,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     return (
         <div className="DataVisualization flex flex-1">
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                {showEditingUI && (
+                {!readOnly && showEditingUI && (
                     <>
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
                         {sourceFeatures.has(QueryFeature.dateRangePicker) && (
@@ -130,7 +132,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         )}
                     </>
                 )}
-                {showResultControls && (
+                {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
                         <div className="flex gap-4 justify-between flex-wrap">

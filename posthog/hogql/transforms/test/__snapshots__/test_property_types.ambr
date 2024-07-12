@@ -12,14 +12,14 @@
   SETTINGS optimize_aggregation_in_order=1) AS persons LEFT JOIN (
   SELECT extended_properties.string_prop AS string_prop, extended_properties.int_prop AS int_prop, extended_properties.bool_prop AS bool_prop, string_prop AS persons__extended_properties___string_prop 
   FROM s3(%(hogql_val_3_sensitive)s, %(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_4)s, %(hogql_val_5)s) AS extended_properties) AS persons__extended_properties ON equals(persons.persons___properties___email, persons__extended_properties.persons__extended_properties___string_prop) 
-  WHERE ifNull(equals(bool_prop, true), 0) 
+  WHERE ifNull(equals(bool_prop, 1), 0) 
   LIMIT 50000
   '''
 # ---
 # name: TestPropertyTypes.test_group_boolean_property_types
   '''
   
-  SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_2)s, %(hogql_val_3)s, NULL), true), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_4)s, %(hogql_val_5)s, NULL), false), 0), isNull(transform(events__group_0.properties___group_boolean, %(hogql_val_6)s, %(hogql_val_7)s, NULL)) 
+  SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_2)s, %(hogql_val_3)s, NULL), 1), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_4)s, %(hogql_val_5)s, NULL), 0), 0), isNull(transform(events__group_0.properties___group_boolean, %(hogql_val_6)s, %(hogql_val_7)s, NULL)) 
   FROM events LEFT JOIN (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___group_boolean, groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 

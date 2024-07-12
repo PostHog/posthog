@@ -28,7 +28,6 @@ function DateAndDurationFilters({
                 <DateFilter
                     dateFrom={filters.date_from ?? '-3d'}
                     dateTo={filters.date_to}
-                    disabled={filters.live_mode}
                     onChange={(changedDateFrom, changedDateTo) => {
                         setFilters({
                             date_from: changedDateFrom,
@@ -149,7 +148,7 @@ function ConsoleFilters({
     setFilters,
 }: {
     filters: RecordingFilters
-    setFilters: (filterS: RecordingFilters) => void
+    setFilters: (filters: RecordingFilters) => void
 }): JSX.Element {
     function updateLevelChoice(checked: boolean, level: FilterableLogLevel): void {
         const newChoice = filters.console_logs?.filter((c) => c !== level) || []

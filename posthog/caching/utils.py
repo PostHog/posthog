@@ -132,6 +132,14 @@ staleness_threshold_map = {
 }
 
 
+def cache_target_age(
+    interval: Optional[str], last_refresh: datetime, mode: ThresholdMode = ThresholdMode.DEFAULT
+) -> Optional[datetime]:
+    if interval not in staleness_threshold_map[mode]:
+        return None
+    return last_refresh + staleness_threshold_map[mode][interval]
+
+
 def is_stale(
     team: Team,
     date_to: Optional[datetime],
@@ -155,10 +163,8 @@ def is_stale(
     if date_to and date_to < (last_refresh - timedelta(seconds=10)):
         return False
 
-    if interval not in staleness_threshold_map[mode]:
+    max_age = cache_target_age(interval, last_refresh, mode)
+    if not max_age:
         return False
 
-    staleness_threshold = staleness_threshold_map[mode][interval]
-
-    max_age = datetime.now(UTC) - staleness_threshold
-    return last_refresh < max_age
+    return datetime.now(UTC) > max_age

@@ -15,12 +15,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import {
-    AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
-    DashboardPrivilegeLevel,
-    FEATURE_FLAGS,
-    OrganizationMembershipLevel,
-} from 'lib/constants'
+import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -134,6 +129,24 @@ const layoutsByTile = (layouts: Layouts): Record<number, Record<DashboardLayoutS
     return itemLayouts
 }
 
+async function getSingleInsight(
+    currentTeamId: number | null,
+    insight: InsightModel,
+    dashboardId: number,
+    queryId: string,
+    refresh: RefreshType,
+    methodOptions?: ApiMethodOptions
+): Promise<InsightModel> {
+    const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+        refresh,
+        from_dashboard: dashboardId, // needed to load insight in correct context
+        client_query_id: queryId,
+        session_id: currentSessionId(),
+    })}`
+    const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
+    return await getJSONOrNull(insightResponse)
+}
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -163,6 +176,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         removeTile: (tile: DashboardTile) => ({ tile }),
+        refreshDashboardItem: (payload: { tile: DashboardTile }) => payload,
         refreshAllDashboardItems: (payload: {
             tiles?: DashboardTile[]
             action: string
@@ -217,12 +231,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType | null,
             {
-                loadDashboard: async ({ refresh, action }) => {
+                loadDashboard: async ({ refresh, action }, breakpoint) => {
                     const dashboardQueryId = uuid()
                     actions.loadingDashboardItemsStarted(action, dashboardQueryId)
+                    await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl(refresh)
+                        const apiUrl = values.apiUrl(refresh || 'async')
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType = await getJSONOrNull(dashboardResponse)
 
@@ -704,8 +719,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const validDates = insightTiles
-                    .filter((i) => !!i.insight?.next_allowed_client_refresh)
-                    .map((i) => dayjs(i.insight?.next_allowed_client_refresh))
+                    .filter((i) => !!i.insight?.cache_target_age || !!i.insight?.next_allowed_client_refresh)
+                    .map((i) => dayjs(i.insight?.cache_target_age ?? i.insight?.next_allowed_client_refresh))
                     .filter((date) => date.isValid())
                 return sortDayJsDates(validDates)
             },
@@ -840,7 +855,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    events(({ actions, cache, props, values }) => ({
+    events(({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.id) {
                 if (props.dashboard) {
@@ -849,9 +864,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     actions.loadDashboard({
-                        refresh: values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC]
-                            ? 'lazy_async'
-                            : 'force_cache',
+                        refresh: 'lazy_async',
                         action: 'initial_load',
                     })
                 }
@@ -882,7 +895,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
         updateFiltersSuccess: () => {
-            actions.refreshAllDashboardItems({ action: 'refresh_insights_on_filters_updated' })
+            actions.loadDashboard({ action: 'update' })
         },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
@@ -966,7 +979,34 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            actions.refreshAllDashboardItems({ action: 'refresh' })
+            actions.loadDashboard({ action: 'refresh' })
+        },
+        refreshDashboardItem: async ({ tile }, breakpoint) => {
+            const dashboardId: number = props.id
+            const insight = tile.insight
+
+            if (!insight) {
+                return
+            }
+
+            actions.setRefreshStatus(insight.short_id, true, true)
+
+            try {
+                breakpoint()
+                const refreshedInsight = await getSingleInsight(
+                    values.currentTeamId,
+                    insight,
+                    dashboardId,
+                    uuid(),
+                    'force_async'
+                )
+                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
+                // Start polling for results
+                tile.insight = refreshedInsight
+                actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
+            } catch (e: any) {
+                actions.setRefreshError(insight.short_id)
+            }
         },
         refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             const dashboardId: number = props.id
@@ -974,17 +1014,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insightsToRefresh = values
                 .sortTilesByLayout(tiles || values.insightTiles || [])
                 .filter((t) => {
-                    if (!initialLoad || !t.last_refresh || !!t.insight?.query_status) {
+                    if (t.insight?.query_status) {
                         return true
                     }
-
-                    const newestRefreshed = dayjs(t.last_refresh)
-                    return (
-                        !newestRefreshed.isValid() ||
-                        newestRefreshed.isBefore(
-                            dayjs().subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                        )
-                    )
                 })
                 .map((t) => t.insight)
                 .filter((i): i is InsightModel => !!i)
@@ -1011,76 +1043,32 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const refreshStartTime = performance.now()
 
             let refreshesFinished = 0
-            let totalResponseBytes = 0
-
-            const hardRefreshWithoutCache = ['refresh', 'load_missing', 'refresh_insights_on_filters_updated'].includes(
-                action
-            )
+            const totalResponseBytes = 0
 
             // array of functions that reload each item
             const fetchItemFunctions = insightsToRefresh.map((insight) => async () => {
-                // :TODO: Support query cancellation and use this queryId in the actual query.
-                // :TODO: in the future we should use dataNodeCollectionLogic.reloadAll()
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
-                const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: hardRefreshWithoutCache ? 'async' : 'lazy_async',
-                    from_dashboard: dashboardId, // needed to load insight in correct context
-                    client_query_id: queryId,
-                    session_id: currentSessionId(),
-                })}`
 
                 try {
                     breakpoint()
-                    let refreshedInsight: InsightModel = insight
-
-                    if (!insight.query_status) {
-                        // If the insight already has query status, we can operate based on that
-                        actions.setRefreshStatus(insight.short_id, true, true)
-
-                        const refreshedInsightResponse = await api.getResponse(apiUrl, methodOptions)
-                        refreshedInsight = await getJSONOrNull(refreshedInsightResponse)
-
-                        breakpoint()
-                        dashboardsModel.actions.updateDashboardInsight(
-                            refreshedInsight,
-                            [],
-                            props.id ? [props.id] : undefined
+                    if (insight.query_status) {
+                        await pollForResults(insight.query_status.id, false, methodOptions)
+                        const currentTeamId = values.currentTeamId
+                        // TODO: Check and remove - We get the insight again here to get everything in the right format (e.g. because of result vs results)
+                        const polledInsight = await getSingleInsight(
+                            currentTeamId,
+                            insight,
+                            dashboardId,
+                            queryId,
+                            'async',
+                            methodOptions
                         )
-
-                        void captureTimeToSeeData(values.currentTeamId, {
-                            type: 'insight_load',
-                            context: 'dashboard',
-                            primary_interaction_id: dashboardQueryId,
-                            query_id: queryId,
-                            status: 'success',
-                            time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                            api_response_bytes: getResponseBytes(refreshedInsightResponse),
-                            insights_fetched: 1,
-                            insights_fetched_cached: 0,
-                            api_url: apiUrl,
-                        })
-                        totalResponseBytes += getResponseBytes(refreshedInsightResponse)
-                    }
-
-                    if (refreshedInsight.query_status) {
-                        await pollForResults(refreshedInsight.query_status.id, false, methodOptions)
-                        const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                            refresh: 'async',
-                            from_dashboard: dashboardId, // needed to load insight in correct context
-                            client_query_id: queryId,
-                            session_id: currentSessionId(),
-                        })}`
-                        // TODO: We get the insight again here to get everything in the right format (e.g. because of result vs results)
-                        const polledInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-                        const polledInsight: InsightModel = await getJSONOrNull(polledInsightResponse)
                         dashboardsModel.actions.updateDashboardInsight(
                             polledInsight,
                             [],
                             props.id ? [props.id] : undefined
                         )
-                        actions.setRefreshStatus(insight.short_id)
-                    } else {
                         actions.setRefreshStatus(insight.short_id)
                     }
                 } catch (e: any) {
@@ -1162,10 +1150,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     values.newestRefreshed &&
                     values.newestRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
-                    actions.refreshAllDashboardItems({ action: 'refresh' })
+                    actions.loadDashboard({ action: 'refresh' })
                 }
                 cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.refreshAllDashboardItems({ action: 'refresh' })
+                    actions.loadDashboard({ action: 'refresh' })
                 }, values.autoRefresh.interval * 1000)
             }
         },
@@ -1181,31 +1169,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
 
             const initialLoad = action === 'initial_load'
-            let allLoaded = true
+            const allLoaded = false // TODO: Check this
 
-            // Initial load of actual data for dashboard items after general dashboard is fetched
-            if (
-                !values.featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_ASYNC] && // with async we straight up want to loop through all items
-                values.oldestRefreshed &&
-                values.oldestRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
-                !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
-            ) {
-                actions.refreshAllDashboardItems({ action: 'refresh', initialLoad, dashboardQueryId })
-                allLoaded = false
-            } else {
-                const tilesWithNoOrQueuedResults =
-                    values.tiles?.filter((t) => !!t.insight && (!t.insight.result || !!t.insight.query_status)) || []
-
-                if (tilesWithNoOrQueuedResults.length) {
-                    actions.refreshAllDashboardItems({
-                        tiles: tilesWithNoOrQueuedResults,
-                        action: 'load_missing',
-                        initialLoad,
-                        dashboardQueryId,
-                    })
-                    allLoaded = false
-                }
-            }
+            actions.refreshAllDashboardItems({ action: 'refresh', initialLoad, dashboardQueryId })
 
             const payload: TimeToSeeDataPayload = {
                 type: 'dashboard_load',

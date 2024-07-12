@@ -5,7 +5,7 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -74,7 +74,7 @@ interface BaseTile {
 export interface Docs {
     docsUrl: PostHogComDocsURL
     title: string
-    description: string
+    description: string | JSX.Element
 }
 export interface QueryTile extends BaseTile {
     title?: string
@@ -702,8 +702,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 docs: {
                                     docsUrl: 'https://posthog.com/docs/data/channel-type',
                                     title: 'Channels',
-                                    description:
-                                        'Channels are the different sources that bring traffic to your website, e.g. Paid Search, Organic Social, Direct, etc.',
+                                    description: (
+                                        <div>
+                                            <p>
+                                                Channels are the different sources that bring traffic to your website,
+                                                e.g. Paid Search, Organic Social, Direct, etc.
+                                            </p>
+                                            <p>
+                                                Something unexpected? Try the{' '}
+                                                <Link to={urls.sessionAttributionExplorer()}>
+                                                    Session attribution explorer
+                                                </Link>
+                                            </p>
+                                        </div>
+                                    ),
                                 },
                             },
                             {

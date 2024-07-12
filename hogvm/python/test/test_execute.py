@@ -134,6 +134,143 @@ class TestBytecodeExecute:
         else:
             raise AssertionError("Expected Exception not raised")
 
+    def test_memory_limits_1(self):
+        # let string := 'banana'
+        # for (let i := 0; i < 100; i := i + 1) {
+        #   string := string || string
+        # }
+        bytecode = [
+            "_h",
+            32,
+            "banana",
+            33,
+            0,
+            33,
+            100,
+            36,
+            1,
+            15,
+            40,
+            18,
+            36,
+            0,
+            36,
+            0,
+            2,
+            "concat",
+            2,
+            37,
+            0,
+            33,
+            1,
+            36,
+            1,
+            6,
+            37,
+            1,
+            39,
+            -25,
+            35,
+            35,
+        ]
+        try:
+            execute_bytecode(bytecode, {})
+        except Exception as e:
+            assert str(e) == "Memory limit of 67108864 bytes exceeded. Tried to allocate 75497504 bytes."
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+    def test_memory_limits_2(self):
+        # let string := 'banana'
+        # for (let i := 0; i < 100; i := i + 1) {
+        #   string := string || string
+        # }
+        bytecode = [
+            "_h",
+            32,
+            "key",
+            32,
+            "value",
+            32,
+            "key2",
+            32,
+            "value2",
+            42,
+            2,
+            32,
+            "na",
+            33,
+            0,
+            33,
+            10000,
+            36,
+            2,
+            15,
+            40,
+            52,
+            33,
+            16,
+            36,
+            2,
+            15,
+            40,
+            9,
+            36,
+            1,
+            36,
+            1,
+            2,
+            "concat",
+            2,
+            37,
+            1,
+            36,
+            0,
+            36,
+            2,
+            32,
+            "key_",
+            2,
+            "concat",
+            2,
+            32,
+            "wasted",
+            32,
+            " batman!",
+            36,
+            1,
+            32,
+            "memory: ",
+            2,
+            "concat",
+            3,
+            32,
+            "something",
+            36,
+            0,
+            42,
+            2,
+            46,
+            33,
+            1,
+            36,
+            2,
+            6,
+            37,
+            2,
+            39,
+            -59,
+            35,
+            35,
+            35,
+        ]
+        try:
+            execute_bytecode(bytecode, {})
+        except Exception as e:
+            assert str(e) == "Memory limit of 67108864 bytes exceeded. Tried to allocate 67155164 bytes."
+        else:
+            raise AssertionError("Expected Exception not raised")
+
     def test_functions(self):
         def stringify(*args):
             if args[0] == 1:
@@ -661,3 +798,151 @@ class TestBytecodeExecute:
         ) == {"event": "$autocapture", "properties": {"$browser": "Firefox"}}
         assert globals["globalEvent"]["event"] == "$pageview"
         assert globals["globalEvent"]["properties"]["$browser"] == "Chrome"
+
+    def test_bytecode_if_multiif_ternary(self):
+        values = []
+
+        def noisy_print(str):
+            nonlocal values
+            values.append(str)
+            return str
+
+        self._run_program(
+            """
+            if (true) {
+              noisy_print('true')
+            } else {
+              noisy_print('false')
+            }
+            """,
+            {"noisy_print": noisy_print},
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program("return true ? noisy_print('true') : noisy_print('false')", {"noisy_print": noisy_print})
+            == "true"
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return true ? true ? noisy_print('true1') : noisy_print('true') : noisy_print('false')",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return true ? false ? noisy_print('true1') : noisy_print('false1') : noisy_print('false2')",
+                {"noisy_print": noisy_print},
+            )
+            == "false1"
+        )
+        assert values == ["false1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return false ? false ? noisy_print('true1') : noisy_print('false1') : noisy_print('false2')",
+                {"noisy_print": noisy_print},
+            )
+            == "false2"
+        )
+        assert values == ["false2"]
+
+        values = []
+        assert (
+            self._run_program("return false ? noisy_print('true') : noisy_print('false')", {"noisy_print": noisy_print})
+            == "false"
+        )
+        assert values == ["false"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return if(false, noisy_print('true'), noisy_print('false'))", {"noisy_print": noisy_print}
+            )
+            == "false"
+        )
+        assert values == ["false"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(false, noisy_print('true'), false, noisy_print('true'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "false2"
+        )
+        assert values == ["false2"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(false, noisy_print('true'), true, noisy_print('true'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true"
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(true, noisy_print('true1'), false, noisy_print('true2'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(true, noisy_print('true1'), true, noisy_print('true2'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+    def test_bytecode_ifnull(self):
+        values = []
+
+        def noisy_print(str):
+            nonlocal values
+            values.append(str)
+            return str
+
+        assert (
+            self._run_program(
+                "return null ?? noisy_print('no'); noisy_print('post')",
+                {"noisy_print": noisy_print},
+            )
+            == "no"
+        )
+        assert values == ["no"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return noisy_print('yes') ?? noisy_print('no'); noisy_print('post')",
+                {"noisy_print": noisy_print},
+            )
+            == "yes"
+        )
+        assert values == ["yes"]
+
+    def test_bytecode_nullish(self):
+        assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).c") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).d") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.c") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.d") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['c']") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['d']") == 2

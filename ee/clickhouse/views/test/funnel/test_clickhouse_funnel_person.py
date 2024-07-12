@@ -51,7 +51,6 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 timestamp="2021-05-05 00:00:00",
                 properties={"$browser": "Chrome", "$group_0": "g0"},
-                group0_properties={"name": "g0"},
             )
             if delete:
                 person.delete()
