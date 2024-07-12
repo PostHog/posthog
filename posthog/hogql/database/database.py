@@ -289,7 +289,7 @@ def create_hogql_database(
     for table in (
         DataWarehouseTable.objects.filter(team_id=team.pk)
         .exclude(deleted=True)
-        .select_related("credential", "external_data_source")
+        .prefetch_related("credential", "external_data_source")
     ):
         s3_table = table.hogql_definition(modifiers)
 
