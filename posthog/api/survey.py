@@ -543,7 +543,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
                 survey.conditions = {}
 
             survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
-            # survey.conditions["actions"] =
         return survey.conditions
 
 
