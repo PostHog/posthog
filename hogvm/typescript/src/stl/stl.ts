@@ -175,6 +175,9 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         }
         return []
     },
+    now() {
+        return Date.now()
+    },
 }
 
 export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {
