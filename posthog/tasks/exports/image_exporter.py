@@ -151,18 +151,19 @@ def _screenshot_asset(
                 except Exception:
                     pass
                 capture_exception()
+        # For example funnels use a table that can get very wide, so try to get its width
         width = driver.execute_script("""
-            let innerElement = document.querySelector('.ScrollableShadows__inner');
-            let exporterElement = document.querySelector('.Exporter--insight');
-            if (innerElement && exporterElement) {
-                const contentWidth = innerElement.scrollWidth;
-                exporterElement.style.width = (contentWidth + 20) + 'px';
-                exporterElement.style.height = innerElement.scrollHeight + 'px';
-                return contentWidth;
+            tableElement = document.querySelector('table');
+            if (tableElement) {
+                return tableElement.offsetWidth * 1.5;
             }
         """)
         height = driver.execute_script("return document.body.scrollHeight")
-        driver.set_window_size(max(int(screenshot_width), min(1800, width or screenshot_width)), height)
+        width = max(int(screenshot_width), min(1800, width or screenshot_width))
+        driver.set_window_size(width, height)
+        # The needed height might have changed when setting width, so we need to get it again
+        height = driver.execute_script("return document.body.scrollHeight")
+        driver.set_window_size(width, height)
         driver.save_screenshot(image_path)
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs
