@@ -47,7 +47,8 @@ export function BatchExportBackfill({ id }: BatchExportRunsLogicProps): JSX.Elem
                 until the end date is reached.
             </p>
             <Form
-                logic={logic}
+                logic={batchExportRunsLogic}
+                props={{ id: id } as BatchExportRunsLogicProps}
                 formKey="backfillForm"
                 id="batch-export-backfill-form"
                 enableFormOnSubmit
