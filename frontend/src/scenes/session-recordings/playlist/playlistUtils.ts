@@ -11,7 +11,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { DEFAULT_RECORDING_UNIVERSAL_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -108,7 +108,7 @@ export async function createPlaylist(
     redirect = false
 ): Promise<SessionRecordingPlaylistType | null> {
     try {
-        playlist.filters = playlist.filters || DEFAULT_RECORDING_FILTERS
+        playlist.filters = playlist.filters || DEFAULT_RECORDING_UNIVERSAL_FILTERS
         const res = await api.recordings.createPlaylist(playlist)
         if (redirect) {
             router.actions.push(urls.replayPlaylist(res.short_id))

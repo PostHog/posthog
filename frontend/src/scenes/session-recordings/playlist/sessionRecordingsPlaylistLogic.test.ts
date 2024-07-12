@@ -8,9 +8,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingF
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
-    DEFAULT_RECORDING_FILTERS,
     DEFAULT_RECORDING_UNIVERSAL_FILTERS,
-    DEFAULT_SIMPLE_RECORDING_FILTERS,
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -200,8 +198,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
         describe('entityFilters', () => {
             it('starts with default values', () => {
                 expectLogic(logic).toMatchValues({
-                    advancedFilters: DEFAULT_RECORDING_FILTERS,
-                    simpleFilters: DEFAULT_SIMPLE_RECORDING_FILTERS,
                     universalFilters: DEFAULT_RECORDING_UNIVERSAL_FILTERS,
                 })
             })

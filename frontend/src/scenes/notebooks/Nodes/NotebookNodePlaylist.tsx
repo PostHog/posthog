@@ -1,10 +1,8 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FilterType, NotebookNodeType, RecordingFilters, RecordingUniversalFilters, ReplayTabs } from '~/types'
 import {
-    DEFAULT_SIMPLE_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
     convertLegacyFiltersToUniversalFilters,
-    getDefaultFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { BuiltLogic, useActions, useValues } from 'kea'
@@ -12,13 +10,11 @@ import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { RecordingsUniversalFilters } from 'scenes/session-recordings/filters/RecordingsUniversalFilters'
 
 const Component = ({
@@ -121,8 +117,6 @@ export const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { filters, simpleFilters, universalFilters } = attributes
-    const defaultFilters = getDefaultFilters()
-    const hasUniversalFiltering = useFeatureFlag('SESSION_REPLAY_UNIVERSAL_FILTERS')
 
     const setUniversalFilters = (filters: Partial<RecordingUniversalFilters>): void => {
         updateAttributes({ universalFilters: { ...universalFilters, ...filters } })
@@ -130,20 +124,7 @@ export const Settings = ({
 
     return (
         <ErrorBoundary>
-            {hasUniversalFiltering ? (
-                <RecordingsUniversalFilters filters={universalFilters} setFilters={setUniversalFilters} />
-            ) : (
-                <SessionRecordingsFilters
-                    advancedFilters={{ ...defaultFilters, ...filters }}
-                    simpleFilters={simpleFilters ?? DEFAULT_SIMPLE_RECORDING_FILTERS}
-                    setAdvancedFilters={(filters) => updateAttributes({ filters })}
-                    setSimpleFilters={(simpleFilters) => updateAttributes({ simpleFilters })}
-                    showPropertyFilters
-                    onReset={() =>
-                        updateAttributes({ filters: defaultFilters, simpleFilters: DEFAULT_SIMPLE_RECORDING_FILTERS })
-                    }
-                />
-            )}
+            <RecordingsUniversalFilters filters={universalFilters} setFilters={setUniversalFilters} />
         </ErrorBoundary>
     )
 }
