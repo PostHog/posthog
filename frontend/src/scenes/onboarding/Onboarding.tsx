@@ -178,6 +178,14 @@ const SessionReplayOnboarding = (): JSX.Element => {
             value: currentTeam?.capture_performance_opt_in ?? true,
             visible: true,
         },
+        {
+            type: 'toggle',
+            title: 'Record user sessions',
+            description: 'Watch recordings of how users interact with your web app to see what can be improved.',
+            teamProperty: 'session_recording_opt_in',
+            value: true,
+            visible: false,
+        },
     ]
 
     if (hasAvailableFeature(AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM)) {

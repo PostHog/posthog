@@ -1,11 +1,13 @@
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 
 import api, { CheckboxValueType } from '~/lib/api'
-import { BatchExportLogEntry } from '~/types'
+import { LogEntry, LogEntryLevel } from '~/types'
 
 import type { batchExportLogsLogicType } from './batchExportLogsLogicType'
+
+export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['INFO', 'WARNING', 'LOG', 'ERROR']
+export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', ...DEFAULT_LOG_LEVELS]
 
 export interface BatchExportLogsProps {
     batchExportId: string
@@ -27,28 +29,30 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
     }),
     loaders(({ props: { batchExportId }, values, actions, cache }) => ({
         batchExportLogs: {
-            __default: [] as BatchExportLogEntry[],
+            __default: [] as LogEntry[],
             loadBatchExportLogs: async () => {
-                const results = await api.batchExportLogs.search(batchExportId, values.searchTerm, values.typeFilters)
+                const response = await api.batchExports.logs(batchExportId, {
+                    search: values.searchTerm,
+                    level: values.typeFilters.join(','),
+                })
 
                 if (!cache.pollingInterval) {
                     cache.pollingInterval = setInterval(actions.loadBatchExportLogsBackgroundPoll, 2000)
                 }
                 actions.clearBatchExportLogsBackground()
-                return results
+                return response.results
             },
             loadBatchExportLogsMore: async () => {
-                const results = await api.batchExportLogs.search(
-                    batchExportId,
-                    values.searchTerm,
-                    values.typeFilters,
-                    values.trailingEntry
-                )
+                const response = await api.batchExports.logs(batchExportId, {
+                    search: values.searchTerm,
+                    level: values.typeFilters.join(','),
+                    before: values.trailingEntry?.timestamp,
+                })
 
-                if (results.length < LOGS_PORTION_LIMIT) {
+                if (response.results.length < LOGS_PORTION_LIMIT) {
                     actions.markLogsEnd()
                 }
-                return [...values.batchExportLogs, ...results]
+                return [...values.batchExportLogs, ...response.results]
             },
             revealBackground: () => {
                 const newArray = [...values.batchExportLogsBackground, ...values.batchExportLogs]
@@ -57,33 +61,31 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
             },
         },
         batchExportLogsBackground: {
-            __default: [] as BatchExportLogEntry[],
+            __default: [] as LogEntry[],
             loadBatchExportLogsBackgroundPoll: async () => {
                 if (values.batchExportLogsLoading) {
                     return values.batchExportLogsBackground
                 }
 
-                const results = await api.batchExportLogs.search(
-                    batchExportId,
-                    values.searchTerm,
-                    values.typeFilters,
-                    null,
-                    values.leadingEntry
-                )
+                const response = await api.batchExports.logs(batchExportId, {
+                    search: values.searchTerm,
+                    level: values.typeFilters.join(','),
+                    after: values.leadingEntry?.timestamp,
+                })
 
-                return [...results, ...values.batchExportLogsBackground]
+                return [...response.results, ...values.batchExportLogsBackground]
             },
         },
     })),
     reducers({
         batchExportLogsTypes: [
-            Object.values(PipelineLogLevel).filter((type) => type !== 'DEBUG'),
+            DEFAULT_LOG_LEVELS,
             {
-                setBatchExportLogsTypes: (_, { typeFilters }) => typeFilters.map((tf) => tf as PipelineLogLevel),
+                setBatchExportLogsTypes: (_, { typeFilters }) => typeFilters.map((tf) => tf as LogEntryLevel),
             },
         ],
         batchExportLogsBackground: [
-            [] as BatchExportLogEntry[],
+            [] as LogEntry[],
             {
                 clearBatchExportLogsBackground: () => [],
             },
@@ -95,7 +97,7 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
             },
         ],
         typeFilters: [
-            Object.values(PipelineLogLevel).filter((type) => type !== 'DEBUG') as CheckboxValueType[],
+            DEFAULT_LOG_LEVELS as CheckboxValueType[],
             {
                 setBatchExportLogsTypes: (_, { typeFilters }) => typeFilters || [],
             },
@@ -108,13 +110,10 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
             },
         ],
     }),
-    selectors(({ selectors }) => ({
+    selectors(() => ({
         leadingEntry: [
-            () => [selectors.batchExportLogs, selectors.batchExportLogsBackground],
-            (
-                batchExportLogs: BatchExportLogEntry[],
-                batchExportLogsBackground: BatchExportLogEntry[]
-            ): BatchExportLogEntry | null => {
+            (s) => [s.batchExportLogs, s.batchExportLogsBackground],
+            (batchExportLogs, batchExportLogsBackground): LogEntry | null => {
                 if (batchExportLogsBackground.length) {
                     return batchExportLogsBackground[0]
                 }
@@ -125,11 +124,8 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
             },
         ],
         trailingEntry: [
-            () => [selectors.batchExportLogs, selectors.batchExportLogsBackground],
-            (
-                batchExportLogs: BatchExportLogEntry[],
-                batchExportLogsBackground: BatchExportLogEntry[]
-            ): BatchExportLogEntry | null => {
+            (s) => [s.batchExportLogs, s.batchExportLogsBackground],
+            (batchExportLogs, batchExportLogsBackground): LogEntry | null => {
                 if (batchExportLogs.length) {
                     return batchExportLogs[batchExportLogs.length - 1]
                 }
