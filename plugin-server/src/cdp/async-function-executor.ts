@@ -95,7 +95,7 @@ export class AsyncFunctionExecutor {
 
             let responseBody = await fetchResponse.text()
             try {
-                responseBody = JSON.parse(body)
+                responseBody = JSON.parse(responseBody)
             } catch (err) {
                 // Ignore
             }
