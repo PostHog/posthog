@@ -1275,8 +1275,8 @@ class TestSurvey(APIBaseTest):
             ],
         )
 
-    def _assert_survey_activity(self, survey_id, expected):
-        activity = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey_id}/activity").json()
+    def _assert_survey_activity(self, expected):
+        activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
         self.assertEqual(activity["results"], expected)
 
 

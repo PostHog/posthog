@@ -31,12 +31,12 @@ const surveyActionsMapping: Record<
 > = {
     name: function onName() {
         return {
-            description: [<>changed the name</>],
+            description: [<>changed the name of survey:</>],
         }
     },
     description: function onDescription() {
         return {
-            description: [<>updated the survey description</>],
+            description: [<>updated the description of survey:</>],
         }
     },
     type: function onType(change) {
@@ -50,20 +50,20 @@ const surveyActionsMapping: Record<
     },
     questions: function onQuestions() {
         return {
-            description: [<>updated the survey questions</>],
+            description: [<>updated the questions of survey:</>],
         }
     },
     archived: function onArchived(change) {
         const isArchived = detectBoolean(change?.after)
         const describeChange: string = isArchived ? 'archived' : 'unarchived'
         return {
-            description: [<>{describeChange} the survey</>],
+            description: [<>{describeChange}</>],
         }
     },
     start_date: function onStartDate(change) {
         if (change?.before === null && change?.after !== null) {
             return {
-                description: [<>launched the survey</>],
+                description: [<>launched survey:</>],
             }
         }
         return null
@@ -71,24 +71,24 @@ const surveyActionsMapping: Record<
     end_date: function onEndDate(change) {
         if (change?.before === null && change?.after !== null) {
             return {
-                description: [<>stopped the survey</>],
+                description: [<>stopped survey:</>],
             }
         }
         return null
     },
     appearance: function onAppearance() {
         return {
-            description: [<>customized the survey appearance</>],
+            description: [<>customized the appearance of survey:</>],
         }
     },
     conditions: function onConditions() {
         return {
-            description: [<>modified the survey display conditions</>],
+            description: [<>modified the display conditions of survey:</>],
         }
     },
     responses_limit: function onResponsesLimit() {
         return {
-            description: [<>modified the survey completion conditions</>],
+            description: [<>modified the completion conditions of survey:</>],
         }
     },
 }
@@ -99,12 +99,34 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
+    if (logItem.activity === 'created') {
+        return {
+            description: (
+                <SentenceList
+                    listParts={[<>created a new survey:</>]}
+                    prefix={
+                        <>
+                            <strong>{userNameForLogItem(logItem)}</strong>
+                        </>
+                    }
+                    suffix={
+                        <>
+                            <strong>
+                                {nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)}
+                            </strong>
+                        </>
+                    }
+                />
+            ),
+        }
+    }
+
     if (logItem.activity === 'updated') {
         let changes: Description[] = []
         let changeSuffix: Description = (
             <>
-                on {asNotification && ' the survey '}
-                {nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)}
+                {asNotification && ' the survey '}
+                <strong>{nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)}</strong>
             </>
         )
 
