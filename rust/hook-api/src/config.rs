@@ -2,7 +2,7 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig)]
 pub struct Config {
-    #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
+    #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
     #[envconfig(from = "BIND_PORT", default = "3300")]
