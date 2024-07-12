@@ -26,6 +26,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpProcessedEvents: true,
                 cdpFunctionCallbacks: true,
                 cdpFunctionOverflow: true,
+                syncInlinePlugins: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion:
@@ -89,6 +90,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 pluginScheduledTasks: true,
                 appManagementSingleton: true,
+                syncInlinePlugins: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.cdp_processed_events:
