@@ -95,6 +95,10 @@ export type HogFunctionInvocationGlobals = {
     >
 }
 
+export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
+    inputs: Record<string, any>
+}
+
 export type HogFunctionOverflowedGlobals = {
     hogFunctionIds: HogFunctionType['id'][]
     globals: HogFunctionInvocationGlobals
@@ -250,6 +254,6 @@ export type HogFunctionCapturedEvent = {
     team_id: number
     event: string
     distinct_id: string
-    timestamp: DateTime
+    timestamp: string
     properties: Record<string, any>
 }

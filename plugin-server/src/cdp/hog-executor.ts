@@ -9,6 +9,7 @@ import {
     HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
     HogFunctionLogEntryLevel,
     HogFunctionType,
@@ -265,7 +266,7 @@ export class HogExecutor {
 
         try {
             const start = performance.now()
-            let globals: Record<string, any> | undefined = undefined
+            let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
 
             try {
@@ -308,12 +309,28 @@ export class HogExecutor {
                             if (typeof event.event !== 'string') {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'event' property")
                             }
+
+                            const executionCount = globals.event.properties?.$hog_function_execution_count ?? 0
+
+                            if (executionCount > 0) {
+                                addLog(
+                                    result,
+                                    'warn',
+                                    `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
+                                )
+                                return
+                            }
+
                             result.capturedPostHogEvents!.push({
                                 team_id: invocation.teamId,
-                                timestamp: DateTime.now(),
+                                timestamp: DateTime.now().toISO(),
                                 distinct_id: event.distinct_id || invocation.globals.event.distinct_id,
                                 event: event.event,
-                                properties: event.properties,
+                                properties: {
+                                    ...event.properties,
+                                    // Increment the execution count so that we can check it in the future
+                                    $hog_function_execution_count: executionCount + 1,
+                                },
                             })
                         },
                     },
@@ -363,7 +380,10 @@ export class HogExecutor {
         return result
     }
 
-    buildHogFunctionGlobals(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): Record<string, any> {
+    buildHogFunctionGlobals(
+        hogFunction: HogFunctionType,
+        invocation: HogFunctionInvocation
+    ): HogFunctionInvocationGlobalsWithInputs {
         const builtInputs: Record<string, any> = {}
 
         Object.entries(hogFunction.inputs ?? {}).forEach(([key, item]) => {

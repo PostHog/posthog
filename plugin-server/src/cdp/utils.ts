@@ -159,7 +159,7 @@ export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Tea
             event: event.event,
             distinct_id: event.distinct_id,
             properties: event.properties,
-            timestamp: event.timestamp.toISO(),
+            timestamp: event.timestamp,
         }),
         now: DateTime.now().toISO(),
         sent_at: DateTime.now().toISO(),
