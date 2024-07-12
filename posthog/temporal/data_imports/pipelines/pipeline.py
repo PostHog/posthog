@@ -11,6 +11,7 @@ import asyncio
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.sources import DltSource
+from deltalake.exceptions import DeltaError
 from collections import Counter
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
@@ -107,11 +108,17 @@ class DataImportPipeline:
             while counts:
                 self.logger.info(f"Running incremental (non-sql) pipeline, run ${pipeline_runs}")
 
-                pipeline.run(
-                    self.source,
-                    loader_file_format=self.loader_file_format,
-                    refresh="drop_sources" if self.refresh_dlt and pipeline_runs == 0 else None,
-                )
+                try:
+                    pipeline.run(
+                        self.source,
+                        loader_file_format=self.loader_file_format,
+                        refresh="drop_sources" if self.refresh_dlt and pipeline_runs == 0 else None,
+                    )
+                except PipelineStepFailed as e:
+                    # Remove once DLT support writing empty Delta files
+                    if isinstance(e.exception, DeltaError):
+                        if e.exception.args[0] != "Generic error: No data source supplied to write command.":
+                            raise
 
                 row_counts = pipeline.last_trace.last_normalize_info.row_counts
                 # Remove any DLT tables from the counts
@@ -130,12 +137,17 @@ class DataImportPipeline:
                 pipeline_runs = pipeline_runs + 1
         else:
             self.logger.info("Running standard pipeline")
-
-            pipeline.run(
-                self.source,
-                loader_file_format=self.loader_file_format,
-                refresh="drop_sources" if self.refresh_dlt else None,
-            )
+            try:
+                pipeline.run(
+                    self.source,
+                    loader_file_format=self.loader_file_format,
+                    refresh="drop_sources" if self.refresh_dlt else None,
+                )
+            except PipelineStepFailed as e:
+                # Remove once DLT support writing empty Delta files
+                if isinstance(e.exception, DeltaError):
+                    if e.exception.args[0] != "Generic error: No data source supplied to write command.":
+                        raise
             row_counts = pipeline.last_trace.last_normalize_info.row_counts
             filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
             counts = Counter(filtered_rows)

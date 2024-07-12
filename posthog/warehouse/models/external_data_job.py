@@ -39,7 +39,7 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
     def url_pattern_by_schema(self, schema: str) -> str:
         if TEST:
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/test-pipeline/{self.folder_path()}/{schema.lower()}/"
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
 
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt_2/{self.folder_path()}/{schema.lower()}/"
 
