@@ -44,8 +44,8 @@ class QueryCacheManager:
         current_time = datetime.now(UTC)
         insights = redis.get_client().zrevrangebyscore(
             f"cache_timestamps:{team_id}",
-            max="-inf",
-            min=current_time.timestamp(),
+            min="-inf",
+            max=current_time.timestamp(),
             start=0,
             num=limit,
         )
