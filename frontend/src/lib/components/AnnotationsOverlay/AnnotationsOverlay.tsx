@@ -239,7 +239,7 @@ function AnnotationsPopover({
 }
 
 function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
-    const { insightId, timezone } = useValues(annotationsOverlayLogic)
+    const { insightId, timezone, annotationsOverlayProps } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
@@ -255,7 +255,9 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     size="small"
                     icon={<IconPencil />}
                     tooltip="Edit this annotation"
-                    onClick={() => openModalToEditAnnotation(annotation, insightId)}
+                    onClick={() =>
+                        openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
+                    }
                     noPadding
                 />
                 <LemonButton

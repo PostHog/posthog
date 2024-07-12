@@ -154,7 +154,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                                   (annotation.scope !== AnnotationScope.Insight ||
                                       annotation.dashboard_item === insightNumericId) &&
                                   (annotation.scope !== AnnotationScope.Dashboard ||
-                                      annotation.dashboard === dashboardNumericId) &&
+                                      annotation.dashboard === dashboardNumericId ||
+                                      annotation.dashboard_item === insightNumericId) &&
                                   annotation.date_marker &&
                                   annotation.date_marker >= dateRange[0] &&
                                   annotation.date_marker < dateRange[1]

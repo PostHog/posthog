@@ -34,9 +34,6 @@ export function AnnotationModal({
         useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
-    const hasInsightIdSetOnAnnotation = !!existingModalAnnotation?.dashboard_item
-    const hasDashboardIdSetOnAnnotation = !!existingModalAnnotation?.dashboard
-
     return (
         <LemonModal
             overlayRef={overlayRef}
@@ -109,22 +106,36 @@ export function AnnotationModal({
                                 {
                                     value: AnnotationScope.Insight,
                                     label: annotationScopeToName[AnnotationScope.Insight],
-                                    // if existing annotation data in db doesn't have insight id set on it
-                                    // we can't let them change scope to insight as we don't know which insight to map to
-                                    disabledReason: existingModalAnnotation
-                                        ? !hasInsightIdSetOnAnnotation &&
-                                          "Annotation wasn't originally scoped to an insight so we can't reduce scope to insight level"
-                                        : !onSavedInsight && 'You need to save the insight first.',
+                                    disabledReason:
+                                        (!onSavedInsight && 'You need to save the insight first.') ||
+                                        // if existing annotation data in db (for backwards compatibility) doesn't have insight id set on it
+                                        // we can't let them change scope to insight as we don't know which insight to map to
+                                        (existingModalAnnotation
+                                            ? !existingModalAnnotation?.dashboard_item &&
+                                              "Annotation wasn't originally scoped to an insight so we can't reduce scope to insight level"
+                                            : undefined),
                                 },
                                 {
                                     value: AnnotationScope.Dashboard,
                                     label: annotationScopeToName[AnnotationScope.Dashboard],
-                                    // if existing annotation data in db doesn't have dashboard id set on it
-                                    // we can't let them change scope to dashboard as we don't know which dashboard to map to
-                                    disabledReason: existingModalAnnotation
-                                        ? !hasDashboardIdSetOnAnnotation &&
-                                          "Annotation wasn't originally scoped to a dashboard so we can't reduce scope to dashboard level"
-                                        : !onSavedInsight && 'You need to save the insight first.',
+                                    tooltip: existingModalAnnotation?.dashboard_name
+                                        ? existingModalAnnotation.dashboard_name
+                                        : undefined,
+                                    disabledReason:
+                                        (!onSavedInsight && 'You need to save the insight first.') ||
+                                        // if existing annotation data in db (for backwards compatibility) doesn't have dashboard id set on it
+                                        // we can't let them change scope to dashboard as we don't know which insight to map to
+                                        (existingModalAnnotation
+                                            ? !existingModalAnnotation?.dashboard &&
+                                              "Annotation wasn't originally scoped to a dashboard so we can't reduce scope to insight level"
+                                            : undefined),
+                                    sideIcon: existingModalAnnotation?.dashboard ? (
+                                        <Link
+                                            to={urls.dashboard(existingModalAnnotation?.dashboard)}
+                                            target="_blank"
+                                            targetBlankIcon
+                                        />
+                                    ) : null,
                                 },
                                 {
                                     value: AnnotationScope.Project,

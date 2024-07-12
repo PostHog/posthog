@@ -71,9 +71,14 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             insightId,
             dashboardId,
         }),
-        openModalToEditAnnotation: (annotation: AnnotationType, insightId?: InsightModel['id'] | null) => ({
+        openModalToEditAnnotation: (
+            annotation: AnnotationType,
+            insightId?: InsightModel['id'] | null,
+            dashboardId?: DashboardBasicType['id'] | null
+        ) => ({
             annotation,
             insightId,
+            dashboardId,
         }),
         closeModal: true,
     }),
@@ -102,12 +107,18 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     })),
     listeners(({ cache, actions, values }) => ({
-        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content } }) => {
+        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content }, insightId, dashboardId }) => {
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
                 content,
             })
+            if (insightId) {
+                actions.setAnnotationModalValue('dashboardItemId', insightId)
+            }
+            if (dashboardId) {
+                actions.setAnnotationModalValue('dashboard', dashboardId)
+            }
         },
         openModalToCreateAnnotation: ({ initialDate, insightId, dashboardId }) => {
             actions.resetAnnotationModal()
@@ -161,8 +172,9 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         date_marker: dateMarker.toISOString(),
                         content,
                         scope,
-                        // preserve existing insight id and dashboard id
-                        dashboard_item: values.existingModalAnnotation.dashboard_item,
+                        // update to new insight we're saving from
+                        dashboard_item: dashboardItemId,
+                        // preserve existing dashboard id
                         dashboard: values.existingModalAnnotation.dashboard,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
