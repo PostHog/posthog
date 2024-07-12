@@ -7,7 +7,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0438_errortrackinggroup"),
+        ("posthog", "0439_survey_actions"),
     ]
 
     operations = [
