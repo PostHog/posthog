@@ -49,7 +49,7 @@ class TestQueryRunner(BaseTest):
 
             def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
                 if not last_refresh:
-                    return False
+                    raise ValueError("Cached results require a last_refresh")
 
                 if lazy:
                     return last_refresh + timedelta(days=1) <= datetime.now(tz=ZoneInfo("UTC"))

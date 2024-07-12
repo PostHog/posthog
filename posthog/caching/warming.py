@@ -45,7 +45,7 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
     """
 
     threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
-    QueryCacheManager.cleanup_stale_insights(team_id=team.pk, threshold=threshold)
+    QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
     combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_COUNTER.labels(team_id=team.pk).inc(len(combos))
@@ -82,14 +82,13 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
 
 @shared_task(ignore_result=True, expires=60 * 60)
 def schedule_warming_for_teams_task():
-    team_ids = largest_teams()
+    team_ids = largest_teams(limit=3)
 
-    logger.info("Warming insight cache: teams", team_ids=team_ids)
+    teams = Team.objects.filter(Q(pk__in=team_ids) | Q(extra_settings__insights_cache_warming=True))
 
-    teams = Team.objects.filter(pk__in=team_ids)
+    logger.info("Warming insight cache: teams", team_ids=[team.pk for team in teams])
 
-    if len(teams) == 0:  # For local development
-        teams = Team.objects.all()[:10]
+    # TODO: Needs additional thoughts about concurrency and rate limiting if we launch chains for a lot of teams at once
 
     for team in teams:
         insight_tuples = priority_insights(team)

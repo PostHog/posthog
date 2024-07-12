@@ -28,7 +28,7 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
     return parser().parse(candidate)
 
 
-def largest_teams(limit: Optional[int] = 3) -> set[int]:
+def largest_teams(limit: int) -> set[int]:
     teams_by_event_count = sync_execute(
         """
             SELECT team_id, COUNT(*) AS event_count
@@ -171,7 +171,7 @@ def is_stale(
         return False
 
     if last_refresh is None:
-        raise Exception("Cached results require a last_refresh")
+        raise ValueError("Cached results require a last_refresh")
 
     # If the date_to is in the past of the last refresh, the data cannot be stale
     # Use a buffer in case last_refresh from cache.set happened slightly after the actual query

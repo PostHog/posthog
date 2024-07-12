@@ -28,7 +28,13 @@ class QueryCacheManager:
     def get_stale_insights(*, team_id: int, limit: Optional[int] = None) -> list[str]:
         """
         Use redis sorted set to get stale insights. We sort by the timestamp and get the insights that are
-        stale compared to the current time. We start with the least stale insights.
+        stale compared to the current time.
+
+        We start with the least stale insights: Because we want to keep in mind
+        that we might not have enough time to refresh all insights. This way, and only if we don't manage to refresh
+        all insights, we try our best to keep a number of insights fully up-to-date, instead of only achieving to
+        refresh the most stale ones while failing to refresh the rest. Should an insight be refreshed by user or other
+        means it will be the freshest anyway again.
 
         It is accepted that we store all combinations of insight + dashboard, even if the dashboard might not have
         additional filters (which makes this dashboard insight the same as the single one). This is easily mitigated by
@@ -36,18 +42,17 @@ class QueryCacheManager:
         first calculation to refresh it will refresh all of them.
         """
         current_time = datetime.now(UTC)
-        insights = redis.get_client().zrangebyscore(
+        insights = redis.get_client().zrevrangebyscore(
             f"cache_timestamps:{team_id}",
-            "-inf",
-            current_time.timestamp(),
+            max="-inf",
+            min=current_time.timestamp(),
+            start=0,
+            num=limit,
         )
-        insights = [insight.decode("utf-8") for insight in insights]
-        if limit:
-            insights = insights[-limit:]
-        return insights
+        return [insight.decode("utf-8") for insight in insights]
 
     @staticmethod
-    def cleanup_stale_insights(*, team_id: int, threshold: datetime) -> None:
+    def clean_up_stale_insights(*, team_id: int, threshold: datetime) -> None:
         """
         Remove all stale insights that are older than the given timestamp.
         """
@@ -57,7 +62,7 @@ class QueryCacheManager:
             threshold.timestamp(),
         )
 
-    def update_last_refresh(self, target_age: datetime) -> None:
+    def update_target_age(self, target_age: datetime) -> None:
         if not self.insight_id:
             return
 
@@ -76,7 +81,7 @@ class QueryCacheManager:
         cache.set(self.cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
 
         if target_age:
-            self.update_last_refresh(target_age)
+            self.update_target_age(target_age)
         else:
             self.remove_last_refresh()
 
