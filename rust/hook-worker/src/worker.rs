@@ -72,7 +72,7 @@ pub struct WebhookWorker<'p> {
     /// The interval for polling the queue.
     poll_interval: time::Duration,
     /// The client used for HTTP requests.
-    client: reqwest::Client,
+    http_client: reqwest::Client,
     /// Maximum number of concurrent jobs being processed.
     max_concurrent_jobs: usize,
     /// The retry policy used to calculate retry intervals when a job fails with a retryable error.
@@ -80,7 +80,7 @@ pub struct WebhookWorker<'p> {
     /// Kafka producer used to send results when in Hog mode
     kafka_producer: FutureProducer<KafkaContext>,
     /// The topic to send results to when in Hog mode
-    cdp_function_callbacks_topic: String,
+    cdp_function_callbacks_topic: &'static str,
     /// Whether we are running in Hog mode or not
     hog_mode: bool,
     /// The liveness check handle, to call on a schedule to report healthy
@@ -122,7 +122,7 @@ impl<'p> WebhookWorker<'p> {
         hog_mode: bool,
         liveness: HealthHandle,
     ) -> Self {
-        let client = build_http_client(request_timeout, allow_internal_ips)
+        let http_client = build_http_client(request_timeout, allow_internal_ips)
             .expect("failed to construct reqwest client for webhook worker");
 
         Self {
@@ -130,11 +130,11 @@ impl<'p> WebhookWorker<'p> {
             queue,
             dequeue_batch_size,
             poll_interval,
-            client,
+            http_client,
             max_concurrent_jobs,
             retry_policy,
             kafka_producer,
-            cdp_function_callbacks_topic,
+            cdp_function_callbacks_topic: cdp_function_callbacks_topic.leak(),
             hog_mode,
             liveness,
         }
@@ -179,7 +179,7 @@ impl<'p> WebhookWorker<'p> {
             //   `min(semaphore.available_permits(), dequeue_batch_size)`
             // And then dequeue only up to that many jobs. We'd then need to hand back the
             // difference in permits based on how many jobs were dequeued.
-            let mut batch = self.wait_for_jobs_tx().await;
+            let batch = self.wait_for_jobs_tx().await;
             dequeue_batch_size_histogram.record(batch.jobs.len() as f64);
 
             // Get enough permits for the jobs before spawning a task.
@@ -189,92 +189,109 @@ impl<'p> WebhookWorker<'p> {
                 .await
                 .expect("semaphore has been closed");
 
-            let client = self.client.clone();
+            let http_client = self.http_client.clone();
             let retry_policy = self.retry_policy.clone();
             let kafka_producer = self.kafka_producer.clone();
-            let cdp_function_callbacks_topic = self.cdp_function_callbacks_topic.clone();
+            let cdp_function_callbacks_topic = self.cdp_function_callbacks_topic;
             let hog_mode = self.hog_mode;
 
             tokio::spawn(async move {
                 // Move `permits` into the closure so they will be dropped when the scope ends.
                 let _permits = permits;
 
-                let mut futures = Vec::with_capacity(batch.jobs.len());
-                let mut metadata_vec = Vec::with_capacity(batch.jobs.len());
-
-                // We have to `take` the Vec of jobs from the batch to avoid a borrow checker
-                // error below when we commit.
-                for mut job in std::mem::take(&mut batch.jobs) {
-                    let client = client.clone();
-                    let retry_policy = retry_policy.clone();
-
-                    metadata_vec.push(job.take_metadata());
-
-                    let read_body = hog_mode;
-                    let future = async move {
-                        process_webhook_job(client, job, &retry_policy, read_body).await
-                    };
-
-                    futures.push(future);
-                }
-
-                let results = join_all(futures).await;
-
-                let mut kafka_ack_futures = Vec::new();
-                for (result, mut metadata) in iter::zip(results, metadata_vec) {
-                    match result {
-                        Ok(result) => {
-                            if hog_mode {
-                                if let Some(payload) =
-                                    create_hoghook_kafka_payload(result, &mut metadata).await
-                                {
-                                    match kafka_producer.send_result(FutureRecord {
-                                        topic: &cdp_function_callbacks_topic,
-                                        payload: Some(&payload),
-                                        partition: None,
-                                        key: None::<&str>,
-                                        timestamp: None,
-                                        headers: None,
-                                    }) {
-                                        Ok(future) => kafka_ack_futures.push(future),
-                                        Err((error, _)) => {
-                                            error!("error producing kafka message: {}", error);
-                                            sleep(Duration::from_secs(30)).await;
-                                            return; // Return early to avoid committing the batch.
-                                        }
-                                    };
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("error processing webhook job: {}", e)
-                        }
-                    }
-                }
-
-                for result in join_all(kafka_ack_futures).await {
-                    match result {
-                        Ok(Ok(_)) => {}
-                        Ok(Err((error, _))) => {
-                            error!("error awaiting kafka ack: {}", error);
-                            sleep(Duration::from_secs(30)).await;
-                            return; // Return early to avoid committing the batch.
-                        }
-                        Err(_) => {
-                            // Cancelled due to timeout while retrying
-                            error!("error producing kafka message: timed out");
-                            sleep(Duration::from_secs(30)).await;
-                            return; // Return early to avoid committing the batch.
-                        }
-                    }
-                }
-
-                let _ = batch.commit().await.map_err(|e| {
-                    error!("error committing transactional batch: {}", e);
-                });
+                process_batch(
+                    batch,
+                    http_client,
+                    retry_policy,
+                    kafka_producer,
+                    cdp_function_callbacks_topic,
+                    hog_mode,
+                )
+                .await
             });
         }
     }
+}
+
+async fn process_batch<'a>(
+    mut batch: PgTransactionBatch<'a, WebhookJobParameters, Value>,
+    http_client: Client,
+    retry_policy: RetryPolicy,
+    kafka_producer: FutureProducer<KafkaContext>,
+    cdp_function_callbacks_topic: &'static str,
+    hog_mode: bool,
+) {
+    let mut futures = Vec::with_capacity(batch.jobs.len());
+    let mut metadata_vec = Vec::with_capacity(batch.jobs.len());
+
+    // We have to `take` the Vec of jobs from the batch to avoid a borrow checker
+    // error below when we commit.
+    for mut job in std::mem::take(&mut batch.jobs) {
+        let client = http_client.clone();
+        let retry_policy = retry_policy.clone();
+
+        metadata_vec.push(job.take_metadata());
+
+        let read_body = hog_mode;
+        let future =
+            async move { process_webhook_job(client, job, &retry_policy, read_body).await };
+
+        futures.push(future);
+    }
+
+    let results = join_all(futures).await;
+
+    let mut kafka_ack_futures = Vec::new();
+    for (result, mut metadata) in iter::zip(results, metadata_vec) {
+        match result {
+            Ok(result) => {
+                if hog_mode {
+                    if let Some(payload) = create_hoghook_kafka_payload(result, &mut metadata).await
+                    {
+                        match kafka_producer.send_result(FutureRecord {
+                            topic: cdp_function_callbacks_topic,
+                            payload: Some(&payload),
+                            partition: None,
+                            key: None::<&str>,
+                            timestamp: None,
+                            headers: None,
+                        }) {
+                            Ok(future) => kafka_ack_futures.push(future),
+                            Err((error, _)) => {
+                                error!("error producing kafka message: {}", error);
+                                sleep(Duration::from_secs(30)).await;
+                                return; // Return early to avoid committing the batch.
+                            }
+                        };
+                    }
+                }
+            }
+            Err(e) => {
+                error!("error processing webhook job: {}", e)
+            }
+        }
+    }
+
+    for result in join_all(kafka_ack_futures).await {
+        match result {
+            Ok(Ok(_)) => {}
+            Ok(Err((error, _))) => {
+                error!("error awaiting kafka ack: {}", error);
+                sleep(Duration::from_secs(30)).await;
+                return; // Return early to avoid committing the batch.
+            }
+            Err(_) => {
+                // Cancelled due to timeout while retrying
+                error!("error producing kafka message: timed out");
+                sleep(Duration::from_secs(30)).await;
+                return; // Return early to avoid committing the batch.
+            }
+        }
+    }
+
+    let _ = batch.commit().await.map_err(|e| {
+        error!("error committing transactional batch: {}", e);
+    });
 }
 
 async fn create_hoghook_kafka_payload(
