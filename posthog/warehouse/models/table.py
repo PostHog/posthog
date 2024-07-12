@@ -57,7 +57,12 @@ DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[s
 
 class DataWarehouseTableManager(models.Manager):
     def get_queryset(self):
-        return super().get_queryset().select_related("created_by", "externaldataschema_set", "external_data_source")
+        return (
+            super()
+            .get_queryset()
+            .select_related("created_by", "external_data_source")
+            .prefetch_related("externaldataschema_set")
+        )
 
 
 class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
