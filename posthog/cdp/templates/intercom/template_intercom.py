@@ -19,7 +19,7 @@ if (empty(email)) {
 
 let body := {
     'event_name': event.name,
-    'created_at': event.timestamp, // NOTE: This might need to be a number
+    'created_at': event.timestamp, // TODO: This does't work and needs to be converted to an epoch number in follow up
     'email': inputs.email,
     'id': event.distinct_id,
 }
