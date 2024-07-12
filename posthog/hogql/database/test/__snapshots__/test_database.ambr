@@ -364,8 +364,6 @@
                       "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
-                      "$pageview_count",
-                      "$autocapture_count",
                       "$channel_type",
                       "$session_duration",
                       "duration",
@@ -809,8 +807,6 @@
                       "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
-                      "$pageview_count",
-                      "$autocapture_count",
                       "$channel_type",
                       "$session_duration",
                       "duration",
@@ -1164,24 +1160,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "$pageview_count": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$pageview_count`",
-                  "name": "$pageview_count",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
-              "$autocapture_count": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$autocapture_count`",
-                  "name": "$autocapture_count",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
               },
               "$channel_type": {
                   "chain": null,
@@ -1679,8 +1657,6 @@
                       "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
-                      "$pageview_count",
-                      "$autocapture_count",
                       "$channel_type",
                       "$session_duration",
                       "duration",
@@ -2124,8 +2100,6 @@
                       "$entry_referring_domain",
                       "$entry_gclid",
                       "$entry_gad_source",
-                      "$pageview_count",
-                      "$autocapture_count",
                       "$channel_type",
                       "$session_duration",
                       "duration",
@@ -2479,24 +2453,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "$pageview_count": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$pageview_count`",
-                  "name": "$pageview_count",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
-              },
-              "$autocapture_count": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$autocapture_count`",
-                  "name": "$autocapture_count",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "integer"
               },
               "$channel_type": {
                   "chain": null,
