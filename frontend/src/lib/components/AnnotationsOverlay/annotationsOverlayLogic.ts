@@ -3,6 +3,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { groupBy } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
@@ -39,7 +40,9 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     connect(() => ({
         values: [
             insightLogic,
-            ['intervalUnit', 'insightId'],
+            ['insightId'],
+            insightVizDataLogic,
+            ['interval'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
             teamLogic,
@@ -92,6 +95,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
         },
     })),
     selectors({
+        intervalUnit: [(s) => [s.interval], (interval) => interval || 'day'],
         pointsPerTick: [
             (_, p) => [p.ticks],
             (ticks): number => {

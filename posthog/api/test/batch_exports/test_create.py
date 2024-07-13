@@ -294,14 +294,14 @@ def test_create_batch_export_with_custom_schema(client: HttpClient):
         }
 
         assert batch_export.schema == expected_schema
-        assert args["batch_export_schema"] == expected_schema
+        assert args["batch_export_model"] == {"name": "events", "schema": expected_schema}
 
 
 @pytest.mark.parametrize(
     "invalid_query",
     [
         "SELECT",
-        "SELECT event, FROM events",
+        "SELECT event,, FROM events",
         "SELECT unknown_field FROM events",
         "SELECT event, persons.id FROM events LEFT JOIN persons ON events.person_id = persons.id",
         "SELECT event FROM events UNION ALL SELECT event FROM events",

@@ -18,6 +18,7 @@ from posthog.models.utils import UUIDT, UUIDModel
 logger = structlog.get_logger(__name__)
 
 ActivityScope = Literal[
+    "Cohort",
     "FeatureFlag",
     "Person",
     "Insight",
@@ -133,6 +134,14 @@ common_field_exclusions = [
 
 
 field_exclusions: dict[ActivityScope, list[str]] = {
+    "Cohort": [
+        "version",
+        "pending_version",
+        "count",
+        "is_calculating",
+        "last_calculation",
+        "errors_calculating",
+    ],
     "Notebook": [
         "text_content",
     ],
@@ -386,7 +395,7 @@ def log_activity(
         if settings.TEST:
             # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
             # as we currently don't treat activity logs as critical
-            raise e
+            raise
 
 
 @dataclasses.dataclass(frozen=True)

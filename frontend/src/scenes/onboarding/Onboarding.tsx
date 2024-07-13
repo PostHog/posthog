@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey, SDKKey } from '~/types'
 
+import { DataWarehouseSources } from './data-warehouse/sources'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
@@ -20,6 +21,7 @@ import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
+import { iOSInstructions } from './sdks/session-replay/ios'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
@@ -155,7 +157,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const hasAndroidOnBoarding = !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING]
+    const hasMobileOnBoarding = !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING]
 
     const configOptions: ProductConfigOption[] = [
         {
@@ -176,6 +178,14 @@ const SessionReplayOnboarding = (): JSX.Element => {
             value: currentTeam?.capture_performance_opt_in ?? true,
             visible: true,
         },
+        {
+            type: 'toggle',
+            title: 'Record user sessions',
+            description: 'Watch recordings of how users interact with your web app to see what can be improved.',
+            teamProperty: 'session_recording_opt_in',
+            value: true,
+            visible: false,
+        },
     ]
 
     if (hasAvailableFeature(AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM)) {
@@ -192,8 +202,9 @@ const SessionReplayOnboarding = (): JSX.Element => {
     }
 
     const sdkInstructionMap = SessionReplaySDKInstructions
-    if (hasAndroidOnBoarding) {
+    if (hasMobileOnBoarding) {
         sdkInstructionMap[SDKKey.ANDROID] = AndroidInstructions
+        sdkInstructionMap[SDKKey.IOS] = iOSInstructions
     }
 
     return (
@@ -239,11 +250,20 @@ const SurveysOnboarding = (): JSX.Element => {
     )
 }
 
+const DataWarehouseOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <DataWarehouseSources usersAction="Data Warehouse" stepKey={OnboardingStepKey.LINK_DATA} />
+        </OnboardingWrapper>
+    )
+}
+
 export const onboardingViews = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
     [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
     [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
     [ProductKey.SURVEYS]: SurveysOnboarding,
+    [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {

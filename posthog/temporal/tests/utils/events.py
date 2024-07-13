@@ -37,7 +37,7 @@ def generate_test_events(
     team_id: int,
     possible_datetimes: list[dt.datetime],
     event_name: str,
-    inserted_at: str | dt.datetime | None = "_timestamp",
+    inserted_at: str | dt.datetime | None = "random",
     properties: dict | None = None,
     person_properties: dict | None = None,
     ip: str | None = None,
@@ -51,6 +51,8 @@ def generate_test_events(
 
     if inserted_at == "_timestamp":
         inserted_at_value = _timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+    elif inserted_at == "random":
+        inserted_at_value = random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f")
     elif inserted_at is None:
         inserted_at_value = None
     else:

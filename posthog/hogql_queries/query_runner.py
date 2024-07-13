@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta, UTC
 from enum import IntEnum
 from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
-from zoneinfo import ZoneInfo
 
 import structlog
 from django.conf import settings
@@ -12,9 +11,9 @@ from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 
 from posthog.cache_utils import OrjsonJsonSerializer
-from posthog.caching.utils import is_stale
-from posthog.clickhouse.client.execute_async import enqueue_process_query_task
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.caching.utils import is_stale, last_refresh_from_cached_result, ThresholdMode, cache_target_age
+from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status, QueryNotFoundError
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
@@ -52,6 +51,9 @@ from posthog.schema import (
     WebStatsTableQuery,
     WebTopClicksQuery,
     QueryStatusResponse,
+    GenericCachedQueryResponse,
+    QueryStatus,
+    SessionAttributionExplorerQuery,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, get_safe_cache
@@ -67,19 +69,23 @@ QUERY_CACHE_WRITE_COUNTER = Counter(
 QUERY_CACHE_HIT_COUNTER = Counter(
     "posthog_query_cache_hit_total",
     "Whether we could fetch the query from the cache or not.",
-    labelnames=[LABEL_TEAM_ID, "cache_hit"],
+    labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
 )
+
+EXTENDED_CACHE_AGE = timedelta(days=1)
 
 
 class ExecutionMode(IntEnum):  # Keep integer values the same for Celery's sake
-    CALCULATE_BLOCKING_ALWAYS = 4
+    CALCULATE_BLOCKING_ALWAYS = 5
     """Always recalculate."""
-    CALCULATE_ASYNC_ALWAYS = 3
+    CALCULATE_ASYNC_ALWAYS = 4
     """Always kick off async calculation."""
-    RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE = 2
+    RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE = 3
     """Use cache, unless the results are missing or stale."""
-    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE = 1
+    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE = 2
     """Use cache, kick off async calculation when results are missing or stale."""
+    EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE = 1
+    """Use cache for longer, kick off async calculation when results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = 0
     """Do not initiate calculation."""
 
@@ -88,6 +94,7 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     refresh_map = {
         "blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        "lazy_async": ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
         "force_async": ExecutionMode.CALCULATE_ASYNC_ALWAYS,
         "force_blocking": ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         "force_cache": ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
@@ -96,6 +103,20 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     if refresh_requested in refresh_map:
         return refresh_map[refresh_requested]
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+
+
+def shared_insights_execution_mode(execution_mode: ExecutionMode) -> ExecutionMode:
+    shared_mode_whitelist = {
+        # Cache only is default refresh mode - remap to async so shared insights stay fresh
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+        # Legacy refresh=true - but on shared insights, we don't give the ability to refresh at will
+        # TODO: Adjust once shared insights can poll for async query_status
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        # Allow regular async
+        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        # - All others fall back to extended cache -
+    }
+    return shared_mode_whitelist.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
 
 
 RunnableQueryNode = Union[
@@ -117,6 +138,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
+    SessionAttributionExplorerQuery,
 ]
 
 
@@ -267,27 +289,15 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebOverviewQuery":
-        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
-        if use_session_table:
-            from .web_analytics.web_overview import WebOverviewQueryRunner
+        from .web_analytics.web_overview import WebOverviewQueryRunner
 
-            return WebOverviewQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
-        else:
-            from .web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
-
-            return LegacyWebOverviewQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
+        return WebOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
@@ -299,27 +309,26 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebStatsTableQuery":
-        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
-        if use_session_table:
-            from .web_analytics.stats_table import WebStatsTableQueryRunner
+        from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-            return WebStatsTableQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
-        else:
-            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
+        return WebStatsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
 
-            return LegacyWebStatsTableQueryRunner(
-                query=query,
-                team=team,
-                timings=timings,
-                modifiers=modifiers,
-                limit_context=limit_context,
-            )
+    if kind == "SessionAttributionExplorerQuery":
+        from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
+
+        return SessionAttributionExplorerQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
@@ -338,7 +347,7 @@ def get_query_runner_or_none(
     except ValueError as e:
         if "Can't get a runner for an unknown" in str(e):
             return None
-        raise e
+        raise
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
@@ -347,7 +356,7 @@ Q = TypeVar("Q", bound=RunnableQueryNode)
 R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
-CR = TypeVar("CR", bound=BaseModel)
+CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
@@ -411,15 +420,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def enqueue_async_calculation(
         self, *, cache_key: str, refresh_requested: bool = False, user: Optional[User] = None
-    ) -> QueryStatusResponse:
-        query_status = enqueue_process_query_task(
+    ) -> QueryStatus:
+        return enqueue_process_query_task(
             team=self.team,
             user=user,
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
         )
-        return QueryStatusResponse(query_status=query_status)
+
+    def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
+        try:
+            query_status = get_query_status(team_id=self.team.pk, query_id=self.query_id or cache_key)
+            if query_status.complete:
+                return None
+            return query_status
+
+        except QueryNotFoundError:
+            return None
 
     def handle_cache_and_async_logic(
         self, execution_mode: ExecutionMode, cache_key: str, user: Optional[User] = None
@@ -445,31 +463,53 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 )
 
         if self.is_cached_response(cached_response_candidate):
+            assert isinstance(cached_response, CachedResponse)
+            cached_response.cache_target_age = self.cache_target_age(cached_response)
+
             if not self._is_stale(cached_response):
-                QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
+                QUERY_CACHE_HIT_COUNTER.labels(
+                    team_id=self.team.pk,
+                    cache_hit="hit",
+                    trigger=cached_response.calculation_trigger or "",
+                ).inc()
                 # We have a valid result that's fresh enough, let's return it
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
                 return cached_response
 
-            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
+            QUERY_CACHE_HIT_COUNTER.labels(
+                team_id=self.team.pk, cache_hit="stale", trigger=cached_response.calculation_trigger or ""
+            ).inc()
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
                 return cached_response
             elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
-                query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
-                cached_response.query_status = query_status_response.query_status
+                cached_response.query_status = self.enqueue_async_calculation(
+                    cache_key=cache_key, user=user, refresh_requested=True
+                )
+                return cached_response
+            elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
+                # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
+                assert isinstance(cached_response, CachedResponse)
+                if self._is_stale(cached_response, lazy=True):
+                    cached_response.query_status = self.enqueue_async_calculation(cache_key=cache_key, user=user)
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
                 return cached_response
         else:
-            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
+            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss", trigger="").inc()
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+                cached_response.query_status = self.get_async_query_status(cache_key=cache_key)
                 return cached_response
-            elif execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE:
+            elif execution_mode in (
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ):
                 # We're allowed to calculate, but we'll do it asynchronously
-                query_status_response = self.enqueue_async_calculation(cache_key=cache_key, user=user)
-                cached_response.query_status = query_status_response.query_status
+                cached_response.query_status = self.enqueue_async_calculation(cache_key=cache_key, user=user)
                 return cached_response
 
         # Nothing useful out of cache, nor async query status
@@ -488,38 +528,42 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
             # We should always kick off async calculation and disregard the cache
-            return self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
+            return QueryStatusResponse(
+                query_status=self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
+            )
         elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
             # Let's look in the cache first
             results = self.handle_cache_and_async_logic(execution_mode=execution_mode, cache_key=cache_key, user=user)
             if results is not None:
                 return results
 
-        fresh_response_dict = self.calculate().model_dump()
-        fresh_response_dict["is_cached"] = False
-        fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-        fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
-        fresh_response_dict["cache_key"] = cache_key
-        fresh_response_dict["timezone"] = self.team.timezone
+        fresh_response_dict = {
+            **self.calculate().model_dump(),
+            "is_cached": False,
+            "last_refresh": datetime.now(UTC),
+            "next_allowed_client_refresh": datetime.now(UTC) + self._refresh_frequency(),
+            "cache_key": cache_key,
+            "timezone": self.team.timezone,
+        }
+        if get_query_tag_value("trigger"):
+            fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
         fresh_response = CachedResponse(**fresh_response_dict)
 
-        # Dont cache debug queries with errors and export queries
+        # Don't cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
-            # TODO: Use JSON serializer in general for redis cache
+        cache_ttl = self.cache_ttl()
+        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT and cache_ttl > 0:
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
-            cache.set(cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
+            cache.set(cache_key, fresh_response_serialized, cache_ttl)
+            QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
-        QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         raise NotImplementedError()
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
@@ -550,13 +594,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
-    def _is_stale(self, cached_result_package):
-        # Default is to have the result valid for at 1 minute
-        return is_stale(self.team, datetime.now(tz=ZoneInfo("UTC")), "minute", cached_result_package)
+    def cache_target_age(self, cached_result_package) -> Optional[datetime]:
+        last_refresh = last_refresh_from_cached_result(cached_result_package)
+        if last_refresh is None:
+            return None
+        query_date_range = getattr(self, "query_date_range", None)
+        interval = query_date_range.interval_name if query_date_range else "minute"
+        return cache_target_age(interval, last_refresh=last_refresh, mode=ThresholdMode.DEFAULT)
 
-    @abstractmethod
-    def _refresh_frequency(self):
-        raise NotImplementedError()
+    def _is_stale(self, cached_result_package, lazy: bool = False) -> bool:
+        last_refresh = last_refresh_from_cached_result(cached_result_package)
+        query_date_range = getattr(self, "query_date_range", None)
+        date_to = query_date_range.date_to() if query_date_range else None
+        interval = query_date_range.interval_name if query_date_range else "minute"
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
+
+    def _refresh_frequency(self) -> timedelta:
+        return timedelta(minutes=1)
+
+    def cache_ttl(self) -> float:
+        return settings.CACHED_RESULTS_TTL
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""

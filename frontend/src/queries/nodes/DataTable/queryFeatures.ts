@@ -4,6 +4,7 @@ import {
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isSessionAttributionExplorerQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
     isWebTopClicksQuery,
@@ -29,7 +30,7 @@ export enum QueryFeature {
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
     const features = new Set<QueryFeature>()
 
-    if (isHogQLQuery(query) || isEventsQuery(query)) {
+    if (isHogQLQuery(query) || isEventsQuery(query) || isSessionAttributionExplorerQuery(query)) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.eventPropertyFilters)

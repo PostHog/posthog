@@ -119,6 +119,7 @@ class SSHTunnel:
         else:
             return SSHTunnelForwarder(
                 (self.host, int(self.port)),
+                ssh_username=self.username,
                 ssh_pkey=self.parse_private_key(),
                 ssh_private_key_password=self.passphrase,
                 remote_bind_address=(remote_host, remote_port),

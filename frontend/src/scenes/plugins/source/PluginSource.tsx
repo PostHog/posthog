@@ -4,10 +4,10 @@ import { useMonaco } from '@monaco-editor/react'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { Drawer } from 'lib/components/Drawer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useEffect } from 'react'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
@@ -40,18 +40,6 @@ export function PluginSource({
     const { isPluginSourceSubmitting, pluginSourceLoading, currentFile, name } = useValues(
         pluginSourceLogic(logicProps)
     )
-
-    useEffect(() => {
-        if (!monaco) {
-            return
-        }
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-            jsx: currentFile.endsWith('.tsx')
-                ? monaco.languages.typescript.JsxEmit.React
-                : monaco.languages.typescript.JsxEmit.Preserve,
-            esModuleInterop: true,
-        })
-    }, [monaco, currentFile])
 
     useEffect(() => {
         if (!monaco) {

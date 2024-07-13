@@ -24,12 +24,12 @@ export function Paths(): JSX.Element {
         useResizeObserver({ ref: canvasRef })
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
-    const { insight, insightProps } = useValues(insightLogic)
+    const { queryBasedInsight, insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError } = useValues(
         pathsDataLogic(insightProps)
     )
 
-    const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
+    const id = `'${queryBasedInsight?.short_id || DEFAULT_PATHS_ID}'`
 
     useEffect(() => {
         setNodeCards([])

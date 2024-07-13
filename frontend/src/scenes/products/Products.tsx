@@ -88,7 +88,7 @@ export function Products(): JSX.Element {
     const { isFirstProductOnboarding } = useValues(onboardingLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-mid h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
+        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-bg-3000 h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
             <div className="mb-8">
                 {isFirstProductOnboarding ? (
                     <h2 className="text-center text-4xl">Where do you want to start?</h2>
@@ -98,7 +98,7 @@ export function Products(): JSX.Element {
                 {isFirstProductOnboarding && <p className="text-center">You can set up additional products later.</p>}
             </div>
             <>
-                <div className="grid gap-4 grid-rows-[150px] grid-cols-[repeat(2,_minmax(min-content,_150px))] md:grid-cols-[repeat(4,_minmax(min-content,_150px))] ">
+                <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(5,_minmax(min-content,_160px))] ">
                     {Object.keys(availableOnboardingProducts).map((productKey) => (
                         <ProductCard
                             product={availableOnboardingProducts[productKey]}

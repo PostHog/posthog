@@ -85,8 +85,8 @@ async def test_start_batch_export_run(activity_environment, team, batch_export):
 
     We check if a 'BatchExportRun' is created after the activity runs.
     """
-    start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
-    end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
 
     inputs = StartBatchExportRunInputs(
         team_id=team.id,
@@ -95,7 +95,7 @@ async def test_start_batch_export_run(activity_environment, team, batch_export):
         data_interval_end=end.isoformat(),
     )
 
-    run_id, records_total_count = await activity_environment.run(start_batch_export_run, inputs)
+    run_id = await activity_environment.run(start_batch_export_run, inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
@@ -104,15 +104,14 @@ async def test_start_batch_export_run(activity_environment, team, batch_export):
     assert run is not None
     assert run.data_interval_start == start
     assert run.data_interval_end == end
-    assert run.records_total_count == records_total_count
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_finish_batch_export_run(activity_environment, team, batch_export):
     """Test the export_run_status activity."""
-    start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
-    end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
 
     inputs = StartBatchExportRunInputs(
         team_id=team.id,
@@ -121,13 +120,12 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
         data_interval_end=end.isoformat(),
     )
 
-    run_id, records_total_count = await activity_environment.run(start_batch_export_run, inputs)
+    run_id = await activity_environment.run(start_batch_export_run, inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()  # type:ignore
     assert run is not None
     assert run.status == "Starting"
-    assert run.records_total_count == records_total_count
 
     finish_inputs = FinishBatchExportRunInputs(
         id=str(run_id),
@@ -141,15 +139,14 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
     run = await sync_to_async(runs.first)()  # type:ignore
     assert run is not None
     assert run.status == "Completed"
-    assert run.records_total_count == records_total_count
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(activity_environment, team, batch_export):
     """Test if 'finish_batch_export_run' will pause a batch export upon reaching failure_threshold."""
-    start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
-    end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
 
     inputs = StartBatchExportRunInputs(
         team_id=team.id,
@@ -162,7 +159,7 @@ async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(acti
     failure_threshold = 10
 
     for run_number in range(1, failure_threshold * 2):
-        run_id, _ = await activity_environment.run(start_batch_export_run, inputs)
+        run_id = await activity_environment.run(start_batch_export_run, inputs)
 
         finish_inputs = FinishBatchExportRunInputs(
             id=str(run_id),
@@ -186,8 +183,8 @@ async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(acti
 @pytest.mark.asyncio
 async def test_finish_batch_export_run_never_pauses_with_small_check_window(activity_environment, team, batch_export):
     """Test if 'finish_batch_export_run' will never pause a batch export with a small check window."""
-    start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
-    end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
 
     inputs = StartBatchExportRunInputs(
         team_id=team.id,
@@ -199,7 +196,7 @@ async def test_finish_batch_export_run_never_pauses_with_small_check_window(acti
     batch_export_id = str(batch_export.id)
     failure_threshold = 1
 
-    run_id, _ = await activity_environment.run(start_batch_export_run, inputs)
+    run_id = await activity_environment.run(start_batch_export_run, inputs)
 
     finish_inputs = FinishBatchExportRunInputs(
         id=str(run_id),

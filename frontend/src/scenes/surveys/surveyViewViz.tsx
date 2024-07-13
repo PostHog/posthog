@@ -308,7 +308,6 @@ export function NPSSurveyResultsBarChart({
                                         hideColorCol: true,
                                     }}
                                     trendsFilter={{
-                                        compare: true,
                                         showLegend: true,
                                     }}
                                     datasets={[

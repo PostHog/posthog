@@ -1,5 +1,5 @@
 const createAction = (actionName: string): void => {
-    cy.get('[data-attr=create-action]').click()
+    cy.get('[data-attr=create-action]').first().click()
     cy.get('.LemonButton').should('contain', 'From event or pageview')
     cy.get('[data-attr=new-action-pageview]').click({ force: true })
     cy.get('input[name="item-name-large"]').should('exist')
@@ -40,16 +40,14 @@ describe('Action Events', () => {
         cy.get('[data-attr=trend-element-subject-1] span').should('contain', actionName)
     })
 
-    // FIXME: This test fails after the 3000 rework, as the input field for new actions
-    // doesn't get cleared
-    it.skip('Notifies when an action event with this name already exists', () => {
+    it('Notifies when an action event with this name already exists', () => {
         createAction(actionName)
         navigateToActionsTab()
         createAction(actionName)
         // Oh noes, there already is an action with name `actionName`
         cy.contains('Action with this name already exists').should('exist')
         // Let's see it
-        cy.contains('Click here to edit').click()
+        cy.contains('Edit it here').click()
         // We should now be seeing the action from "Create action"
         cy.get('[data-attr=edit-action-url-input]').should('have.value', Cypress.config().baseUrl)
     })

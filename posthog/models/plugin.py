@@ -1,8 +1,7 @@
 import datetime
-import json
 import os
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -21,7 +20,7 @@ from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
-from posthog.plugins.reload import reload_plugins_on_workers
+from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps
 from posthog.plugins.utils import (
     download_plugin_archive,
@@ -30,7 +29,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.redis import get_client
 
 from .utils import UUIDModel, sane_repr
 
@@ -131,10 +129,8 @@ class PluginManager(models.Manager):
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
-        get_client().publish(
-            "populate-plugin-capabilities",
-            json.dumps({"plugin_id": str(plugin.id)}),
-        )
+
+        populate_plugin_capabilities_on_workers(plugin.id)
         return plugin
 
 
@@ -204,6 +200,13 @@ class Plugin(models.Model):
 
     objects: PluginManager = PluginManager()
 
+    __repr__ = sane_repr("id", "name", "organization_id", "is_global")
+
+    def __str__(self) -> str:
+        if not self.name:
+            return f"ID {self.id}"
+        return self.name
+
     def get_default_config(self) -> dict[str, Any]:
         config: dict[str, Any] = {}
         config_schema = self.config_schema
@@ -219,21 +222,8 @@ class Plugin(models.Model):
                     config[config_entry["key"]] = default
         return config
 
-    def __str__(self) -> str:
-        if not self.name:
-            return f"ID {self.id}"
-        return self.name
-
-    __repr__ = sane_repr("id", "name", "organization_id", "is_global")
-
 
 class PluginConfig(models.Model):
-    class Meta:
-        indexes = [
-            models.Index(fields=["web_token"]),
-            models.Index(fields=["enabled"]),
-        ]
-
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
@@ -267,6 +257,12 @@ class PluginConfig(models.Model):
         null=True,
     )
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["web_token"]),
+            models.Index(fields=["enabled"]),
+        ]
+
 
 class PluginAttachment(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
@@ -292,13 +288,13 @@ class PluginStorage(models.Model):
     value: models.TextField = models.TextField(blank=True, null=True)
 
 
-class PluginLogEntrySource(str, Enum):
+class PluginLogEntrySource(StrEnum):
     SYSTEM = "SYSTEM"
     PLUGIN = "PLUGIN"
     CONSOLE = "CONSOLE"
 
 
-class PluginLogEntryType(str, Enum):
+class PluginLogEntryType(StrEnum):
     DEBUG = "DEBUG"
     LOG = "LOG"
     INFO = "INFO"

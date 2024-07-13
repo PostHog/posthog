@@ -14,7 +14,6 @@ import {
     ActionFilter,
     AnyPartialFilterType,
     BreakdownKeyType,
-    BreakdownType,
     ChartDisplayType,
     CohortType,
     EntityFilter,
@@ -123,7 +122,7 @@ export function extractObjectDiffKeys(
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
-    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
+    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.queryBasedInsight?.id
 
     return insightId
         ? insightId
@@ -207,51 +206,79 @@ export function isNullBreakdown(breakdown_value: string | number | null | undefi
     )
 }
 
+function isValidJsonArray(maybeJson: string): boolean {
+    if (maybeJson.startsWith('[')) {
+        try {
+            const json = JSON.parse(maybeJson)
+            return Array.isArray(json)
+        } catch {
+            return false
+        }
+    }
+
+    return false
+}
+
 export function formatBreakdownLabel(
+    breakdown_value: BreakdownKeyType | undefined,
+    breakdownFilter: BreakdownFilter | null | undefined,
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
-    breakdown_value: BreakdownKeyType | undefined,
-    breakdown: BreakdownKeyType | undefined,
-    breakdown_type: BreakdownType | null | undefined,
-    isHistogram?: boolean
+    multipleBreakdownIndex?: number
 ): string {
-    if (isHistogram && typeof breakdown_value === 'string') {
+    if (typeof breakdown_value === 'string' && breakdown_value.length > 0 && isValidJsonArray(breakdown_value)) {
         // replace nan with null
         const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
         const [bucketStart, bucketEnd] = JSON.parse(bucketValues)
         const formattedBucketStart = formatBreakdownLabel(
+            bucketStart,
+            breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            bucketStart,
-            breakdown,
-            breakdown_type
+            multipleBreakdownIndex
         )
         const formattedBucketEnd = formatBreakdownLabel(
+            bucketEnd,
+            breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            bucketEnd,
-            breakdown,
-            breakdown_type
+            multipleBreakdownIndex
         )
         if (formattedBucketStart === formattedBucketEnd) {
             return formattedBucketStart
         }
         return `${formattedBucketStart} – ${formattedBucketEnd}`
-    }
-    if (breakdown_type === 'cohort') {
+    } else if (breakdownFilter?.breakdown_type === 'cohort') {
         // :TRICKY: Different endpoints represent the all users cohort breakdown differently
         if (breakdown_value === 0 || breakdown_value === 'all') {
             return 'All Users'
         }
+
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
-        return isOtherBreakdown(breakdown_value)
-            ? BREAKDOWN_OTHER_DISPLAY
-            : isNullBreakdown(breakdown_value)
-            ? BREAKDOWN_NULL_DISPLAY
-            : formatPropertyValueForDisplay
-            ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
-            : String(breakdown_value)
+        if (isOtherBreakdown(breakdown_value)) {
+            return BREAKDOWN_OTHER_DISPLAY
+        }
+
+        if (isNullBreakdown(breakdown_value)) {
+            return BREAKDOWN_NULL_DISPLAY
+        }
+
+        if (formatPropertyValueForDisplay) {
+            const nestedBreakdown =
+                typeof multipleBreakdownIndex === 'number'
+                    ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
+                    : undefined
+
+            return (
+                formatPropertyValueForDisplay(
+                    nestedBreakdown?.value ?? breakdownFilter?.breakdown,
+                    breakdown_value
+                )?.toString() ?? 'None'
+            )
+        }
+
+        return String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
             ? BREAKDOWN_OTHER_DISPLAY
@@ -260,9 +287,7 @@ export function formatBreakdownLabel(
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value
-            .map((v) =>
-                formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, v, breakdown, breakdown_type, isHistogram)
-            )
+            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
             .join('::')
     }
     return ''

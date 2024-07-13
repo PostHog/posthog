@@ -45,6 +45,7 @@ def toInt(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[l
         return None
 
 
+# ifNull is complied into JUMP instructions. Keeping the function here for backwards compatibility
 def ifNull(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     if args[0] is not None:
         return args[0]
@@ -62,6 +63,10 @@ def empty(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[l
 
 def notEmpty(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
     return bool(args[0])
+
+
+def _tuple(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
+    return tuple(args)
 
 
 def lower(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
@@ -102,9 +107,90 @@ def jsonParse(name: str, args: list[Any], team: Optional["Team"], stdout: Option
 
 
 def jsonStringify(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    marked = set()
+
+    def json_safe(obj):
+        if isinstance(obj, dict) or isinstance(obj, list) or isinstance(obj, tuple):
+            if id(obj) in marked:
+                return None
+            else:
+                marked.add(id(obj))
+                try:
+                    if isinstance(obj, dict):
+                        return {json_safe(k): json_safe(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [json_safe(v) for v in obj]
+                    elif isinstance(obj, tuple):
+                        return tuple(json_safe(v) for v in obj)
+                finally:
+                    marked.remove(id(obj))
+        return obj
+
     if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
-        return json.dumps(args[0], indent=args[1])
-    return json.dumps(args[0])
+        return json.dumps(json_safe(args[0]), indent=args[1])
+    return json.dumps(json_safe(args[0]))
+
+
+def base64Encode(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    import base64
+
+    return base64.b64encode(args[0].encode()).decode()
+
+
+def base64Decode(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    import base64
+
+    return base64.b64decode(args[0].encode()).decode()
+
+
+def encodeURLComponent(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> str:
+    import urllib.parse
+
+    return urllib.parse.quote(args[0], safe="")
+
+
+def decodeURLComponent(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> str:
+    import urllib.parse
+
+    return urllib.parse.unquote(args[0])
+
+
+def replaceOne(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    return args[0].replace(args[1], args[2], 1)
+
+
+def replaceAll(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    return args[0].replace(args[1], args[2])
+
+
+def generateUUIDv4(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> str:
+    import uuid
+
+    return str(uuid.uuid4())
+
+
+def keys(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    obj = args[0]
+    if isinstance(obj, dict):
+        return list(obj.keys())
+    if isinstance(obj, list) or isinstance(obj, tuple):
+        return list(range(len(obj)))
+    return []
+
+
+def values(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    obj = args[0]
+    if isinstance(obj, dict):
+        return list(obj.values())
+    if isinstance(obj, list) or isinstance(obj, tuple):
+        return list(obj)
+    return []
 
 
 STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
@@ -118,6 +204,7 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "length": length,
     "empty": empty,
     "notEmpty": notEmpty,
+    "tuple": _tuple,
     "lower": lower,
     "upper": upper,
     "reverse": reverse,
@@ -126,4 +213,13 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "run": run,
     "jsonParse": jsonParse,
     "jsonStringify": jsonStringify,
+    "base64Encode": base64Encode,
+    "base64Decode": base64Decode,
+    "encodeURLComponent": encodeURLComponent,
+    "decodeURLComponent": decodeURLComponent,
+    "replaceOne": replaceOne,
+    "replaceAll": replaceAll,
+    "generateUUIDv4": generateUUIDv4,
+    "keys": keys,
+    "values": values,
 }

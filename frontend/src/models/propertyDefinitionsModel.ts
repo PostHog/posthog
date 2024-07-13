@@ -32,6 +32,26 @@ const localProperties: PropertyDefinitionStorage = {
         is_seen_on_filtered_events: false,
         property_type: PropertyType.Duration,
     },
+    'session/snapshot_source': {
+        id: 'snapshot_source',
+        name: 'snapshot_source',
+        description: 'Platform session occurred on',
+        is_numerical: false,
+        is_seen_on_filtered_events: false,
+        property_type: PropertyType.Selector,
+    },
+}
+
+const localOptions: Record<string, PropValue[]> = {
+    'session/snapshot_source': [
+        { id: 0, name: 'web' },
+        { id: 1, name: 'mobile' },
+    ],
+    'session/console_log_level': [
+        { id: 0, name: 'info' },
+        { id: 1, name: 'warn' },
+        { id: 2, name: 'error' },
+    ],
 }
 
 export type FormatPropertyValueForDisplayFunction = (
@@ -323,17 +343,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             if (!propertyKey || values.currentTeamId === null) {
                 return
             }
-            if (propertyKey === 'console_log_level') {
-                actions.setOptions(
-                    propertyKey,
-                    [
-                        // id is not used so can be arbitrarily chosen
-                        { id: 0, name: 'info' },
-                        { id: 1, name: 'warn' },
-                        { id: 2, name: 'error' },
-                    ],
-                    false
-                )
+
+            if (localOptions[getPropertyKey(type, propertyKey)]) {
+                actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
                 return
             }
 

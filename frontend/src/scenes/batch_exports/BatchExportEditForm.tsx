@@ -107,7 +107,16 @@ export function BatchExportGeneralEditFields({
                         <LemonInput placeholder="Name your workflow for future reference" />
                     </LemonField>
                 )}
-
+                {featureFlags[FEATURE_FLAGS.PERSON_BATCH_EXPORTS] && (
+                    <LemonField name="model" label="Model" info="A model defines the data that will be exported.">
+                        <LemonSelect
+                            options={[
+                                { value: 'events', label: 'Events' },
+                                { value: 'persons', label: 'Persons' },
+                            ]}
+                        />
+                    </LemonField>
+                )}
                 <div className="flex gap-2 items-start flex-wrap">
                     <LemonField
                         name="interval"

@@ -13,7 +13,7 @@ const tuple = (array: any[]): any[] => {
     return array
 }
 
-describe('HogQL Bytecode', () => {
+describe('hogvm execute', () => {
     test('execution results', async () => {
         const globals = { properties: { foo: 'bar', nullValue: null } }
         const options = { globals }
@@ -62,30 +62,6 @@ describe('HogQL Bytecode', () => {
         expect(execSync(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'bla', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2], options)).toBe('bar')
-        expect(
-            execSync(
-                ['_h', op.FALSE, op.STRING, 'foo', op.STRING, 'properties', op.GET_GLOBAL, 2, op.CALL, 'ifNull', 2],
-                options
-            )
-        ).toBe('bar')
-        expect(
-            execSync(
-                [
-                    '_h',
-                    op.FALSE,
-                    op.STRING,
-                    'nullValue',
-                    op.STRING,
-                    'properties',
-                    op.GET_GLOBAL,
-                    2,
-                    op.CALL,
-                    'ifNull',
-                    2,
-                ],
-                options
-            )
-        ).toBe(false)
         expect(execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'concat', 2], options)).toBe(
             'arganother'
         )
@@ -112,21 +88,22 @@ describe('HogQL Bytecode', () => {
     test('error handling', async () => {
         const globals = { properties: { foo: 'bar' } }
         const options = { globals }
-        expect(() => execSync([], options)).toThrowError("Invalid HogQL bytecode, must start with '_h'")
-        await expect(execAsync([], options)).rejects.toThrowError("Invalid HogQL bytecode, must start with '_h'")
-        expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrowError(
+        expect(() => execSync([], options)).toThrow("Invalid HogQL bytecode, must start with '_h'")
+        await expect(execAsync([], options)).rejects.toThrow("Invalid HogQL bytecode, must start with '_h'")
+        expect(() => execSync(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], options)).toThrow(
             'Unexpected node while running bytecode: InvalidOp'
         )
         expect(() =>
             execSync(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'invalidFunc', 2], options)
-        ).toThrowError('Unsupported function call: invalidFunc')
-        expect(() => execSync(['_h', op.INTEGER], options)).toThrowError('Unexpected end of bytecode')
-        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrowError(
-            'Invalid HogQL bytecode, stack is empty'
-        )
-        expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrowError(
+        ).toThrow('Unsupported function call: invalidFunc')
+        expect(() => execSync(['_h', op.INTEGER], options)).toThrow('Unexpected end of bytecode')
+        expect(() => execSync(['_h', op.CALL, 'match', 1], options)).toThrow('Not enough arguments on the stack')
+        expect(() => execSync(['_h', op.TRUE, op.TRUE, op.NOT], options)).toThrow(
             'Invalid bytecode. More than one value left on stack'
         )
+    })
+
+    test('async limits', async () => {
         const callSleep = [
             33,
             0.002, // seconds to sleep
@@ -138,9 +115,164 @@ describe('HogQL Bytecode', () => {
         for (let i = 0; i < 200; i++) {
             bytecode.push(...callSleep)
         }
-        await expect(execAsync(bytecode, options)).rejects.toThrowError('Exceeded maximum number of async steps: 100')
-        await expect(execAsync(bytecode, { ...options, maxAsyncSteps: 55 })).rejects.toThrowError(
+        await expect(execAsync(bytecode)).rejects.toThrow('Exceeded maximum number of async steps: 100')
+        await expect(execAsync(bytecode, { maxAsyncSteps: 55 })).rejects.toThrow(
             'Exceeded maximum number of async steps: 55'
+        )
+    })
+
+    test('call arg limits', async () => {
+        const bytecode = ['_h', 33, 0.002, 2, 'sleep', 301]
+        expect(() => execSync(bytecode)).toThrow('Not enough arguments on the stack')
+
+        const bytecode2: any[] = ['_h']
+        for (let i = 0; i < 301; i++) {
+            bytecode2.push(33, 0.002)
+        }
+        bytecode2.push(2, 'sleep', 301)
+        expect(() => execSync(bytecode2)).toThrow('Too many arguments')
+    })
+
+    test('memory limits 1', async () => {
+        // let string := 'banana'
+        // for (let i := 0; i < 100; i := i + 1) {
+        //   string := string || string
+        // }
+        const bytecode: any[] = [
+            '_h',
+            32,
+            'banana',
+            33,
+            0,
+            33,
+            100,
+            36,
+            1,
+            15,
+            40,
+            18,
+            36,
+            0,
+            36,
+            0,
+            2,
+            'concat',
+            2,
+            37,
+            0,
+            33,
+            1,
+            36,
+            1,
+            6,
+            37,
+            1,
+            39,
+            -25,
+            35,
+            35,
+        ]
+
+        await expect(execAsync(bytecode)).rejects.toThrow(
+            'Memory limit of 67108864 bytes exceeded. Tried to allocate 75497504 bytes.'
+        )
+    })
+
+    test('memory limits 2', async () => {
+        // // Printing recursive objects.
+        // let obj := {'key': 'value', 'key2': 'value2'}
+        // let str := 'na'
+        // for (let i := 0; i < 10000; i := i + 1) {
+        //   if (i < 16) {
+        //     str := str || str
+        //   }
+        //   obj[f'key_{i}'] := {
+        //     'wasted': 'memory: ' || str || ' batman!',
+        //     'something': obj,  // something links to obj
+        //   }
+        // }
+        const bytecode: any[] = [
+            '_h',
+            32,
+            'key',
+            32,
+            'value',
+            32,
+            'key2',
+            32,
+            'value2',
+            42,
+            2,
+            32,
+            'na',
+            33,
+            0,
+            33,
+            10000,
+            36,
+            2,
+            15,
+            40,
+            52,
+            33,
+            16,
+            36,
+            2,
+            15,
+            40,
+            9,
+            36,
+            1,
+            36,
+            1,
+            2,
+            'concat',
+            2,
+            37,
+            1,
+            36,
+            0,
+            36,
+            2,
+            32,
+            'key_',
+            2,
+            'concat',
+            2,
+            32,
+            'wasted',
+            32,
+            ' batman!',
+            36,
+            1,
+            32,
+            'memory: ',
+            2,
+            'concat',
+            3,
+            32,
+            'something',
+            36,
+            0,
+            42,
+            2,
+            46,
+            33,
+            1,
+            36,
+            2,
+            6,
+            37,
+            2,
+            39,
+            -59,
+            35,
+            35,
+            35,
+        ]
+
+        await expect(execAsync(bytecode)).rejects.toThrow(
+            'Memory limit of 67108864 bytes exceeded. Tried to allocate 67155164 bytes.'
         )
     })
 
@@ -394,6 +526,7 @@ describe('HogQL Bytecode', () => {
                 callStack: [],
                 declaredFunctions: {},
                 ip: 8,
+                maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
                 syncDuration: 0,
@@ -1583,5 +1716,79 @@ describe('HogQL Bytecode', () => {
             }).result
         ).toEqual(map({ event: '$autocapture', properties: map({ $browser: 'Chrome' }) }))
         expect(globals.globalEvent).toEqual({ event: '$pageview', properties: { $browser: 'Chrome' } })
+    })
+
+    test('ternary', () => {
+        const values: any[] = []
+        const functions = {
+            noisy_print: (e) => {
+                values.push(e)
+                return e
+            },
+        }
+        // return true ? true ? noisy_print('true1') : noisy_print('true') : noisy_print('false')
+        const bytecode = [
+            '_h',
+            op.TRUE,
+            op.JUMP_IF_FALSE,
+            17,
+            op.FALSE,
+            op.JUMP_IF_FALSE,
+            7,
+            op.STRING,
+            'true1',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.JUMP,
+            5,
+            op.STRING,
+            'false1',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.JUMP,
+            5,
+            op.STRING,
+            'false2',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.RETURN,
+        ]
+        expect(execSync(bytecode, { functions })).toEqual('false1')
+        expect(values).toEqual(['false1'])
+    })
+
+    test('ifNull', () => {
+        const values: any[] = []
+        const functions = {
+            noisy_print: (e) => {
+                values.push(e)
+                return e
+            },
+        }
+        // return null ?? noisy_print('no'); noisy_print('post')
+        const bytecode = [
+            '_h',
+            op.NULL,
+            op.JUMP_IF_STACK_NOT_NULL,
+            6,
+            op.POP,
+            op.STRING,
+            'no',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.RETURN,
+            op.STRING,
+            'post',
+            op.CALL,
+            'noisy_print',
+            1,
+            op.POP,
+        ]
+        expect(execSync(bytecode, { functions })).toEqual('no')
+        expect(values).toEqual(['no'])
     })
 })

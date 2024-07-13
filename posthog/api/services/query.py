@@ -1,10 +1,10 @@
-import posthoganalytics
 import structlog
 from typing import Optional
 
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
+from hogvm.python.debugger import color_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.bytecode import execute_hog
@@ -16,8 +16,6 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner
 from posthog.models import Team, User
-from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
-from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
     DatabaseSchemaQueryResponse,
     HogQuery,
@@ -26,8 +24,6 @@ from posthog.schema import (
     HogQLMetadata,
     QuerySchemaRoot,
     DatabaseSchemaQuery,
-    TimeToSeeDataSessionsQuery,
-    TimeToSeeDataQuery,
     HogQueryResponse,
 )
 
@@ -87,26 +83,16 @@ def process_query_model(
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
         elif isinstance(query, HogQuery):
-            if is_cloud():
-                if not posthoganalytics.feature_enabled(
-                    "hog",
-                    str(team.uuid),
-                    groups={"organization": str(team.organization_id)},
-                    group_properties={
-                        "organization": {
-                            "id": str(team.organization_id),
-                            "created_at": team.organization.created_at,
-                        }
-                    },
-                    only_evaluate_locally=True,
-                    send_feature_flag_events=False,
-                ):
-                    return {"results": "Hog queries not enabled for this organization."}
+            if is_cloud() and (user is None or not user.is_staff):
+                return {"results": "Hog queries currently require staff user privileges."}
 
             try:
                 hog_result = execute_hog(query.code or "", team=team)
                 result = HogQueryResponse(
-                    results=hog_result.result, bytecode=hog_result.bytecode, stdout="".join(hog_result.stdout)
+                    results=hog_result.result,
+                    bytecode=hog_result.bytecode,
+                    coloredBytecode=color_bytecode(hog_result.bytecode),
+                    stdout="\n".join(hog_result.stdout),
                 )
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
@@ -120,21 +106,6 @@ def process_query_model(
             database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
             result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
-        elif isinstance(query, TimeToSeeDataSessionsQuery):
-            sessions_query_serializer = SessionsQuerySerializer(data=query)
-            sessions_query_serializer.is_valid(raise_exception=True)
-            result = {"results": get_sessions(sessions_query_serializer).data}
-        elif isinstance(query, TimeToSeeDataQuery):
-            serializer = SessionEventsQuerySerializer(
-                data={
-                    "team_id": team.pk,
-                    "session_start": query.sessionStart,
-                    "session_end": query.sessionEnd,
-                    "session_id": query.sessionId,
-                }
-            )
-            serializer.is_valid(raise_exception=True)
-            result = get_session_events(serializer) or {}
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching

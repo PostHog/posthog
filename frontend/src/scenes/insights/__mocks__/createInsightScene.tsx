@@ -17,7 +17,6 @@ export function createInsightStory(
         useStorybookMocks({
             get: {
                 '/api/projects/:team_id/insights/': (_, __, ctx) => [
-                    ctx.delay(100),
                     ctx.status(200),
                     ctx.json({
                         count: 1,

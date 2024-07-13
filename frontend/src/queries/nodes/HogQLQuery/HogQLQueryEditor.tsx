@@ -3,95 +3,22 @@ import { IconInfo, IconMagicWand } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable } from 'monaco-editor'
-import { languages } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import useResizeObserver from 'use-resize-observer'
 
-import { query } from '~/queries/query'
-import { AutocompleteCompletionItem, HogQLAutocomplete, HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery } from '~/queries/schema'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
-
-const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): languages.CompletionItemKind => {
-    switch (kind) {
-        case 'Method':
-            return languages.CompletionItemKind.Method
-        case 'Function':
-            return languages.CompletionItemKind.Function
-        case 'Constructor':
-            return languages.CompletionItemKind.Constructor
-        case 'Field':
-            return languages.CompletionItemKind.Field
-        case 'Variable':
-            return languages.CompletionItemKind.Variable
-        case 'Class':
-            return languages.CompletionItemKind.Class
-        case 'Struct':
-            return languages.CompletionItemKind.Struct
-        case 'Interface':
-            return languages.CompletionItemKind.Interface
-        case 'Module':
-            return languages.CompletionItemKind.Module
-        case 'Property':
-            return languages.CompletionItemKind.Property
-        case 'Event':
-            return languages.CompletionItemKind.Event
-        case 'Operator':
-            return languages.CompletionItemKind.Operator
-        case 'Unit':
-            return languages.CompletionItemKind.Unit
-        case 'Value':
-            return languages.CompletionItemKind.Value
-        case 'Constant':
-            return languages.CompletionItemKind.Constant
-        case 'Enum':
-            return languages.CompletionItemKind.Enum
-        case 'EnumMember':
-            return languages.CompletionItemKind.EnumMember
-        case 'Keyword':
-            return languages.CompletionItemKind.Keyword
-        case 'Text':
-            return languages.CompletionItemKind.Text
-        case 'Color':
-            return languages.CompletionItemKind.Color
-        case 'File':
-            return languages.CompletionItemKind.File
-        case 'Reference':
-            return languages.CompletionItemKind.Reference
-        case 'Customcolor':
-            return languages.CompletionItemKind.Customcolor
-        case 'Folder':
-            return languages.CompletionItemKind.Folder
-        case 'TypeParameter':
-            return languages.CompletionItemKind.TypeParameter
-        case 'User':
-            return languages.CompletionItemKind.User
-        case 'Issue':
-            return languages.CompletionItemKind.Issue
-        case 'Snippet':
-            return languages.CompletionItemKind.Snippet
-        default:
-            throw new Error(`Unknown CompletionItemKind: ${kind}`)
-    }
-}
-
-const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string): string => {
-    if (kind === 'Variable') {
-        return `1-${label}`
-    }
-    if (kind === 'Method' || kind === 'Function') {
-        return `2-${label}`
-    }
-    return `3-${label}`
-}
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -126,10 +53,19 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         monaco,
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
-    const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading, isValidView } =
-        useValues(logic)
-    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
+    const { queryInput, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
+    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
+    const codeEditorKey = `hogQLQueryEditor/${key}`
+    const codeEditorLogicProps = {
+        key: codeEditorKey,
+        query: queryInput,
+        language: 'hogQL',
+        metadataFilters: props.query.filters,
+    }
+    const { hasErrors, error, isValidView } = useValues(codeEditorLogic(codeEditorLogicProps))
+
+    const { editingView } = useValues(dataWarehouseSceneLogic)
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     useEffect(() => {
@@ -149,12 +85,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
     return (
         <div className="flex items-start gap-2">
-            <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
-                    <DatabaseTableTreeWithItems inline />
-                </div>
-            </FlaggedFeature>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
+                <DatabaseTableTreeWithItems inline />
+            </div>
             <div
                 data-attr="hogql-query-editor"
                 className={clsx(
@@ -222,136 +156,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
+                            queryKey={codeEditorKey}
                             className="border rounded overflow-hidden h-full"
-                            language="mysql"
+                            language="hogQL"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"
                             onMount={(editor, monaco) => {
-                                const completetionItemProviderDisposable =
-                                    monaco.languages.registerCompletionItemProvider('mysql', {
-                                        triggerCharacters: [' ', ',', '.'],
-                                        provideCompletionItems: async (model, position) => {
-                                            const word = model.getWordUntilPosition(position)
-
-                                            const startOffset = model.getOffsetAt({
-                                                lineNumber: position.lineNumber,
-                                                column: word.startColumn,
-                                            })
-                                            const endOffset = model.getOffsetAt({
-                                                lineNumber: position.lineNumber,
-                                                column: word.endColumn,
-                                            })
-
-                                            const response = await query<HogQLAutocomplete>({
-                                                kind: NodeKind.HogQLAutocomplete,
-                                                select: model.getValue(), // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
-                                                filters: props.query.filters,
-                                                startPosition: startOffset,
-                                                endPosition: endOffset,
-                                            })
-
-                                            const completionItems = response.suggestions
-
-                                            const suggestions = completionItems.map<languages.CompletionItem>(
-                                                (item) => {
-                                                    const kind = convertCompletionItemKind(item.kind)
-                                                    const sortText = kindToSortText(item.kind, item.label)
-
-                                                    return {
-                                                        label: {
-                                                            label: item.label,
-                                                            detail: item.detail,
-                                                        },
-                                                        documentation: item.documentation,
-                                                        insertText: item.insertText,
-                                                        range: {
-                                                            startLineNumber: position.lineNumber,
-                                                            endLineNumber: position.lineNumber,
-                                                            startColumn: word.startColumn,
-                                                            endColumn: word.endColumn,
-                                                        },
-                                                        kind,
-                                                        sortText,
-                                                        command:
-                                                            kind === languages.CompletionItemKind.Function
-                                                                ? {
-                                                                      id: 'cursorLeft',
-                                                                      title: 'Move cursor left',
-                                                                  }
-                                                                : undefined,
-                                                    }
-                                                }
-                                            )
-
-                                            return {
-                                                suggestions,
-                                                incomplete: response.incomplete_list,
-                                            }
-                                        },
-                                    })
-
-                                monacoDisposables.current.push(completetionItemProviderDisposable)
-
-                                const codeActionProviderDisposable = monaco.languages.registerCodeActionProvider(
-                                    'mysql',
-                                    {
-                                        provideCodeActions: (model, _range, context) => {
-                                            if (logic.isMounted()) {
-                                                // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
-                                                const markersFromMonaco = context.markers
-                                                // We have a list of _all_ markers returned from the HogQL metadata query
-                                                const markersFromMetadata = logic.values.modelMarkers
-                                                // We need to merge the two lists
-                                                const quickFixes: languages.CodeAction[] = []
-
-                                                for (const activeMarker of markersFromMonaco) {
-                                                    const start = model.getOffsetAt({
-                                                        column: activeMarker.startColumn,
-                                                        lineNumber: activeMarker.startLineNumber,
-                                                    })
-                                                    const end = model.getOffsetAt({
-                                                        column: activeMarker.endColumn,
-                                                        lineNumber: activeMarker.endLineNumber,
-                                                    })
-                                                    for (const rawMarker of markersFromMetadata) {
-                                                        if (
-                                                            rawMarker.hogQLFix &&
-                                                            // if ranges overlap
-                                                            rawMarker.start <= end &&
-                                                            rawMarker.end >= start
-                                                        ) {
-                                                            quickFixes.push({
-                                                                title: `Replace with: ${rawMarker.hogQLFix}`,
-                                                                diagnostics: [rawMarker],
-                                                                kind: 'quickfix',
-                                                                edit: {
-                                                                    edits: [
-                                                                        {
-                                                                            resource: model.uri,
-                                                                            textEdit: {
-                                                                                range: rawMarker,
-                                                                                text: rawMarker.hogQLFix,
-                                                                            },
-                                                                            versionId: undefined,
-                                                                        },
-                                                                    ],
-                                                                },
-                                                                isPreferred: true,
-                                                            })
-                                                        }
-                                                    }
-                                                }
-                                                return {
-                                                    actions: quickFixes,
-                                                    dispose: () => {},
-                                                }
-                                            }
-                                        },
-                                    }
-                                )
-                                monacoDisposables.current.push(codeActionProviderDisposable)
-
                                 monacoDisposables.current.push(
                                     editor.addAction({
                                         id: 'saveAndRunPostHog',
@@ -401,7 +212,24 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     {!props.setQuery ? 'No permission to update' : 'Update and run'}
                                 </LemonButton>
                             </div>
-                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? (
+                            {editingView ? (
+                                <LemonButton
+                                    className="ml-2"
+                                    onClick={onUpdateView}
+                                    type="primary"
+                                    center
+                                    disabledReason={
+                                        hasErrors
+                                            ? error ?? 'Query has errors'
+                                            : !isValidView
+                                            ? 'All fields must have an alias'
+                                            : ''
+                                    }
+                                    data-attr="hogql-query-editor-update-view"
+                                >
+                                    Update view
+                                </LemonButton>
+                            ) : (
                                 <LemonButton
                                     className="ml-2"
                                     onClick={saveAsView}
@@ -416,31 +244,28 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     }
                                     data-attr="hogql-query-editor-save-as-view"
                                 >
-                                    Save as View
+                                    Save as view
                                 </LemonButton>
-                            ) : null}
-                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                                <LemonButtonWithDropdown
-                                    className="ml-2"
-                                    icon={<IconInfo />}
-                                    type="secondary"
-                                    size="small"
-                                    dropdown={{
-                                        overlay: (
-                                            <div>
-                                                Save a query as a view that can be referenced in another query. This is
-                                                useful for modeling data and organizing large queries into readable
-                                                chunks.{' '}
-                                                <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
-                                            </div>
-                                        ),
-                                        placement: 'right-start',
-                                        fallbackPlacements: ['left-start'],
-                                        actionable: true,
-                                        closeParentPopoverOnClickInside: true,
-                                    }}
-                                />
                             )}
+                            <LemonButtonWithDropdown
+                                className="ml-2"
+                                icon={<IconInfo />}
+                                type="secondary"
+                                size="small"
+                                dropdown={{
+                                    overlay: (
+                                        <div>
+                                            Save a query as a view that can be referenced in another query. This is
+                                            useful for modeling data and organizing large queries into readable chunks.{' '}
+                                            <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
+                                        </div>
+                                    ),
+                                    placement: 'right-start',
+                                    fallbackPlacements: ['left-start'],
+                                    actionable: true,
+                                    closeParentPopoverOnClickInside: true,
+                                }}
+                            />
                         </>
                     )}
                 </div>

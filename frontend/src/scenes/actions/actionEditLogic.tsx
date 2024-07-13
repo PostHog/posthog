@@ -90,7 +90,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                         lemonToast.error(
                             <>
-                                Action with this name already exists. <Link to={urls.action(dupeId)}>Edit it</Link>
+                                Action with this name already exists.{' '}
+                                <Link to={urls.action(dupeId)} target="_blank">
+                                    Edit it here
+                                </Link>
                             </>
                         )
 

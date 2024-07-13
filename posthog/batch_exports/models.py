@@ -1,7 +1,5 @@
-import dataclasses
+import collections.abc
 import datetime as dt
-import enum
-import typing
 from datetime import timedelta
 
 from django.db import models
@@ -116,6 +114,45 @@ class BatchExportRun(UUIDModel):
     )
 
 
+def fetch_batch_export_run_count(
+    *,
+    team_id: int,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
+) -> int:
+    """Fetch a list of batch export log entries from ClickHouse."""
+    if exclude_events:
+        exclude_events_statement = f"AND event NOT IN ({','.join(exclude_events)})"
+    else:
+        exclude_events_statement = ""
+
+    if include_events:
+        include_events_statement = f"AND event IN ({','.join(include_events)})"
+    else:
+        include_events_statement = ""
+
+    data_interval_start_ch = data_interval_start.strftime("%Y-%m-%d %H:%M:%S")
+    data_interval_end_ch = data_interval_end.strftime("%Y-%m-%d %H:%M:%S")
+
+    clickhouse_query = f"""
+        SELECT count(*)
+        FROM events
+        WHERE
+            team_id = {team_id}
+            AND timestamp >= toDateTime64('{data_interval_start_ch}', 6, 'UTC')
+            AND timestamp < toDateTime64('{data_interval_end_ch}', 6, 'UTC')
+            {exclude_events_statement}
+            {include_events_statement}
+    """
+
+    try:
+        return sync_execute(clickhouse_query)[0][0]
+    except Exception:
+        return 0
+
+
 BATCH_EXPORT_INTERVALS = [
     ("hour", "hour"),
     ("day", "day"),
@@ -131,6 +168,12 @@ class BatchExport(UUIDModel):
     "backfill". Specific instances of a unit process of exporting data is called
     a BatchExportRun.
     """
+
+    class Model(models.TextChoices):
+        """Possible models that this BatchExport can export."""
+
+        EVENTS = "events"
+        PERSONS = "persons"
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name: models.TextField = models.TextField(help_text="A human-readable name for this BatchExport.")
@@ -178,6 +221,15 @@ class BatchExport(UUIDModel):
         help_text="A schema of custom fields to select when exporting data.",
     )
 
+    model = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        choices=Model.choices,
+        default=Model.EVENTS,
+        help_text="Which model this BatchExport is exporting.",
+    )
+
     @property
     def latest_runs(self):
         """Return the latest 10 runs for this batch export."""
@@ -197,76 +249,6 @@ class BatchExport(UUIDModel):
             kwargs = {unit: int(value)}
             return timedelta(**kwargs)
         raise ValueError(f"Invalid interval: '{self.interval}'")
-
-
-class BatchExportLogEntryLevel(str, enum.Enum):
-    """Enumeration of batch export log levels."""
-
-    DEBUG = "DEBUG"
-    LOG = "LOG"
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-
-
-@dataclasses.dataclass(frozen=True)
-class BatchExportLogEntry:
-    """Represents a single batch export log entry."""
-
-    team_id: int
-    batch_export_id: str
-    run_id: str
-    timestamp: dt.datetime
-    level: BatchExportLogEntryLevel
-    message: str
-
-
-def fetch_batch_export_log_entries(
-    *,
-    batch_export_id: str,
-    team_id: int,
-    run_id: str | None = None,
-    after: dt.datetime | None = None,
-    before: dt.datetime | None = None,
-    search: str | None = None,
-    limit: int | None = None,
-    level_filter: typing.Optional[list[BatchExportLogEntryLevel]] = None,
-) -> list[BatchExportLogEntry]:
-    """Fetch a list of batch export log entries from ClickHouse."""
-    if level_filter is None:
-        level_filter = []
-    clickhouse_where_parts: list[str] = []
-    clickhouse_kwargs: dict[str, typing.Any] = {}
-
-    clickhouse_where_parts.append("log_source_id = %(log_source_id)s")
-    clickhouse_kwargs["log_source_id"] = batch_export_id
-    clickhouse_where_parts.append("team_id = %(team_id)s")
-    clickhouse_kwargs["team_id"] = team_id
-
-    if run_id is not None:
-        clickhouse_where_parts.append("instance_id = %(instance_id)s")
-        clickhouse_kwargs["instance_id"] = run_id
-    if after is not None:
-        clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
-        clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
-    if before is not None:
-        clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
-        clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
-    if search:
-        clickhouse_where_parts.append("message ILIKE %(search)s")
-        clickhouse_kwargs["search"] = f"%{search}%"
-    if len(level_filter) > 0:
-        clickhouse_where_parts.append("upper(level) in %(levels)s")
-        clickhouse_kwargs["levels"] = level_filter
-
-    clickhouse_query = f"""
-        SELECT team_id, log_source_id AS batch_export_id, instance_id AS run_id, timestamp, upper(level) as level, message FROM log_entries
-        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
-    """
-
-    return [
-        BatchExportLogEntry(*result) for result in typing.cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))
-    ]
 
 
 class BatchExportBackfill(UUIDModel):

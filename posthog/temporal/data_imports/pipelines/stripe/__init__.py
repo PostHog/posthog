@@ -10,16 +10,22 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "BalanceTransaction": {
             "name": "BalanceTransaction",
-            "table_name": "balancetransaction",
+            "table_name": "balance_transaction",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_balancetransaction"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/balance_transactions",
                 "params": {
                     # the parameters below can optionally be configured
-                    # "created": "OPTIONAL_CONFIG",
+                    "created[gte]": {
+                        "type": "incremental",
+                        "cursor_path": "created",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
                     # "currency": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
@@ -35,14 +41,20 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Charge",
             "table_name": "charge",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_charge"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/charges",
                 "params": {
                     # the parameters below can optionally be configured
-                    # "created": "OPTIONAL_CONFIG",
+                    "created[gte]": {
+                        "type": "incremental",
+                        "cursor_path": "created",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
                     # "customer": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
@@ -57,14 +69,20 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Customer",
             "table_name": "customer",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_customer"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
                 "path": "/v1/customers",
                 "params": {
                     # the parameters below can optionally be configured
-                    # "created": "OPTIONAL_CONFIG",
+                    "created[gte]": {
+                        "type": "incremental",
+                        "cursor_path": "created",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
                     # "email": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
@@ -78,7 +96,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Invoice",
             "table_name": "invoice",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_invoice"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -108,7 +126,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Price",
             "table_name": "price",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_price"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -116,7 +134,13 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "active": "OPTIONAL_CONFIG",
-                    # "created": "OPTIONAL_CONFIG",
+                    "created[gte]": {
+                        "type": "incremental",
+                        "cursor_path": "created",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
                     # "currency": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
@@ -133,7 +157,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Product",
             "table_name": "product",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_product"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -141,7 +165,13 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "active": "OPTIONAL_CONFIG",
-                    # "created": "OPTIONAL_CONFIG",
+                    "created[gte]": {
+                        "type": "incremental",
+                        "cursor_path": "created",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
                     # "ending_before": "OPTIONAL_CONFIG",
                     # "expand": "OPTIONAL_CONFIG",
                     # "ids": "OPTIONAL_CONFIG",
@@ -156,7 +186,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "Subscription",
             "table_name": "subscription",
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
             "columns": get_dlt_mapping_for_external_table("stripe_subscription"),  # type: ignore
             "endpoint": {
                 "data_selector": "data",
@@ -164,7 +194,13 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                 "params": {
                     # the parameters below can optionally be configured
                     # "collection_method": "OPTIONAL_CONFIG",
-                    # "created": "OPTIONAL_CONFIG",
+                    "created[gte]": {
+                        "type": "incremental",
+                        "cursor_path": "created",
+                        "initial_value": 0,  # type: ignore
+                    }
+                    if is_incremental
+                    else None,
                     # "current_period_end": "OPTIONAL_CONFIG",
                     # "current_period_start": "OPTIONAL_CONFIG",
                     # "customer": "OPTIONAL_CONFIG",
@@ -227,7 +263,7 @@ def stripe_source(
         },
         "resource_defaults": {
             "primary_key": "id",
-            "write_disposition": "merge",
+            "write_disposition": "merge" if is_incremental else "replace",
         },
         "resources": [get_resource(endpoint, is_incremental)],
     }

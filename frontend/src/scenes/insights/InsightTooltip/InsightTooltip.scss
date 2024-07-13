@@ -13,7 +13,7 @@
     background: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation);
+    box-shadow: var(--shadow-elevation-3000);
 
     &--embedded {
         border: none;
@@ -92,7 +92,7 @@
             align-items: center;
             justify-content: center;
             font-weight: 600;
-            color: var(--default);
+            color: var(--text-3000);
             white-space: nowrap;
         }
     }

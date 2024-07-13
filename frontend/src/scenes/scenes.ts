@@ -57,6 +57,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Error tracking',
     },
+    [Scene.ErrorTrackingGroup]: {
+        projectBased: true,
+        name: 'Error tracking group',
+    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -247,6 +251,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse settings',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.dataWarehouseSourceSettings]: {
+        projectBased: true,
+        name: 'Data warehouse source settings',
+        defaultDocsPath: '/docs/data-warehouse',
+    },
     [Scene.DataWarehouseRedirect]: {
         name: 'Data warehouse redirect',
     },
@@ -413,6 +422,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
     },
+    [Scene.SessionAttributionExplorer]: {
+        projectBased: true,
+        name: 'Session attribution explorer (beta)',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -545,13 +558,16 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.errorTracking()]: Scene.ErrorTracking,
+    [urls.errorTrackingGroup(':id')]: Scene.ErrorTrackingGroup,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
+    [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
-    [urls.dataWarehouseSettings()]: Scene.DataWarehouseSettings,
+    [urls.dataWarehouseSettings(':tab')]: Scene.DataWarehouseSettings,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
+    [urls.dataWarehouseSourceSettings(':id', ':tab')]: Scene.dataWarehouseSourceSettings,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.DataManagement,
@@ -603,4 +619,5 @@ export const routes: Record<string, Scene> = {
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
+    [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
 }

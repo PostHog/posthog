@@ -134,7 +134,7 @@ def fetch_data(
             headers = _get_headers(api_key)
             r = requests.get(url, headers=headers, params=params)
         else:
-            raise e
+            raise
     # Parse the API response and yield the properties of each result
     # Parse the response JSON data
 

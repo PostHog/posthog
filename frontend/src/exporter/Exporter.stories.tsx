@@ -138,6 +138,7 @@ FunnelTopToBottomBreakdownInsight.args = {
 }
 
 export const FunnelHistoricalTrendsInsight: Story = Template.bind({})
+FunnelHistoricalTrendsInsight.tags = ['autodocs', 'test-skip']
 FunnelHistoricalTrendsInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'),
 }

@@ -12,13 +12,13 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, BillingV2FeatureType, ProductKey } from '~/types'
+import { BillingFeatureType, BillingProductV2Type, ProductKey } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
 import { multiInstallProducts, sdksLogic } from './sdks/sdksLogic'
 
-export const Feature = ({ name, description, images }: BillingV2FeatureType): JSX.Element => {
+export const Feature = ({ name, description, images }: BillingFeatureType): JSX.Element => {
     return images ? (
         <li className="text-center">
             <div className="mb-2 w-full rounded">
@@ -32,7 +32,7 @@ export const Feature = ({ name, description, images }: BillingV2FeatureType): JS
     )
 }
 
-export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType): JSX.Element => {
+export const Subfeature = ({ name, description, icon_key }: BillingFeatureType): JSX.Element => {
     return (
         <li className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-primary-alt-highlight">
             <span className="inline-block text-2xl mb-2 opacity-75">{getProductIcon(name, icon_key)}</span>

@@ -102,7 +102,7 @@ class TeamManager(models.Manager):
     def create(self, *args, **kwargs) -> "Team":
         from ..project import Project
 
-        with transaction.atomic():
+        with transaction.atomic(using=self.db):
             if "id" not in kwargs:
                 kwargs["id"] = self.increment_id_sequence()
             if kwargs.get("project") is None and kwargs.get("project_id") is None:
@@ -115,7 +115,7 @@ class TeamManager(models.Manager):
                     project_kwargs["organization_id"] = organization_id
                 if name := kwargs.get("name"):
                     project_kwargs["name"] = name
-                kwargs["project"] = Project.objects.create(id=kwargs["id"], **project_kwargs)
+                kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
             return super().create(*args, **kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
@@ -201,6 +201,7 @@ class Team(UUIDClassicModel):
     has_completed_onboarding_for: models.JSONField = models.JSONField(null=True, blank=True)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
@@ -480,15 +481,6 @@ def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
 @mutable_receiver(post_delete, sender=Team)
 def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
-
-
-def groups_on_events_querying_enabled():
-    """
-    Returns whether to allow querying groups columns on events.
-
-    Remove all usages of this when the feature is released to everyone.
-    """
-    return get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):

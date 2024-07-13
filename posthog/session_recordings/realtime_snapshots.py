@@ -3,7 +3,7 @@ from time import sleep
 from typing import Optional
 
 import structlog
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from posthog import settings
 from posthog.redis import get_client
@@ -21,6 +21,13 @@ REALTIME_SUBSCRIPTIONS_LOADED_COUNTER = Counter(
     "realtime_snapshots_loaded_counter",
     "When the API is serving snapshot requests successfully loads snapshots from realtime channel.",
     labelnames=["attempt_count"],
+)
+
+REALTIME_SUBSCRIPTIONS_DATA_LENGTH = Histogram(
+    "realtime_snapshots_data_length",
+    "The length of the data received from the realtime channel. It's ok for this to be zero _some times_ an increase in the rate of zero indicates a possible issue.",
+    labelnames=["attempt_count"],
+    buckets=(0, 1, 2, 5, 10, 20, 100, 1000, float("inf")),
 )
 
 
@@ -51,7 +58,7 @@ def publish_subscription(team_id: str, session_id: str) -> None:
             },
             tags={"team_id": team_id, "session_id": session_id},
         )
-        raise e
+        raise
 
 
 def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[list[str]]:
@@ -91,6 +98,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
                     snapshots.append(line.decode("utf8"))
 
             REALTIME_SUBSCRIPTIONS_LOADED_COUNTER.labels(attempt_count=attempt_count).inc()
+            REALTIME_SUBSCRIPTIONS_DATA_LENGTH.labels(attempt_count=attempt_count).observe(len(snapshots))
             return snapshots
 
         return None
@@ -104,4 +112,4 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
             },
             tags={"team_id": team_id, "session_id": session_id},
         )
-        raise e
+        raise

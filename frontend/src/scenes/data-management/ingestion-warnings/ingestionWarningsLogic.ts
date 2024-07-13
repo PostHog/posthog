@@ -17,6 +17,8 @@ export interface IngestionWarningSummary {
     lastSeen: string
     count: number
     warnings: IngestionWarning[]
+    // count and day date pairs
+    sparkline: [number, string][]
 }
 
 export interface IngestionWarning {
@@ -76,10 +78,10 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                 const summaryDatasets: Record<string, number[]> = {}
                 data.forEach((summary) => {
                     const result = new Array(30).fill(0)
-                    for (const warning of summary.warnings) {
-                        const date = dayjsUtcToTimezone(warning.timestamp, timezone)
+                    for (const spark of summary.sparkline) {
+                        const date = dayjsUtcToTimezone(spark[1], timezone)
                         const dayIndex = dayjs().diff(date, 'days')
-                        result[dayIndex] += 1
+                        result[dayIndex] = spark[0]
                     }
                     summaryDatasets[summary.type] = result.reverse()
                 })

@@ -1,4 +1,5 @@
 import zlib
+import zstd
 
 from django_redis.compressors.base import BaseCompressor
 
@@ -19,6 +20,13 @@ COULD_NOT_DECOMPRESS_VALUE_COUNTER = Counter(
     """,
 )
 
+USING_ZLIB_VALUE_COUNTER = Counter(
+    "posthog_redis_using_zlib_value_counter",
+    """
+    A counter to track cache keys that are still being decompressed with (deprecated) zlib
+    """,
+)
+
 
 class TolerantZlibCompressor(BaseCompressor):
     """
@@ -30,17 +38,24 @@ class TolerantZlibCompressor(BaseCompressor):
     """
 
     # we don't want to compress all values, e.g. feature flag cache in decide is already small
-    min_length = 1024
-    preset = 6
+    min_length = 512
+    zstd_preset = 0
+    zstd_threads = 1
+    zlib_preset = 6
 
     def compress(self, value: bytes) -> bytes:
         if settings.USE_REDIS_COMPRESSION and len(value) > self.min_length:
-            return zlib.compress(value, self.preset)
+            return zstd.compress(value, self.zstd_preset, self.zstd_threads)
         return value
 
     def decompress(self, value: bytes) -> bytes:
         try:
-            return zlib.decompress(value)
+            try:
+                return zstd.decompress(value)
+            except zstd.Error:
+                r = zlib.decompress(value)  # Phasing out zlib, it is 10x slower and compresses worse
+                USING_ZLIB_VALUE_COUNTER.inc()
+                return r
         except zlib.error:
             if settings.USE_REDIS_COMPRESSION:
                 COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()

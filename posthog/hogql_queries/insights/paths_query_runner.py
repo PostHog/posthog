@@ -1,4 +1,5 @@
 import itertools
+from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
@@ -7,7 +8,6 @@ from typing import Any, Literal, cast
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.caching.utils import is_stale
 from posthog.constants import PAGEVIEW_EVENT, SCREEN_EVENT, HOGQL
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -794,11 +794,6 @@ class PathsQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
-
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
@@ -857,6 +852,9 @@ class PathsQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            settings=HogQLGlobalSettings(
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+            ),  # Make sure funnel queries never OOM
         )
 
         response.results = self.validate_results(response.results)

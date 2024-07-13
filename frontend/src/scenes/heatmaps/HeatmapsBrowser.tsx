@@ -152,7 +152,7 @@ function FilterPanel(): JSX.Element {
     } = useActions(logic)
 
     return (
-        <div className="flex flex-col gap-y-2 px-2 py-1 border-r">
+        <div className="flex flex-col gap-y-2 px-2 py-1 border-r w-100">
             {filterPanelCollapsed ? (
                 <Tooltip title="Expand heatmap settings">
                     <LemonButton

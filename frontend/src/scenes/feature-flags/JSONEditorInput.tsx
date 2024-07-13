@@ -1,6 +1,6 @@
 import './JSONEditorInput.scss'
 
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 
 import { JsonType } from '~/types'

@@ -27,6 +27,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -296,65 +297,69 @@ function InsightCardInternal(
             style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
             ref={ref}
         >
-            <BindLogic logic={insightLogic} props={insightLogicProps}>
-                <InsightMeta
-                    insight={insight}
-                    ribbonColor={ribbonColor}
-                    dashboardId={dashboardId}
-                    updateColor={updateColor}
-                    removeFromDashboard={removeFromDashboard}
-                    deleteWithUndo={deleteWithUndo}
-                    refresh={refresh}
-                    loading={loadingQueued || loading}
-                    rename={rename}
-                    duplicate={duplicate}
-                    moveToDashboard={moveToDashboard}
-                    areDetailsShown={areDetailsShown}
-                    setAreDetailsShown={setAreDetailsShown}
-                    showEditingControls={showEditingControls}
-                    showDetailsControls={showDetailsControls}
-                    moreButtons={moreButtons}
-                />
-                {legacyInsight.query || useQueryDashboardCards ? (
-                    <div className="InsightCard__viz">
-                        <Query
-                            query={insight.query}
-                            cachedResults={legacyInsight}
-                            context={{
-                                insightProps: insightLogicProps,
-                            }}
-                            stale={stale}
-                            readOnly
-                            embedded
-                        />
-                    </div>
-                ) : (
-                    <FilterBasedCardContent
-                        insight={legacyInsight}
-                        insightProps={insightLogicProps}
-                        loading={loading}
-                        stale={stale}
+            <ErrorBoundary>
+                <BindLogic logic={insightLogic} props={insightLogicProps}>
+                    <InsightMeta
+                        insight={insight}
+                        ribbonColor={ribbonColor}
+                        dashboardId={dashboardId}
+                        updateColor={updateColor}
+                        removeFromDashboard={removeFromDashboard}
+                        deleteWithUndo={deleteWithUndo}
+                        refresh={refresh}
+                        loading={loadingQueued || loading}
+                        rename={rename}
+                        duplicate={duplicate}
+                        moveToDashboard={moveToDashboard}
+                        areDetailsShown={areDetailsShown}
                         setAreDetailsShown={setAreDetailsShown}
-                        apiErrored={apiErrored}
-                        timedOut={timedOut}
-                        empty={
-                            legacyInsight.filters.insight === InsightType.FUNNELS && !hasFunnelResults && !apiErrored
-                        }
-                        tooFewFunnelSteps={
-                            legacyInsight.filters.insight === InsightType.FUNNELS && !isFunnelWithEnoughSteps
-                        }
-                        validationError={validationError}
+                        showEditingControls={showEditingControls}
+                        showDetailsControls={showDetailsControls}
+                        moreButtons={moreButtons}
                     />
+                    {legacyInsight.query || useQueryDashboardCards ? (
+                        <div className="InsightCard__viz">
+                            <Query
+                                query={insight.query}
+                                cachedResults={legacyInsight}
+                                context={{
+                                    insightProps: insightLogicProps,
+                                }}
+                                stale={stale}
+                                readOnly
+                                embedded
+                            />
+                        </div>
+                    ) : (
+                        <FilterBasedCardContent
+                            insight={legacyInsight}
+                            insightProps={insightLogicProps}
+                            loading={loading}
+                            stale={stale}
+                            setAreDetailsShown={setAreDetailsShown}
+                            apiErrored={apiErrored}
+                            timedOut={timedOut}
+                            empty={
+                                legacyInsight.filters.insight === InsightType.FUNNELS &&
+                                !hasFunnelResults &&
+                                !apiErrored
+                            }
+                            tooFewFunnelSteps={
+                                legacyInsight.filters.insight === InsightType.FUNNELS && !isFunnelWithEnoughSteps
+                            }
+                            validationError={validationError}
+                        />
+                    )}
+                </BindLogic>
+                {showResizeHandles && (
+                    <>
+                        {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                        <ResizeHandle1D orientation="horizontal" />
+                        {canResizeWidth ? <ResizeHandle2D /> : null}
+                    </>
                 )}
-            </BindLogic>
-            {showResizeHandles && (
-                <>
-                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
-                    <ResizeHandle1D orientation="horizontal" />
-                    {canResizeWidth ? <ResizeHandle2D /> : null}
-                </>
-            )}
-            {children /* Extras, such as resize handles */}
+                {children /* Extras, such as resize handles */}
+            </ErrorBoundary>
         </div>
     )
 }

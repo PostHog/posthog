@@ -1,5 +1,6 @@
 import { ComponentType, HTMLProps } from 'react'
 
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { DataTableNode } from '~/queries/schema'
 import { ChartDisplayType, GraphPointPayload, InsightLogicProps, TrendResult } from '~/types'
 
@@ -18,8 +19,10 @@ export interface QueryContext {
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** chart-specific rendering context **/
     chartRenderingMetadata?: ChartRenderingMetadata
-    /** Wether queries should always be refreshed. */
+    /** Whether queries should always be refreshed. */
     alwaysRefresh?: boolean
+    /** Extra source feature for Data Tables */
+    extraDataTableQueryFeatures?: QueryFeature[]
 }
 
 /** Pass custom rendering metadata to specific kinds of charts **/
@@ -49,4 +52,5 @@ interface QueryContextColumn {
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left
+    width?: string
 }

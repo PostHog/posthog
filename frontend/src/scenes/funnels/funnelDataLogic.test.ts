@@ -649,7 +649,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        hidden_legend_breakdowns: ['Firefox'],
+                        hiddenLegendBreakdowns: ['Firefox'],
                     },
                 }
 
@@ -701,7 +701,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        hidden_legend_breakdowns: ['Chrome::Mac OS X'],
+                        hiddenLegendBreakdowns: ['Chrome::Mac OS X'],
                     },
                 }
 

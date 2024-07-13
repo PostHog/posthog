@@ -367,7 +367,7 @@ describe('eachBatchX', () => {
                 ip: null,
                 now: null,
                 sent_at: null,
-                site_url: null,
+                site_url: '',
                 team_id: 1,
                 uuid: 'uuid1',
             })

@@ -62,7 +62,7 @@ export function SecondaryMetricsTable({
                             background: getExperimentInsightColour(getIndexForVariant(experimentResults, item.variant)),
                         }}
                     >
-                        {capitalizeFirstLetter(item.variant)}
+                        {item.variant}
                     </div>
                 )
             },

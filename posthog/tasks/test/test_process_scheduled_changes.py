@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from posthog.models import ScheduledChange, FeatureFlag
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
@@ -21,7 +21,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload={"operation": "update_status", "value": True},
-            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat(),
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)).isoformat(),
         )
 
         process_scheduled_changes()
@@ -55,7 +55,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload=payload,
-            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)),
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
         )
 
         process_scheduled_changes()
@@ -105,7 +105,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload=payload,
-            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)),
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
         )
 
         process_scheduled_changes()
@@ -131,7 +131,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload=payload,
-            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)),
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
         )
 
         process_scheduled_changes()
@@ -169,11 +169,11 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                 "operation": "add_release_condition",
                 "value": {"groups": [change_past_condition], "multivariate": None, "payloads": {}},
             },
-            scheduled_at=(datetime.now(timezone.utc) - timedelta(hours=1)),
+            scheduled_at=(datetime.now(UTC) - timedelta(hours=1)),
         )
 
         # 2. Due in the past and already executed
-        change_past_executed_at = datetime.now(timezone.utc) - timedelta(hours=5)
+        change_past_executed_at = datetime.now(UTC) - timedelta(hours=5)
         change_past_executed = ScheduledChange.objects.create(
             team=self.team,
             record_id=feature_flag.id,
@@ -197,7 +197,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                 "operation": "add_release_condition",
                 "value": {"groups": [change_due_now_condition], "multivariate": None, "payloads": {}},
             },
-            scheduled_at=datetime.now(timezone.utc),
+            scheduled_at=datetime.now(UTC),
         )
 
         # 4. Due in the future
@@ -206,7 +206,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload={"operation": "update_status", "value": False},
-            scheduled_at=(datetime.now(timezone.utc) + timedelta(hours=1)),
+            scheduled_at=(datetime.now(UTC) + timedelta(hours=1)),
         )
 
         process_scheduled_changes()

@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
-import { mockEventDefinitions } from '~/test/mocks'
+import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
 import { AppContext } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
@@ -25,6 +25,19 @@ describe('taxonomicFilterLogic', () => {
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
+                    return [
+                        200,
+                        {
+                            results,
+                            count: results.length,
+                        },
+                    ]
+                },
+                '/api/projects/:team/sessions/property_definitions': (res) => {
+                    const search = res.url.searchParams.get('search')
+                    const results = search
+                        ? mockSessionPropertyDefinitions.filter((e) => e.name.includes(search))
+                        : mockSessionPropertyDefinitions
                     return [
                         200,
                         {
@@ -76,7 +89,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 1,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.SessionProperties]: 1,
+                    [TaxonomicFilterGroupType.SessionProperties]: 0,
                 },
             })
             .toDispatchActions(['infiniteListResultsReceived'])
@@ -87,7 +100,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0, // not mocked
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.SessionProperties]: 1,
+                    [TaxonomicFilterGroupType.SessionProperties]: 2,
                 },
             })
     })
@@ -102,7 +115,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('event')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .toMatchValues({
                 searchQuery: 'event',
                 activeTab: TaxonomicFilterGroupType.Events,
@@ -117,7 +130,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('selector')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -134,7 +147,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('this is not found')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -151,7 +164,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -161,7 +174,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.SessionProperties]: 1,
+                    [TaxonomicFilterGroupType.SessionProperties]: 2,
                 },
             })
 

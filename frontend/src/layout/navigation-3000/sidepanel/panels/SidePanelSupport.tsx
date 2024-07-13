@@ -1,10 +1,14 @@
 import {
+    IconAI,
     IconChevronDown,
+    IconDatabase,
+    IconDecisionTree,
     IconFeatures,
     IconFlask,
     IconHelmet,
     IconMap,
     IconMessage,
+    IconPieChart,
     IconRewindPlay,
     IconStack,
     IconToggle,
@@ -40,6 +44,11 @@ const PRODUCTS = [
         icon: <IconTrends className="text-brand-blue h-5 w-5" />,
     },
     {
+        name: 'Web analytics',
+        slug: 'web-analytics',
+        icon: <IconPieChart className="text-[#36C46F] h-5 w-5" />,
+    },
+    {
         name: 'Session replay',
         slug: 'session-replay',
         icon: <IconRewindPlay className="text-warning h-5 w-5" />,
@@ -58,6 +67,21 @@ const PRODUCTS = [
         name: 'Surveys',
         slug: 'surveys',
         icon: <IconMessage className="text-danger h-5 w-5" />,
+    },
+    {
+        name: 'Data pipelines',
+        slug: 'cdp',
+        icon: <IconDecisionTree className="text-[#2EA2D3] h-5 w-5" />,
+    },
+    {
+        name: 'Data warehouse',
+        slug: 'data-warehouse',
+        icon: <IconDatabase className="text-[#8567FF] h-5 w-5" />,
+    },
+    {
+        name: 'AI engineering',
+        slug: 'ai-engineering',
+        icon: <IconAI className="text-[#681291] dark:text-[#C170E8] h-5 w-5" />,
     },
 ]
 
@@ -168,12 +192,12 @@ export const SidePanelSupport = (): JSX.Element => {
                                             >
                                                 <div className="flex items-center gap-1.5">
                                                     {product.icon}
-                                                    <span className="text-default opacity-75 group-hover:opacity-100">
+                                                    <span className="text-text-3000 opacity-75 group-hover:opacity-100">
                                                         {product.name}
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <IconChevronDown className="text-default h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
+                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
                                                 </div>
                                             </Link>
                                         </li>

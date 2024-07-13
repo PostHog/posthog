@@ -851,6 +851,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "task_id": mock.ANY,
                         "team_id": mock.ANY,
                         "query_progress": None,
+                        "labels": None,
                     }
                 },
             )

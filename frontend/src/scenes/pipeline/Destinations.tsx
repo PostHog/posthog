@@ -12,30 +12,27 @@ import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/
 
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
+import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
 import { NewButton } from './NewButton'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { Destination } from './types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
-    const { destinations, shouldShowProductIntroduction } = useValues(pipelineDestinationsLogic)
-
-    const shouldShowEmptyState = !destinations.some((destination) => destination.enabled)
+    const { destinations, loading } = useValues(pipelineDestinationsLogic)
 
     return (
         <>
             <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
-                {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                    <ProductIntroduction
-                        productName="Pipeline destinations"
-                        thingName="destination"
-                        productKey={ProductKey.PIPELINE_DESTINATIONS}
-                        description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
-                        docsURL="https://posthog.com/docs/cdp"
-                        actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                        isEmpty={true}
-                    />
-                )}
+                <ProductIntroduction
+                    productName="Pipeline destinations"
+                    thingName="destination"
+                    productKey={ProductKey.PIPELINE_DESTINATIONS}
+                    description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
+                    docsURL="https://posthog.com/docs/cdp"
+                    actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
+                    isEmpty={destinations.length === 0 && !loading}
+                />
             </PayGateMini>
             <DestinationsTable />
         </>
@@ -60,6 +57,8 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                             switch (destination.backend) {
                                 case 'plugin':
                                     return <RenderApp plugin={destination.plugin} />
+                                case 'hog_function':
+                                    return <HogFunctionIcon src={destination.hog_function.icon_url} size="small" />
                                 case 'batch_export':
                                     return <RenderBatchExportIcon type={destination.service.type} />
                                 default:

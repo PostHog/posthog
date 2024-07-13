@@ -16,9 +16,6 @@ import {
     PersonsNode,
     RetentionQuery,
     StickinessQuery,
-    TimeToSeeDataJSONNode,
-    TimeToSeeDataSessionsQuery,
-    TimeToSeeDataWaterfallNode,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -253,49 +250,6 @@ const InsightLifecycleQuery: LifecycleQuery = {
     series, // TODO: Visualization only supports one event or action
 }
 
-const TimeToSeeDataSessionsTable: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    columns: [
-        'session_id',
-        'session_start',
-        'session_end',
-        'duration_ms',
-        'team_events_last_month',
-        'events_count',
-        'interactions_count',
-        'total_interaction_time_to_see_data_ms',
-        'frustrating_interactions_count',
-        'user.email',
-    ],
-    source: {
-        kind: NodeKind.TimeToSeeDataSessionsQuery,
-    },
-}
-
-const TimeToSeeDataSessionsJSON: TimeToSeeDataSessionsQuery = {
-    kind: NodeKind.TimeToSeeDataSessionsQuery,
-}
-
-const TimeToSeeDataJSON: TimeToSeeDataJSONNode = {
-    kind: NodeKind.TimeToSeeDataSessionsJSONNode,
-    source: {
-        kind: NodeKind.TimeToSeeDataQuery,
-        sessionId: 'complete_me',
-        sessionStart: 'iso_date',
-        sessionEnd: 'iso_date',
-    },
-}
-
-const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
-    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode,
-    source: {
-        kind: NodeKind.TimeToSeeDataQuery,
-        sessionId: 'complete_me',
-        sessionStart: 'iso_date',
-        sessionEnd: 'iso_date',
-    },
-}
-
 const HogQLRaw: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
     query: `   select event,
@@ -385,10 +339,6 @@ export const stringifiedQueryExamples: Record<string, string> = Object.fromEntri
 
 export const examples: Record<string, Node> = {
     ...queryExamples,
-    TimeToSeeDataSessionsTable,
-    TimeToSeeDataSessionsJSON,
-    TimeToSeeDataWaterfall,
-    TimeToSeeDataJSON,
     HogQLRaw,
     HogQLTable,
     DataVisualization,

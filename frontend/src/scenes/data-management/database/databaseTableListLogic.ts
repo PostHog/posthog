@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaQuery,
@@ -23,7 +23,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
                 loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> =>
-                    await query({ kind: NodeKind.DatabaseSchemaQuery } as DatabaseSchemaQuery),
+                    await performQuery({ kind: NodeKind.DatabaseSchemaQuery } as DatabaseSchemaQuery),
             },
         ],
     }),
@@ -137,6 +137,21 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     .filter((n): n is DatabaseSchemaViewTable => n.type === 'view')
                     .reduce((acc, cur) => {
                         acc[cur.name] = database.tables[cur.name] as DatabaseSchemaViewTable
+                        return acc
+                    }, {} as Record<string, DatabaseSchemaViewTable>)
+            },
+        ],
+        viewsMapById: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaViewTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter((n): n is DatabaseSchemaViewTable => n.type === 'view')
+                    .reduce((acc, cur) => {
+                        acc[cur.id] = database.tables[cur.name] as DatabaseSchemaViewTable
                         return acc
                     }, {} as Record<string, DatabaseSchemaViewTable>)
             },

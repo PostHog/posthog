@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
@@ -323,7 +324,11 @@ def recalculate_cohortpeople(
             "team_id": cohort.team_id,
             "new_version": pending_version,
         },
-        settings={"optimize_on_insert": 0},
+        settings={
+            "max_execution_time": 240,
+            "optimize_on_insert": 0,
+        },
+        workload=Workload.OFFLINE,
     )
 
     count = get_cohort_size(cohort, override_version=pending_version)
@@ -370,6 +375,7 @@ def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None) -> O
             "version": override_version if override_version is not None else cohort.version,
             "team_id": cohort.team_id,
         },
+        workload=Workload.OFFLINE,
     )
 
     if count_result and len(count_result) and len(count_result[0]):
@@ -490,7 +496,7 @@ def get_dependent_cohorts(
                 if not current_cohort:
                     continue
             else:
-                current_cohort = Cohort.objects.using(using_database).get(
+                current_cohort = Cohort.objects.db_manager(using_database).get(
                     pk=cohort_id, team_id=cohort.team_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort

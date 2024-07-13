@@ -83,15 +83,6 @@ input[type='radio'] {
     }
 }
 
-.page-buttons {
-    display: flex;
-    flex-grow: 1;
-    flex-shrink: 0;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: right;
-}
-
 .secondary {
     font-size: 0.9em;
     font-weight: var(--font-medium);
@@ -113,19 +104,6 @@ input[type='radio'] {
 mark {
     background-color: var(--mark) !important;
     border-radius: var(--radius);
-}
-
-// Supplement text, such as email under user name
-.supplement {
-    overflow: hidden;
-    font-size: 0.8125rem;
-    color: var(--muted-alt);
-    text-overflow: ellipsis;
-
-    &--danger {
-        font-weight: 600;
-        color: var(--danger);
-    }
 }
 
 hr {
@@ -175,7 +153,7 @@ input::-ms-clear {
     cursor: unset;
     border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation);
+    box-shadow: var(--shadow-elevation-3000);
     opacity: 1 !important;
 }
 
@@ -188,7 +166,7 @@ input::-ms-clear {
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.25rem;
-    color: var(--default);
+    color: var(--text-3000);
 
     b,
     strong {
@@ -245,12 +223,6 @@ input::-ms-clear {
     }
 }
 
-.title-icon {
-    margin-left: 0.375rem;
-    font-size: 1rem;
-    line-height: 0;
-}
-
 // Graph series glyph
 
 .graph-series-glyph {
@@ -263,7 +235,7 @@ input::-ms-clear {
     font-size: 12px;
     font-weight: bold;
     pointer-events: none;
-    border: 2px solid var(--default);
+    border: 2px solid var(--text-3000);
     border-radius: 50%;
 
     // variants
@@ -365,70 +337,8 @@ input::-ms-clear {
     }
 }
 
-// Overlays
-
-.overlay__parent {
-    position: relative;
-}
-
-.overlay__child {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    transition: opacity 0.25s ease;
-
-    .overlay--danger & {
-        background: repeating-linear-gradient(
-            -45deg,
-            rgb(255 255 255 / 50%),
-            rgb(255 255 255 / 50%) 0.75rem,
-            var(--danger) 0.5rem,
-            var(--danger) 20px
-        );
-    }
-}
-
-// Tags
-
-.simple-tag {
-    padding: 2px 6px;
-    border-radius: var(--radius);
-
-    &.tag-light-blue {
-        background-color: var(--primary-highlight);
-    }
-}
-
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
-    // Until we have 3000 rolled out we fallback to standard colors
-    --text-3000: var(--default);
-    --text-secondary-3000: var(--text-secondary);
-    --muted-3000: var(--muted);
-    --trace-3000: var(--trace-3000-light);
-    --primary-3000: var(--primary);
-    --primary-3000-highlight: var(--primary-highlight);
-    --primary-3000-hover: var(--primary-light);
-    --primary-3000-active: var(--primary-dark);
-    --secondary-3000: var(--secondary);
-    --secondary-3000-hover: var(--secondary-light);
-    --accent-3000: var(--side);
-    --bg-3000: var(--bg-light);
-    --border-3000: var(--border);
-    --border-bold-3000: var(--border);
-    --glass-bg-3000: var(--bg-light);
-    --glass-border-3000: var(--border);
-    --bg-light: #fff;
-    --bg-table: var(--bg-light);
-    --link: var(--primary-3000);
-    --tooltip-bg: var(--bg-charcoal);
-    --data-color-1-hover: #1d4affe5;
-    --shadow-elevation: var(--shadow-elevation-3000);
-    --primary: var(--primary-3000);
-    --primary-highlight: var(--primary-3000-highlight);
-
     // Remove below once we're using Tailwind's base
     --tw-ring-offset-width: 0px;
     --tw-ring-offset-color: var(--bg-light);
@@ -450,14 +360,6 @@ body {
     }
 
     &[theme='dark'] {
-        .ant-empty-img-simple-path {
-            fill: var(--border-3000);
-        }
-
-        .ant-empty-img-simple-ellipse {
-            fill: var(--border-3000);
-        }
-
         @include dark-mode-3000-variables;
     }
 
@@ -493,7 +395,7 @@ body {
     h2,
     h3,
     h4 {
-        color: var(--default);
+        color: var(--text-3000);
     }
 
     h5 {
@@ -542,7 +444,7 @@ body {
     }
 
     .ant-dropdown {
-        color: var(--default);
+        color: var(--text-3000);
         border-radius: var(--radius);
     }
 
@@ -551,7 +453,7 @@ body {
     }
 
     .ant-modal-content {
-        box-shadow: var(--shadow-elevation);
+        box-shadow: var(--shadow-elevation-3000);
     }
 
     .ant-modal-mask {
@@ -617,19 +519,6 @@ body {
         &:last-child {
             margin-bottom: 0;
         }
-    }
-
-    // Tooltip styles
-    .ant-tooltip-inner {
-        background-color: var(--tooltip-bg);
-    }
-
-    .ant-tooltip-arrow-content {
-        background-color: var(--tooltip-bg);
-    }
-
-    .ant-tooltip {
-        max-width: 350px;
     }
 
     @include common-variables;

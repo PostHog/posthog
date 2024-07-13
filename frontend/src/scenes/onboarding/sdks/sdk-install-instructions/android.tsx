@@ -48,13 +48,17 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
         config.sessionReplay = true
         // choose whether to mask images or text
         config.sessionReplayConfig.maskAllImages = false
-        config.sessionReplayConfig.maskAllTextInputs = true`
+        config.sessionReplayConfig.maskAllTextInputs = true
+        // screenshot is disabled by default
+        // The screenshot may contain sensitive information, use with caution
+        config.sessionReplayConfig.screenshot = true`
                 : ''
         }
 
         // Setup PostHog with the given Context and Config
         PostHogAndroid.setup(this, config)
-    }`}
+    }
+}`}
         </CodeSnippet>
     )
 }

@@ -1,8 +1,8 @@
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'

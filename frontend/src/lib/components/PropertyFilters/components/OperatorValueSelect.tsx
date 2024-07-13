@@ -110,9 +110,9 @@ export function OperatorValueSelect({
                         if (tentativeValidationError) {
                             setValidationError(tentativeValidationError)
                             return
-                        } else {
-                            setValidationError(null)
                         }
+                        setValidationError(null)
+
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
@@ -133,7 +133,13 @@ export function OperatorValueSelect({
                 />
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
-                <div className="flex-1 min-w-[10rem]" data-attr="taxonomic-value-select">
+                <div
+                    className={
+                        // High flex-grow for proper sizing within TaxonomicPropertyFilter
+                        'shrink grow-[1000] min-w-[10rem]'
+                    }
+                    data-attr="taxonomic-value-select"
+                >
                     <PropertyValue
                         type={type}
                         key={propkey}
@@ -151,9 +157,9 @@ export function OperatorValueSelect({
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
-                            } else {
-                                setValidationError(null)
                             }
+                            setValidationError(null)
+
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter

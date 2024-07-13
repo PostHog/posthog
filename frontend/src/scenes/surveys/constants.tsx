@@ -1,3 +1,5 @@
+import { allOperatorsMapping } from 'lib/utils'
+
 import {
     Survey,
     SurveyQuestionDescriptionContentType,
@@ -17,10 +19,14 @@ export const SurveyQuestionLabel = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
+// Create SurveyUrlMatchTypeLabels using allOperatorsMapping
 export const SurveyUrlMatchTypeLabels = {
-    [SurveyUrlMatchType.Contains]: '∋ contains',
-    [SurveyUrlMatchType.Regex]: '∼ matches regex',
-    [SurveyUrlMatchType.Exact]: '= equals',
+    [SurveyUrlMatchType.Exact]: allOperatorsMapping[SurveyUrlMatchType.Exact],
+    [SurveyUrlMatchType.IsNot]: allOperatorsMapping[SurveyUrlMatchType.IsNot],
+    [SurveyUrlMatchType.Contains]: allOperatorsMapping[SurveyUrlMatchType.Contains],
+    [SurveyUrlMatchType.NotIContains]: allOperatorsMapping[SurveyUrlMatchType.NotIContains],
+    [SurveyUrlMatchType.Regex]: allOperatorsMapping[SurveyUrlMatchType.Regex],
+    [SurveyUrlMatchType.NotRegex]: allOperatorsMapping[SurveyUrlMatchType.NotRegex],
 }
 
 export const defaultSurveyAppearance = {
@@ -205,7 +211,10 @@ export const defaultSurveyTemplates = [
                 buttonText: 'Schedule',
             },
         ],
-        description: <>Send users straight to your calendar.</>,
+        appearance: {
+            thankYouMessageHeader: 'Looking forward to chatting with you!',
+        },
+        description: 'Send users straight to your calendar.',
     },
     {
         type: SurveyType.Popover,

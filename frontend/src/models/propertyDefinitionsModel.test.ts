@@ -213,7 +213,10 @@ describe('the property definitions model', () => {
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['updatePropertyDefinitions'])
                 .toMatchValues({
-                    propertyDefinitionStorage: { 'event/$session_duration': partial({ name: '$session_duration' }) },
+                    propertyDefinitionStorage: {
+                        'event/$session_duration': partial({ name: '$session_duration' }),
+                        'session/snapshot_source': partial({ name: 'snapshot_source' }),
+                    },
                 })
         })
     })

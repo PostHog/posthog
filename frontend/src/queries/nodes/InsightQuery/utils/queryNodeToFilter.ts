@@ -1,15 +1,16 @@
 import { objectClean } from 'lib/utils'
-import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import {
     ActionsNode,
     BreakdownFilter,
+    CompareFilter,
     DataWarehouseNode,
     EventsNode,
     FunnelsFilterLegacy,
     InsightNodeKind,
     InsightQueryNode,
     LifecycleFilterLegacy,
+    Node,
     NodeKind,
     PathsFilterLegacy,
     RetentionFilterLegacy,
@@ -21,13 +22,14 @@ import {
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
+    isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
+import { ActionFilter, EntityTypes, FilterType, InsightType, QueryBasedInsightModel } from '~/types'
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -91,6 +93,12 @@ export const seriesToActionsAndEvents = (
     return { actions, events, data_warehouse, new_entity }
 }
 
+/**
+ * Converts arrays of hidden items (`hiddenLegendIndexes` and `hiddenLegendBreakdowns`)
+ * to their respective object variant for usage in `hidden_legend_keys`.
+ *
+ * Example: `["Chrome"]` will become `{Chrome: true}`.
+ */
 export const hiddenLegendItemsToKeys = (
     hidden_items: number[] | string[] | undefined
 ): Record<string, boolean | undefined> | undefined =>
@@ -113,6 +121,28 @@ const filterMap: Record<InsightNodeKind, string> = {
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+}
+
+/** Returns a `query` or converted `filters` for a query based insight,
+ * depending on the feature flag. This is necessary as we want to
+ * transition to query based insights on the frontend, while the backend
+ * still has filter based insights (and or conversion function is frontend side).
+ *
+ * The feature flag can be enabled once we want to persist query based insights
+ * backend side. Once the flag is rolled out 100% this function becomes obsolete.
+ */
+export const getInsightFilterOrQueryForPersistance = (
+    insight: QueryBasedInsightModel,
+    queryBasedInsightSavingFlag: boolean
+): { filters: Partial<FilterType> | undefined; query: Node<Record<string, any>> | null | undefined } => {
+    let filters
+    let query
+    if (!queryBasedInsightSavingFlag && isInsightVizNode(insight.query)) {
+        filters = queryNodeToFilter(insight.query.source)
+    } else {
+        query = insight.query
+    }
+    return { filters, query }
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
@@ -149,6 +179,10 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdownFilter))
     }
 
+    if ((isTrendsQuery(query) || isStickinessQuery(query)) && query.compareFilter) {
+        Object.assign(filters, objectClean<Partial<Record<keyof CompareFilter, unknown>>>(query.compareFilter))
+    }
+
     if (!isStickinessQuery(query)) {
         Object.assign(
             filters,
@@ -162,24 +196,6 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         filters.interval = query.interval
     }
 
-    if (isTrendsQuery(query) && isTrendsFilter(filters)) {
-        filters.display = query.trendsFilter?.display
-        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.trendsFilter?.hidden_legend_indexes)
-    }
-
-    if (isStickinessQuery(query) && isStickinessFilter(filters)) {
-        filters.display = query.stickinessFilter?.display
-        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.stickinessFilter?.hidden_legend_indexes)
-    }
-
-    if (isFunnelsQuery(query) && isFunnelsFilter(filters)) {
-        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.funnelsFilter?.hidden_legend_breakdowns)
-    }
-
-    if (isLifecycleQuery(query) && isLifecycleFilter(filters)) {
-        filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
-    }
-
     // we don't want to mutate the original query
     const queryCopy = JSON.parse(JSON.stringify(query))
 
@@ -191,6 +207,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     const camelCasedStickinessProps: StickinessFilterLegacy = {}
     const camelCasedLifecycleProps: LifecycleFilterLegacy = {}
     if (isTrendsQuery(queryCopy)) {
+        camelCasedTrendsProps.hidden_legend_keys = hiddenLegendItemsToKeys(queryCopy.trendsFilter?.hiddenLegendIndexes)
         camelCasedTrendsProps.smoothing_intervals = queryCopy.trendsFilter?.smoothingIntervals
         camelCasedTrendsProps.decimal_places = queryCopy.trendsFilter?.decimalPlaces
         camelCasedTrendsProps.aggregation_axis_format = queryCopy.trendsFilter?.aggregationAxisFormat
@@ -200,6 +217,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedTrendsProps.show_percent_stack_view = queryCopy.trendsFilter?.showPercentStackView
         camelCasedTrendsProps.show_legend = queryCopy.trendsFilter?.showLegend
         camelCasedTrendsProps.show_values_on_series = queryCopy.trendsFilter?.showValuesOnSeries
+        camelCasedTrendsProps.y_axis_scale_type = queryCopy.trendsFilter?.yAxisScaleType
+        delete queryCopy.trendsFilter?.hiddenLegendIndexes
         delete queryCopy.trendsFilter?.smoothingIntervals
         delete queryCopy.trendsFilter?.decimalPlaces
         delete queryCopy.trendsFilter?.aggregationAxisFormat
@@ -209,6 +228,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.showPercentStackView
         delete queryCopy.trendsFilter?.showLegend
         delete queryCopy.trendsFilter?.showValuesOnSeries
+        delete queryCopy.trendsFilter?.yAxisScaleType
     } else if (isFunnelsQuery(queryCopy)) {
         camelCasedFunnelsProps.exclusions = queryCopy.funnelsFilter?.exclusions
             ? queryCopy.funnelsFilter.exclusions.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
@@ -228,7 +248,9 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedFunnelsProps.funnel_viz_type = queryCopy.funnelsFilter?.funnelVizType
         camelCasedFunnelsProps.funnel_window_interval = queryCopy.funnelsFilter?.funnelWindowInterval
         camelCasedFunnelsProps.funnel_window_interval_unit = queryCopy.funnelsFilter?.funnelWindowIntervalUnit
-        // camelCasedFunnelsProps.hidden_legend_breakdowns = queryCopy.funnelsFilter?.hiddenLegendBreakdowns
+        camelCasedFunnelsProps.hidden_legend_keys = hiddenLegendItemsToKeys(
+            queryCopy.funnelsFilter?.hiddenLegendBreakdowns
+        )
         camelCasedFunnelsProps.funnel_step_reference = queryCopy.funnelsFilter?.funnelStepReference
         delete queryCopy.funnelsFilter?.exclusions
         delete queryCopy.funnelsFilter?.binCount
@@ -241,7 +263,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.funnelsFilter?.funnelVizType
         delete queryCopy.funnelsFilter?.funnelWindowInterval
         delete queryCopy.funnelsFilter?.funnelWindowIntervalUnit
-        // delete queryCopy.funnelsFilter?.hiddenLegendBreakdowns
+        delete queryCopy.funnelsFilter?.hiddenLegendBreakdowns
         delete queryCopy.funnelsFilter?.funnelStepReference
     } else if (isRetentionQuery(queryCopy)) {
         camelCasedRetentionProps.retention_reference = queryCopy.retentionFilter?.retentionReference
@@ -293,13 +315,19 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     } else if (isStickinessQuery(queryCopy)) {
         camelCasedStickinessProps.show_legend = queryCopy.stickinessFilter?.showLegend
         camelCasedStickinessProps.show_values_on_series = queryCopy.stickinessFilter?.showValuesOnSeries
+        camelCasedStickinessProps.hidden_legend_keys = hiddenLegendItemsToKeys(
+            queryCopy.stickinessFilter?.hiddenLegendIndexes
+        )
         delete queryCopy.stickinessFilter?.showLegend
         delete queryCopy.stickinessFilter?.showValuesOnSeries
+        delete queryCopy.stickinessFilter?.hiddenLegendIndexes
     } else if (isLifecycleQuery(queryCopy)) {
         camelCasedLifecycleProps.show_values_on_series = queryCopy.lifecycleFilter?.showValuesOnSeries
         camelCasedLifecycleProps.show_legend = queryCopy.lifecycleFilter?.showLegend
+        camelCasedLifecycleProps.toggledLifecycles = queryCopy.lifecycleFilter?.toggledLifecycles
         delete queryCopy.lifecycleFilter?.showLegend
         delete queryCopy.lifecycleFilter?.showValuesOnSeries
+        delete queryCopy.lifecycleFilter?.toggledLifecycles
     }
     Object.assign(filters, camelCasedTrendsProps)
     Object.assign(filters, camelCasedFunnelsProps)

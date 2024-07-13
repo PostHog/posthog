@@ -1,79 +1,34 @@
+from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import QuerySet
+
 from rest_framework import serializers, viewsets
 from rest_framework.serializers import BaseSerializer
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql.bytecode import create_bytecode
-from posthog.hogql.parser import parse_program
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.hog_functions.utils import generate_template_bytecode
+
+from posthog.cdp.services.icons import CDPIconsService
+from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
 logger = structlog.get_logger(__name__)
 
 
-class InputsSchemaItemSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["string", "boolean", "dictionary", "choice", "json"])
-    key = serializers.CharField()
-    label = serializers.CharField(required=False)  # type: ignore
-    choices = serializers.ListField(child=serializers.DictField(), required=False)
-    required = serializers.BooleanField(default=False)  # type: ignore
-    default = serializers.JSONField(required=False)
-    secret = serializers.BooleanField(default=False)
-    description = serializers.CharField(required=False)
-
-    # TODO Validate choices if type=choice
-
-
-class AnyInputField(serializers.Field):
-    def to_internal_value(self, data):
-        return data
-
-    def to_representation(self, value):
-        return value
-
-
-class InputsItemSerializer(serializers.Serializer):
-    value = AnyInputField(required=False)
-    bytecode = serializers.ListField(required=False, read_only=True)
-
-    def validate(self, attrs):
-        schema = self.context["schema"]
-        value = attrs.get("value")
-
-        if schema.get("required") and not value:
-            raise serializers.ValidationError("This field is required.")
-
-        if not value:
-            return attrs
-
-        name: str = schema["key"]
-        item_type = schema["type"]
-        value = attrs["value"]
-
-        # Validate each type
-        if item_type == "string":
-            if not isinstance(value, str):
-                raise serializers.ValidationError("Value must be a string.")
-        elif item_type == "boolean":
-            if not isinstance(value, bool):
-                raise serializers.ValidationError("Value must be a boolean.")
-        elif item_type == "dictionary":
-            if not isinstance(value, dict):
-                raise serializers.ValidationError("Value must be a dictionary.")
-
-        try:
-            if value:
-                if item_type in ["string", "dictionary", "json"]:
-                    attrs["bytecode"] = generate_template_bytecode(value)
-        except Exception as e:
-            raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
-
-        return attrs
+class HogFunctionStatusSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
+    states: serializers.ListField = serializers.ListField(child=serializers.DictField())
+    ratings: serializers.ListField = serializers.ListField(child=serializers.DictField())
 
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
@@ -91,11 +46,15 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "enabled",
             "hog",
             "filters",
+            "icon_url",
         ]
         read_only_fields = fields
 
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
+    template = HogFunctionTemplateSerializer(read_only=True)
+    status = HogFunctionStatusSerializer(read_only=True)
+
     class Meta:
         model = HogFunction
         fields = [
@@ -106,11 +65,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "created_by",
             "updated_at",
             "enabled",
+            "deleted",
             "hog",
             "bytecode",
             "inputs_schema",
             "inputs",
             "filters",
+            "icon_url",
+            "template",
+            "template_id",
+            "status",
         ]
         read_only_fields = [
             "id",
@@ -118,56 +82,81 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "created_by",
             "updated_at",
             "bytecode",
+            "template",
+            "status",
         ]
+        extra_kwargs = {
+            "template_id": {"write_only": True},
+            "deleted": {"write_only": True},
+        }
 
     def validate_inputs_schema(self, value):
-        if not isinstance(value, list):
-            raise serializers.ValidationError("inputs_schema must be a list of objects.")
-
-        serializer = InputsSchemaItemSerializer(data=value, many=True)
-
-        if not serializer.is_valid():
-            raise serializers.ValidationError(serializer.errors)
-
-        return serializer.validated_data or []
+        return validate_inputs_schema(value)
 
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
-        attrs["inputs_schema"] = attrs.get("inputs_schema", [])
-        attrs["inputs"] = attrs.get("inputs", {})
-        attrs["filters"] = attrs.get("filters", {})
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
-        validated_inputs = {}
+        if self.context["view"].action == "create":
+            # Ensure we have sensible defaults when created
+            attrs["filters"] = attrs.get("filters", {})
+            attrs["inputs_schema"] = attrs.get("inputs_schema", [])
+            attrs["inputs"] = attrs.get("inputs", {})
 
-        for schema in attrs["inputs_schema"]:
-            value = attrs["inputs"].get(schema["key"], {})
-            serializer = InputsItemSerializer(data=value, context={"schema": schema})
+        if "inputs" in attrs:
+            # If we are updating, we check all input values with secret: true and instead
+            # use the existing value if set
+            if instance:
+                for key, val in attrs["inputs"].items():
+                    if val.get("secret"):
+                        attrs["inputs"][key] = instance.inputs.get(key)
 
-            if not serializer.is_valid():
-                first_error = next(iter(serializer.errors.values()))[0]
-                raise serializers.ValidationError({"inputs": {schema["key"]: first_error}})
+                attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema)
 
-            validated_inputs[schema["key"]] = serializer.validated_data
-
-        attrs["inputs"] = validated_inputs
-
-        # Attempt to compile the hog
-        try:
-            program = parse_program(attrs["hog"])
-            attrs["bytecode"] = create_bytecode(program, supported_functions={"fetch"})
-        except Exception as e:
-            raise serializers.ValidationError({"hog": str(e)})
+            attrs["inputs"] = validate_inputs(attrs["inputs_schema"], attrs["inputs"])
+        if "hog" in attrs:
+            attrs["bytecode"] = compile_hog(attrs["hog"])
 
         return attrs
+
+    def to_representation(self, data):
+        data = super().to_representation(data)
+
+        inputs_schema = data.get("inputs_schema", [])
+        inputs = data.get("inputs", {})
+
+        for schema in inputs_schema:
+            if schema.get("secret") and inputs.get(schema["key"]):
+                inputs[schema["key"]] = {"secret": True}
+
+        data["inputs"] = inputs
+
+        return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         return super().create(validated_data=validated_data)
 
+    def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
+        res: HogFunction = super().update(instance, validated_data)
 
-class HogFunctionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+        if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
+            res.set_function_status(HogFunctionState.OVERFLOWED.value)
+
+        return res
+
+
+class HogFunctionInvocationSerializer(serializers.Serializer):
+    configuration = HogFunctionSerializer(write_only=True)
+    globals = serializers.DictField(write_only=True)
+    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
+    status = serializers.CharField(read_only=True)
+    logs = serializers.ListField(read_only=True)
+
+
+class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -175,6 +164,62 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
+    log_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        if self.action == "list":
+            queryset = queryset.filter(deleted=False)
+
+        return queryset
+
+    @action(detail=False, methods=["GET"])
+    def icons(self, request: Request, *args, **kwargs):
+        query = request.GET.get("query")
+        if not query:
+            return Response([])
+
+        icons = CDPIconsService().list_icons(query, icon_url_base="/api/projects/@current/hog_functions/icon/?id=")
+
+        return Response(icons)
+
+    @action(detail=False, methods=["GET"])
+    def icon(self, request: Request, *args, **kwargs):
+        id = request.GET.get("id")
+        if not id:
+            raise serializers.ValidationError("id is required")
+
+        icon_service = CDPIconsService()
+
+        return icon_service.get_icon_http_response(id)
+
+    @action(detail=True, methods=["POST"])
+    def invocations(self, request: Request, *args, **kwargs):
+        hog_function = self.get_object()
+        serializer = HogFunctionInvocationSerializer(
+            data=request.data, context={**self.get_serializer_context(), "instance": hog_function}
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        configuration = serializer.validated_data["configuration"]
+        # Remove the team from the config
+        configuration.pop("team")
+
+        globals = serializer.validated_data["globals"]
+        mock_async_functions = serializer.validated_data["mock_async_functions"]
+
+        res = create_hog_invocation_test(
+            team_id=hog_function.team_id,
+            hog_function_id=hog_function.id,
+            globals=globals,
+            configuration=configuration,
+            mock_async_functions=mock_async_functions,
+        )
+
+        if res.status_code != 200:
+            return Response({"status": "error"}, status=res.status_code)
+
+        return Response(res.json())

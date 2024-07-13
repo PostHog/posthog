@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import timedelta
 from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
@@ -6,7 +7,7 @@ from hogvm.python.execute import execute_bytecode, BytecodeResult
 from hogvm.python.stl import STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import (
@@ -104,14 +105,15 @@ class BytecodeBuilder(Visitor):
             response.append(Operation.POP)
         return response
 
-    def _declare_local(self, name: str):
+    def _declare_local(self, name: str) -> int:
         for local in reversed(self.locals):
             if local.depth < self.scope_depth:
                 break
             if local.name == name:
-                raise NotImplementedError(f"Variable `{name}` already declared in this scope")
+                raise QueryError(f"Variable `{name}` already declared in this scope")
 
         self.locals.append(Local(name, self.scope_depth))
+        return len(self.locals) - 1
 
     def visit_and(self, node: ast.And):
         response = []
@@ -135,7 +137,7 @@ class BytecodeBuilder(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
-            raise NotImplementedError("Cohort operations are not supported")
+            raise QueryError("Cohort operations are not supported")
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
@@ -164,10 +166,19 @@ class BytecodeBuilder(Visitor):
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
-        return [*self.visit(node.tuple), Operation.INTEGER, node.index, Operation.GET_PROPERTY]
+        return [
+            *self.visit(node.tuple),
+            Operation.INTEGER,
+            node.index,
+            Operation.GET_PROPERTY_NULLISH if node.nullish else Operation.GET_PROPERTY,
+        ]
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return [*self.visit(node.array), *self.visit(node.property), Operation.GET_PROPERTY]
+        return [
+            *self.visit(node.array),
+            *self.visit(node.property),
+            Operation.GET_PROPERTY_NULLISH if node.nullish else Operation.GET_PROPERTY,
+        ]
 
     def visit_constant(self, node: ast.Constant):
         if node.value is True:
@@ -183,7 +194,7 @@ class BytecodeBuilder(Visitor):
         elif isinstance(node.value, str):
             return [Operation.STRING, node.value]
         else:
-            raise NotImplementedError(f"Constant type `{type(node.value)}` is not supported")
+            raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
         if node.name == "not" and len(node.args) == 1:
@@ -198,10 +209,48 @@ class BytecodeBuilder(Visitor):
             for arg in reversed(node.args):
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
+        if node.name == "if" and len(node.args) >= 2:
+            expr = self.visit(node.args[0])
+            then = self.visit(node.args[1])
+            else_ = self.visit(node.args[2]) if len(node.args) == 3 else None
+            response = []
+            response.extend(expr)
+            response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if else_ else 0)])
+            response.extend(then)
+            if else_:
+                response.extend([Operation.JUMP, len(else_)])
+                response.extend(else_)
+            return response
+        if node.name == "multiIf" and len(node.args) >= 2:
+            if len(node.args) <= 3:
+                return self.visit(ast.Call(name="if", args=node.args))
+            prev = None if len(node.args) % 2 == 0 else self.visit(node.args[-1])
+            for i in range(len(node.args) - 2 - (len(node.args) % 2), -1, -2):
+                expr = self.visit(node.args[i])
+                then = self.visit(node.args[i + 1])
+                response = []
+                response.extend(expr)
+                response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if prev else 0)])
+                response.extend(then)
+                if prev:
+                    response.extend([Operation.JUMP, len(prev)])
+                    response.extend(prev)
+                prev = response
+            return prev
+        if node.name == "ifNull" and len(node.args) == 2:
+            expr = self.visit(node.args[0])
+            if_null = self.visit(node.args[1])
+            response = []
+            response.extend(expr)
+            response.extend([Operation.JUMP_IF_STACK_NOT_NULL, len(if_null) + 1])
+            response.extend([Operation.POP])
+            response.extend(if_null)
+            return response
+
         if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
-            raise NotImplementedError(f"HogQL function `{node.name}` is not implemented")
+            raise QueryError(f"HogQL function `{node.name}` is not implemented")
         if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
-            raise NotImplementedError(
+            raise QueryError(
                 f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
             )
         response = []
@@ -227,6 +276,8 @@ class BytecodeBuilder(Visitor):
         return response
 
     def visit_expr_statement(self, node: ast.ExprStatement):
+        if node.expr is None:
+            return []
         response = self.visit(node.expr)
         response.append(Operation.POP)
         return response
@@ -246,7 +297,7 @@ class BytecodeBuilder(Visitor):
 
         response = []
         response.extend(expr)
-        response.extend([Operation.JUMP_IF_FALSE, len(then) + 2])  # + else's OP_JUMP + count
+        response.extend([Operation.JUMP_IF_FALSE, len(then) + (2 if else_ else 0)])
         response.extend(then)
         if else_:
             response.extend([Operation.JUMP, len(else_)])
@@ -263,6 +314,111 @@ class BytecodeBuilder(Visitor):
         response.extend([Operation.JUMP_IF_FALSE, len(body) + 2])  # + reverse jump
         response.extend(body)
         response.extend([Operation.JUMP, -len(response) - 2])
+        return response
+
+    def visit_for_statement(self, node: ast.ForStatement):
+        if node.initializer:
+            self._start_scope()
+
+        initializer = self.visit(node.initializer) or []
+        condition = self.visit(node.condition) or []
+        increment = self.visit(node.increment) or []
+        body = self.visit(node.body) or []
+
+        response: list = []
+        response.extend(initializer)
+        response.extend(condition)
+        response.extend([Operation.JUMP_IF_FALSE, len(body) + len(increment) + 2])
+        response.extend(body)
+        response.extend(increment)
+        response.extend([Operation.JUMP, -len(increment) - len(body) - 2 - len(condition) - 2])
+
+        if node.initializer:
+            response.extend(self._end_scope())
+        return response
+
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        response: list = []
+        self._start_scope()
+
+        key_var = node.keyVar
+        value_var = node.valueVar
+
+        # set up a bunch of temporary variables
+        expr_local = self._declare_local("__H_expr_H__")  # the obj/array itself
+        expr_keys_local = self._declare_local("__H_keys_H__")  # keys
+        expr_values_local = self._declare_local("__H_values_H__")  # values
+        loop_index_local = self._declare_local("__H_index_H__")  # 0
+        loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
+        key_var_local = self._declare_local(key_var) if key_var is not None else -1  # loop key
+        value_var_local = self._declare_local(value_var)  # loop value
+        response.extend([Operation.NULL] * (7 if key_var is not None else 6))
+        response.extend([*self.visit(node.expr), Operation.SET_LOCAL, expr_local])
+
+        # populate keys, value, loop index and max loop index
+        if key_var is not None:
+            response.extend(
+                [Operation.GET_LOCAL, expr_local, Operation.CALL, "keys", 1, Operation.SET_LOCAL, expr_keys_local]
+            )
+        response.extend(
+            [Operation.GET_LOCAL, expr_local, Operation.CALL, "values", 1, Operation.SET_LOCAL, expr_values_local]
+        )
+        response.extend([Operation.INTEGER, 0, Operation.SET_LOCAL, loop_index_local])
+        response.extend(
+            [Operation.GET_LOCAL, expr_values_local, Operation.CALL, "length", 1, Operation.SET_LOCAL, loop_limit_local]
+        )
+
+        # check if loop_index < loop_limit
+        condition = [Operation.GET_LOCAL, loop_limit_local, Operation.GET_LOCAL, loop_index_local, Operation.LT]
+
+        # set key_var and value_var
+        body: list = []
+        if key_var is not None:
+            body.extend(
+                [
+                    Operation.GET_LOCAL,
+                    expr_keys_local,
+                    Operation.GET_LOCAL,
+                    loop_index_local,
+                    Operation.GET_PROPERTY,
+                    Operation.SET_LOCAL,
+                    key_var_local,
+                ]
+            )
+        body.extend(
+            [
+                Operation.GET_LOCAL,
+                expr_values_local,
+                Operation.GET_LOCAL,
+                loop_index_local,
+                Operation.GET_PROPERTY,
+                Operation.SET_LOCAL,
+                value_var_local,
+            ]
+        )
+
+        # the actual body
+        body.extend(self.visit(node.body))
+
+        # i += 1 at the end
+        increment = [
+            Operation.GET_LOCAL,
+            loop_index_local,
+            Operation.INTEGER,
+            1,
+            Operation.PLUS,
+            Operation.SET_LOCAL,
+            loop_index_local,
+        ]
+
+        # add to response
+        response.extend(condition)
+        response.extend([Operation.JUMP_IF_FALSE, len(body) + len(increment) + 2])
+        response.extend(body)
+        response.extend(increment)
+        response.extend([Operation.JUMP, -len(increment) - len(body) - 2 - len(condition) - 2])
+
+        response.extend(self._end_scope())
         return response
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):
@@ -312,13 +468,13 @@ class BytecodeBuilder(Visitor):
 
                     return ops
 
-            raise NotImplementedError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
+            raise QueryError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
 
-        raise NotImplementedError(f"Can not assign to this type of expression")
+        raise QueryError(f"Can not assign to this type of expression")
 
     def visit_function(self, node: ast.Function):
         if node.name in self.functions:
-            raise NotImplementedError(f"Function `{node.name}` already declared")
+            raise QueryError(f"Function `{node.name}` already declared")
         all_known_functions = self.supported_functions.union(set(self.functions.keys()))
         all_known_functions.add(node.name)
 
@@ -365,7 +521,7 @@ def execute_hog(
     team: Optional["Team"] = None,
     globals: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
-    timeout=10,
+    timeout=timedelta(seconds=10),
 ) -> BytecodeResult:
     source_code = source_code.strip()
     if source_code.count("\n") == 0:

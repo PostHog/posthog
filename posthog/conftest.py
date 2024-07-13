@@ -12,11 +12,11 @@ def create_clickhouse_tables(num_tables: int):
     # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.schema import (
+        CREATE_DATA_QUERIES,
+        CREATE_DICTIONARY_QUERIES,
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
         CREATE_MV_TABLE_QUERIES,
-        CREATE_DATA_QUERIES,
-        CREATE_DICTIONARY_QUERIES,
         CREATE_VIEW_QUERIES,
         build_query,
     )
@@ -53,24 +53,24 @@ def reset_clickhouse_tables():
     from posthog.clickhouse.plugin_log_entries import (
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
     )
+    from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
+    from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.models.performance.sql import TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL
     from posthog.models.person.sql import (
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
         TRUNCATE_PERSON_TABLE_SQL,
     )
+    from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
     from posthog.session_recordings.sql.session_recording_event_sql import (
         TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
     )
-    from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
-    from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
-    from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [

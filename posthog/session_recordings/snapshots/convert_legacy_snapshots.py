@@ -24,7 +24,7 @@ def _save_converted_content_back_to_storage(converted_content: str, recording: S
         return save_recording_with_new_content(recording, converted_content)
     except ImportError:
         # not running in EE context... shouldn't get here
-        logger.error(
+        logger.exception(
             "attempted_to_save_converted_content_back_to_storage_in_non_ee_context",
             recording_id=recording.id,
         )

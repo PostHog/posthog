@@ -43,6 +43,7 @@ from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_EVENTS_TABLE_SQL,
+    DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     EVENTS_TABLE_SQL,
 )
 from posthog.models.event.util import bulk_create_events
@@ -69,6 +70,15 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
+from posthog.models.raw_sessions.sql import (
+    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
+    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_RAW_SESSION_TABLE_SQL,
+    DROP_RAW_SESSION_VIEW_SQL,
+    RAW_SESSIONS_TABLE_MV_SQL,
+    RAW_SESSIONS_VIEW_SQL,
+    RAW_SESSIONS_TABLE_SQL,
+)
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -79,7 +89,6 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
-from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.test.assert_faster_than import assert_faster_than
 
 # Make sure freezegun ignores our utils class that times functions
@@ -436,10 +445,7 @@ def cleanup_materialized_columns():
 def also_test_with_materialized_columns(
     event_properties=None,
     person_properties=None,
-    group_properties=None,
     verify_no_jsonextract=True,
-    # :TODO: Remove this when groups-on-events is released
-    materialize_only_with_person_on_events=False,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -447,8 +453,6 @@ def also_test_with_materialized_columns(
     Requires a unittest class with ClickhouseTestMixin mixed in
     """
 
-    if group_properties is None:
-        group_properties = []
     if person_properties is None:
         person_properties = []
     if event_properties is None:
@@ -457,12 +461,6 @@ def also_test_with_materialized_columns(
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
-        return lambda fn: fn
-
-    if materialize_only_with_person_on_events and not get_from_env(
-        "PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool
-    ):
-        # Don't run materialized test unless PERSON_ON_EVENTS_ENABLED
         return lambda fn: fn
 
     def decorator(fn):
@@ -477,12 +475,6 @@ def also_test_with_materialized_columns(
             for prop in person_properties:
                 materialize("person", prop)
                 materialize("events", prop, table_column="person_properties")
-            for group_type_index, prop in group_properties:
-                materialize(
-                    "events",
-                    prop,
-                    table_column=f"group{group_type_index}_properties",
-                )
 
             try:
                 with self.capture_select_queries() as sqls:
@@ -547,6 +539,13 @@ class QueryMatchingTest:
             query,
         )
 
+        # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
+        query = re.sub(
+            r"\"posthog_survey_actions\".\"survey_id\" IN \('[^']+'::uuid, '[^']+'::uuid\)",
+            r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
+            query,
+        )
+
         # replace session uuids
         # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
         query = re.sub(
@@ -603,9 +602,17 @@ class QueryMatchingTest:
         # HogQL person id in session recording queries
         # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
         # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
+        # equals(events.person_id, '0176be33-0398-0060-abed-8da43384e020')
         query = re.sub(
-            r"ifNull\(equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\), \d+\)",
-            r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
+            r"equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\)",
+            r"equals(\1person_id, '00000000-0000-0000-0000-000000000000')",
+            query,
+        )
+
+        # equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '0176be33-0398-0090-a0e7-7cd9139f8089')
+        query = re.sub(
+            r"events__override.person_id, events.person_id\), '[0-9a-f-]{36}'\)",
+            r"events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000')",
             query,
         )
 
@@ -877,10 +884,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH", "select", "with"))
+        return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))
+
+    def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
+        return self.capture_queries(lambda x: x.startswith(query_prefixes))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, tuple[str, ...]]):
+    def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
         original_get_client = ch_pool.get_client
 
@@ -893,7 +903,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
-                    if sqlparse.format(query, strip_comments=True).strip().startswith(query_prefixes):
+                    if query_filter(sqlparse.format(query, strip_comments=True).strip()):
                         queries.append(query)
                     return original_client_execute(query, *args, **kwargs)
 
@@ -949,6 +959,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         super().setUp()
         run_clickhouse_statement_in_parallel(
             [
+                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -963,8 +974,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
                 DROP_SESSION_TABLE_SQL(),
+                DROP_RAW_SESSION_TABLE_SQL(),
                 DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
                 DROP_SESSION_VIEW_SQL(),
+                DROP_RAW_SESSION_VIEW_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -976,6 +990,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
                 SESSIONS_TABLE_SQL(),
+                RAW_SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -985,8 +1000,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
                 SESSIONS_TABLE_MV_SQL(),
+                RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
+                RAW_SESSIONS_VIEW_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             ]
         )
 
@@ -995,6 +1013,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
         run_clickhouse_statement_in_parallel(
             [
+                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -1004,8 +1023,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
                 DROP_SESSION_TABLE_SQL(),
+                DROP_RAW_SESSION_TABLE_SQL(),
                 DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
                 DROP_SESSION_VIEW_SQL(),
+                DROP_RAW_SESSION_VIEW_SQL(),
             ]
         )
 
@@ -1018,6 +1040,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
                 SESSIONS_TABLE_SQL(),
+                RAW_SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -1026,7 +1049,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
                 SESSIONS_VIEW_SQL(),
+                RAW_SESSIONS_VIEW_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
@@ -1061,7 +1086,7 @@ def snapshot_clickhouse_alter_queries(fn):
 
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
-        with self.capture_queries("ALTER") as queries:
+        with self.capture_queries_startswith("ALTER") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:
@@ -1078,7 +1103,7 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
 
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
-        with self.capture_queries("INSERT INTO cohortpeople") as queries:
+        with self.capture_queries_startswith("INSERT INTO cohortpeople") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:

@@ -1,0 +1,17 @@
+{
+	auto_https off
+}
+
+:8081
+
+route /echo {
+	respond `{http.request.body}` 200 {
+                close
+        }
+}
+
+route /fail {
+	respond `{http.request.body}` 400 {
+                close
+        }
+}

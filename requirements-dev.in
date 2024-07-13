@@ -11,7 +11,7 @@
 
 -c requirements.txt
 
-ruff~=0.4.3
+ruff~=0.4.10
 mypy~=1.10.0
 mypy-baseline~=0.7.0
 mypy-extensions==1.0.0
@@ -49,6 +49,7 @@ pytest-xdist==3.6.1
 python-dateutil>=2.8.2
 responses==0.23.1
 syrupy~=4.6.0
+watchdog==2.1.8
 flaky==3.7.0
 aioresponses==0.7.6
 prance==23.06.21.0

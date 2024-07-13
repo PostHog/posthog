@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -29,16 +29,8 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const {
-        filteredExperiments,
-        experimentsLoading,
-        tab,
-        searchTerm,
-        shouldShowEmptyState,
-        shouldShowProductIntroduction,
-        searchStatus,
-        userFilter,
-    } = useValues(experimentsLogic)
+    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState, searchStatus, userFilter } =
+        useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
@@ -120,7 +112,28 @@ export function Experiments(): JSX.Element {
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
                                         <LemonButton
-                                            onClick={() => archiveExperiment(experiment.id as number)}
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: 'Archive this experiment?',
+                                                    content: (
+                                                        <div className="text-sm text-muted">
+                                                            This action will move the experiment to the archived tab. It
+                                                            can be restored at any time.
+                                                        </div>
+                                                    ),
+                                                    primaryButton: {
+                                                        children: 'Archive',
+                                                        type: 'primary',
+                                                        onClick: () => archiveExperiment(experiment.id as number),
+                                                        size: 'small',
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                        type: 'tertiary',
+                                                        size: 'small',
+                                                    },
+                                                })
+                                            }}
                                             data-attr={`experiment-${experiment.id}-dropdown-archive`}
                                             fullWidth
                                         >
@@ -130,7 +143,28 @@ export function Experiments(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
-                                    onClick={() => deleteExperiment(experiment.id as number)}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete this experiment?',
+                                            content: (
+                                                <div className="text-sm text-muted">
+                                                    This action cannot be undone. All experiment data will be
+                                                    permanently removed.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                onClick: () => deleteExperiment(experiment.id as number),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                     fullWidth
                                 >
@@ -176,28 +210,27 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                 ]}
             />
-            {(shouldShowEmptyState || shouldShowProductIntroduction) &&
-                (tab === ExperimentsTabs.Archived ? (
-                    <ProductIntroduction
-                        productName="A/B testing"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="archived experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        isEmpty={shouldShowEmptyState}
-                    />
-                ) : (
-                    <ProductIntroduction
-                        productName="A/B testing"
-                        productKey={ProductKey.EXPERIMENTS}
-                        thingName="experiment"
-                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                        docsURL="https://posthog.com/docs/experiments"
-                        action={() => router.actions.push(urls.experiment('new'))}
-                        isEmpty={shouldShowEmptyState}
-                        customHog={ExperimentsHog}
-                    />
-                ))}
+            {tab === ExperimentsTabs.Archived ? (
+                <ProductIntroduction
+                    productName="A/B testing"
+                    productKey={ProductKey.EXPERIMENTS}
+                    thingName="archived experiment"
+                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                    docsURL="https://posthog.com/docs/experiments"
+                    isEmpty={shouldShowEmptyState}
+                />
+            ) : (
+                <ProductIntroduction
+                    productName="A/B testing"
+                    productKey={ProductKey.EXPERIMENTS}
+                    thingName="experiment"
+                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                    docsURL="https://posthog.com/docs/experiments"
+                    action={() => router.actions.push(urls.experiment('new'))}
+                    isEmpty={shouldShowEmptyState}
+                    customHog={ExperimentsHog}
+                />
+            )}
             {!shouldShowEmptyState && (
                 <>
                     <div className="flex justify-between mb-4 gap-2 flex-wrap">

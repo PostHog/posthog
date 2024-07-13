@@ -1,8 +1,6 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect } from 'react'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema'
@@ -19,15 +17,14 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode, insight } = useValues(insightSceneLogic)
+    const { insightMode, legacyInsight } = useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
-        cachedInsight: insight?.short_id === insightId ? insight : null,
+        cachedInsight: legacyInsight?.short_id === insightId ? legacyInsight : null,
     })
-    const { insightProps, insightLoading, filtersKnown } = useValues(logic)
-    const { reportInsightViewedForRecentInsights } = useActions(logic)
+    const { insightProps } = useValues(logic)
 
     // insightDataLogic
     const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
@@ -36,20 +33,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
 
-    useEffect(() => {
-        reportInsightViewedForRecentInsights()
-    }, [insightId])
-
-    // Show the skeleton if loading an insight for which we only know the id
-    // This helps with the UX flickering and showing placeholder "name" text.
-    if (insightId !== 'new' && insightLoading && !filtersKnown) {
-        return <InsightSkeleton />
-    }
-
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
-    const setQuery = (query: Node): void => {
-        if (!isInsightVizNode(query)) {
+    const setQuery = (query: Node, isSourceUpdate?: boolean): void => {
+        if (!isInsightVizNode(query) || isSourceUpdate) {
             setInsightQuery(query)
         }
     }

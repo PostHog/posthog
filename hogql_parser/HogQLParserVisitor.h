@@ -27,21 +27,25 @@ public:
 
     virtual std::any visitVarDecl(HogQLParser::VarDeclContext *context) = 0;
 
-    virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *context) = 0;
-
     virtual std::any visitIdentifierList(HogQLParser::IdentifierListContext *context) = 0;
 
     virtual std::any visitStatement(HogQLParser::StatementContext *context) = 0;
 
-    virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *context) = 0;
+    virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *context) = 0;
 
     virtual std::any visitIfStmt(HogQLParser::IfStmtContext *context) = 0;
 
     virtual std::any visitWhileStmt(HogQLParser::WhileStmtContext *context) = 0;
 
-    virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *context) = 0;
+    virtual std::any visitForStmt(HogQLParser::ForStmtContext *context) = 0;
+
+    virtual std::any visitForInStmt(HogQLParser::ForInStmtContext *context) = 0;
 
     virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *context) = 0;
+
+    virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *context) = 0;
+
+    virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *context) = 0;
 
     virtual std::any visitEmptyStmt(HogQLParser::EmptyStmtContext *context) = 0;
 
@@ -165,6 +169,8 @@ public:
 
     virtual std::any visitColumnExprOr(HogQLParser::ColumnExprOrContext *context) = 0;
 
+    virtual std::any visitColumnExprNullTupleAccess(HogQLParser::ColumnExprNullTupleAccessContext *context) = 0;
+
     virtual std::any visitColumnExprPrecedence1(HogQLParser::ColumnExprPrecedence1Context *context) = 0;
 
     virtual std::any visitColumnExprPrecedence2(HogQLParser::ColumnExprPrecedence2Context *context) = 0;
@@ -176,6 +182,8 @@ public:
     virtual std::any visitColumnExprIsNull(HogQLParser::ColumnExprIsNullContext *context) = 0;
 
     virtual std::any visitColumnExprWinFunctionTarget(HogQLParser::ColumnExprWinFunctionTargetContext *context) = 0;
+
+    virtual std::any visitColumnExprNullPropertyAccess(HogQLParser::ColumnExprNullPropertyAccessContext *context) = 0;
 
     virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *context) = 0;
 
@@ -192,6 +200,8 @@ public:
     virtual std::any visitColumnExprPropertyAccess(HogQLParser::ColumnExprPropertyAccessContext *context) = 0;
 
     virtual std::any visitColumnExprParens(HogQLParser::ColumnExprParensContext *context) = 0;
+
+    virtual std::any visitColumnExprNullArrayAccess(HogQLParser::ColumnExprNullArrayAccessContext *context) = 0;
 
     virtual std::any visitColumnExprTimestamp(HogQLParser::ColumnExprTimestampContext *context) = 0;
 

@@ -20,7 +20,7 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.queries.util import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 
 
@@ -88,7 +88,7 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_persons = should_join_persons
         self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
-        self._person_on_events_mode = person_on_events_mode
+        self._person_on_events_mode = alias_poe_mode_for_legacy(person_on_events_mode)
 
         # Guards against a ClickHouse bug involving multiple joins against the same table with the same column name.
         # This issue manifests for us with formulas, where on queries A and B we join events against itself

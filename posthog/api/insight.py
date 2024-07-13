@@ -63,7 +63,7 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import (
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.hogql_queries.query_runner import execution_mode_from_refresh
+from posthog.hogql_queries.query_runner import execution_mode_from_refresh, shared_insights_execution_mode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -238,6 +238,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     (see from_dashboard query parameter).
     """,
     )
+    cache_target_age = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The target age of the cached results for this insight.",
+    )
     next_allowed_client_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
@@ -269,6 +273,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     )
     query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
     query_status = serializers.SerializerMethodField()
+    hogql = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -284,6 +289,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "dashboards",
             "dashboard_tiles",
             "last_refresh",
+            "cache_target_age",
             "next_allowed_client_refresh",
             "result",
             "columns",
@@ -302,6 +308,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "timezone",
             "is_cached",
             "query_status",
+            "hogql",
         ]
         read_only_fields = (
             "created_at",
@@ -491,6 +498,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def get_last_refresh(self, insight: Insight):
         return self.insight_result(insight).last_refresh
 
+    def get_cache_target_age(self, insight: Insight):
+        return self.insight_result(insight).cache_target_age
+
     def get_next_allowed_client_refresh(self, insight: Insight):
         return self.insight_result(insight).next_allowed_client_refresh
 
@@ -499,6 +509,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_query_status(self, insight: Insight):
         return self.insight_result(insight).query_status
+
+    def get_hogql(self, insight: Insight):
+        return self.insight_result(insight).hogql
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
@@ -558,6 +571,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
+
+                if self.context.get("is_shared", False):
+                    execution_mode = shared_insights_execution_mode(execution_mode)
 
                 return calculate_for_query_based_insight(
                     insight,
@@ -651,9 +667,6 @@ class InsightViewSet(
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
 
-            if self.request.query_params.get("include_query_insights", "false").lower() != "true":
-                queryset = queryset.exclude(Q(filters={}) & Q(query__isnull=False))
-
         order = self.request.GET.get("order", None)
         if order:
             queryset = queryset.order_by(order)
@@ -673,8 +686,6 @@ class InsightViewSet(
             .exclude(insight__deleted=True)
             .only("insight")
         )
-        if self.request.query_params.get("include_query_insights", "false").lower() != "true":
-            insight_queryset = insight_queryset.exclude(Q(insight__filters={}) & Q(insight__query__isnull=False))
 
         recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
 

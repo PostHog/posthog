@@ -34,7 +34,7 @@
 
         &.LemonSwitch--small {
             gap: 0.5rem;
-            min-height: 2rem;
+            min-height: calc(1.875rem + 3px); // Small size button height + button shadow height
             padding: 0 0.5rem;
         }
     }

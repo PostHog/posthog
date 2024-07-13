@@ -52,6 +52,7 @@ export const batchExportFormFields = (
         name: !name && !isPipeline ? 'Please enter a name' : '', // In pipeline UI the name is in the top bar
         destination: !destination ? 'Please select a destination' : '',
         interval: !interval ? 'Please select a frequency' : '',
+        model: !name && !isPipeline ? 'Please choose a model' : '',
         paused: '',
         start_at: '',
         end_at: '',
@@ -156,9 +157,10 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
         batchExportConfigForm: {
             defaults: {
                 name: '',
+                model: 'events',
             } as BatchExportConfigurationForm,
             errors: (form) => batchExportFormFields(props.id === 'new', form),
-            submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
+            submit: async ({ name, destination, interval, start_at, end_at, paused, model, ...config }) => {
                 const destinationObject: BatchExportService =
                     destination === 'Postgres'
                         ? ({
@@ -194,6 +196,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                     paused,
                     name,
                     interval,
+                    model,
                     start_at: start_at?.toISOString() ?? null,
                     end_at: end_at?.toISOString() ?? null,
                     destination: destinationObject,

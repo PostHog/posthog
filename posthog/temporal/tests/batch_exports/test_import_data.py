@@ -84,6 +84,8 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            incremental_field=None,
+            incremental_field_type=None,
         )
 
 
@@ -119,6 +121,8 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            incremental_field=None,
+            incremental_field_type=None,
         )
 
 
@@ -171,4 +175,6 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            incremental_field=None,
+            incremental_field_type=None,
         )

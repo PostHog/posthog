@@ -1,6 +1,5 @@
+import { dashboard, dashboards, insight } from '../productAnalytics'
 import { randomString } from '../support/random'
-import { insight, dashboards, dashboard } from '../productAnalytics'
-import { urls } from 'scenes/urls'
 
 describe('Dashboard', () => {
     beforeEach(() => {

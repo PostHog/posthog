@@ -22,6 +22,17 @@ export enum TimestampFormat {
     Device = 'device',
 }
 
+export enum InspectorStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
+}
+
+export enum PlaybackViewMode {
+    Playback = 'playback',
+    Inspector = 'inspector',
+    Waterfall = 'waterfall',
+}
+
 const MiniFilters: SharedListMiniFilter[] = [
     {
         tab: SessionRecordingPlayerTab.ALL,
@@ -191,6 +202,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
+        setPreferredInspectorStacking: (stacking: InspectorStacking) => ({ stacking }),
+        setPlaybackViewMode: (mode: PlaybackViewMode) => ({ mode }),
     }),
     connect({
         values: [teamLogic, ['currentTeam']],
@@ -203,6 +216,20 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
             {
                 setShowFilters: (_, { showFilters }) => showFilters,
+            },
+        ],
+        preferredInspectorStacking: [
+            InspectorStacking.Horizontal as InspectorStacking,
+            { persist: true },
+            {
+                setPreferredInspectorStacking: (_, { stacking }) => stacking,
+            },
+        ],
+        playbackViewMode: [
+            PlaybackViewMode.Playback as PlaybackViewMode,
+            { persist: true },
+            {
+                setPlaybackViewMode: (_, { mode }) => mode,
             },
         ],
         prefersAdvancedFilters: [

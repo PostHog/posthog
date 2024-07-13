@@ -1,6 +1,5 @@
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { urls } from 'scenes/urls'
@@ -33,25 +32,6 @@ export const getXPos = (event: ReactInteractEvent | InteractEvent): number => {
         return event?.clientX
     }
     return 0
-}
-
-// Determines whether a given PlayerList row should be expanded or not.
-//
-// Checks if the row should be expanded depending on the expandable prop that was passed into the component,
-// and if it's undeterminable, defaults to the component's local state. This logic is copied over from
-// LemonTable and reappropriated for session recordings.
-export function getRowExpandedState<T extends Record<string, any>>(
-    record: T,
-    recordIndex: number,
-    expandable?: ExpandableConfig<T>,
-    isRowExpandedLocal: boolean = false
-): boolean {
-    return (
-        Number(!!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record, recordIndex))) > 0 &&
-        (!expandable?.isRowExpanded || expandable?.isRowExpanded?.(record, recordIndex) === -1
-            ? isRowExpandedLocal
-            : !!expandable?.isRowExpanded?.(record, recordIndex))
-    )
 }
 
 export async function addRecordingToPlaylist(

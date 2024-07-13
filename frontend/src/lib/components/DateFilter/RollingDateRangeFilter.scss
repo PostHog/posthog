@@ -7,12 +7,12 @@
     font-size: 0.875rem;
     font-weight: normal;
     line-height: 1.375em;
-    color: var(--default);
+    color: var(--text-3000);
     cursor: pointer;
     transition: background 0.3s ease;
 
     &:hover {
-        background-color: var(--mid);
+        background-color: var(--bg-3000);
     }
 
     input::-webkit-outer-spin-button,

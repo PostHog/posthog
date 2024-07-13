@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal, Optional, Union
 from dataclasses import dataclass, field
 
@@ -47,7 +47,7 @@ class Statement(Declaration):
 
 @dataclass(kw_only=True)
 class ExprStatement(Statement):
-    expr: Expr
+    expr: Optional[Expr]
 
 
 @dataclass(kw_only=True)
@@ -64,6 +64,22 @@ class IfStatement(Statement):
 
 @dataclass(kw_only=True)
 class WhileStatement(Statement):
+    expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class ForStatement(Statement):
+    initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
+    condition: Optional[Expr]
+    increment: Optional[Expr]
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class ForInStatement(Statement):
+    keyVar: Optional[str]
+    valueVar: str
     expr: Expr
     body: Statement
 
@@ -136,7 +152,9 @@ class BaseTableType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+                return ExpressionFieldType(
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
+                )
             return FieldType(name=name, table_type=self)
         raise QueryError(f"Field not found: {name}")
 
@@ -287,7 +305,9 @@ class SelectViewType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+                return ExpressionFieldType(
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
+                )
             return FieldType(name=name, table_type=self)
         raise ResolutionError(f"Field {name} not found on view query with name {self.view_name}")
 
@@ -386,7 +406,7 @@ class UUIDType(ConstantType):
 @dataclass(kw_only=True)
 class ArrayType(ConstantType):
     data_type: ConstantDataType = field(default="array", init=False)
-    item_type: ConstantType = UnknownType()
+    item_type: ConstantType = field(default_factory=UnknownType)
 
     def print_type(self) -> str:
         return "Array"
@@ -435,6 +455,8 @@ class ExpressionFieldType(Type):
     name: str
     expr: Expr
     table_type: TableOrSelectType
+    # Pushes the parent table type to the scope when resolving any child fields
+    isolate_scope: bool = False
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         if self.expr.type is not None:
@@ -546,7 +568,7 @@ class Alias(Expr):
     hidden: bool = False
 
 
-class ArithmeticOperationOp(str, Enum):
+class ArithmeticOperationOp(StrEnum):
     Add = "+"
     Sub = "-"
     Mult = "*"
@@ -573,7 +595,7 @@ class Or(Expr):
     type: Optional[ConstantType] = None
 
 
-class CompareOperationOp(str, Enum):
+class CompareOperationOp(StrEnum):
     Eq = "=="
     NotEq = "!="
     Gt = ">"
@@ -620,6 +642,7 @@ class OrderExpr(Expr):
 class ArrayAccess(Expr):
     array: Expr
     property: Expr
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)
@@ -636,6 +659,7 @@ class Dict(Expr):
 class TupleAccess(Expr):
     tuple: Expr
     index: int
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)

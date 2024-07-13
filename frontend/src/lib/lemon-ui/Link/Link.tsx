@@ -132,7 +132,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
         const href = to
             ? typeof to === 'string'
-                ? isDirectLink(to)
+                ? isDirectLink(to) || disableClientSideRouting
                     ? to
                     : addProjectIdIfMissing(to)
                 : '#'

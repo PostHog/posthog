@@ -14,7 +14,6 @@ from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import (
     get_instance_setting,
-    override_instance_config,
 )
 from posthog.models.organization import Organization
 from posthog.models.property import Property, TableWithProperties
@@ -1037,38 +1036,6 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
 
-    def test_get_property_string_expr_groups(self):
-        if not get_instance_setting("GROUPS_ON_EVENTS_ENABLED"):
-            return
-
-        materialize("events", "some_mat_prop3", table_column="group2_properties")
-
-        string_expr = get_property_string_expr(
-            "events",
-            "some_mat_prop3",
-            "x",
-            "properties",
-            table_alias="e",
-            materialised_table_column="group2_properties",
-        )
-        self.assertEqual(string_expr, ('e."mat_gp2_some_mat_prop3"', True))
-
-        string_expr = get_property_string_expr(
-            "events",
-            "some_mat_prop3",
-            "'x'",
-            "gp_props_alias",
-            table_alias="e",
-            materialised_table_column="group1_properties",
-        )
-        self.assertEqual(
-            string_expr,
-            (
-                "replaceRegexpAll(JSONExtractRaw(e.gp_props_alias, 'x'), '^\"|\"$', '')",
-                False,
-            ),
-        )
-
 
 @pytest.mark.django_db
 def test_parse_prop_clauses_defaults(snapshot):
@@ -1255,22 +1222,7 @@ TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
             {"breakdown_param_1": "$browser"},
         ),
         ('array("mat_pp_$browser") AS value', {"breakdown_param_1": "$browser"}),
-    ),
-    (
-        ["$browser", "$browser_version"],
-        "events",
-        "prop",
-        "properties",
-        "group2_properties",
-        (
-            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop",
-            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
-        ),
-        (
-            """array("mat_gp2_$browser",replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop""",
-            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
-        ),
-    ),
+    )
 ]
 
 
@@ -1289,31 +1241,30 @@ def test_breakdown_query_expression_materialised(
     expected_with: str,
     expected_without: str,
 ):
-    with override_instance_config("GROUPS_ON_EVENTS_ENABLED", True):
-        from posthog.models.team import util
+    from posthog.models.team import util
 
-        util.can_enable_actor_on_events = True
+    util.can_enable_actor_on_events = True
 
-        materialize(table, breakdown[0], table_column="properties")
-        actual = get_single_or_multi_property_string_expr(
-            breakdown,
-            table,
-            query_alias,
-            column,
-            materialised_table_column=materialise_column,
-        )
-        assert actual == expected_with
+    materialize(table, breakdown[0], table_column="properties")
+    actual = get_single_or_multi_property_string_expr(
+        breakdown,
+        table,
+        query_alias,
+        column,
+        materialised_table_column=materialise_column,
+    )
+    assert actual == expected_with
 
-        materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
-        actual = get_single_or_multi_property_string_expr(
-            breakdown,
-            table,
-            query_alias,
-            column,
-            materialised_table_column=materialise_column,
-        )
+    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+    actual = get_single_or_multi_property_string_expr(
+        breakdown,
+        table,
+        query_alias,
+        column,
+        materialised_table_column=materialise_column,
+    )
 
-        assert actual == expected_without
+    assert actual == expected_without
 
 
 @pytest.fixture

@@ -6,17 +6,17 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
-from posthog.warehouse.data_load.service import get_sync_schedule
 from django.test import override_settings
 from django.conf import settings
 from posthog.models import Team
 import psycopg
 from rest_framework import status
 
-import datetime
+
+from posthog.warehouse.models.external_data_job import ExternalDataJob
 
 
-class TestSavedQuery(APIBaseTest):
+class TestExternalDataSource(APIBaseTest):
     def _create_external_data_source(self) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -38,8 +38,22 @@ class TestSavedQuery(APIBaseTest):
 
     def test_create_external_data_source(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}},
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
         )
         payload = response.json()
 
@@ -50,20 +64,80 @@ class TestSavedQuery(APIBaseTest):
             len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE]),
         )
 
+    def test_create_external_data_source_delete_on_missing_schemas(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": False,
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert ExternalDataSource.objects.count() == 0
+
+    def test_create_external_data_source_delete_on_bad_schema(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert ExternalDataSource.objects.count() == 0
+
     def test_prefix_external_data_source(self):
         # Create no prefix
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}},
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
         )
         self.assertEqual(response.status_code, 201)
 
         # Try to create same type without prefix again
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}},
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
         )
 
         self.assertEqual(response.status_code, 400)
@@ -71,26 +145,233 @@ class TestSavedQuery(APIBaseTest):
 
         # Create with prefix
         response = self.client.post(
-            f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}, "prefix": "test_"},
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+                "prefix": "test_",
+            },
         )
 
         self.assertEqual(response.status_code, 201)
 
         # Try to create same type with same prefix again
         response = self.client.post(
-            f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}, "prefix": "test_"},
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Customer", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Product", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Price", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Invoice", "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": "Charge", "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+                "prefix": "test_",
+            },
         )
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"message": "Prefix already exists"})
 
+    def test_create_external_data_source_incremental(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {
+                            "name": "BalanceTransaction",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Subscription",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Customer",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Product",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Price",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Invoice",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Charge",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+
+    def test_create_external_data_source_incremental_missing_field(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {
+                            "name": "BalanceTransaction",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Subscription",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Customer",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Product",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Price",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Invoice",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field_type": "integer",
+                        },
+                        {
+                            "name": "Charge",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field_type": "integer",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert len(ExternalDataSource.objects.all()) == 0
+
+    def test_create_external_data_source_incremental_missing_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "client_secret": "sk_test_123",
+                    "schemas": [
+                        {
+                            "name": "BalanceTransaction",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                        },
+                        {
+                            "name": "Subscription",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                        },
+                        {
+                            "name": "Customer",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                        },
+                        {
+                            "name": "Product",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                        },
+                        {
+                            "name": "Price",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                        },
+                        {
+                            "name": "Invoice",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                        },
+                        {
+                            "name": "Charge",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert len(ExternalDataSource.objects.all()) == 0
+
     def test_list_external_data_source(self):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/external_data_sources/")
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
@@ -100,7 +381,7 @@ class TestSavedQuery(APIBaseTest):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/external_data_sources/{source.pk}")
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
@@ -115,7 +396,6 @@ class TestSavedQuery(APIBaseTest):
                 "prefix",
                 "last_run_at",
                 "schemas",
-                "sync_frequency",
             ],
         )
         self.assertEqual(
@@ -124,12 +404,16 @@ class TestSavedQuery(APIBaseTest):
                 {
                     "id": str(schema.pk),
                     "incremental": False,
+                    "incremental_field": None,
+                    "incremental_field_type": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "should_sync": schema.should_sync,
                     "latest_error": schema.latest_error,
                     "status": schema.status,
+                    "sync_type": schema.sync_type,
                     "table": schema.table,
+                    "sync_frequency": schema.sync_frequency,
                 }
             ],
         )
@@ -138,7 +422,7 @@ class TestSavedQuery(APIBaseTest):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
 
-        response = self.client.delete(f"/api/projects/{self.team.id}/external_data_sources/{source.pk}")
+        response = self.client.delete(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}")
 
         self.assertEqual(response.status_code, 204)
 
@@ -150,7 +434,7 @@ class TestSavedQuery(APIBaseTest):
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
 
-        response = self.client.post(f"/api/projects/{self.team.id}/external_data_sources/{source.pk}/reload/")
+        response = self.client.post(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/reload/")
 
         source.refresh_from_db()
 
@@ -180,7 +464,7 @@ class TestSavedQuery(APIBaseTest):
             postgres_connection.commit()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
+            f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
             data={
                 "source_type": "Postgres",
                 "host": settings.PG_HOST,
@@ -210,7 +494,7 @@ class TestSavedQuery(APIBaseTest):
 
     def test_database_schema_non_postgres_source(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
+            f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
             data={
                 "source_type": "Stripe",
             },
@@ -225,7 +509,7 @@ class TestSavedQuery(APIBaseTest):
 
     @patch("posthog.warehouse.api.external_data_source.get_postgres_schemas")
     def test_internal_postgres(self, patch_get_postgres_schemas):
-        patch_get_postgres_schemas.return_value = ["table_1"]
+        patch_get_postgres_schemas.return_value = {"table_1": [("id", "integer")]}
 
         with override_settings(CLOUD_DEPLOYMENT="US"):
             team_2, _ = Team.objects.get_or_create(id=2, organization=self.team.organization)
@@ -241,13 +525,22 @@ class TestSavedQuery(APIBaseTest):
                     "schema": "public",
                 },
             )
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), [{"should_sync": True, "table": "table_1"}])
+            assert response.status_code == 200
+            assert response.json() == [
+                {
+                    "table": "table_1",
+                    "should_sync": False,
+                    "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+                    "incremental_available": True,
+                    "incremental_field": "id",
+                    "sync_type": None,
+                }
+            ]
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
             response = self.client.post(
-                f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
+                f"/api/projects/{new_team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
@@ -275,13 +568,23 @@ class TestSavedQuery(APIBaseTest):
                     "schema": "public",
                 },
             )
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), [{"should_sync": True, "table": "table_1"}])
+
+            assert response.status_code == 200
+            assert response.json() == [
+                {
+                    "table": "table_1",
+                    "should_sync": False,
+                    "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
+                    "incremental_available": True,
+                    "incremental_field": "id",
+                    "sync_type": None,
+                }
+            ]
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
             response = self.client.post(
-                f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
+                f"/api/projects/{new_team.pk}/external_data_sources/database_schema/",
                 data={
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
@@ -295,35 +598,22 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
 
-    @patch("posthog.warehouse.data_load.service.sync_external_data_job_workflow")
-    def test_update_source_sync_frequency(self, _patch_sync_external_data_job_workflow):
+    def test_source_jobs(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-
-        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.DAILY)
-        # test schedule
-        schedule = get_sync_schedule(schema)
-        self.assertEqual(
-            schedule.spec.intervals[0].every,
-            datetime.timedelta(days=1),
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=100
         )
 
-        # test api
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/external_data_sources/{source.pk}/",
-            data={"sync_frequency": ExternalDataSource.SyncFrequency.WEEKLY},
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        source.refresh_from_db()
-        schema.refresh_from_db()
+        data = response.json()
 
-        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.WEEKLY)
-        self.assertEqual(_patch_sync_external_data_job_workflow.call_count, 1)
-
-        # test schedule
-        schedule = get_sync_schedule(schema)
-        self.assertEqual(
-            schedule.spec.intervals[0].every,
-            datetime.timedelta(days=7),
-        )
+        assert response.status_code, status.HTTP_200_OK
+        assert len(data) == 1
+        assert data[0]["id"] == str(job.pk)
+        assert data[0]["status"] == "Completed"
+        assert data[0]["rows_synced"] == 100
+        assert data[0]["schema"]["id"] == str(schema.pk)

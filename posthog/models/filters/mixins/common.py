@@ -48,6 +48,7 @@ from posthog.constants import (
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
     BREAKDOWN_HIDE_OTHER_AGGREGATION,
+    COMPARE_TO,
 )
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.models.entity import Entity, ExclusionEntity, MathType
@@ -343,6 +344,15 @@ class CompareMixin(BaseParamMixin):
     @include_dict
     def compare_to_dict(self):
         return {"compare": self.compare} if self.compare else {}
+
+    @cached_property
+    def compare_to(self) -> bool:
+        _compare_to = self._data.get(COMPARE_TO, None)
+        return _compare_to
+
+    @include_dict
+    def compare_to_to_dict(self):
+        return {"compare_to": self.compare_to} if self.compare_to else {}
 
 
 class DateMixin(BaseParamMixin):

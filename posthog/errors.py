@@ -399,7 +399,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     383: ErrorCodeMeta("CANNOT_APPLY_CATBOOST_MODEL"),
     384: ErrorCodeMeta("PART_IS_TEMPORARILY_LOCKED"),
     385: ErrorCodeMeta("MULTIPLE_STREAMS_REQUIRED"),
-    386: ErrorCodeMeta("NO_COMMON_TYPE"),
+    386: ErrorCodeMeta("NO_COMMON_TYPE", user_safe=True),
     387: ErrorCodeMeta("DICTIONARY_ALREADY_EXISTS"),
     388: ErrorCodeMeta("CANNOT_ASSIGN_OPTIMIZE"),
     389: ErrorCodeMeta("INSERT_WAS_DEDUPLICATED"),

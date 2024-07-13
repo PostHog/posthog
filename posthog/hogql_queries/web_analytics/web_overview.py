@@ -42,24 +42,21 @@ SELECT
 FROM (
     SELECT
         any(events.person_id) as person_id,
-        events.`$session_id` as session_id,
-        min(sessions.$start_timestamp) as start_timestamp,
-        any(sessions.$session_duration) as session_duration,
+        session.session_id as session_id,
+        min(session.$start_timestamp) as start_timestamp,
+        any(session.$session_duration) as session_duration,
         count() as filtered_pageview_count,
-        any(sessions.$is_bounce) as is_bounce
-
+        any(session.$is_bounce) as is_bounce
     FROM events
-    JOIN sessions
-    ON events.`$session_id` = sessions.session_id
     WHERE and(
-        `$session_id` IS NOT NULL,
+        events.`$session_id` IS NOT NULL,
         event = '$pageview',
         timestamp >= {start},
         timestamp < {end},
         {event_properties},
         {session_properties}
     )
-    GROUP BY `$session_id`
+    GROUP BY session_id
     HAVING and(
         start_timestamp >= {start},
         start_timestamp < {end}
@@ -92,26 +89,24 @@ FROM (
 FROM (
     SELECT
         any(events.person_id) as person_id,
-        events.`$session_id` as session_id,
-        min(sessions.$start_timestamp) as $start_timestamp,
-        any(sessions.$session_duration) as session_duration,
+        session.session_id as session_id,
+        min(session.$start_timestamp) as start_timestamp,
+        any(session.$session_duration) as session_duration,
         count() as filtered_pageview_count,
-        any(sessions.$is_bounce) as is_bounce
+        any(session.$is_bounce) as is_bounce
     FROM events
-    JOIN sessions
-    ON events.`$session_id` = sessions.session_id
     WHERE and(
-        `$session_id` IS NOT NULL,
+        events.`$session_id` IS NOT NULL,
         event = '$pageview',
         timestamp >= {mid},
         timestamp < {end},
         {event_properties},
         {session_properties}
     )
-    GROUP BY `$session_id`
+    GROUP BY session_id
     HAVING and(
-        $start_timestamp >= {mid},
-        $start_timestamp < {end}
+        start_timestamp >= {mid},
+        start_timestamp < {end}
     )
 )
                 """,
@@ -173,7 +168,7 @@ FROM (
         properties = [
             p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
         ]
-        return property_to_expr(properties, team=self.team, scope="session")
+        return property_to_expr(properties, team=self.team, scope="event")
 
 
 def to_data(

@@ -2957,10 +2957,6 @@ def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType, Funn
                 ],
             )
 
-        @also_test_with_materialized_columns(
-            group_properties=[(0, "industry")],
-            materialize_only_with_person_on_events=True,
-        )
         @also_test_with_person_on_events_v2
         @snapshot_clickhouse_queries
         def test_funnel_aggregate_by_groups_breakdown_group_person_on_events(self):

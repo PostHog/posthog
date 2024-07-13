@@ -15,7 +15,13 @@ export function OrganizationDisplayName(): JSX.Element {
 
     return (
         <div className="max-w-160">
-            <LemonInput className="mb-4" value={name} onChange={setName} disabled={isRestricted} />
+            <LemonInput
+                className="mb-4"
+                value={name}
+                onChange={setName}
+                disabled={isRestricted}
+                data-attr="organization-name-input-settings"
+            />
             <LemonButton
                 type="primary"
                 onClick={(e) => {

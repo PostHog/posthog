@@ -3,11 +3,13 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ManualLinkSourceType } from '~/types'
+
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
-import { ManualLinkProvider, sourceWizardLogic } from './sourceWizardLogic'
+import { sourceWizardLogic } from './sourceWizardLogic'
 
 const ProviderMappings: Record<
-    ManualLinkProvider,
+    ManualLinkSourceType,
     {
         fileUrlPatternPlaceholder: string
         accessKeyPlaceholder: string
@@ -81,6 +83,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                         options={[
                             { label: 'Parquet (recommended)', value: 'Parquet' },
                             { label: 'CSV', value: 'CSV' },
+                            { label: 'CSV with headers', value: 'CSVWithNames' },
                             { label: 'JSON', value: 'JSONEachRow' },
                         ]}
                     />

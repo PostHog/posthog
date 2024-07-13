@@ -1,5 +1,4 @@
 from dataclasses import asdict, dataclass
-import json
 from typing import Literal, Optional, Union, get_args
 
 from django.db import models
@@ -9,7 +8,7 @@ from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.models.signals import mutable_receiver
-from posthog.redis import get_client
+from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
 
 
 ActionStepMatching = Literal["contains", "regex", "exact"]
@@ -42,7 +41,7 @@ class Action(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
-    slack_message_format: models.CharField = models.CharField(default="", max_length=600, blank=True)
+    slack_message_format: models.CharField = models.CharField(default="", max_length=1200, blank=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     bytecode: models.JSONField = models.JSONField(null=True, blank=True)
     bytecode_error: models.TextField = models.TextField(blank=True, null=True)
@@ -54,6 +53,10 @@ class Action(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        self.refresh_bytecode()
+        super().save(*args, **kwargs)
 
     def get_analytics_metadata(self):
         return {
@@ -98,19 +101,12 @@ class Action(models.Model):
                 self.bytecode = None
                 self.bytecode_error = str(e)
 
-    def save(self, *args, **kwargs):
-        self.refresh_bytecode()
-        super().save(*args, **kwargs)
-
 
 @receiver(post_save, sender=Action)
 def action_saved(sender, instance: Action, created, **kwargs):
-    get_client().publish(
-        "reload-action",
-        json.dumps({"teamId": instance.team_id, "actionId": instance.id}),
-    )
+    reload_action_on_workers(team_id=instance.team_id, action_id=instance.id)
 
 
 @mutable_receiver(post_delete, sender=Action)
 def action_deleted(sender, instance: Action, **kwargs):
-    get_client().publish("drop-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
+    drop_action_on_workers(team_id=instance.team_id, action_id=instance.id)

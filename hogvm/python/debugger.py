@@ -35,17 +35,12 @@ def debugger(symbol: Any, bytecode: list, colored_bytecode: list, ip: int, stack
     rows = 2 if rows < 2 else rows
     rows_from_top = 2 if rows > 2 else 0
 
-    start_ip = ip - rows_from_top if ip > rows_from_top else 0
-    end_ip = len(bytecode) if start_ip + rows > len(bytecode) else (start_ip + rows)
-    for i, op in enumerate(bytecode[start_ip:end_ip], start=start_ip):
-        if i == 0 or (colored_bytecode[i] or "").startswith("op."):
-            line = f"{colored_bytecode[i]}"
-        else:
-            line = f"    {colored_bytecode[i]}: {op}"
-        if i == ip:
-            print(f"> {i}: {line}")  # noqa: T201
-        else:
-            print(f"  {i}: {line}")  # noqa: T201
+    start_ip = max(ip - rows_from_top, 0)
+    end_ip = min(start_ip + rows, len(bytecode))
+    for i in range(start_ip, end_ip):
+        prefix = "> " if i == ip else "  "
+        postfix = "" if colored_bytecode[i].startswith("op.") else "    "
+        print(f"{prefix}{i}: {postfix}{colored_bytecode[i]}")  # noqa: T201
 
     global debug_speed
     if debug_speed < 0:
@@ -167,17 +162,17 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
 
 
 def color_bytecode(bytecode: list) -> list:
-    colored = ["START"]
+    colored = ["op.START"]
     ip = 1
     while ip < len(bytecode):
         symbol = bytecode[ip]
         match symbol:
             case Operation.STRING:
-                add = ["op.STRING", "string"]
+                add = ["op.STRING", f"string: {bytecode[ip+1]}"]
             case Operation.INTEGER:
-                add = ["op.INTEGER", "integer"]
+                add = ["op.INTEGER", f"integer: {bytecode[ip+1]}"]
             case Operation.FLOAT:
-                add = ["op.FLOAT", "float"]
+                add = ["op.FLOAT", f"float: {bytecode[ip+1]}"]
             case Operation.TRUE:
                 add = ["op.TRUE"]
             case Operation.FALSE:
@@ -187,9 +182,9 @@ def color_bytecode(bytecode: list) -> list:
             case Operation.NOT:
                 add = ["op.NOT"]
             case Operation.AND:
-                add = ["op.AND", "expr count"]
+                add = ["op.AND", f"expr count: {bytecode[ip+1]}"]
             case Operation.OR:
-                add = ["op.OR", "expr count"]
+                add = ["op.OR", f"expr count: {bytecode[ip+1]}"]
             case Operation.PLUS:
                 add = ["op.PLUS"]
             case Operation.MINUS:
@@ -235,33 +230,33 @@ def color_bytecode(bytecode: list) -> list:
             case Operation.NOT_IN_COHORT:
                 add = ["op.NOT_IN_COHORT"]
             case Operation.GET_GLOBAL:
-                add = ["op.GET_GLOBAL", "field count"]
+                add = ["op.GET_GLOBAL", f"field count: {bytecode[ip+1]}"]
             case Operation.POP:
                 add = ["op.POP"]
             case Operation.RETURN:
                 add = ["op.RETURN"]
             case Operation.GET_LOCAL:
-                add = ["op.GET_LOCAL", "index"]
+                add = ["op.GET_LOCAL", f"index: {bytecode[ip+1]}"]
             case Operation.SET_LOCAL:
-                add = ["op.SET_LOCAL", "index"]
+                add = ["op.SET_LOCAL", f"index: {bytecode[ip+1]}"]
             case Operation.GET_PROPERTY:
                 add = ["op.GET_PROPERTY"]
             case Operation.SET_PROPERTY:
                 add = ["op.SET_PROPERTY"]
             case Operation.DICT:
-                add = ["op.DICT", "key count"]
+                add = ["op.DICT", f"key count: {bytecode[ip+1]}"]
             case Operation.ARRAY:
-                add = ["op.ARRAY", "element count"]
+                add = ["op.ARRAY", f"element count: {bytecode[ip+1]}"]
             case Operation.TUPLE:
-                add = ["op.TUPLE", "element count"]
+                add = ["op.TUPLE", f"element count: {bytecode[ip+1]}"]
             case Operation.JUMP:
-                add = ["op.JUMP", "offset"]
+                add = ["op.JUMP", f"offset: {bytecode[ip+1]}"]
             case Operation.JUMP_IF_FALSE:
-                add = ["op.JUMP_IF_FALSE", "offset"]
+                add = ["op.JUMP_IF_FALSE", f"offset: {bytecode[ip+1]}"]
             case Operation.DECLARE_FN:
-                add = ["op.DECLARE_FN", "name", "args", "ops"]
+                add = ["op.DECLARE_FN", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
             case Operation.CALL:
-                add = ["op.CALL", "name", "args"]
+                add = ["op.CALL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
             case _:
                 add = ["ERROR"]
         colored.extend(add)

@@ -33,8 +33,13 @@ def update_external_job_status(run_id: UUID, team_id: int, status: str, latest_e
     model.latest_error = latest_error
     model.save()
 
+    if status == ExternalDataJob.Status.FAILED:
+        schema_status = ExternalDataSchema.Status.ERROR
+    else:
+        schema_status = status
+
     schema = ExternalDataSchema.objects.get(id=model.schema_id, team_id=team_id)
-    schema.status = status
+    schema.status = schema_status
     schema.save()
 
     model.refresh_from_db()

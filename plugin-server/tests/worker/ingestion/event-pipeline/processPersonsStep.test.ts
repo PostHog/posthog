@@ -8,7 +8,7 @@ import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipel
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase } from '../../../helpers/sql'
 
-describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
+describe('processPersonsStep()', () => {
     let runner: any
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -24,7 +24,6 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
         runner = {
             nextStep: (...args: any[]) => args,
             hub: hub,
-            poEEmbraceJoin: poEEmbraceJoin,
         }
         const organizationId = await createOrganization(runner.hub.db.postgres)
         teamId = await createTeam(runner.hub.db.postgres, organizationId)
