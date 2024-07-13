@@ -93,6 +93,7 @@ export enum AvailableFeature {
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
     SURVEYS_EVENTS = 'surveys_events',
+    SURVEYS_ACTIONS = 'surveys_actions',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -2590,6 +2591,12 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        actions: {
+            values: {
+                id: number
+                name: string
+            }[]
+        } | null
         events: {
             repeatedActivation?: boolean
             values: {
