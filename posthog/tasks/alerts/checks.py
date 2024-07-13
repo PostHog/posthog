@@ -1,8 +1,9 @@
-import structlog
 from celery import shared_task
 from celery.canvas import group, chain
 from django.utils import timezone
 import math
+import structlog
+from typing import Any
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -78,7 +79,7 @@ def check_all_alerts_task() -> None:
 # Note, check_alert_task is used in Celery chains. Celery chains pass the previous
 # function call result to the next function as an argument, hence args and kwargs.
 @shared_task(ignore_result=True)
-def check_alert_task(*args, **kwargs) -> None:
+def check_alert_task(*args: Any, **kwargs: Any) -> None:
     check_alert(**kwargs)
 
 
