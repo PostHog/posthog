@@ -383,25 +383,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 snapshotsLoaded,
                 snapshotsLoading
             ) => {
-                if (isScrubbing) {
-                    // If scrubbing, playingState takes precedence
-                    return playingState
+                switch (true) {
+                    case isScrubbing:
+                        // If scrubbing, playingState takes precedence
+                        return playingState
+                    case !snapshotsLoaded && !snapshotsLoading:
+                        return SessionPlayerState.READY
+                    case isErrored:
+                        return SessionPlayerState.ERROR
+                    case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
+                        return SessionPlayerState.SKIP
+                    case isBuffering:
+                        return SessionPlayerState.BUFFER
+                    default:
+                        return playingState
                 }
-
-                if (!snapshotsLoaded && !snapshotsLoading) {
-                    return SessionPlayerState.READY
-                }
-                if (isErrored) {
-                    return SessionPlayerState.ERROR
-                }
-                if (isBuffering) {
-                    return SessionPlayerState.BUFFER
-                }
-                if (isSkippingInactivity && playingState !== SessionPlayerState.PAUSE) {
-                    return SessionPlayerState.SKIP
-                }
-
-                return playingState
             },
         ],
 
@@ -779,9 +775,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setCurrentSegment(segment)
             }
 
-            if (!values.snapshotsLoaded || values.isRealtimePolling) {
+            if (!values.snapshotsLoaded) {
                 // We haven't started properly loading, or we're still polling so nothing to do
-            } else if (!values.snapshotsLoading && segment?.kind === 'buffer') {
+            } else if (!values.isRealtimePolling && !values.snapshotsLoading && segment?.kind === 'buffer') {
                 // If not currently loading anything,
                 // and part of the recording hasn't loaded, set error state
                 values.player?.replayer?.pause()
