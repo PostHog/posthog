@@ -343,6 +343,7 @@ function getPreposition(field: string): string {
         case 'archived':
         case 'start_date':
         case 'end_date':
+            return ''
         default:
             return 'of'
     }
