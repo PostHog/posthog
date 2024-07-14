@@ -1,4 +1,5 @@
 from unittest import mock
+from copy import deepcopy
 
 from rest_framework import status
 
@@ -10,10 +11,16 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
         self.default_insight_data = {
-            "filters": {
-                "events": [{"id": "$pageview"}],
-                "display": "BoldNumber",
-            }
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    }
+                ],
+                "trendsFilter": {"display": "BoldNumber"},
+            },
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
@@ -82,22 +89,21 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
 
+        updated_insight = deepcopy(self.default_insight_data)
+        updated_insight["query"]["series"][0]["event"] = "$anotherEvent"
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
-            data={"filters": {"events": [{"id": "$anotherEvent"}], "display": "BoldNumber"}},
+            data=updated_insight,
         ).json()
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
+        insight_without_alert_support = deepcopy(self.default_insight_data)
+        insight_without_alert_support["query"]["trendsFilter"]["display"] = "ActionsLineGraph"
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
-            data={
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "display": "ActionsLineGraph",
-                }
-            },
+            data=insight_without_alert_support,
         ).json()
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")

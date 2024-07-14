@@ -2,19 +2,22 @@ import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { alertDeletionWarningLogic } from './alertDeletionWarningLogic'
+import { alertsLogic } from './alertsLogic'
 
 export function AlertDeletionWarning(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { shouldShow } = useValues(alertDeletionWarningLogic(insightProps))
+    const { insightProps, queryBasedInsight: insight } = useValues(insightLogic)
+    const { shouldShowDeletionWarning } = useValues(
+        alertsLogic({ insightShortId: insight.short_id, insightLogicProps: insightProps })
+    )
 
-    if (!shouldShow) {
+    if (!shouldShowDeletionWarning) {
         return null
     }
 
     return (
         <LemonBanner type="warning" className="mb-4">
-            The new version of the insight doesn't support alerts, so the existing alerts will be deleted.
+            There are alerts set up for the insight. The selected chart type of the insight doesn't support alerts, so
+            the existing alerts will be deleted when you save.
         </LemonBanner>
     )
 }

@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { InsightShortId, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { areAlertsSupportedForInsight } from './alertsLogic'
 import { EditAlert } from './views/EditAlert'
@@ -19,10 +19,11 @@ export interface AlertsModalProps {
     closeModal: () => void
     alertId: number | 'new' | null
     insightShortId: InsightShortId
+    insightLogicProps: InsightLogicProps
 }
 
 export function AlertsModal(props: AlertsModalProps): JSX.Element {
-    const { closeModal, insightShortId, alertId, isOpen } = props
+    const { closeModal, insightShortId, insightLogicProps, alertId, isOpen } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
 
@@ -34,6 +35,7 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
             {!alertId ? (
                 <ManageAlerts
                     insightShortId={insightShortId}
+                    insightLogicProps={insightLogicProps}
                     onCancel={closeModal}
                     onSelect={(id) => push(urls.alert(insightShortId, id.toString()))}
                 />
@@ -41,6 +43,7 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
                 <EditAlert
                     id={alertId}
                     insightShortId={insightShortId}
+                    insightLogicProps={insightLogicProps}
                     onCancel={() => push(urls.alerts(insightShortId))}
                     onDelete={() => push(urls.alerts(insightShortId))}
                 />

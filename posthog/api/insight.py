@@ -75,7 +75,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.alert import Alert, are_alerts_supported_for_insight
+from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -363,6 +363,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return insight
 
+    @transaction.atomic()
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
         dashboards_before_change: list[Union[str, dict]] = []
         try:
@@ -394,10 +395,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
 
-        with transaction.atomic():
-            updated_insight = super().update(instance, validated_data)
-            if not are_alerts_supported_for_insight(updated_insight):
-                Alert.objects.filter(insight__id=instance.id).delete()
+        updated_insight = super().update(instance, validated_data)
+        if not are_alerts_supported_for_insight(updated_insight):
+            instance.alert_set.all().delete()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
@@ -419,18 +419,17 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
         changes = detected_changes + synthetic_dashboard_changes
 
-        with transaction.atomic():
-            log_insight_activity(
-                activity="updated",
-                insight=updated_insight,
-                insight_id=updated_insight.id,
-                insight_short_id=updated_insight.short_id,
-                organization_id=self.context["request"].user.current_organization_id,
-                team_id=self.context["team_id"],
-                user=self.context["request"].user,
-                was_impersonated=is_impersonated_session(self.context["request"]),
-                changes=changes,
-            )
+        log_insight_activity(
+            activity="updated",
+            insight=updated_insight,
+            insight_id=updated_insight.id,
+            insight_short_id=updated_insight.short_id,
+            organization_id=self.context["request"].user.current_organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
+            changes=changes,
+        )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
         artificial_dashboard_changes = self.context.get("after_dashboard_changes", [])

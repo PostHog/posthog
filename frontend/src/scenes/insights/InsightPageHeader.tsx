@@ -91,6 +91,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         isOpen={insightMode === ItemMode.Alerts}
                         closeModal={() => push(urls.insightView(insight.short_id))}
                         insightShortId={insight.short_id}
+                        insightLogicProps={insightLogicProps}
                         alertId={subscriptionId}
                     />
                     <NewDashboardModal />
