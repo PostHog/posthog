@@ -755,27 +755,30 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         start: [
-            (s) => [s.snapshots],
-            (snapshots): Dayjs | null => {
-                // we don't base start time from the event metadata
-                // event ingestion is much faster than replay ingestion,
-                // so we only want to report on the loaded recording data
-                // as we load data this will update
-                // and may catch up with the event end time
-                return snapshots?.[0] ? dayjs(snapshots[0].timestamp) : null
+            (s) => [s.snapshots, s.sessionPlayerMetaData],
+            (snapshots, meta): Dayjs | null => {
+                const eventStart = meta?.start_time ? dayjs(meta.start_time) : null
+                const snapshotStart = snapshots?.[0] ? dayjs(snapshots[0].timestamp) : null
+
+                // whichever is earliest
+                if (eventStart && snapshotStart) {
+                    return eventStart.isBefore(snapshotStart) ? eventStart : snapshotStart
+                }
+                return eventStart || snapshotStart
             },
         ],
 
         end: [
-            (s) => [s.snapshots],
-            (snapshots): Dayjs | null => {
-                // we don't base end time from the event metadata
-                // event ingestion is much faster than replay ingestion,
-                // so we only want to report on the loaded recording data
-                // as we load data this will update
-                // and may catch up with the event end time
-                const lastEvent = snapshots?.slice(-1)[0]
-                return lastEvent?.timestamp ? dayjs(lastEvent.timestamp) : null
+            (s) => [s.snapshots, s.sessionPlayerMetaData],
+            (snapshots, meta): Dayjs | null => {
+                const eventEnd = meta?.end_time ? dayjs(meta.end_time) : null
+                const snapshotEnd = snapshots?.slice(-1)[0] ? dayjs(snapshots?.slice(-1)[0].timestamp) : null
+
+                // whichever is latest
+                if (eventEnd && snapshotEnd) {
+                    return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
+                }
+                return eventEnd || snapshotEnd
             },
         ],
 
