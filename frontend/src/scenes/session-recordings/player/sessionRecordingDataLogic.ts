@@ -274,6 +274,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         persistRecording: true,
         maybePersistRecording: true,
         pollRealtimeSnapshots: true,
+        stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
     }),
     reducers(() => ({
@@ -287,6 +288,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {} as Partial<RecordingEventsFilters>,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        isRealtimePolling: [
+            false as boolean,
+            {
+                pollRealtimeSnapshots: () => true,
+                stopRealtimePolling: () => false,
             },
         ],
         isNotFound: [
@@ -621,6 +629,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.realTimePollingTimeoutID = setTimeout(() => {
                     actions.loadSnapshotsForSource({ source: SnapshotSourceType.realtime })
                 }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
+            } else {
+                actions.stopRealtimePolling()
             }
         },
         loadEventsSuccess: () => {
