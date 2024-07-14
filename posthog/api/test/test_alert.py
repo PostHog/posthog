@@ -1,5 +1,6 @@
 from unittest import mock
 from copy import deepcopy
+from typing import Any
 
 from rest_framework import status
 
@@ -10,7 +11,7 @@ from posthog.models.team import Team
 class TestAlert(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
-        self.default_insight_data = {
+        self.default_insight_data: dict[str, Any] = {
             "query": {
                 "kind": "TrendsQuery",
                 "series": [
@@ -97,7 +98,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         ).json()
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        # alerts should not be deleted if the new insight version supports alerts
+        assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
         insight_without_alert_support["query"]["trendsFilter"]["display"] = "ActionsLineGraph"

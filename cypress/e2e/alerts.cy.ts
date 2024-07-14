@@ -1,5 +1,5 @@
-import { createInsight } from '../productAnalytics'
 import { decideResponse } from '../fixtures/api/decide'
+import { createInsight } from '../productAnalytics'
 
 describe('Alerts', () => {
     beforeEach(() => {
@@ -67,7 +67,7 @@ describe('Alerts', () => {
         cy.contains('Alert name').should('not.exist')
     })
 
-    it.only('Should warn about an alert deletion', () => {
+    it('Should warn about an alert deletion', () => {
         setInsightDisplayTypeAndSave('Number')
 
         createAlert('Alert to be deleted because of a changed insight')

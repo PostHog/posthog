@@ -1,13 +1,12 @@
 from django.db import models
-from posthog.schema import ChartDisplayType, TrendsQuery
 from posthog.models.insight import Insight
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
     query = insight.query
-    if not isinstance(query, TrendsQuery):
+    if query.get("kind") != "TrendsQuery":
         return False
-    if not query.trendsFilter or query.trendsFilter.display != ChartDisplayType.BOLD_NUMBER:
+    if query.get("trendsFilter", {}).get("display") != "BoldNumber":
         return False
     return True
 

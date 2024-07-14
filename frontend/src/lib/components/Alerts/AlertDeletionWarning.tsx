@@ -6,11 +6,11 @@ import { alertsLogic } from './alertsLogic'
 
 export function AlertDeletionWarning(): JSX.Element | null {
     const { insightProps, queryBasedInsight: insight } = useValues(insightLogic)
-    const { shouldShowDeletionWarning } = useValues(
+    const { shouldShowAlertDeletionWarning } = useValues(
         alertsLogic({ insightShortId: insight.short_id, insightLogicProps: insightProps })
     )
 
-    if (!shouldShowDeletionWarning) {
+    if (!shouldShowAlertDeletionWarning) {
         return null
     }
 

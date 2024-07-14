@@ -20,11 +20,11 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
 
     const { alert, isAlertSubmitting, alertChanged } = useValues(logic)
     const { deleteAlert } = useActions(alertslogic)
-    const alertId = props.id
+    const id = props.id
 
     const _onDelete = (): void => {
-        if (alertId !== 'new') {
-            deleteAlert(alertId)
+        if (id !== 'new') {
+            deleteAlert(id)
             props.onDelete()
         }
     }
@@ -35,7 +35,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                 <div className="flex items-center gap-2">
                     <LemonButton icon={<IconChevronLeft />} onClick={props.onCancel} size="xsmall" />
 
-                    <h3>{alertId === 'new' ? 'New' : 'Edit '} Alert</h3>
+                    <h3>{id === 'new' ? 'New' : 'Edit '} Alert</h3>
                 </div>
             </LemonModal.Header>
 
@@ -74,7 +74,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {alert && alertId !== 'new' && (
+                    {alert && id !== 'new' && (
                         <LemonButton type="secondary" status="danger" onClick={_onDelete}>
                             Delete alert
                         </LemonButton>
@@ -84,7 +84,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                     Cancel
                 </LemonButton>
                 <LemonButton type="primary" htmlType="submit" loading={isAlertSubmitting} disabled={!alertChanged}>
-                    {alertId === 'new' ? 'Create alert' : 'Save'}
+                    {id === 'new' ? 'Create alert' : 'Save'}
                 </LemonButton>
             </LemonModal.Footer>
         </Form>

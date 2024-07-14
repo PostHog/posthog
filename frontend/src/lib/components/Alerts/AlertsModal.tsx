@@ -8,18 +8,16 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
-import { areAlertsSupportedForInsight } from './alertsLogic'
+import { AlertsLogicProps, areAlertsSupportedForInsight } from './alertsLogic'
 import { EditAlert } from './views/EditAlert'
 import { ManageAlerts } from './views/ManageAlerts'
 
-export interface AlertsModalProps {
+export interface AlertsModalProps extends AlertsLogicProps {
     isOpen: boolean
     closeModal: () => void
     alertId: number | 'new' | null
-    insightShortId: InsightShortId
-    insightLogicProps: InsightLogicProps
 }
 
 export function AlertsModal(props: AlertsModalProps): JSX.Element {

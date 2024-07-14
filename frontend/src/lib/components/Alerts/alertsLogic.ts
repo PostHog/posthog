@@ -30,7 +30,7 @@ export const alertsLogic = kea<alertsLogicType>([
     key(({ insightShortId }) => `insight-${insightShortId}`),
     actions({
         deleteAlert: (id: number) => ({ id }),
-        setShouldShowDeletionWarning: (show: boolean) => ({ show }),
+        setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
     }),
 
     connect((props: AlertsLogicProps) => ({
@@ -55,10 +55,10 @@ export const alertsLogic = kea<alertsLogicType>([
         alerts: {
             deleteAlert: (state, { id }) => state.filter((a) => a.id !== id),
         },
-        shouldShowDeletionWarning: [
+        shouldShowAlertDeletionWarning: [
             false,
             {
-                setShouldShowDeletionWarning: (_, { show }) => show,
+                setShouldShowAlertDeletionWarning: (_, { show }) => show,
             },
         ],
     }),
@@ -69,9 +69,9 @@ export const alertsLogic = kea<alertsLogicType>([
         },
         setQuery: ({ query }) => {
             if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
-                actions.setShouldShowDeletionWarning(false)
+                actions.setShouldShowAlertDeletionWarning(false)
             } else {
-                actions.setShouldShowDeletionWarning(true)
+                actions.setShouldShowAlertDeletionWarning(true)
             }
         },
     })),
