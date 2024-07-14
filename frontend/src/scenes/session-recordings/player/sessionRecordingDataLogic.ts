@@ -245,7 +245,10 @@ async function processEncodedResponse(
 }
 
 const getSourceKey = (source: SessionRecordingSnapshotSource): string => {
-    return `${source.source}-${source.blob_key}`
+    // realtime sources vary so blob_key is not always present and is either null or undefined...
+    // we only care about key when not realtime
+    // and we'll always have a key when not realtime
+    return `${source.source}-${source.blob_key || source.source}`
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -751,29 +754,52 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
 
+        firstSnapshot: [
+            (s) => [s.snapshots],
+            (snapshots): RecordingSnapshot | null => {
+                return snapshots[0] || null
+            },
+        ],
+
+        lastSnapshot: [
+            (s) => [s.snapshots],
+            (snapshots): RecordingSnapshot | null => {
+                return snapshots[snapshots.length - 1] || null
+            },
+        ],
+
         start: [
-            (s) => [s.sessionPlayerMetaData],
-            (meta): Dayjs | undefined => {
-                return meta?.start_time ? dayjs(meta.start_time) : undefined
+            (s) => [s.firstSnapshot, s.sessionPlayerMetaData],
+            (firstSnapshot, meta): Dayjs | null => {
+                const eventStart = meta?.start_time ? dayjs(meta.start_time) : null
+                const snapshotStart = firstSnapshot ? dayjs(firstSnapshot.timestamp) : null
+
+                // whichever is earliest
+                if (eventStart && snapshotStart) {
+                    return eventStart.isBefore(snapshotStart) ? eventStart : snapshotStart
+                }
+                return eventStart || snapshotStart
             },
         ],
 
         end: [
-            (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (meta, snapshots): Dayjs | undefined => {
-                // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
-                // either use the metadata end point or the last snapshot, whichever is later.
-                const end = meta?.end_time ? dayjs(meta.end_time) : undefined
-                const lastEvent = snapshots?.slice(-1)[0]
+            (s) => [s.lastSnapshot, s.sessionPlayerMetaData],
+            (lastSnapshot, meta): Dayjs | null => {
+                const eventEnd = meta?.end_time ? dayjs(meta.end_time) : null
+                const snapshotEnd = lastSnapshot ? dayjs(lastSnapshot.timestamp) : null
 
-                return lastEvent?.timestamp && lastEvent.timestamp > +(end ?? 0) ? dayjs(lastEvent.timestamp) : end
+                // whichever is latest
+                if (eventEnd && snapshotEnd) {
+                    return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
+                }
+                return eventEnd || snapshotEnd
             },
         ],
 
         durationMs: [
             (s) => [s.start, s.end],
             (start, end): number => {
-                return end?.diff(start) ?? 0
+                return !!start && !!end ? end.diff(start) : 0
             },
         ],
 
