@@ -4,7 +4,7 @@ from posthog.models.insight import Insight
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
     query = insight.query
-    if query.get("kind") != "TrendsQuery":
+    if query is None or query.get("kind") != "TrendsQuery":
         return False
     if query.get("trendsFilter", {}).get("display") != "BoldNumber":
         return False
