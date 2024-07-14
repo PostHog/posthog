@@ -30,7 +30,7 @@ class BackfillQuery:
     end_date: datetime
     use_offline_workload: bool
     team_id: Optional[int]
-    num_retries: int = 1
+    num_retries: int = 10
 
     def execute(
         self,
