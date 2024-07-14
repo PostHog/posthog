@@ -245,7 +245,10 @@ async function processEncodedResponse(
 }
 
 const getSourceKey = (source: SessionRecordingSnapshotSource): string => {
-    return `${source.source}-${source.blob_key}`
+    // realtime sources vary so blob_key is not always present and is either null or undefined...
+    // we only care about key when not realtime
+    // and we'll always have a key when not realtime
+    return `${source.source}-${source.blob_key || source.source}`
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -752,28 +755,34 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         start: [
-            (s) => [s.sessionPlayerMetaData],
-            (meta): Dayjs | undefined => {
-                return meta?.start_time ? dayjs(meta.start_time) : undefined
+            (s) => [s.snapshots],
+            (snapshots): Dayjs | null => {
+                // we don't base start time from the event metadata
+                // event ingestion is much faster than replay ingestion,
+                // so we only want to report on the loaded recording data
+                // as we load data this will update
+                // and may catch up with the event end time
+                return snapshots?.[0] ? dayjs(snapshots[0].timestamp) : null
             },
         ],
 
         end: [
-            (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (meta, snapshots): Dayjs | undefined => {
-                // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
-                // either use the metadata end point or the last snapshot, whichever is later.
-                const end = meta?.end_time ? dayjs(meta.end_time) : undefined
+            (s) => [s.snapshots],
+            (snapshots): Dayjs | null => {
+                // we don't base end time from the event metadata
+                // event ingestion is much faster than replay ingestion,
+                // so we only want to report on the loaded recording data
+                // as we load data this will update
+                // and may catch up with the event end time
                 const lastEvent = snapshots?.slice(-1)[0]
-
-                return lastEvent?.timestamp && lastEvent.timestamp > +(end ?? 0) ? dayjs(lastEvent.timestamp) : end
+                return lastEvent?.timestamp ? dayjs(lastEvent.timestamp) : null
             },
         ],
 
         durationMs: [
             (s) => [s.start, s.end],
             (start, end): number => {
-                return end?.diff(start) ?? 0
+                return !!start && !!end ? end.diff(start) : 0
             },
         ],
 
