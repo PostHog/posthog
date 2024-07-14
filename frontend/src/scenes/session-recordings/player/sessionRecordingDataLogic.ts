@@ -754,11 +754,25 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
 
+        firstSnapshot: [
+            (s) => [s.snapshots],
+            (snapshots): RecordingSnapshot | null => {
+                return snapshots[0] || null
+            },
+        ],
+
+        lastSnapshot: [
+            (s) => [s.snapshots],
+            (snapshots): RecordingSnapshot | null => {
+                return snapshots[snapshots.length - 1] || null
+            },
+        ],
+
         start: [
-            (s) => [s.snapshots, s.sessionPlayerMetaData],
-            (snapshots, meta): Dayjs | null => {
+            (s) => [s.firstSnapshot, s.sessionPlayerMetaData],
+            (firstSnapshot, meta): Dayjs | null => {
                 const eventStart = meta?.start_time ? dayjs(meta.start_time) : null
-                const snapshotStart = snapshots?.[0] ? dayjs(snapshots[0].timestamp) : null
+                const snapshotStart = firstSnapshot ? dayjs(firstSnapshot.timestamp) : null
 
                 // whichever is earliest
                 if (eventStart && snapshotStart) {
@@ -769,10 +783,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         end: [
-            (s) => [s.snapshots, s.sessionPlayerMetaData],
-            (snapshots, meta): Dayjs | null => {
+            (s) => [s.lastSnapshot, s.sessionPlayerMetaData],
+            (lastSnapshot, meta): Dayjs | null => {
                 const eventEnd = meta?.end_time ? dayjs(meta.end_time) : null
-                const snapshotEnd = snapshots?.slice(-1)[0] ? dayjs(snapshots?.slice(-1)[0].timestamp) : null
+                const snapshotEnd = lastSnapshot ? dayjs(lastSnapshot.timestamp) : null
 
                 // whichever is latest
                 if (eventEnd && snapshotEnd) {
