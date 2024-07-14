@@ -1,7 +1,7 @@
 import { convertJSToHog } from '@posthog/hogvm'
 import express from 'express'
 
-import { GroupTypeToColumnIndex, Hub } from '../types'
+import { Hub } from '../types'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 import { AsyncFunctionExecutor } from './async-function-executor'
@@ -10,7 +10,6 @@ import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher } from './hog-watcher/hog-watcher'
 import { HogWatcherState } from './hog-watcher/types'
 import { HogFunctionInvocation, HogFunctionType } from './types'
-import { convertToHogFunctionInvocationGlobals } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
@@ -86,11 +85,11 @@ export class CdpApi {
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<void> => {
         try {
             const { id, team_id } = req.params
-            const { event, mock_async_functions, configuration } = req.body
+            const { globals, mock_async_functions, configuration } = req.body
 
             status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
 
-            if (!event) {
+            if (!globals) {
                 res.status(400).json({ error: 'Missing event' })
                 return
             }
@@ -104,25 +103,6 @@ export class CdpApi {
             if (!hogFunction || !team || hogFunction.team_id !== team.id) {
                 res.status(404).json({ error: 'Hog function not found' })
                 return
-            }
-
-            let groupTypes: GroupTypeToColumnIndex | undefined = undefined
-
-            if (await this.hub.organizationManager.hasAvailableFeature(team.id, 'group_analytics')) {
-                // If the organization has group analytics enabled then we enrich the event with group data
-                groupTypes = await this.hub.groupTypeManager.fetchGroupTypes(team.id)
-            }
-
-            const globals = convertToHogFunctionInvocationGlobals(
-                event,
-                team,
-                this.hub.SITE_URL ?? 'http://localhost:8000',
-                groupTypes
-            )
-
-            globals.source = {
-                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
             }
 
             const invocation: HogFunctionInvocation = {
@@ -150,7 +130,14 @@ export class CdpApi {
                 const asyncFunctionRequest = response.asyncFunctionRequest
 
                 if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
-                    addLog(response, 'info', `Async function '${asyncFunctionRequest.name}' was mocked`)
+                    addLog(response, 'info', `Async function '${asyncFunctionRequest.name}' was mocked with arguments:`)
+                    addLog(
+                        response,
+                        'info',
+                        `${asyncFunctionRequest.name}(${asyncFunctionRequest.args
+                            .map((x) => JSON.stringify(x, null, 2))
+                            .join(', ')})`
+                    )
 
                     // Add the state, simulating what executeAsyncResponse would do
                     asyncFunctionRequest.vmState.stack.push(convertJSToHog({ status: 200, body: {} }))

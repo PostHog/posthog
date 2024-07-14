@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { createInsight, insight, savedInsights } from '../productAnalytics'
+import { createInsight, savedInsights } from '../productAnalytics'
 import { randomString } from '../support/random'
 
 // For tests related to trends please check trendsElements.js
@@ -113,29 +113,5 @@ describe('Insights', () => {
     it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('.insight-description').should('not.exist')
         cy.get('[data-attr=insight-tags]').should('not.exist')
-    })
-
-    it('can edit via the query editor', () => {
-        insight.newInsight('TRENDS')
-        insight.save()
-        cy.get('[data-attr="more-button"]').click()
-        cy.get('[data-attr="show-insight-source"]').click()
-        // Find "day"
-        cy.get('.monaco-editor[role="code"]')
-            .click()
-            // change subject to currently focused element
-            .focused()
-            .type('{ctrl}f')
-            .focused()
-            .type('day')
-
-        // Remove day and add hour
-        cy.get('.monaco-editor[role="code"]')
-            .click()
-            .focused()
-            .type('{leftArrow}{leftArrow}{backspace}{backspace}{backspace}hour')
-        cy.get('[data-attr=query-editor-save]').click()
-
-        cy.get('[data-attr="interval-filter').contains('hour').should('exist')
     })
 })

@@ -29,7 +29,14 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
-import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, SurveyUrlMatchType } from '~/types'
+import {
+    ActionType,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyQuestion,
+    SurveyType,
+    SurveyUrlMatchType,
+} from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
@@ -64,8 +71,12 @@ export default function SurveyEdit(): JSX.Element {
         setSchedule,
         deleteBranchingLogic,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable, surveysRecurringScheduleAvailable, surveysEventsAvailable } =
-        useValues(surveysLogic)
+    const {
+        surveysMultipleQuestionsAvailable,
+        surveysRecurringScheduleAvailable,
+        surveysEventsAvailable,
+        surveysActionsAvailable,
+    } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
@@ -775,6 +786,45 @@ export default function SurveyEdit(): JSX.Element {
                                                             </div>
                                                         )}
                                                     </>
+                                                </LemonField.Pure>
+                                            )}
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && surveysActionsAvailable && (
+                                                <LemonField.Pure
+                                                    label="User performs actions"
+                                                    info="Note that these actions are only observed, and activate this survey, in the current user session."
+                                                >
+                                                    <EventSelect
+                                                        filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
+                                                        onItemChange={(items: ActionType[]) => {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                actions: {
+                                                                    values: items.map((e) => {
+                                                                        return { id: e.id, name: e.name }
+                                                                    }),
+                                                                },
+                                                            })
+                                                        }}
+                                                        selectedItems={
+                                                            survey.conditions?.actions?.values &&
+                                                            survey.conditions?.actions?.values.length > 0
+                                                                ? survey.conditions?.actions?.values
+                                                                : []
+                                                        }
+                                                        selectedEvents={
+                                                            survey.conditions?.actions?.values?.map((v) => v.name) ?? []
+                                                        }
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add action
+                                                            </LemonButton>
+                                                        }
+                                                    />
                                                 </LemonField.Pure>
                                             )}
                                         </>
