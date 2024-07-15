@@ -43,6 +43,8 @@ from posthog.utils import get_instance_region
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from sshtunnel import BaseSSHTunnelForwarderError
 from snowflake.connector.errors import ProgrammingError, DatabaseError, ForbiddenError
+from django.db.models import Prefetch
+
 
 logger = structlog.get_logger(__name__)
 
@@ -111,11 +113,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         ]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
-        latest_completed_run = (
-            ExternalDataJob.objects.filter(pipeline_id=instance.pk, status="Completed", team_id=instance.team_id)
-            .order_by("-created_at")
-            .first()
-        )
+        latest_completed_run = instance.jobs.order_by("-created_at").first()
 
         return latest_completed_run.created_at if latest_completed_run else None
 
@@ -182,7 +180,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.prefetch_related("created_by", "schemas").order_by(self.ordering)
+        return queryset.prefetch_related(
+            "created_by",
+            "jobs",
+            Prefetch(
+                "schemas",
+                queryset=ExternalDataSchema.objects.select_related("table__credential", "table__external_data_source"),
+            ),
+        ).order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
