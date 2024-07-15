@@ -159,7 +159,10 @@ def _screenshot_asset(
             }
         """)
         height = driver.execute_script("return document.body.scrollHeight")
-        width = max(int(screenshot_width), min(1800, width or screenshot_width))
+        if isinstance(width, int):
+            width = max(int(screenshot_width), min(1800, width or screenshot_width))
+        else:
+            width = screenshot_width
         driver.set_window_size(width, height)
         # The needed height might have changed when setting width, so we need to get it again
         height = driver.execute_script("return document.body.scrollHeight")
