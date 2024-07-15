@@ -71,9 +71,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         setFilters: (filters: Partial<DestinationFilters>) => ({ filters }),
         resetFilters: true,
     }),
-    reducers({
+    reducers(({ props }) => ({
         filters: [
-            {} as DestinationFilters,
+            props.defaultFilters as DestinationFilters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
@@ -82,7 +82,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 resetFilters: () => ({}),
             },
         ],
-    }),
+    })),
     loaders(({ values, actions }) => ({
         plugins: [
             {} as Record<number, PluginType>,
