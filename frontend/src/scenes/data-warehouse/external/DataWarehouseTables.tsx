@@ -117,6 +117,17 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             >
                 Add join
             </LemonButton>
+            {table.type == 'view' && (
+                <LemonButton
+                    onClick={() => {
+                        router.actions.push(urls.dataWarehouseView(table.id, table.query))
+                    }}
+                    data-attr="schema-list-item-edit"
+                    fullWidth
+                >
+                    Edit view definition
+                </LemonButton>
+            )}
             {deleteButton(table)}
         </>
     )

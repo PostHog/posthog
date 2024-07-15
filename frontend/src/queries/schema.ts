@@ -63,6 +63,7 @@ export enum NodeKind {
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
+    SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -105,6 +106,7 @@ export type AnyDataNode =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
+    | SessionAttributionExplorerQuery
 
 /**
  * @discriminator kind
@@ -127,6 +129,7 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
+    | SessionAttributionExplorerQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -512,6 +515,7 @@ export interface DataTableNode
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebTopClicksQuery
+                    | SessionAttributionExplorerQuery
                 )['response']
             >
         >,
@@ -527,6 +531,7 @@ export interface DataTableNode
         | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
+        | SessionAttributionExplorerQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -1228,6 +1233,35 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
 }
 
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
+
+export enum SessionAttributionGroupBy {
+    ChannelType = 'ChannelType',
+    Medium = 'Medium',
+    Source = 'Source',
+    Campaign = 'Campaign',
+    AdIds = 'AdIds',
+    ReferringDomain = 'ReferringDomain',
+    InitialURL = 'InitialURL',
+}
+export interface SessionAttributionExplorerQuery extends DataNode<SessionAttributionExplorerQueryResponse> {
+    kind: NodeKind.SessionAttributionExplorerQuery
+    groupBy: SessionAttributionGroupBy[]
+    filters?: {
+        properties?: SessionPropertyFilter[]
+        dateRange?: DateRange
+    }
+    limit?: integer
+    offset?: integer
+}
+
+export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
 
 export type InsightQueryNode =
     | TrendsQuery

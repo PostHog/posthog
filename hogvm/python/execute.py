@@ -46,6 +46,8 @@ def execute_bytecode(
     ops = 0
     stdout: list[str] = []
     colored_bytecode = color_bytecode(bytecode) if debug else []
+    if isinstance(timeout, int):
+        timeout = timedelta(seconds=timeout)
 
     def next_token():
         nonlocal ip

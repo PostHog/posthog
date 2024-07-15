@@ -19,7 +19,7 @@ from posthog.warehouse.data_load.service import (
     trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
-from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
+from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
@@ -64,6 +64,20 @@ SnowflakeErrors = {
 }
 
 
+class ExternalDataJobSerializers(serializers.ModelSerializer):
+    schema = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ExternalDataJob
+        fields = ["id", "created_at", "created_by", "status", "schema", "rows_synced", "latest_error"]
+        read_only_fields = ["id", "created_at", "created_by", "status", "schema", "rows_synced", "latest_error"]
+
+    def get_schema(self, instance: ExternalDataJob):
+        return SimpleExternalDataSchemaSerializer(
+            instance.schema, many=False, read_only=True, context=self.context
+        ).data
+
+
 class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
@@ -84,7 +98,6 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "prefix",
             "last_run_at",
             "schemas",
-            "sync_frequency",
         ]
         read_only_fields = [
             "id",
@@ -134,7 +147,6 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         updated_source: ExternalDataSource = super().update(instance, validated_data)
-        updated_source.update_schemas()
 
         return updated_source
 
@@ -769,6 +781,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=True)
+    def jobs(self, request: Request, *arg: Any, **kwargs: Any):
+        instance: ExternalDataSource = self.get_object()
+
+        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at").all()
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data=ExternalDataJobSerializers(
+                jobs, many=True, read_only=True, context=self.get_serializer_context()
+            ).data,
+        )
 
     def _expose_postgres_error(self, error: OperationalError) -> str | None:
         error_msg = " ".join(str(n) for n in error.args)

@@ -174,6 +174,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
     SURVEYS_WIDGETS: 'surveys-widgets', // owner: #team-feature-success
     SURVEYS_EVENTS: 'surveys-events', // owner: #team-feature-success
+    SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-feature-success
     SURVEYS_RECURRING: 'surveys-recurring', // owner: #team-feature-success
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
@@ -206,7 +207,6 @@ export const FEATURE_FLAGS = {
     ALERTS: 'alerts', // owner: github.com/nikitaevg
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
-    SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
     WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c

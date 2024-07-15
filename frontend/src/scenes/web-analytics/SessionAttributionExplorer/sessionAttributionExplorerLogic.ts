@@ -4,13 +4,25 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, DateRange, HogQLQuery, NodeKind } from '~/queries/schema'
+import {
+    DataTableNode,
+    DateRange,
+    NodeKind,
+    SessionAttributionExplorerQuery,
+    SessionAttributionGroupBy,
+} from '~/queries/schema'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
 
 export const initialProperties = [] as SessionPropertyFilter[]
+export const initialGroupBy = [
+    SessionAttributionGroupBy.Source,
+    SessionAttributionGroupBy.Medium,
+    SessionAttributionGroupBy.ChannelType,
+    SessionAttributionGroupBy.ReferringDomain,
+]
 export const defaultDateRange: DateRange = { date_from: '-7d', date_to: 'now' }
 export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLogicType>([
     path(['scenes', 'webAnalytics', 'sessionDebuggerLogic']),
@@ -19,10 +31,16 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
     })),
     actions({
         setProperties: (properties: SessionPropertyFilter[]) => ({ properties }),
-        setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setDateRange: (dateRange: DateRange | null) => ({ dateRange }),
         setStateFromUrl: (state: { properties: SessionPropertyFilter[]; dateRange: DateRange | null }) => ({
             state,
         }),
+        enableGroupBy: (groupBy: SessionAttributionGroupBy) => {
+            return { groupBy }
+        },
+        disableGroupBy: (groupBy: SessionAttributionGroupBy) => {
+            return { groupBy }
+        },
     }),
     reducers({
         properties: [
@@ -39,44 +57,32 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
                 setStateFromUrl: (_, { state }) => state.dateRange,
             },
         ],
+        groupBy: [
+            initialGroupBy,
+            {
+                enableGroupBy: (state, { groupBy }) => {
+                    return Array.from(new Set([...state, groupBy]))
+                },
+                disableGroupBy: (state, { groupBy }) => {
+                    return state.filter((item) => item !== groupBy)
+                },
+            },
+        ],
     }),
     selectors({
         query: [
-            (s) => [s.properties, s.dateRange],
-            (properties: SessionPropertyFilter[], dateRange): DataTableNode => {
-                const source: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    filters: {
-                        properties,
-                        dateRange: dateRange ?? defaultDateRange,
-                    },
-                    query: `
-SELECT
-    count() as "context.columns.count",
-    "$channel_type" as "context.columns.channel_type",
-    "$entry_referring_domain" as "context.columns.referring_domain",
-    "$entry_utm_source" as "context.columns.utm_source",
-    "$entry_utm_medium" as "context.columns.utm_medium",
-    "$entry_utm_campaign" as "context.columns.utm_campaign",
-    nullIf(arrayStringConcat([
-        if(isNotNull($entry_gclid), 'glcid', NULL),
-        if(isNotNull($entry_gad_source), 'gad_source', NULL)
-        -- add more here if we add more ad ids
-    ], ','), '') as "context.columns.has_ad_id",
-    topK(10)($entry_current_url) as "context.columns.example_entry_urls"
-FROM sessions
-WHERE {filters}
-GROUP BY
-    "context.columns.referring_domain",
-    "context.columns.utm_source",
-    "context.columns.utm_medium",
-    "context.columns.utm_campaign",
-    "context.columns.has_ad_id",
-    "context.columns.channel_type"
-ORDER BY 
-    "context.columns.count" DESC
-`,
+            (s) => [s.properties, s.dateRange, s.groupBy],
+            (properties: SessionPropertyFilter[], dateRange, groupBy): DataTableNode => {
+                const filters = {
+                    properties,
+                    dateRange: dateRange ?? defaultDateRange,
                 }
+                const source: SessionAttributionExplorerQuery = {
+                    kind: NodeKind.SessionAttributionExplorerQuery,
+                    groupBy: groupBy,
+                    filters: filters,
+                }
+
                 return {
                     kind: NodeKind.DataTableNode,
                     source: source,
