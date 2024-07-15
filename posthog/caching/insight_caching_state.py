@@ -91,8 +91,7 @@ def insight_can_be_cached(insight: Optional[Insight]) -> bool:
         return False
 
     if get_query_runner_or_none(insight.query, insight.team) is not None:
-        print("IS FALSE")
-        return False
+        return True
 
     if source := insight.query.get("source"):
         if get_query_runner_or_none(source, insight.team) is not None:
