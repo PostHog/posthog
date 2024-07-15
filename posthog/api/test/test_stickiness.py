@@ -1,12 +1,11 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.test import override_settings
 from django.test.client import Client
-from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.client import sync_execute
@@ -85,7 +84,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person1",
-                timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=base_time.replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(1)},
                 person_id=p1_person_id,
             )
@@ -100,7 +99,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person2",
-                timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=base_time.replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(2)},
                 person_id=p2_person_id,
             )
@@ -108,7 +107,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person2",
-                timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=(base_time + period).replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(2)},
                 person_id=p2_person_id,
             )
@@ -117,7 +116,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person2",
-                timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=(base_time + period).replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(2)},
                 person_id=p2_person_id,
             )
@@ -132,7 +131,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3a",
-                timestamp=(base_time).replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=(base_time).replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(3)},
                 person_id=p3_person_id,
             )
@@ -140,7 +139,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3b",
-                timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=(base_time + period).replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(3)},
                 person_id=p3_person_id,
             )
@@ -148,7 +147,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3a",
-                timestamp=(base_time + period * 2).replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=(base_time + period * 2).replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(3)},
                 person_id=p3_person_id,
             )
@@ -164,7 +163,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="person4",
-                timestamp=(base_time + period * 4).replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=(base_time + period * 4).replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Safari", **event_properties(4)},
                 person_id=p4_person_id,
             )
@@ -641,7 +640,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 team=self.team,
                 event="watched movie",
                 distinct_id="ph",
-                timestamp=datetime.fromisoformat("2020-01-01T12:00:00.000000").replace(tzinfo=timezone.utc).isoformat(),
+                timestamp=datetime.fromisoformat("2020-01-01T12:00:00.000000").replace(tzinfo=UTC).isoformat(),
                 properties={"$browser": "Chrome"},
             )
 

@@ -5,7 +5,7 @@ import pathlib
 import random
 import string
 from collections import Counter
-from datetime import UTC
+from datetime import UTC, timezone
 from datetime import datetime, timedelta
 from typing import Any, Union, cast
 from unittest import mock
@@ -23,7 +23,6 @@ from botocore.exceptions import ClientError
 from django.http import HttpResponse
 from django.test import override_settings
 from django.test.client import MULTIPART_CONTENT, Client
-from django.utils import timezone
 from freezegun import freeze_time
 from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
@@ -397,7 +396,7 @@ class TestCapture(BaseTest):
             capacity=1,
             storage=MemoryStorage(),
         )
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
 
         with patch("posthog.api.capture.LIMITER", new=limiter):
             with freeze_time(start):
