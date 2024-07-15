@@ -81,20 +81,8 @@ export function convertHogToJS(x: any): any {
     } else if (typeof x === 'object' && Array.isArray(x)) {
         return x.map(convertHogToJS)
     } else if (typeof x === 'object' && x !== null) {
-        if (x.__hogDateTime__) {
-            return {
-                __hogDateTime__: true,
-                dt: x.dt.toMillis(),
-                zone: x.dt.zone.name,
-            }
-        } else if (x.__hogDate__) {
-            return {
-                __hogDate__: true,
-                year: x.year,
-                month: x.month,
-                day: x.day,
-                zone: x.zone,
-            }
+        if (x.__hogDateTime__ || x.__hogDate__) {
+            return x
         }
         const obj: Record<string, any> = {}
         for (const key in x) {
