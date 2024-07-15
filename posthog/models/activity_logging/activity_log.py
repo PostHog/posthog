@@ -12,7 +12,6 @@ from django.conf import settings
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
@@ -207,6 +206,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "property_type_format",
     ],
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
+    # TODO: Don't try and track changes to survey targeting, we will support
+    # this with https://github.com/PostHog/posthog/issues/23725
+    "Survey": ["targeting_flag", "linked_flag", "internal_targeting_flag"],
 }
 
 
@@ -266,10 +268,6 @@ def changes_between(
 
             if model_type == "Insight" and field == "dashboard_tiles":
                 field = "dashboards"
-
-            # Skip changes related to feature flags
-            if isinstance(left, FeatureFlag) or isinstance(right, FeatureFlag):
-                continue
 
             if left is None and right is not None:
                 changes.append(Change(type=model_type, field=field, action="created", after=right))

@@ -11,7 +11,7 @@ import {
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { Survey } from '~/types'
+import { Survey, SurveyAppearance } from '~/types'
 
 const isEmptyOrUndefined = (value: any): boolean => value === undefined || value === null || value === ''
 
@@ -77,10 +77,72 @@ const surveyActionsMapping: Record<
         }
         return null
     },
-    appearance: function onAppearance() {
-        return {
-            description: [<>customized the appearance</>],
+    appearance: function onAppearance(change) {
+        const beforeAppearance = change?.before as SurveyAppearance
+        const afterAppearance = change?.after as SurveyAppearance
+        const changes: JSX.Element[] = []
+
+        const fieldNameMapping: Record<keyof SurveyAppearance, string> = {
+            backgroundColor: 'background color',
+            submitButtonColor: 'submit button color',
+            submitButtonText: 'submit button text',
+            ratingButtonColor: 'rating button color',
+            ratingButtonActiveColor: 'active rating button color',
+            borderColor: 'border color',
+            placeholder: 'placeholder text',
+            whiteLabel: 'white label option',
+            displayThankYouMessage: 'thank you message display',
+            thankYouMessageHeader: 'thank you message header',
+            thankYouMessageDescription: 'thank you message description',
+            thankYouMessageDescriptionContentType: 'thank you message content type',
+            thankYouMessageCloseButtonText: 'thank you message close button text',
+            autoDisappear: 'auto-disappear option',
+            position: 'survey position',
+            shuffleQuestions: 'question shuffling',
+            surveyPopupDelaySeconds: 'survey popup delay',
+            widgetType: 'widget type',
+            widgetSelector: 'widget selector',
+            widgetLabel: 'widget label',
+            widgetColor: 'widget color',
         }
+
+        const appearanceFields = Object.keys(fieldNameMapping) as (keyof SurveyAppearance)[]
+
+        appearanceFields.forEach((field) => {
+            const before = beforeAppearance?.[field]
+            const after = afterAppearance?.[field]
+            const readableFieldName = fieldNameMapping[field]
+
+            if (!isEmptyOrUndefined(before) || !isEmptyOrUndefined(after)) {
+                if (isEmptyOrUndefined(before) && !isEmptyOrUndefined(after)) {
+                    changes.push(
+                        <>
+                            set {readableFieldName} to <strong>{String(after)}</strong>
+                        </>
+                    )
+                } else if (!isEmptyOrUndefined(before) && isEmptyOrUndefined(after)) {
+                    changes.push(
+                        <>
+                            removed {readableFieldName} (was <strong>{String(before)}</strong>)
+                        </>
+                    )
+                } else if (before !== after) {
+                    changes.push(
+                        <>
+                            changed {readableFieldName} from{' '}
+                            {!isEmptyOrUndefined(before) ? <strong>{String(before)}</strong> : <i>unset</i>} to{' '}
+                            <strong>{String(after)}</strong>
+                        </>
+                    )
+                }
+            }
+        })
+
+        return changes.length > 0
+            ? {
+                  description: changes,
+              }
+            : null
     },
     conditions: function onConditions(change) {
         const beforeConditions = change?.before as Survey['conditions']

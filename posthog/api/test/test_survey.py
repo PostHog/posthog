@@ -617,14 +617,14 @@ class TestSurvey(APIBaseTest):
         flagId = survey_with_targeting["targeting_flag"]["id"]
         assert FeatureFlag.objects.filter(id=flagId).exists()
 
-        updated_survey_deletes_targeting_flag = self.client.patch(
+        updated_survey_does_not_delete_targeting_flag = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
             data={"start_date": "2023-04-01T12:00:10"},
         )
 
-        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
-        assert updated_survey_deletes_targeting_flag.json()["name"] == "survey with targeting"
-        assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is not None
+        assert updated_survey_does_not_delete_targeting_flag.status_code == status.HTTP_200_OK
+        assert updated_survey_does_not_delete_targeting_flag.json()["name"] == "survey with targeting"
+        assert updated_survey_does_not_delete_targeting_flag.json()["targeting_flag"] is not None
 
         assert FeatureFlag.objects.filter(id=flagId).exists()
 
@@ -1203,7 +1203,6 @@ class TestSurvey(APIBaseTest):
 
     @freeze_time("2023-05-01 12:00:00")
     def test_update_survey_records_activity(self):
-        self.maxDiff = None
         survey = Survey.objects.create(
             team=self.team,
             name="Original Survey",
@@ -2427,7 +2426,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_list_surveys(self):
-        self.maxDiff = None
         basic_survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
