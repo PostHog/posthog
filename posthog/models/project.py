@@ -25,10 +25,10 @@ class ProjectManager(models.Manager):
 class Project(models.Model):
     """DO NOT USE YET - you probably mean the `Team` model instead.
 
-    `Project` is part of the environemnts feature, which is a work in progress.
+    `Project` is part of the environments feature, which is a work in progress.
     """
 
-    id = models.BigIntegerField(primary_key=True, verbose_name="ID")
+    id = models.BigIntegerField(primary_key=True, verbose_name="ID")  # Same as Team.id field
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
