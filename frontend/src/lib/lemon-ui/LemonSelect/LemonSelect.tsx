@@ -155,6 +155,11 @@ export function LemonSelect<T extends string | number | boolean | null>({
                           }
                         : null
                 }
+                sideIcon={
+                    !isClearButtonShown
+                        ? (activeLeaf?.sideIcon as never) // This is necessary to satisfy TS that sideIcon and sideAction ARE mutually exclusive in practice
+                        : undefined
+                }
                 tooltip={activeLeaf?.tooltip}
                 {...buttonProps}
             >
