@@ -12,6 +12,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import useResizeObserver from 'use-resize-observer'
 
@@ -53,7 +54,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
-    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
+    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
     const codeEditorLogicProps = {
@@ -64,6 +65,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     }
     const { hasErrors, error, isValidView } = useValues(codeEditorLogic(codeEditorLogicProps))
 
+    const { editingView } = useValues(dataWarehouseSceneLogic)
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     useEffect(() => {
@@ -83,12 +85,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
     return (
         <div className="flex items-start gap-2">
-            <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
-                    <DatabaseTableTreeWithItems inline />
-                </div>
-            </FlaggedFeature>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
+                <DatabaseTableTreeWithItems inline />
+            </div>
             <div
                 data-attr="hogql-query-editor"
                 className={clsx(
@@ -212,7 +212,24 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     {!props.setQuery ? 'No permission to update' : 'Update and run'}
                                 </LemonButton>
                             </div>
-                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? (
+                            {editingView ? (
+                                <LemonButton
+                                    className="ml-2"
+                                    onClick={onUpdateView}
+                                    type="primary"
+                                    center
+                                    disabledReason={
+                                        hasErrors
+                                            ? error ?? 'Query has errors'
+                                            : !isValidView
+                                            ? 'All fields must have an alias'
+                                            : ''
+                                    }
+                                    data-attr="hogql-query-editor-update-view"
+                                >
+                                    Update view
+                                </LemonButton>
+                            ) : (
                                 <LemonButton
                                     className="ml-2"
                                     onClick={saveAsView}
@@ -229,29 +246,26 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 >
                                     Save as view
                                 </LemonButton>
-                            ) : null}
-                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                                <LemonButtonWithDropdown
-                                    className="ml-2"
-                                    icon={<IconInfo />}
-                                    type="secondary"
-                                    size="small"
-                                    dropdown={{
-                                        overlay: (
-                                            <div>
-                                                Save a query as a view that can be referenced in another query. This is
-                                                useful for modeling data and organizing large queries into readable
-                                                chunks.{' '}
-                                                <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
-                                            </div>
-                                        ),
-                                        placement: 'right-start',
-                                        fallbackPlacements: ['left-start'],
-                                        actionable: true,
-                                        closeParentPopoverOnClickInside: true,
-                                    }}
-                                />
                             )}
+                            <LemonButtonWithDropdown
+                                className="ml-2"
+                                icon={<IconInfo />}
+                                type="secondary"
+                                size="small"
+                                dropdown={{
+                                    overlay: (
+                                        <div>
+                                            Save a query as a view that can be referenced in another query. This is
+                                            useful for modeling data and organizing large queries into readable chunks.{' '}
+                                            <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
+                                        </div>
+                                    ),
+                                    placement: 'right-start',
+                                    fallbackPlacements: ['left-start'],
+                                    actionable: true,
+                                    closeParentPopoverOnClickInside: true,
+                                }}
+                            />
                         </>
                     )}
                 </div>

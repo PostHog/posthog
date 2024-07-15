@@ -1,28 +1,27 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, BatchExportService, HogFunctionTemplateType, PipelineStage, PluginType } from '~/types'
+import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { DestinationOptionsTable } from './destinations/NewDestinations'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
-import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { PipelineBackend } from './types'
-import { getBatchExportUrl, RenderApp, RenderBatchExportIcon } from './utils'
+import { RenderApp } from './utils'
 
 const paramsToProps = ({
     params: { stage, id },
@@ -67,27 +66,6 @@ function convertPluginToTableEntry(plugin: PluginType): TableEntry {
         // TODO: ideally we'd link to docs instead of GitHub repo, so it can open in panel
         // Same for transformations and destinations tables
         url: plugin.url,
-    }
-}
-
-function convertBatchExportToTableEntry(service: BatchExportService['type']): TableEntry {
-    return {
-        backend: PipelineBackend.BatchExport,
-        id: service as string,
-        name: service,
-        description: `${service} batch export`,
-        icon: <RenderBatchExportIcon type={service} />,
-        url: getBatchExportUrl(service),
-    }
-}
-
-function convertHogFunctionToTableEntry(hogFunction: HogFunctionTemplateType): TableEntry {
-    return {
-        backend: PipelineBackend.HogFunction,
-        id: `hog-${hogFunction.id}`, // TODO: This weird identifier thing isn't great
-        name: hogFunction.name,
-        description: hogFunction.description,
-        icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
     }
 }
 
@@ -145,19 +123,6 @@ function TransformationOptionsTable(): JSX.Element {
     return <NodeOptionsTable stage={PipelineStage.Transformation} targets={targets} loading={loading} />
 }
 
-function DestinationOptionsTable(): JSX.Element {
-    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { batchExportServiceNames } = useValues(pipelineNodeNewLogic)
-    const { plugins, loading, hogFunctionTemplates } = useValues(pipelineDestinationsLogic)
-    const pluginTargets = Object.values(plugins).map(convertPluginToTableEntry)
-    const batchExportTargets = Object.values(batchExportServiceNames).map(convertBatchExportToTableEntry)
-    const hogFunctionTargets = hogFunctionsEnabled
-        ? Object.values(hogFunctionTemplates).map(convertHogFunctionToTableEntry)
-        : []
-    const targets = [...hogFunctionTargets, ...batchExportTargets, ...pluginTargets]
-    return <NodeOptionsTable stage={PipelineStage.Destination} targets={targets} loading={loading} />
-}
-
 function SiteAppOptionsTable(): JSX.Element {
     const { plugins, loading } = useValues(frontendAppsLogic)
     const targets = Object.values(plugins).map(convertPluginToTableEntry)
@@ -174,6 +139,12 @@ function NodeOptionsTable({
     loading: boolean
 }): JSX.Element {
     const { hashParams } = useValues(router)
+    const { loadPlugins } = useActions(pipelineNodeNewLogic)
+
+    useEffect(() => {
+        loadPlugins()
+    }, [])
+
     return (
         <>
             <LemonTable

@@ -358,3 +358,38 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         assert response.status_code == 400
+
+    def test_update_schema_sync_frequency(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSource.Type.STRIPE, job_inputs={}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency=ExternalDataSchema.SyncFrequency.DAILY,
+        )
+
+        with (
+            mock.patch(
+                "posthog.warehouse.api.external_data_schema.external_data_workflow_exists"
+            ) as mock_external_data_workflow_exists,
+            mock.patch(
+                "posthog.warehouse.api.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_external_data_job_workflow,
+        ):
+            mock_external_data_workflow_exists.return_value = True
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "week"},
+            )
+
+            assert response.status_code == 200
+            mock_sync_external_data_job_workflow.assert_called_once()
+
+            schema.refresh_from_db()
+            assert schema.sync_frequency == ExternalDataSchema.SyncFrequency.WEEKLY

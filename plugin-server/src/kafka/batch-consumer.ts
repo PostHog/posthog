@@ -172,7 +172,6 @@ export const startBatchConsumer = async ({
         'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
-        'statistics.interval.ms': kafkaStatisticIntervalMs,
     }
 
     // undefined is valid but things get unhappy if you provide that explicitly
@@ -180,8 +179,12 @@ export const startBatchConsumer = async ({
         consumerConfig['fetch.min.bytes'] = fetchMinBytes
     }
 
+    if (kafkaStatisticIntervalMs) {
+        consumerConfig['statistics.interval.ms'] = kafkaStatisticIntervalMs
+    }
+
     if (debug) {
-        // NOTE: If the key exists with value undefined the consumer will throw which is annoying so we define it here instead
+        // NOTE: If the key exists with value undefined the consumer will throw which is annoying, so we define it here instead
         consumerConfig.debug = debug
     }
 
@@ -329,9 +332,11 @@ export const startBatchConsumer = async ({
     const mainLoop = startConsuming()
 
     const isHealthy = () => {
-        // We define health as the last consumer loop having run in the last
-        // minute. This might not be bullet-proof, let's see.
-        return Date.now() - lastHeartbeatTime < maxHealthHeartbeatIntervalMs
+        // this is called as a readiness and a liveness probe
+        const hasRun = lastHeartbeatTime > 0
+        const isWithinInterval = Date.now() - lastHeartbeatTime < maxHealthHeartbeatIntervalMs
+        const isConnected = consumer.isConnected()
+        return hasRun ? isConnected && isWithinInterval : isConnected
     }
 
     const stop = async () => {

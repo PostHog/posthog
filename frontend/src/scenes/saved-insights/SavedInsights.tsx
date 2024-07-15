@@ -9,6 +9,7 @@ import {
     IconHogQL,
     IconLifecycle,
     IconPerson,
+    IconPieChart,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -288,25 +289,31 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.WebStatsTableQuery]: {
         name: 'Web Table',
         description: 'A table of results from web analytics, with a breakdown',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.WebTopClicksQuery]: {
         name: 'Top Clicks',
         description: 'View top clicks for a website',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query',
         icon: IconHogQL,
+        inMenu: true,
+    },
+    [NodeKind.SessionAttributionExplorerQuery]: {
+        name: 'Session Attribution',
+        description: 'Session Attribution Explorer',
+        icon: IconPieChart,
         inMenu: true,
     },
 }

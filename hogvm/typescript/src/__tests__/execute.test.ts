@@ -13,7 +13,7 @@ const tuple = (array: any[]): any[] => {
     return array
 }
 
-describe('HogQL Bytecode', () => {
+describe('hogvm execute', () => {
     test('execution results', async () => {
         const globals = { properties: { foo: 'bar', nullValue: null } }
         const options = { globals }
@@ -131,6 +131,149 @@ describe('HogQL Bytecode', () => {
         }
         bytecode2.push(2, 'sleep', 301)
         expect(() => execSync(bytecode2)).toThrow('Too many arguments')
+    })
+
+    test('memory limits 1', async () => {
+        // let string := 'banana'
+        // for (let i := 0; i < 100; i := i + 1) {
+        //   string := string || string
+        // }
+        const bytecode: any[] = [
+            '_h',
+            32,
+            'banana',
+            33,
+            0,
+            33,
+            100,
+            36,
+            1,
+            15,
+            40,
+            18,
+            36,
+            0,
+            36,
+            0,
+            2,
+            'concat',
+            2,
+            37,
+            0,
+            33,
+            1,
+            36,
+            1,
+            6,
+            37,
+            1,
+            39,
+            -25,
+            35,
+            35,
+        ]
+
+        await expect(execAsync(bytecode)).rejects.toThrow(
+            'Memory limit of 67108864 bytes exceeded. Tried to allocate 75497504 bytes.'
+        )
+    })
+
+    test('memory limits 2', async () => {
+        // // Printing recursive objects.
+        // let obj := {'key': 'value', 'key2': 'value2'}
+        // let str := 'na'
+        // for (let i := 0; i < 10000; i := i + 1) {
+        //   if (i < 16) {
+        //     str := str || str
+        //   }
+        //   obj[f'key_{i}'] := {
+        //     'wasted': 'memory: ' || str || ' batman!',
+        //     'something': obj,  // something links to obj
+        //   }
+        // }
+        const bytecode: any[] = [
+            '_h',
+            32,
+            'key',
+            32,
+            'value',
+            32,
+            'key2',
+            32,
+            'value2',
+            42,
+            2,
+            32,
+            'na',
+            33,
+            0,
+            33,
+            10000,
+            36,
+            2,
+            15,
+            40,
+            52,
+            33,
+            16,
+            36,
+            2,
+            15,
+            40,
+            9,
+            36,
+            1,
+            36,
+            1,
+            2,
+            'concat',
+            2,
+            37,
+            1,
+            36,
+            0,
+            36,
+            2,
+            32,
+            'key_',
+            2,
+            'concat',
+            2,
+            32,
+            'wasted',
+            32,
+            ' batman!',
+            36,
+            1,
+            32,
+            'memory: ',
+            2,
+            'concat',
+            3,
+            32,
+            'something',
+            36,
+            0,
+            42,
+            2,
+            46,
+            33,
+            1,
+            36,
+            2,
+            6,
+            37,
+            2,
+            39,
+            -59,
+            35,
+            35,
+            35,
+        ]
+
+        await expect(execAsync(bytecode)).rejects.toThrow(
+            'Memory limit of 67108864 bytes exceeded. Tried to allocate 67155164 bytes.'
+        )
     })
 
     test('should execute user-defined stringify function correctly', async () => {
@@ -383,6 +526,7 @@ describe('HogQL Bytecode', () => {
                 callStack: [],
                 declaredFunctions: {},
                 ip: 8,
+                maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
                 syncDuration: 0,
