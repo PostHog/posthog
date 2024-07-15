@@ -250,46 +250,41 @@ def changes_between(
         filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
 
         for field in filtered_fields:
-            try:
-                left = getattr(previous, field, None)
-                if isinstance(left, models.Manager):
-                    left = _read_through_relation(left)
+            left = getattr(previous, field, None)
+            if isinstance(left, models.Manager):
+                left = _read_through_relation(left)
 
-                right = getattr(current, field, None)
-                if isinstance(right, models.Manager):
-                    right = _read_through_relation(right)
+            right = getattr(current, field, None)
+            if isinstance(right, models.Manager):
+                right = _read_through_relation(right)
 
-                if field == "tagged_items":
-                    field = "tags"
+            if field == "tagged_items":
+                field = "tags"
 
-                if field == "dashboards" and "dashboard_tiles" in filtered_fields:
-                    continue
-
-                if model_type == "Insight" and field == "dashboard_tiles":
-                    field = "dashboards"
-
-                # Skip changes related to feature flags
-                if isinstance(left, FeatureFlag) or isinstance(right, FeatureFlag):
-                    continue
-
-                if left is None and right is not None:
-                    changes.append(Change(type=model_type, field=field, action="created", after=right))
-                elif right is None and left is not None:
-                    changes.append(Change(type=model_type, field=field, action="deleted", before=left))
-                elif left != right:
-                    changes.append(
-                        Change(
-                            type=model_type,
-                            field=field,
-                            action="changed",
-                            before=left,
-                            after=right,
-                        )
-                    )
-            except:
-                # If we have any exceptions parsing stuff, we should just skip it
-                # rather than failing the request.  Right?
+            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
                 continue
+
+            if model_type == "Insight" and field == "dashboard_tiles":
+                field = "dashboards"
+
+            # Skip changes related to feature flags
+            if isinstance(left, FeatureFlag) or isinstance(right, FeatureFlag):
+                continue
+
+            if left is None and right is not None:
+                changes.append(Change(type=model_type, field=field, action="created", after=right))
+            elif right is None and left is not None:
+                changes.append(Change(type=model_type, field=field, action="deleted", before=left))
+            elif left != right:
+                changes.append(
+                    Change(
+                        type=model_type,
+                        field=field,
+                        action="changed",
+                        before=left,
+                        after=right,
+                    )
+                )
 
     return changes
 
