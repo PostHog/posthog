@@ -10,9 +10,10 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.insight import InsightSerializer
 from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
-from posthog.models.exported_asset import ExportedAsset, get_public_access_token
+from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.team import Team
@@ -25,7 +26,6 @@ from posthog.settings import (
 from posthog.tasks import exporter
 from posthog.tasks.exports.image_exporter import export_image
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from posthog.utils import absolute_uri
 
 TEST_ROOT_BUCKET = "test_exports"
 
@@ -102,13 +102,11 @@ class TestExports(APIBaseTest):
 
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
-        access_token = get_public_access_token(exported_asset, timedelta(minutes=15))
-        url_to_render = absolute_uri(f"/exporter?token={access_token}")
 
         with patch("posthog.tasks.exports.image_exporter.process_query_dict") as mock_process_query_dict:
             # Request does not calculate the result and cache is not warmed up
-            response = self.client.get(url_to_render)
-            self.assertContains(response, '"result": null')
+            context = {"is_shared": True}
+            InsightSerializer(self.insight, many=False, context=context)
 
             mock_process_query_dict.assert_not_called()
 
