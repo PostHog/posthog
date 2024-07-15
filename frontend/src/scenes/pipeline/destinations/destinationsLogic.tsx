@@ -1,14 +1,16 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import FuseClass from 'fuse.js'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
-    HogFunctionTemplateType,
     HogFunctionType,
     PipelineStage,
     PluginConfigTypeNew,
@@ -16,8 +18,7 @@ import {
     PluginType,
 } from '~/types'
 
-import type { pipelineDestinationsLogicType } from './destinationsLogicType'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
     BatchExportDestination,
     convertToPipelineNode,
@@ -25,11 +26,28 @@ import {
     FunctionDestination,
     PipelineBackend,
     WebhookDestination,
-} from './types'
-import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
+} from '../types'
+import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
+import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+
+// Helping kea-typegen navigate the exported default class for Fuse
+export interface Fuse extends FuseClass<Destination> {}
+
+export type DestinationFilters = {
+    search?: string
+    onlyActive?: boolean
+    kind?: PipelineBackend
+}
+
+export type PipelineDestinationsLogicProps = {
+    defaultFilters?: DestinationFilters
+    syncFiltersWithUrl?: boolean
+}
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
-    path(['scenes', 'pipeline', 'destinationsLogic']),
+    props({} as PipelineDestinationsLogicProps),
+    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
+    path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect({
         values: [
             teamLogic,
@@ -42,6 +60,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
+        toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
         deleteNode: (destination: Destination) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
         deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
@@ -49,7 +68,21 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
+        setFilters: (filters: Partial<DestinationFilters>) => ({ filters }),
+        resetFilters: true,
     }),
+    reducers(({ props }) => ({
+        filters: [
+            props.defaultFilters as DestinationFilters,
+            {
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                }),
+                resetFilters: () => ({}),
+            },
+        ],
+    })),
     loaders(({ values, actions }) => ({
         plugins: [
             {} as Record<number, PluginType>,
@@ -150,18 +183,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
 
-        hogFunctionTemplates: [
-            {} as Record<string, HogFunctionTemplateType>,
-            {
-                loadHogFunctionTemplates: async () => {
-                    const templates = await api.hogFunctions.listTemplates()
-                    return templates.results.reduce((acc, template) => {
-                        acc[template.id] = template
-                        return acc
-                    }, {} as Record<string, HogFunctionTemplateType>)
-                },
-            },
-        ],
         hogFunctions: [
             [] as HogFunctionType[],
             {
@@ -190,30 +211,26 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
                     return values.hogFunctions.filter((hogFunction) => hogFunction.id !== destination.hog_function.id)
                 },
+                toggleNodeHogFunction: async ({ destination, enabled }) => {
+                    const { hogFunctions } = values
+                    const hogFunctionIndex = hogFunctions.findIndex((hf) => hf.id === destination.hog_function.id)
+                    const response = await api.hogFunctions.update(destination.hog_function.id, {
+                        enabled,
+                    })
+                    return [
+                        ...hogFunctions.slice(0, hogFunctionIndex),
+                        response,
+                        ...hogFunctions.slice(hogFunctionIndex + 1),
+                    ]
+                },
             },
         ],
     })),
     selectors({
         loading: [
-            (s) => [
-                s.pluginsLoading,
-                s.pluginConfigsLoading,
-                s.batchExportConfigsLoading,
-                s.hogFunctionTemplatesLoading,
-                s.hogFunctionsLoading,
-            ],
-            (
-                pluginsLoading,
-                pluginConfigsLoading,
-                batchExportConfigsLoading,
-                hogFunctionTemplatesLoading,
-                hogFunctionsLoading
-            ) =>
-                pluginsLoading ||
-                pluginConfigsLoading ||
-                batchExportConfigsLoading ||
-                hogFunctionTemplatesLoading ||
-                hogFunctionsLoading,
+            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s.hogFunctionsLoading],
+            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionsLoading) =>
+                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionsLoading,
         ],
         destinations: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user],
@@ -240,6 +257,32 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 return enabledFirst
             },
         ],
+        destinationsFuse: [
+            (s) => [s.destinations],
+            (destinations): Fuse => {
+                return new FuseClass(destinations || [], {
+                    keys: ['name', 'description'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+
+        filteredDestinations: [
+            (s) => [s.filters, s.destinations, s.destinationsFuse],
+            (filters, destinations, destinationsFuse): Destination[] => {
+                const { search, onlyActive, kind } = filters
+
+                return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
+                    if (kind && dest.backend !== kind) {
+                        return false
+                    }
+                    if (onlyActive && !dest.enabled) {
+                        return false
+                    }
+                    return true
+                })
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {
@@ -249,8 +292,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             }
             if (destination.backend === PipelineBackend.Plugin) {
                 actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
-            } else {
+            } else if (destination.backend === PipelineBackend.BatchExport) {
                 actions.toggleNodeBatchExport({ destination: destination, enabled: enabled })
+            } else if (destination.backend === PipelineBackend.HogFunction) {
+                actions.toggleNodeHogFunction(destination, enabled)
             }
         },
         deleteNode: ({ destination }) => {
@@ -267,11 +312,50 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             }
         },
     })),
+
+    actionToUrl(({ props, values }) => {
+        if (!props.syncFiltersWithUrl) {
+            return {}
+        }
+        const urlFromFilters = (): [
+            string,
+            Record<string, any>,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => [
+            router.values.location.pathname,
+
+            values.filters,
+            router.values.hashParams,
+            {
+                replace: true,
+            },
+        ]
+
+        return {
+            setFilters: () => urlFromFilters(),
+            resetFilters: () => urlFromFilters(),
+        }
+    }),
+
+    urlToAction(({ props, actions, values }) => ({
+        '*': (_, searchParams) => {
+            if (!props.syncFiltersWithUrl) {
+                return
+            }
+
+            if (!objectsEqual(values.filters, searchParams)) {
+                actions.setFilters(searchParams)
+            }
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadPlugins()
         actions.loadPluginConfigs()
         actions.loadBatchExports()
-        actions.loadHogFunctionTemplates()
         actions.loadHogFunctions()
     }),
 ])

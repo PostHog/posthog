@@ -44,8 +44,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/hogvm':
-    specifier: ^1.0.22
-    version: 1.0.22(re2@1.20.3)
+    specifier: ^1.0.25
+    version: 1.0.25(luxon@3.4.4)(re2@1.20.3)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -107,8 +107,8 @@ dependencies:
     specifier: ^6.0.0
     version: 6.0.0
   luxon:
-    specifier: ^1.27.0
-    version: 1.28.1
+    specifier: ^3.4.4
+    version: 3.4.4
   node-fetch:
     specifier: ^2.6.1
     version: 2.6.9
@@ -3110,11 +3110,13 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.22(re2@1.20.3):
-    resolution: {integrity: sha512-nTNz7RXmOMAbsTPSpejE7eAsjoLbn8RJv/db//r/k+FwwnYwKcKkw4ix/8vhsiT7V8dXdGm7I8U2kMRd74dbeQ==}
+  /@posthog/hogvm@1.0.25(luxon@3.4.4)(re2@1.20.3):
+    resolution: {integrity: sha512-q8j/vN/OXcRKYseCZ6veHoKcGqP9bdM+S3ECs0MGRrr7iyEKF6I7hUtu+jS5mD3Ubo+ceo8DQfTj/Me+s/4cBA==}
     peerDependencies:
+      luxon: ^3.4.4
       re2: ^1.21.3
     dependencies:
+      luxon: 3.4.4
       re2: 1.20.3
     dev: false
 
@@ -5137,7 +5139,7 @@ packages:
     resolution: {integrity: sha512-jbokKWGcyU4gl6jAfX97E1gDpY12DJ1cLJZmoDzaAln/shZ+S3KBFBuA2Q6WeUN4gJf/8klnV1EfvhA2lK5IRQ==}
     engines: {node: '>=12.0.0'}
     dependencies:
-      luxon: 3.3.0
+      luxon: 3.4.4
     dev: false
 
   /cross-spawn@7.0.3:
@@ -7936,12 +7938,8 @@ packages:
     resolution: {integrity: sha512-Pn9cox5CsMYngeDbmChANltQl+5pi6XmTrraMSzhPmMBbmgcxmqWry0U3PGapCU1yB4/LqCcom7qhHZiF/jGfQ==}
     dev: false
 
-  /luxon@1.28.1:
-    resolution: {integrity: sha512-gYHAa180mKrNIUJCbwpmD0aTu9kV0dREDrwNnuyFAsO1Wt0EVYSZelPnJlbj9HplzXX/YWXHFTL45kvZ53M0pw==}
-    dev: false
-
-  /luxon@3.3.0:
-    resolution: {integrity: sha512-An0UCfG/rSiqtAIiBPO0Y9/zAnHUZxAMiCpTd5h2smgsj7GGmcenvrvww2cqNA8/4A5ZrD1gJpHN2mIHZQF+Mg==}
+  /luxon@3.4.4:
+    resolution: {integrity: sha512-zobTr7akeGHnv7eBOXcRgMeCP6+uyYsczwmeRCauvpvaAltgNyTbLH/+VaEAPUeWBT+1GuNmz4wC/6jtQzbbVA==}
     engines: {node: '>=12'}
     dev: false
 
