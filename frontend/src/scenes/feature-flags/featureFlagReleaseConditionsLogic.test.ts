@@ -255,7 +255,7 @@ describe('the feature flag release conditions logic', () => {
                     totalUsers: 2000,
                 })
 
-            // select its value
+            // Remove a condition set
             await expectLogic(logic, () => {
                 logic.actions.removeConditionSet(0)
             })
