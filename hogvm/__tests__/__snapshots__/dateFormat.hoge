@@ -27,4 +27,6 @@
 2, "concat", 2, 2, "print", 1, 35, 32, "%y", 36, 0, 2, "formatDateTime", 2, 32, "%y: ", 2, "concat", 2, 2, "print", 1,
 35, 32, "%Y", 36, 0, 2, "formatDateTime", 2, 32, "%Y: ", 2, "concat", 2, 2, "print", 1, 35, 32, "%z", 36, 0, 2,
 "formatDateTime", 2, 32, "%z: ", 2, "concat", 2, 2, "print", 1, 35, 32, "%%", 36, 0, 2, "formatDateTime", 2, 32, "%%: ",
-2, "concat", 2, 2, "print", 1, 35, 35]
+2, "concat", 2, 2, "print", 1, 35, 32, "-----", 2, "print", 1, 35, 32, "one banana", 36, 0, 2, "formatDateTime", 2, 2,
+"print", 1, 35, 32, "%Y no way %m is this %d a %H real %i time %S", 36, 0, 2, "formatDateTime", 2, 2, "print", 1, 35,
+35]

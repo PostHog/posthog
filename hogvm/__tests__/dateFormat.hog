@@ -41,3 +41,7 @@ print('%y: ' || formatDateTime(dt, '%y'))
 print('%Y: ' || formatDateTime(dt, '%Y'))
 print('%z: ' || formatDateTime(dt, '%z'))
 print('%%: ' || formatDateTime(dt, '%%'))
+
+print('-----')
+print(formatDateTime(dt, 'one banana'))
+print(formatDateTime(dt, '%Y no way %m is this %d a %H real %i time %S'))
