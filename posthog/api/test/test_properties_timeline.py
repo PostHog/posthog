@@ -315,7 +315,9 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @also_test_with_materialized_columns(
+        person_properties=["bar"],
+    )
     def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_day_point(self):
         self._create_person(properties={"foo": "abc", "bar": 123})
         self._create_event(
@@ -380,7 +382,9 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @also_test_with_materialized_columns(
+        person_properties=["bar"],
+    )
     def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_hour_point(self):
         self._create_person(properties={"foo": "abc", "bar": 123})
         self._create_event(
@@ -443,7 +447,9 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @also_test_with_materialized_columns(
+        person_properties=["bar"],
+    )
     def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_month_point(
         self,
     ):
@@ -508,7 +514,9 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @also_test_with_materialized_columns(
+        person_properties=["bar"],
+    )
     def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_using_relative_date_from(
         self,
     ):

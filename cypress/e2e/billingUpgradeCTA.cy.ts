@@ -1,6 +1,3 @@
-import { decideResponse } from '../fixtures/api/decide'
-import * as fflate from 'fflate'
-
 // Mainly testing to make sure events are fired as expected
 
 describe('Billing Upgrade CTA', () => {

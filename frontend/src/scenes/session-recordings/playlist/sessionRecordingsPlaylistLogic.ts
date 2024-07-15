@@ -62,7 +62,7 @@ interface EventUUIDsMatching {
 
 interface BackendEventsMatching {
     matchType: 'backend'
-    filters: RecordingFilters
+    filters: RecordingUniversalFilters
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
@@ -126,7 +126,7 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
     })
 }
 
-function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
+export function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
     const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
     const filters = nestedFilters.values as UniversalFilterValue[]
 

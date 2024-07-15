@@ -9,6 +9,7 @@ import { DashboardPrivilegeLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -114,7 +115,11 @@ export function InsightMeta({
                         </h4>
                     </Link>
 
-                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
+                    {!!insight.description && (
+                        <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                            {insight.description}
+                        </LemonMarkdown>
+                    )}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
 
                     {loading && <LemonTableLoader loading={true} />}

@@ -7,7 +7,6 @@ from posthog.clickhouse.materialized_columns import ColumnName, get_materialized
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import (
     get_action_tables_and_properties,
-    uses_elements_chain,
 )
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -95,32 +94,6 @@ class FOSSColumnOptimizer:
     @cached_property
     def group_types_to_query(self) -> set[GroupTypeIndex]:
         return set()
-
-    @cached_property
-    def group_on_event_columns_to_query(self) -> set[ColumnName]:
-        return set()
-
-    @cached_property
-    def should_query_elements_chain_column(self) -> bool:
-        "Returns whether this query uses elements_chain"
-        has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)
-
-        if has_element_type_property(self.filter.property_groups.flat):
-            return True
-
-        # Both entities and funnel exclusions can contain nested elements_chain inclusions
-        for entity in self.entities_used_in_filter():
-            if has_element_type_property(entity.property_groups.flat):
-                return True
-
-            # :TRICKY: Action definition may contain elements_chain usage
-            #
-            # See ee/clickhouse/models/action.py#format_action_filter for an example
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                if uses_elements_chain(entity.get_action()):
-                    return True
-
-        return False
 
     @cached_property
     def properties_used_in_filter(self) -> TCounter[PropertyIdentifier]:

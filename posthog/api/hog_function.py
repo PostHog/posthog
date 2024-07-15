@@ -1,3 +1,4 @@
+from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
@@ -95,6 +96,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
@@ -103,11 +105,34 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["inputs"] = attrs.get("inputs", {})
 
         if "inputs" in attrs:
+            # If we are updating, we check all input values with secret: true and instead
+            # use the existing value if set
+            if instance:
+                for key, val in attrs["inputs"].items():
+                    if val.get("secret"):
+                        attrs["inputs"][key] = instance.inputs.get(key)
+
+                attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema)
+
             attrs["inputs"] = validate_inputs(attrs["inputs_schema"], attrs["inputs"])
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])
 
         return attrs
+
+    def to_representation(self, data):
+        data = super().to_representation(data)
+
+        inputs_schema = data.get("inputs_schema", [])
+        inputs = data.get("inputs", {})
+
+        for schema in inputs_schema:
+            if schema.get("secret") and inputs.get(schema["key"]):
+                inputs[schema["key"]] = {"secret": True}
+
+        data["inputs"] = inputs
+
+        return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
@@ -125,7 +150,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
     configuration = HogFunctionSerializer(write_only=True)
-    event = serializers.DictField(write_only=True)
+    globals = serializers.DictField(write_only=True)
     mock_async_functions = serializers.BooleanField(default=True, write_only=True)
     status = serializers.CharField(read_only=True)
     logs = serializers.ListField(read_only=True)
@@ -173,7 +198,9 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         hog_function = self.get_object()
-        serializer = HogFunctionInvocationSerializer(data=request.data, context=self.get_serializer_context())
+        serializer = HogFunctionInvocationSerializer(
+            data=request.data, context={**self.get_serializer_context(), "instance": hog_function}
+        )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
@@ -181,13 +208,13 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
         # Remove the team from the config
         configuration.pop("team")
 
-        event = serializer.validated_data["event"]
+        globals = serializer.validated_data["globals"]
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
             team_id=hog_function.team_id,
             hog_function_id=hog_function.id,
-            event=event,
+            globals=globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
         )

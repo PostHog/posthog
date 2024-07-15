@@ -86,10 +86,13 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         ],
         nextPlanWithFeature: [
             (s) => [s.productWithFeature],
-            (productWithFeature) =>
-                productWithFeature?.plans.find(
-                    (plan) => plan.features?.some((f) => f.key === props.featureKey) && !plan.current_plan
-                ),
+            (productWithFeature) => {
+                const currentPlanIndex = productWithFeature?.plans.findIndex((plan) => plan.current_plan)
+                if (!currentPlanIndex) {
+                    return null
+                }
+                return productWithFeature?.plans[currentPlanIndex + 1]
+            },
         ],
         featureInfoOnNextPlan: [
             (s) => [s.nextPlanWithFeature],

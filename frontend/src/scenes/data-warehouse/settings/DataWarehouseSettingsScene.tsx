@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 
 import { DataWarehouseSettingsTab } from '~/types'
 
-import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import { DataWarehouseManagedSourcesTable } from './DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from './DataWarehouseSelfManagedSourcesTable'
@@ -46,7 +45,6 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     </div>
                 }
             />
-            <DataWarehouseBetaNotice />
             <DataWarehouseInitialBillingLimitNotice />
             <LemonTabs
                 activeKey={currentTab}

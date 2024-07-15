@@ -63,3 +63,4 @@ plugin-transpiler/dist
 *-esbuild-meta.json
 *-esbuild-bundle-visualization.html
 .dlt
+*.db

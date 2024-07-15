@@ -38,7 +38,7 @@ export enum SurveyEditSection {
     Presentation = 'presentation',
     Appearance = 'appearance',
     Customization = 'customization',
-    Targeting = 'targeting',
+    DisplayConditions = 'DisplayConditions',
     Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
 }
@@ -613,7 +613,7 @@ export const surveyLogic = kea<surveyLogicType>([
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
             if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
-                actions.setSelectedSection(SurveyEditSection.Targeting)
+                actions.setSelectedSection(SurveyEditSection.DisplayConditions)
             } else {
                 actions.setSelectedSection(SurveyEditSection.Steps)
             }
@@ -1123,15 +1123,33 @@ export const surveyLogic = kea<surveyLogicType>([
                 // NOTE: When more validation errors are added, the submitSurveyFailure listener should be updated
                 // to scroll to the right error section
                 name: !name && 'Please enter a name.',
-                questions: questions.map((question) => ({
-                    question: !question.question && 'Please enter a question.',
-                    ...(question.type === SurveyQuestionType.Rating
-                        ? {
-                              display: !question.display && 'Please choose a display type.',
-                              scale: !question.scale && 'Please choose a scale.',
-                          }
-                        : {}),
-                })),
+                questions: questions.map((question) => {
+                    const questionErrors = {
+                        question: !question.question && 'Please enter a question label.',
+                    }
+
+                    if (question.type === SurveyQuestionType.Rating) {
+                        return {
+                            ...questionErrors,
+                            display: !question.display && 'Please choose a display type.',
+                            scale: !question.scale && 'Please choose a scale.',
+                            lowerBoundLabel: !question.lowerBoundLabel && 'Please enter a lower bound label.',
+                            upperBoundLabel: !question.upperBoundLabel && 'Please enter an upper bound label.',
+                        }
+                    } else if (
+                        question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        return {
+                            ...questionErrors,
+                            choices: question.choices.some((choice) => !choice.trim())
+                                ? 'Please ensure all choices are non-empty.'
+                                : undefined,
+                        }
+                    }
+
+                    return questionErrors
+                }),
                 // release conditions controlled using a PureField in the form
                 targeting_flag_filters: values.flagPropertyErrors,
                 // controlled using a PureField in the form
