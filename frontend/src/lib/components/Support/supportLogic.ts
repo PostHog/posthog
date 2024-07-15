@@ -31,11 +31,13 @@ export function getPublicSupportSnippet(region: Region | null | undefined, user:
 }
 
 function getSessionReplayLink(): string {
-    const link = posthog
+    const replayUrl = posthog
         .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
         .replace(window.location.origin + '/replay/', 'http://go/session/')
 
-    return `Session: ${link} (at ${window.location.href.replace(/&supportModal=.+($|&)?/, '$1')})`
+    const cleanedCurrentUrl = window.location.href.replace(/panel=support[^&]*(&)?/, '').replace(/#$/, '')
+
+    return `Session: ${replayUrl} (at ${cleanedCurrentUrl})`
 }
 
 function getDjangoAdminLink(
