@@ -5,8 +5,10 @@ from collections.abc import Callable
 import re
 import json
 
+import pytz
+
 from .print import print_hog_string_output
-from .date import now, toUnixTimestamp, fromUnixTimestamp, toTimeZone, toDate, toDateTime
+from .date import now, toUnixTimestamp, fromUnixTimestamp, toTimeZone, toDate, toDateTime, is_hog_datetime, is_hog_date
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -30,12 +32,16 @@ def match(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[l
 
 
 def toString(name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int):
-    if isinstance(args[0], datetime.datetime):
-        if args[0].tzinfo == datetime.UTC:
-            return args[0].isoformat("T", "milliseconds").replace("+00:00", "") + "Z"
-        return args[0].isoformat("T", "milliseconds")
-    elif isinstance(args[0], datetime.date):
-        return args[0].strftime("%Y-%m-%d")
+    if isinstance(args[0], dict) and is_hog_datetime(args[0]):
+        dt = datetime.datetime.fromtimestamp(args[0]["dt"], pytz.timezone(args[0]["zone"] or "UTC"))
+        if args[0]["zone"] == "UTC":
+            return dt.isoformat("T", "milliseconds").replace("+00:00", "") + "Z"
+        return dt.isoformat("T", "milliseconds")
+    elif isinstance(args[0], dict) and is_hog_date(args[0]):
+        year = args[0]["year"]
+        month = args[0]["month"]
+        day = args[0]["day"]
+        return f"{year}-{month:02d}-{day:02d}"
     elif args[0] is True:
         return "true"
     elif args[0] is False:

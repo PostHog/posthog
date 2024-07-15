@@ -61,8 +61,8 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
                 return `[${obj.map((o) => printHogValue(o, marked)).join(', ')}]`
             }
             if (isHogDateTime(obj)) {
-                const millis = String(obj.dt.toMillis() / 1000)
-                return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${escapeString(obj.dt.zone.name)})`
+                const millis = String(obj.dt)
+                return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${escapeString(obj.zone)})`
             }
             if (isHogDate(obj)) {
                 return `Date(${obj.year}, ${obj.month}, ${obj.day})`

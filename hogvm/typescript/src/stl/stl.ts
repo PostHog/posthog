@@ -1,16 +1,18 @@
-import { printHogStringOutput } from './print'
+import { DateTime } from 'luxon'
+
 import {
+    fromUnixTimestamp,
     isHogDate,
     isHogDateTime,
-    toHogDate,
-    toHogDateTime,
     now,
-    toUnixTimestamp,
-    fromUnixTimestamp,
-    toTimeZone,
     toDate,
     toDateTime,
+    toHogDate,
+    toHogDateTime,
+    toTimeZone,
+    toUnixTimestamp,
 } from './date'
+import { printHogStringOutput } from './print'
 
 export const STL: Record<string, (args: any[], name: string, timeout: number) => any> = {
     concat: (args) => {
@@ -27,7 +29,7 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             return `${args[0].year}-${month < 10 ? '0' : ''}${month}-${day < 10 ? '0' : ''}${day}`
         }
         if (isHogDateTime(args[0])) {
-            return args[0].dt.toISO()
+            return DateTime.fromMillis(args[0].dt * 1000, { zone: args[0].zone }).toISO()
         }
         return String(args[0])
     },
@@ -55,9 +57,8 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                 return true
             } else if (args[0] instanceof Map) {
                 return args[0].size === 0
-            } else {
-                return Object.keys(args[0]).length === 0
             }
+            return Object.keys(args[0]).length === 0
         }
         return !args[0]
     },
@@ -88,11 +89,13 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             if (Array.isArray(x)) {
                 return x.map(convert)
             } else if (typeof x === 'object' && x !== null) {
+                // Date and DateTime will not be converted to a map
                 if (x.__hogDateTime__) {
                     return toHogDateTime(x.dt, x.zone)
                 } else if (x.__hogDate__) {
                     return toHogDate(x.year, x.month, x.day)
                 }
+                // All other objects will
                 const map = new Map()
                 for (const key in x) {
                     map.set(key, convert(x[key]))
@@ -125,20 +128,8 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                     if (Array.isArray(x)) {
                         return x.map((v) => convert(v, marked))
                     }
-                    if (isHogDateTime(x)) {
-                        return {
-                            __hogDateTime__: true,
-                            dt: x.dt.toMillis(),
-                            zone: x.dt.zone.name,
-                        }
-                    }
-                    if (isHogDate(x)) {
-                        return {
-                            __hogDate__: true,
-                            year: x.year,
-                            month: x.month,
-                            day: x.day,
-                        }
+                    if (isHogDateTime(x) || isHogDate(x)) {
+                        return x
                     }
                     const obj: Record<string, any> = {}
                     for (const key in x) {
@@ -195,9 +186,8 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                 return Array.from(obj.keys())
             } else if (obj instanceof Map) {
                 return Array.from(obj.keys())
-            } else {
-                return Object.keys(obj)
             }
+            return Object.keys(obj)
         }
         return []
     },
@@ -208,9 +198,8 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                 return [...obj]
             } else if (obj instanceof Map) {
                 return Array.from(obj.values())
-            } else {
-                return Object.values(obj)
             }
+            return Object.values(obj)
         }
         return []
     },

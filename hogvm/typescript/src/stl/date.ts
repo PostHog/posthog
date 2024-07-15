@@ -1,13 +1,17 @@
 import { DateTime } from 'luxon'
+
 export interface HogDate {
     __hogDate__: true
     year: number
     month: number
     day: number
 }
+
 export interface HogDateTime {
     __hogDateTime__: true
-    dt: DateTime
+    /** Timestamp float in seconds */
+    dt: number
+    zone: string
 }
 
 export function isHogDate(obj: any): obj is HogDate {
@@ -15,7 +19,7 @@ export function isHogDate(obj: any): obj is HogDate {
 }
 
 export function isHogDateTime(obj: any): obj is HogDateTime {
-    return obj && obj.__hogDateTime__ && 'dt' in obj
+    return obj && obj.__hogDateTime__ && 'dt' in obj && 'zone' in obj
 }
 
 export function toHogDate(year: number, month: number, day: number): HogDate {
@@ -29,21 +33,24 @@ export function toHogDate(year: number, month: number, day: number): HogDate {
 
 export function toHogDateTime(timestamp: number | HogDate, zone?: string): HogDateTime {
     if (isHogDate(timestamp)) {
+        const dateTime = DateTime.fromObject(
+            {
+                year: timestamp.year,
+                month: timestamp.month,
+                day: timestamp.day,
+            },
+            { zone: zone || 'UTC' }
+        )
         return {
             __hogDateTime__: true,
-            dt: DateTime.fromObject(
-                {
-                    year: timestamp.year,
-                    month: timestamp.month,
-                    day: timestamp.day,
-                },
-                { zone: zone || 'UTC' }
-            ),
+            dt: dateTime.toMillis() / 1000,
+            zone: dateTime.zoneName || 'UTC',
         }
     }
     return {
         __hogDateTime__: true,
-        dt: DateTime.fromMillis(timestamp * 1000, { zone: zone || 'UTC' }),
+        dt: timestamp,
+        zone: zone || 'UTC',
     }
 }
 
@@ -55,19 +62,10 @@ export function now(zone?: string): HogDateTime {
 
 export function toUnixTimestamp(input: HogDateTime | HogDate | string, zone?: string): number {
     if (isHogDateTime(input)) {
-        return input.dt.toMillis() / 1000
+        return input.dt
     }
     if (isHogDate(input)) {
-        return (
-            DateTime.fromObject(
-                {
-                    year: input.year,
-                    month: input.month,
-                    day: input.day,
-                },
-                { zone: zone || 'UTC' }
-            ).toMillis() / 1000
-        )
+        return toHogDateTime(input).dt
     }
     return DateTime.fromISO(input, { zone: zone || 'UTC' }).toMillis() / 1000
 }
@@ -78,12 +76,9 @@ export function fromUnixTimestamp(input: number): HogDateTime {
 
 export function toTimeZone(input: HogDateTime, zone: string): HogDateTime | HogDate {
     if (!isHogDateTime(input)) {
-        throw new Error('Expected a HogDateTime')
+        throw new Error('Expected a DateTime')
     }
-    return {
-        ...input,
-        dt: input.dt.setZone(zone),
-    }
+    return { ...input, zone }
 }
 
 export function toDate(input: string): HogDate {
@@ -100,6 +95,7 @@ export function toDateTime(input: string, zone?: string): HogDateTime {
     const dt = DateTime.fromISO(input, { zone: zone || 'UTC' })
     return {
         __hogDateTime__: true,
-        dt: dt,
+        dt: dt.toMillis() / 1000,
+        zone: zone || 'UTC',
     }
 }
