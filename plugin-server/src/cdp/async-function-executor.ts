@@ -1,4 +1,5 @@
-import { PluginsServerConfig } from '../types'
+import { buildIntegerMatcher } from '../config/config'
+import { PluginsServerConfig, ValueMatcher } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { RustyHook } from '../worker/rusty-hook'
@@ -9,11 +10,10 @@ export type AsyncFunctionExecutorOptions = {
 }
 
 export class AsyncFunctionExecutor {
-    rusty_hook_enabled_teams: number[] | '*'
+    hogHookEnabledForTeams: ValueMatcher<number>
 
     constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {
-        const teams = this.serverConfig.CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS
-        this.rusty_hook_enabled_teams = teams === '*' ? teams : teams.split(',').map(parseInt)
+        this.hogHookEnabledForTeams = buildIntegerMatcher(serverConfig.CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS, true)
     }
 
     async execute(
@@ -70,10 +70,7 @@ export class AsyncFunctionExecutor {
         // Finally overwrite the args with the sanitized ones
         request.asyncFunctionRequest.args = [url, { method, headers, body }]
 
-        if (
-            !options?.sync === false &&
-            (this.rusty_hook_enabled_teams === '*' || this.rusty_hook_enabled_teams.includes(request.teamId))
-        ) {
+        if (!options?.sync === false && this.hogHookEnabledForTeams(request.teamId)) {
             await this.rustyHook.enqueueForHog(request)
             return
         }
