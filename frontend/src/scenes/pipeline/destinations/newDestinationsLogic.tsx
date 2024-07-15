@@ -8,6 +8,8 @@ import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, HogFunctionTemplateType
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { loadPluginsFromUrl, RenderApp, RenderBatchExportIcon } from '../utils'
 
+import type { newDestinationsLogicType } from './newDestinationsLogicType'
+
 export type NewDestinationItemType = {
     icon: JSX.Element
     name: string
@@ -16,7 +18,7 @@ export type NewDestinationItemType = {
     status?: 'stable' | 'beta' | 'alpha'
 }
 
-export const newDestinationsLogic = kea([
+export const newDestinationsLogic = kea<newDestinationsLogicType>([
     connect({
         values: [userLogic, ['user']],
     }),
