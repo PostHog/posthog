@@ -1,4 +1,13 @@
-import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonCheckbox,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumn,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -45,6 +54,22 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
 
     return (
         <>
+            <div className="flex items-center mb-2 gap-2">
+                <LemonInput type="search" placeholder="Search..." />
+                <div className="flex-1" />
+                <LemonCheckbox label="Only active" bordered size="small" />
+                <LemonSelect
+                    type="secondary"
+                    size="small"
+                    options={[
+                        { label: 'All kinds', value: null },
+                        { label: 'Realtime (new)', value: 'hog_functions' },
+                        { label: 'Realtime', value: 'plugins' },
+                        { label: 'Batch exports', value: 'batch_exports' },
+                    ]}
+                />
+            </div>
+
             <LemonTable
                 dataSource={data}
                 size="small"
