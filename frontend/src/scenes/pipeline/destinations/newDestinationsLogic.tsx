@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, path, reducers, selectors } from 'ke
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -182,9 +183,11 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
         }
     }),
 
-    urlToAction(({ actions }) => ({
-        '*': (_, { search, kind }) => {
-            actions.setFilters({ search, kind })
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams) => {
+            if (!objectsEqual(values.filters, searchParams)) {
+                actions.setFilters(searchParams)
+            }
         },
     })),
     afterMount(({ actions }) => {

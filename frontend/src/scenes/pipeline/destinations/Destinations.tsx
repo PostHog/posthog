@@ -70,7 +70,7 @@ export function DestinationsTable(props: PipelineDestinationsLogicProps): JSX.El
                     bordered
                     size="small"
                     checked={filters.onlyActive}
-                    onChange={(e) => setFilters({ onlyActive: e })}
+                    onChange={(e) => setFilters({ onlyActive: e ?? undefined })}
                 />
                 <LemonSelect
                     type="secondary"

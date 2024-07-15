@@ -4,6 +4,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -325,9 +326,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             }
         ] => [
             router.values.location.pathname,
-            {
-                ...values.filters,
-            },
+
+            values.filters,
             router.values.hashParams,
             {
                 replace: true,
@@ -340,12 +340,15 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         }
     }),
 
-    urlToAction(({ props, actions }) => ({
-        '*': (_, { search, onlyActive, kind }) => {
+    urlToAction(({ props, actions, values }) => ({
+        '*': (_, searchParams) => {
             if (!props.syncFiltersWithUrl) {
                 return
             }
-            actions.setFilters({ search, onlyActive: onlyActive === 'true', kind })
+
+            if (!objectsEqual(values.filters, searchParams)) {
+                actions.setFilters(searchParams)
+            }
         },
     })),
 
