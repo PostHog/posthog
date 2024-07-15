@@ -53,9 +53,30 @@ export const pathsTitle = (props: { mode: pathModes; label: string }): React.Rea
 }
 
 export const cleanedInsightActorsQueryOptions = (
-    insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null
+    insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null,
+    query: any
 ): [string, any[]][] => {
-    return Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
-        return Array.isArray(value) && !!value.length
-    })
+    if (!query || !query.source) {
+        return Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
+            return Array.isArray(value) && !!value.length
+        })
+    }
+    const seriesNames = query.source.series.map((s: any) => s.custom_name || s.name)
+
+    return Object.entries(insightActorsQueryOptions ?? {})
+        .filter(([, value]) => {
+            return Array.isArray(value) && !!value.length
+        })
+        .map(([key, value]) => {
+            if (key === 'series') {
+                return [
+                    key,
+                    value.map((v: any, index: number) => ({
+                        ...v,
+                        label: seriesNames[index],
+                    })),
+                ]
+            }
+            return [key, value]
+        })
 }
