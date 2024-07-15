@@ -80,11 +80,11 @@ def toTimeZone(date: dict, timezone: str):
     }
 
 
-def toDate(string):
+def toDate(input):
     if isinstance(input, int) or isinstance(input, float):
         dt = datetime.datetime.fromtimestamp(input)
     else:
-        dt = datetime.datetime.fromisoformat(string)
+        dt = datetime.datetime.fromisoformat(input)
     return {
         "__hogDate__": True,
         "year": dt.year,

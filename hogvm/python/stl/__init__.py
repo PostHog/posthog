@@ -272,7 +272,7 @@ def _formatDateTime(args: list[Any], team: Optional["Team"], stdout: Optional[li
     return formatDateTime(args[0], args[1], args[2] if len(args) > 2 else None)
 
 
-STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
+STL: dict[str, Callable[[list[Any], Optional["Team"], list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
     "toString": toString,
