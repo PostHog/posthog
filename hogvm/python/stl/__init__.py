@@ -8,7 +8,17 @@ import json
 import pytz
 
 from .print import print_hog_string_output
-from .date import now, toUnixTimestamp, fromUnixTimestamp, toTimeZone, toDate, toDateTime, is_hog_datetime, is_hog_date
+from .date import (
+    now,
+    toUnixTimestamp,
+    fromUnixTimestamp,
+    toTimeZone,
+    toDate,
+    toDateTime,
+    formatDateTime,
+    is_hog_datetime,
+    is_hog_date,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -235,6 +245,14 @@ def _toDateTime(name: str, args: list[Any], team: Optional["Team"], stdout: Opti
     return toDateTime(args[0])
 
 
+def _formatDateTime(
+    name: str, args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int
+) -> Any:
+    if len(args) < 2:
+        raise ValueError("formatDateTime requires at least 2 arguments")
+    return formatDateTime(args[0], args[1], args[2] if len(args) > 2 else None)
+
+
 STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
@@ -270,4 +288,5 @@ STL: dict[str, Callable[[str, list[Any], Optional["Team"], list[str] | None, int
     "toTimeZone": _toTimeZone,
     "toDate": _toDate,
     "toDateTime": _toDateTime,
+    "formatDateTime": _formatDateTime,
 }

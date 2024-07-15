@@ -11,6 +11,7 @@ import {
     toHogDateTime,
     toTimeZone,
     toUnixTimestamp,
+    formatDateTime,
 } from './date'
 import { printHogStringOutput } from './print'
 
@@ -29,7 +30,7 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             return `${args[0].year}-${month < 10 ? '0' : ''}${month}-${day < 10 ? '0' : ''}${day}`
         }
         if (isHogDateTime(args[0])) {
-            return DateTime.fromMillis(args[0].dt * 1000, { zone: args[0].zone }).toISO()
+            return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
         }
         return String(args[0])
     },
@@ -220,6 +221,9 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     },
     toDateTime(args) {
         return toDateTime(args[0], args[1])
+    },
+    formatDateTime(args) {
+        return formatDateTime(args[0], args[1], args[2])
     },
 }
 
