@@ -461,6 +461,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
 
         response = self.client.get("/logout")
+        self.client.logout()
 
         # Check that the local cookies will be removed by having 'expires' in the past
         self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
