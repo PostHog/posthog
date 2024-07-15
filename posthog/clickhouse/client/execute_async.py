@@ -42,7 +42,7 @@ class QueryRetrievalError(Exception):
 
 
 class QueryStatusManager:
-    STATUS_TTL_SECONDS = 600  # 10 minutes
+    STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
 
     def __init__(self, query_id: str, team_id: int):
@@ -60,7 +60,10 @@ class QueryStatusManager:
 
     def store_query_status(self, query_status: QueryStatus):
         value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
-        self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
+        query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
+            seconds=self.STATUS_TTL_SECONDS
+        )
+        self.redis_client.set(self.results_key, value, exat=query_status.expiration_time.timestamp())
 
     def _store_clickhouse_query_progress_dict(self, query_progress_dict):
         value = json.dumps(query_progress_dict)
@@ -191,7 +194,6 @@ def execute_process_query(
         query_status.error = False
         query_status.results = results
         query_status.end_time = datetime.datetime.now(datetime.UTC)
-        query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
         process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
     except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
