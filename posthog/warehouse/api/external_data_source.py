@@ -113,16 +113,12 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         ]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
-        latest_completed_run = (
-            ExternalDataJob.objects.filter(pipeline_id=instance.pk, status="Completed", team_id=instance.team_id)
-            .order_by("-created_at")
-            .first()
-        )
+        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None
 
         return latest_completed_run.created_at if latest_completed_run else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)
         any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
         any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
@@ -144,8 +140,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             return instance.status
 
     def get_schemas(self, instance: ExternalDataSource):
-        schemas = instance.schemas.order_by("name").all()
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+        return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         updated_source: ExternalDataSource = super().update(instance, validated_data)
@@ -188,8 +183,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.prefetch_related(
             "created_by",
             Prefetch(
+                "jobs",
+                queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
+                to_attr="ordered_jobs",
+            ),
+            Prefetch(
                 "schemas",
-                queryset=ExternalDataSchema.objects.select_related("table__credential", "table__external_data_source"),
+                queryset=ExternalDataSchema.objects.select_related(
+                    "table__credential", "table__external_data_source"
+                ).order_by("name"),
+            ),
+            Prefetch(
+                "schemas",
+                queryset=ExternalDataSchema.objects.filter(should_sync=True).select_related(
+                    "source", "table__credential", "table__external_data_source"
+                ),
+                to_attr="active_schemas",
             ),
         ).order_by(self.ordering)
 
