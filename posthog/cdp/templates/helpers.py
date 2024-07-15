@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.cdp.validation import compile_hog
@@ -54,9 +54,9 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
         if globals:
             if globals.get("event"):
-                data["event"].update(globals["event"])
+                cast(dict, data["event"]).update(globals["event"])
             if globals.get("person"):
-                data["person"].update(globals["person"])
+                cast(dict, data["person"]).update(globals["person"])
 
         return data
 
