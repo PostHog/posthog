@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import FuseClass from 'fuse.js'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -27,8 +28,24 @@ import {
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 
+// Helping kea-typegen navigate the exported default class for Fuse
+export interface Fuse extends FuseClass<Destination> {}
+
+export type DestinationFilters = {
+    search?: string
+    onlyActive?: boolean
+    kind?: PipelineBackend
+}
+
+export type PipelineDestinationsLogicProps = {
+    defaultFilters?: DestinationFilters
+    syncFiltersWithUrl?: boolean
+}
+
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
-    path(['scenes', 'pipeline', 'destinationsLogic']),
+    props({} as PipelineDestinationsLogicProps),
+    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
+    path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect({
         values: [
             teamLogic,
@@ -49,6 +66,18 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
+        setFilters: (filters: Partial<DestinationFilters>) => ({ filters }),
+    }),
+    reducers({
+        filters: [
+            {} as DestinationFilters,
+            {
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                }),
+            },
+        ],
     }),
     loaders(({ values, actions }) => ({
         plugins: [
@@ -222,6 +251,32 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 )
                 const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
+            },
+        ],
+        destinationsFuse: [
+            (s) => [s.destinations],
+            (destinations): Fuse => {
+                return new FuseClass(destinations || [], {
+                    keys: ['name', 'description'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+
+        filteredDestinations: [
+            (s) => [s.filters, s.destinations, s.destinationsFuse],
+            (filters, destinations, destinationsFuse): Destination[] => {
+                const { search, onlyActive, kind } = filters
+
+                return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
+                    if (kind && dest.backend !== kind) {
+                        return false
+                    }
+                    if (onlyActive && !dest.enabled) {
+                        return false
+                    }
+                    return true
+                })
             },
         ],
     }),
