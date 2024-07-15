@@ -160,6 +160,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
+        self.assertTrue(result.complete)
         assert result.error_message
         self.assertRegex(result.error_message, "no viable alternative at input")
 

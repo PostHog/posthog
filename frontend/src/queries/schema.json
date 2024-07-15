@@ -7271,6 +7271,7 @@
             "properties": {
                 "complete": {
                     "default": false,
+                    "description": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
                     "type": "boolean"
                 },
                 "end_time": {
@@ -7279,6 +7280,7 @@
                 },
                 "error": {
                     "default": false,
+                    "description": "If the query failed, this will be set to true. More information can be found in the error_message field.",
                     "type": "boolean"
                 },
                 "error_message": {

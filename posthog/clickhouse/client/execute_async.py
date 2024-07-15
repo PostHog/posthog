@@ -92,8 +92,8 @@ class QueryStatusManager:
             clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
 
-    def has_results(self):
-        return self._get_results() is not None
+    def has_results(self) -> bool:
+        return self.redis_client.exists(self.results_key) == 1
 
     def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
         try:
@@ -124,7 +124,7 @@ class QueryStatusManager:
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
 
-        if not query_status.complete and not query_status.error and query_status.task_id:
+        if not query_status.complete and query_status.task_id:
             task = celery.app.AsyncResult(query_status.task_id)
             if task.state == "FAILURE":
                 query_status.error = True
@@ -133,7 +133,7 @@ class QueryStatusManager:
 
         return query_status
 
-    def delete_query_status(self):
+    def delete_query_status(self) -> None:
         logger.info("Deleting redis query key %s", self.results_key)
         self.redis_client.delete(self.results_key)
         self.redis_client.delete(self.clickhouse_query_status_key)
@@ -161,10 +161,11 @@ def execute_process_query(
 
     query_status = manager.get_query_status()
 
-    if query_status.complete or query_status.error:
+    if query_status.complete:
         return
 
     query_status.error = True  # Assume error in case nothing below ends up working
+    query_status.complete = True
 
     trigger = "chained" if "chained" in (query_status.labels or []) else ""
     if trigger == "chained":
@@ -186,7 +187,6 @@ def execute_process_query(
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
-        query_status.complete = True
         query_status.error = False
         query_status.results = results
         query_status.end_time = datetime.datetime.now(datetime.UTC)
@@ -245,7 +245,7 @@ def enqueue_process_query_task(
     return query_status
 
 
-def get_query_status(team_id, query_id, show_progress=False) -> QueryStatus:
+def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -> QueryStatus:
     """
     Abstracts away the manager for any caller and returns a QueryStatus object
     """
@@ -253,7 +253,7 @@ def get_query_status(team_id, query_id, show_progress=False) -> QueryStatus:
     return manager.get_query_status(show_progress=show_progress)
 
 
-def cancel_query(team_id, query_id):
+def cancel_query(team_id: int, query_id: str) -> bool:
     manager = QueryStatusManager(query_id, team_id)
 
     try:
