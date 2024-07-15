@@ -1,7 +1,7 @@
 import { connect, kea, path } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import type { pipelineOverviewLogicType } from './overviewLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 
