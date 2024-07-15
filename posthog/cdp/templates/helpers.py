@@ -34,7 +34,24 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
     def createHogGlobals(self, globals=None) -> dict:
         # Return an object simulating the
-        return {}
+        data = {
+            "event": {
+                "uuid": "event-id",
+                "name": "event-name",
+                "distinct_id": "distinct-id",
+                "properties": {"$current_url": "https://example.com"},
+                "timestamp": "2024-01-01T00:00:00Z",
+            },
+            "person": {"id": "person-id", "properties": {"email": "example@posthog.com"}},
+        }
+
+        if globals:
+            if globals.get("event"):
+                data["event"].update(globals["event"])
+            if globals.get("person"):
+                data["person"].update(globals["person"])
+
+        return data
 
     def run_function(self, inputs: dict, globals=None):
         # Create the globals object

@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import {
     fromUnixTimestamp,
+    fromUnixTimestampMilli,
     isHogDate,
     isHogDateTime,
     now,
@@ -11,6 +12,7 @@ import {
     toHogDateTime,
     toTimeZone,
     toUnixTimestamp,
+    toUnixTimestampMilli,
     formatDateTime,
 } from './date'
 import { printHogStringOutput } from './print'
@@ -38,9 +40,23 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         return String(args[0])
     },
     toInt: (args) => {
+        if (isHogDateTime(args[0])) {
+            return Math.floor(args[0].dt)
+        } else if (isHogDate(args[0])) {
+            const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
+            const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+            return Math.floor(day.diff(epoch, 'days').days)
+        }
         return !isNaN(parseInt(args[0])) ? parseInt(args[0]) : null
     },
     toFloat: (args) => {
+        if (isHogDateTime(args[0])) {
+            return args[0].dt
+        } else if (isHogDate(args[0])) {
+            const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
+            const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+            return Math.floor(day.diff(epoch, 'days').days)
+        }
         return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
     },
     // ifNull is complied into JUMP instructions. Keeping the function here for backwards compatibility
@@ -212,6 +228,12 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     },
     fromUnixTimestamp(args) {
         return fromUnixTimestamp(args[0])
+    },
+    toUnixTimestampMilli(args) {
+        return toUnixTimestampMilli(args[0], args[1])
+    },
+    fromUnixTimestampMilli(args) {
+        return fromUnixTimestampMilli(args[0])
     },
     toTimeZone(args) {
         return toTimeZone(args[0], args[1])
