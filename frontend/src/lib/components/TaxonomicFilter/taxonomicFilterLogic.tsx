@@ -499,7 +499,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         render: ReplayTaxonomicFilters,
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
-                                return 'api/event/values/?key=' + encodeURIComponent('$current_url')
+                                return (
+                                    'api/event/values/?key=' +
+                                    encodeURIComponent('$current_url') +
+                                    '&event_name=' +
+                                    encodeURIComponent('$pageview')
+                                )
                             }
                         },
                         getPopoverHeader: () => 'Replay',
