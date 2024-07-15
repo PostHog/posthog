@@ -5,40 +5,14 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportService, HogFunctionTemplateType, PluginType } from '~/types'
+import { BatchExportService, HogFunctionTemplateType, PipelineStage, PluginType } from '~/types'
 
-import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
-import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
-import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
-import { PipelineBackend } from './types'
-import { getBatchExportUrl, RenderApp, RenderBatchExportIcon } from './utils'
-
-const paramsToProps = ({
-    params: { stage, id },
-}: {
-    params: { stage?: string; id?: string }
-}): PipelineNodeNewLogicProps => {
-    const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
-    const pluginId = numericId && !isNaN(numericId) ? numericId : null
-    const hogFunctionId = pluginId ? null : id?.startsWith('hog-') ? id.slice(4) : null
-    const batchExportDestination = hogFunctionId ? null : id ?? null
-
-    return {
-        stage: PIPELINE_TAB_TO_NODE_STAGE[stage + 's'] || null, // pipeline tab has stage plural here we have singular
-        pluginId,
-        batchExportDestination,
-        hogFunctionId,
-    }
-}
-
-export const scene: SceneExport = {
-    component: PipelineNodeNew,
-    logic: pipelineNodeNewLogic,
-    paramsToProps,
-}
+import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
+import { pipelineNodeNewLogic } from '../pipelineNodeNewLogic'
+import { PipelineBackend } from '../types'
+import { getBatchExportUrl, RenderApp, RenderBatchExportIcon } from '../utils'
 
 type TableEntry = {
     backend: PipelineBackend
@@ -114,7 +88,7 @@ export function DestinationOptionsTable(): JSX.Element {
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
-                                    to={urls.pipelineNodeNew(stage, target.id)}
+                                    to={urls.pipelineNodeNew(PipelineStage.Destination, target.id)}
                                     title={target.name}
                                     description={target.description}
                                 />
@@ -129,10 +103,16 @@ export function DestinationOptionsTable(): JSX.Element {
                             return (
                                 <LemonButton
                                     type="primary"
-                                    data-attr={`new-${stage}-${target.id}`}
+                                    data-attr={`new-${PipelineStage.Destination}-${target.id}`}
                                     icon={<IconPlusSmall />}
                                     // Preserve hash params to pass config in
-                                    to={combineUrl(urls.pipelineNodeNew(stage, target.id), {}, hashParams).url}
+                                    to={
+                                        combineUrl(
+                                            urls.pipelineNodeNew(PipelineStage.Destination, target.id),
+                                            {},
+                                            hashParams
+                                        ).url
+                                    }
                                 >
                                     Create
                                 </LemonButton>
