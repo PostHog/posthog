@@ -537,16 +537,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         CachedResponse: type[CR] = self.cached_response_type
 
-        if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
-            # We should always kick off async calculation and disregard the cache
-            return QueryStatusResponse(
-                query_status=self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
-            )
-        elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-            # Let's look in the cache first
-            results = self.handle_cache_and_async_logic(execution_mode=execution_mode, cache_key=cache_key, user=user)
-            if results is not None:
-                return results
+        # if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
+        #     # We should always kick off async calculation and disregard the cache
+        #     return QueryStatusResponse(
+        #         query_status=self.enqueue_async_calculation(refresh_requested=True, cache_key=cache_key, user=user)
+        #     )
+        # elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+        #     # Let's look in the cache first
+        #     results = self.handle_cache_and_async_logic(execution_mode=execution_mode, cache_key=cache_key, user=user)
+        #     if results is not None:
+        #         return results
 
         fresh_response_dict = {
             **self.calculate().model_dump(),

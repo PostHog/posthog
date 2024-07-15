@@ -6,10 +6,9 @@ from posthog.schema import (
     HogQLFilters,
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
-    EventsQuery,
     CachedErrorTrackingQueryResponse,
 )
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql.parser import parse_expr
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -27,31 +26,40 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        where = f"properties.$exception_type = '{self.query.fingerprint}'" if self.query.fingerprint else None
-
-        properties = self.query.filterGroup.values if self.query.filterGroup else None
-
-        direction = "ASC" if self.query.order == "first_seen" else "DESC"
-        orderBy = f"{self.query.order} {direction}" if self.query.order else None
-
-        runner = EventsQueryRunner(
-            query=EventsQuery(
-                select=self.query.select,
-                where=where,
-                # after=self.query.dateRange.date_from,
-                # before=self.query.dateRange.date_to,
-                event="$exception",
-                kind="EventQuery",
-                orderBy=orderBy,
-                properties=properties,
-                filterTestAccounts=self.query.filterTestAccounts,
-            ),
-            team=self.team,
+        return ast.SelectQuery(
+            select=[parse_expr(x) for x in self.query.select],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=self._where(),
+            order_by=self._order_by(),
         )
 
-        return runner.to_query()
+    def _where(self):
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value="$exception"),
+            )
+        ]
+
+        if self.query.fingerprint:
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["properties", "$exception_type"]),
+                    right=ast.Constant(value=self.query.fingerprint),
+                )
+            )
+
+        return ast.And(exprs=where_exprs)
+
+    def _order_by(self):
+        order: ast.Literal["ASC"] | ast.Literal["DESC"] = "ASC" if self.query.order == "first_seen" else "DESC"
+        return [ast.OrderExpr(expr=ast.Field(chain=[self.query.order]), order=order)] if self.query.order else None
 
     def calculate(self):
+        properties = self.query.filterGroup.values if self.query.filterGroup else None
+
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
@@ -59,13 +67,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
-            filters=(
-                HogQLFilters(
-                    dateRange=self.query.dateRange,
-                    filterTestAccounts=self.query.filterTestAccounts,
-                    # properties=self.query.properties,
-                )
-            ),
+            # filters=HogQLFilters(
+            #     dateRange=self.query.dateRange,
+            #     filterTestAccounts=self.query.filterTestAccounts,
+            #     properties=properties,
+            # ),
         )
 
         return ErrorTrackingQueryResponse(
