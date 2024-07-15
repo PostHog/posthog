@@ -89,3 +89,67 @@ def toDateTime(string):
         "dt": dt.timestamp(),
         "zone": "UTC",
     }
+
+
+# From ClickHouse to Python
+token_translations = {
+    "a": "%a",
+    "b": "%b",
+    "c": "%m",
+    "C": "%y",
+    "d": "%d",
+    "D": "%m/%d/%y",
+    "e": "%d",
+    "f": "%f",
+    "F": "%Y-%m-%d",
+    "g": "%y",
+    "G": "%Y",
+    "h": "%I",
+    "H": "%H",
+    "i": "%M",
+    "I": "%I",
+    "j": "%j",
+    "k": "%H",
+    "l": "%I",
+    "m": "%m",
+    "M": "%B",
+    "n": "\n",
+    "p": "%p",
+    # 'Q': '%Q',
+    "r": "%I:%M %p",
+    "R": "%H:%M",
+    "s": "%S",
+    "S": "%S",
+    "t": "\t",
+    "T": "%H:%M:%S",
+    "u": "%u",
+    "V": "%V",
+    "w": "%w",
+    "W": "%A",
+    "y": "%y",
+    "Y": "%Y",
+    "z": "%z",
+    "%": "%%",
+}
+
+
+def formatDateTime(input: dict, format: str, zone: Optional[str] = None) -> str:
+    if not is_hog_datetime(input):
+        raise ValueError("Expected a DateTime")
+    format_string = ""
+    acc = ""
+    i = 0
+    while i < len(format):
+        if format[i] == "%":
+            if acc:
+                format_string += acc
+                acc = ""
+            i += 1
+            if i < len(format) and format[i] in token_translations:
+                format_string += token_translations[format[i]]
+        else:
+            acc += format[i]
+        i += 1
+    if acc:
+        format_string += acc
+    return datetime.datetime.fromtimestamp(input["dt"], pytz.timezone(zone or input["zone"])).strftime(format_string)
