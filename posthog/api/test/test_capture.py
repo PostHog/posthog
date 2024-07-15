@@ -5,7 +5,7 @@ import pathlib
 import random
 import string
 from collections import Counter
-from datetime import UTC, timezone
+from datetime import UTC
 from datetime import datetime, timedelta
 from typing import Any, Union, cast
 from unittest import mock
@@ -20,6 +20,7 @@ import zlib
 from boto3 import resource
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from django.utils import timezone
 from django.http import HttpResponse
 from django.test import override_settings
 from django.test.client import MULTIPART_CONTENT, Client

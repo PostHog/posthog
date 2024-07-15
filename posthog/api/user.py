@@ -5,7 +5,7 @@ import time
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, UTC
 from typing import Any, Optional, cast
 
 import jwt
@@ -425,7 +425,7 @@ class UserViewSet(
             user.email = user.pending_email
             user.pending_email = None
             user.save()
-            send_email_change_emails.delay(timezone.now().isoformat(), user.first_name, old_email, user.email)
+            send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
 
         user.is_email_verified = True
         user.save()
