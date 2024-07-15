@@ -1,3 +1,5 @@
+import { toHogDate, toHogDateTime } from './stl/date'
+
 /** Fixed cost per object in memory */
 const COST_PER_UNIT = 8
 
@@ -55,6 +57,11 @@ export function convertJSToHog(x: any): any {
     if (Array.isArray(x)) {
         return x.map(convertJSToHog)
     } else if (typeof x === 'object' && x !== null) {
+        if (x.__hogDateTime__) {
+            return toHogDateTime(x.dt, x.zone)
+        } else if (x.__hogDate__) {
+            return toHogDate(x.year, x.month, x.day)
+        }
         const map = new Map()
         for (const key in x) {
             map.set(key, convertJSToHog(x[key]))
@@ -74,6 +81,9 @@ export function convertHogToJS(x: any): any {
     } else if (typeof x === 'object' && Array.isArray(x)) {
         return x.map(convertHogToJS)
     } else if (typeof x === 'object' && x !== null) {
+        if (x.__hogDateTime__ || x.__hogDate__) {
+            return x
+        }
         const obj: Record<string, any> = {}
         for (const key in x) {
             obj[key] = convertHogToJS(x[key])
