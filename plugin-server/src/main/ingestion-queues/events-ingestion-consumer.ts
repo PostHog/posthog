@@ -37,9 +37,11 @@ export const startEventsIngestionPipelineConsumer = async ({
     /*
         Consumes events from the topic and consumer passed in.
     */
+    const kafka_topic = `${KAFKA_PREFIX}${pipeline.topic}${KAFKA_SUFFIX}`
+    const kafka_consumer = `${KAFKA_PREFIX}${pipeline.consumer_group}`
     status.info(
         '🔁',
-        `Starting events ingestion pipeline on topic ${pipeline.topic} consumer ${pipeline.consumer_group} with rdkafka`
+        `Starting events ingestion pipeline on topic ${kafka_topic} consumer ${kafka_consumer} with rdkafka`
     )
 
     const tokenBlockList = buildStringMatcher(hub.DROP_EVENTS_BY_TOKEN, false)
@@ -52,9 +54,6 @@ export const startEventsIngestionPipelineConsumer = async ({
             IngestionOverflowMode.ConsumeSplitEventlyWithoutIngestionWarning
         )
     }
-
-    const kafka_topic = `${KAFKA_PREFIX}${pipeline.topic}${KAFKA_SUFFIX}`
-    const kafka_consumer = `${KAFKA_PREFIX}${pipeline.consumer_group}${KAFKA_SUFFIX}`
 
     const queue = new IngestionConsumer(hub, kafka_topic, kafka_consumer, batchHandler)
 
