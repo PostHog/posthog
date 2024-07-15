@@ -538,7 +538,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         return self.client.get(
             f"/api/early_access_features/",
             data={"token": token or self.team.api_token},
-            HTTP_ORIGIN=origin,
+            headers={"origin": origin},
             REMOTE_ADDR=ip,
         )
 

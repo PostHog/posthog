@@ -362,8 +362,7 @@ class TestCapture(BaseTest):
             }
             with self.assertNumQueries(0):  # Capture does not hit PG anymore
                 self.client.get(
-                    "/e/?data={}".format(quote(self._to_json(data))),
-                    HTTP_ORIGIN="https://localhost",
+                    "/e/?data={}".format(quote(self._to_json(data))), headers={"origin": "https://localhost"}
                 )
 
             kafka_produce.assert_called_with(
@@ -451,8 +450,7 @@ class TestCapture(BaseTest):
         }
         with self.assertNumQueries(0):  # Capture does not hit PG anymore
             response = self.client.get(
-                "/e/?data={}".format(quote(self._to_json(data))),
-                HTTP_ORIGIN="https://localhost",
+                "/e/?data={}".format(quote(self._to_json(data))), headers={"origin": "https://localhost"}
             )
 
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
@@ -626,8 +624,7 @@ class TestCapture(BaseTest):
         }
         with self.assertNumQueries(0):
             response = self.client.get(
-                "/e/?data={}".format(quote(self._to_json(data))),
-                HTTP_ORIGIN="https://localhost",
+                "/e/?data={}".format(quote(self._to_json(data))), headers={"origin": "https://localhost"}
             )
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
@@ -652,7 +649,7 @@ class TestCapture(BaseTest):
         response = self.client.post(
             "/e/",
             data=20 * DATA_UPLOAD_MAX_MEMORY_SIZE * "x",
-            HTTP_ORIGIN="https://localhost",
+            headers={"origin": "https://localhost"},
             content_type="text/plain",
         )
 
@@ -694,7 +691,9 @@ class TestCapture(BaseTest):
             },
         }
 
-        response = self.client.get("/e/?data={}".format(quote(self._to_json(data))), HTTP_ORIGIN="https://localhost")
+        response = self.client.get(
+            "/e/?data={}".format(quote(self._to_json(data))), headers={"origin": "https://localhost"}
+        )
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -706,8 +705,7 @@ class TestCapture(BaseTest):
 
         self.client.get(
             "/e/?data={}".format(quote(self._to_json(data))),
-            HTTP_X_FORWARDED_FOR="1.2.3.4",
-            HTTP_ORIGIN="https://localhost",
+            headers={"x-forwarded-for": "1.2.3.4", "origin": "https://localhost"},
         )
         self.assertDictContainsSubset(
             {
@@ -729,8 +727,7 @@ class TestCapture(BaseTest):
 
         self.client.get(
             "/e/?data={}".format(quote(self._to_json(data))),
-            HTTP_X_FORWARDED_FOR="2345:0425:2CA1:0000:0000:0567:5673:23b5",
-            HTTP_ORIGIN="https://localhost",
+            headers={"x-forwarded-for": "2345:0425:2CA1:0000:0000:0567:5673:23b5", "origin": "https://localhost"},
         )
         self.assertDictContainsSubset(
             {
@@ -753,8 +750,7 @@ class TestCapture(BaseTest):
 
         self.client.get(
             "/e/?data={}".format(quote(self._to_json(data))),
-            HTTP_X_FORWARDED_FOR="1.2.3.4:5555",
-            HTTP_ORIGIN="https://localhost",
+            headers={"x-forwarded-for": "1.2.3.4:5555", "origin": "https://localhost"},
         )
         self.assertDictContainsSubset(
             {
@@ -796,10 +792,7 @@ class TestCapture(BaseTest):
             },
         }
         with freeze_time(timezone.now()):
-            self.client.get(
-                "/e/?data={}".format(quote(self._to_json(data))),
-                HTTP_ORIGIN="https://localhost",
-            )
+            self.client.get("/e/?data={}".format(quote(self._to_json(data))), headers={"origin": "https://localhost"})
 
         mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
@@ -830,10 +823,7 @@ class TestCapture(BaseTest):
             },
         }
         with freeze_time(timezone.now()):
-            self.client.get(
-                "/e/?data={}".format(quote(self._to_json(data))),
-                HTTP_ORIGIN="https://localhost",
-            )
+            self.client.get("/e/?data={}".format(quote(self._to_json(data))), headers={"origin": "https://localhost"})
 
         mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
 
@@ -1071,7 +1061,7 @@ class TestCapture(BaseTest):
         response = self.client.get(
             "/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ",
             content_type="application/json",
-            HTTP_REFERER="https://localhost",
+            headers={"referer": "https://localhost"},
         )
         self.assertEqual(response.json()["status"], 1)
         data = json.loads(kafka_produce.call_args[1]["data"]["data"])
@@ -1085,15 +1075,13 @@ class TestCapture(BaseTest):
 
         # Empty GET
         response = self.client.get(
-            "/e/?data=",
-            content_type="application/json",
-            HTTP_ORIGIN="https://localhost",
+            "/e/?data=", content_type="application/json", headers={"origin": "https://localhost"}
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(kafka_produce.call_count, 0)
 
         # Empty POST
-        response = self.client.post("/e/", {}, content_type="application/json", HTTP_ORIGIN="https://localhost")
+        response = self.client.post("/e/", {}, content_type="application/json", headers={"origin": "https://localhost"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(kafka_produce.call_count, 0)
 
@@ -1285,7 +1273,7 @@ class TestCapture(BaseTest):
             "/batch/",
             data="NoKABBYN4EQKYDc4DsAuMBcYaD4NwyLswA0MADgE4D2JcZqAlnAM6bQwAkFzWMAsgIYBjMAHkAymAAaRdgCNKAd0Y0WMAMIALSgFs40tgICuZMilQB9IwBsV61KhIYA9I4CMAJgDsAOgAMvry4YABw+oY4AJnBaFHrqnOjc7t5+foEhoXokfKjqyHw6KhFRMcRschSKNGZIZIx0FMgsQQBspYwCJihm6nB0AOa2LC4+AKw+bR1wXfJ04TlDzSGllnQyKvJwa8ur1TR1DSou/j56dMhKtGaz6wBeAJ4GQagALPJ8buo3I8iLevQFWBczVGIxGAGYPABONxeMGQlzEcJ0Rj0ZACczXbg3OCQgBCyFxAlxAE1iQBBADSAC0ANYAVT4NIAKmDRC4eAA5AwAMUYABkAJIAcQMPCouOeZCCAFotAA1cLNeR6SIIOgCOBXcKHDwjSFBNyQnzA95BZ7SnxuAQjFwuABmYKCAg8bh8MqBYLgzRcIzc0pcfDgfD4Pn9uv1huNPhkwxGegMFy1KmxeIJRNJlNpDOZrPZXN5gpFYpIEqlsoVStOyDo9D4ljMJjtNBMZBsdgcziSxwCwVCPkclgofTOAH5kHAAB6oAC8jirNbodYbcCbxjOfTM4QoWj4Z0Onm7aT70hI8TiG5q+0aiQCzV80nUfEYZkYlkENLMGxkcQoNJYdrrJRSkEegkDMJtsiMTU7TfPouDAUBIGwED6nOaUDAnaVXWGdwYBAABdYhUF/FAVGpKkqTgAUSDuAQ+QACWlVAKQoGQ+VxABRJk3A5YQ+g8eQ+gAKW5NwKQARwAET5EY7gAdTpMwPFQKllQAX2ICg7TtJQEjAMFQmeNSCKAA==",
             content_type="application/json",
-            HTTP_CONTENT_ENCODING="lz64",
+            headers={"content-encoding": "lz64"},
         )
         self.assertEqual(response.status_code, 200)
         arguments = self._to_arguments(kafka_produce)
@@ -1392,7 +1380,7 @@ class TestCapture(BaseTest):
                 )
             ),
             content_type="application/json",
-            HTTP_ORIGIN="https://localhost",
+            headers={"origin": "https://localhost"},
         )
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["event"], "$identify")
@@ -1470,7 +1458,7 @@ class TestCapture(BaseTest):
         self.client.get(
             "/e/?_={}&data={}".format(int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
-            HTTP_ORIGIN="https://localhost",
+            headers={"origin": "https://localhost"},
         )
 
         arguments = self._to_arguments(kafka_produce)
@@ -1499,7 +1487,7 @@ class TestCapture(BaseTest):
         self.client.get(
             "/e/?_={}&data={}".format(int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
-            HTTP_ORIGIN="https://localhost",
+            headers={"origin": "https://localhost"},
         )
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(len(arguments["distinct_id"]), 200)
@@ -1750,9 +1738,11 @@ class TestCapture(BaseTest):
         presented_headers = ",".join([*headers, "someotherrandomheader"])
         response = self.client.options(
             path,
-            HTTP_ORIGIN="https://localhost",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS=presented_headers,
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            headers={
+                "origin": "https://localhost",
+                "access-control-request-headers": presented_headers,
+                "access-control-request-method": "POST",
+            },
         )
         assert response.status_code == 200
         assert response.headers["Access-Control-Allow-Headers"] == expected_headers

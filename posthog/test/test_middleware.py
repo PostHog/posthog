@@ -80,9 +80,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
                 )
                 self.assertNotIn(b"IP is not allowed", response.content)
 
@@ -93,9 +91,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.2"}
                 )
                 self.assertIn(b"IP is not allowed", response.content)
 
@@ -106,9 +102,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
                 )
                 self.assertNotIn(b"IP is not allowed", response.content)
 
@@ -412,8 +406,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         }
 
         response = self.client.get(
-            "/e/?data={}".format(quote(json.dumps(data))),
-            HTTP_ORIGIN="https://localhost",
+            "/e/?data={}".format(quote(json.dumps(data))), headers={"origin": "https://localhost"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(0, len(response.cookies))  # no cookies are set
