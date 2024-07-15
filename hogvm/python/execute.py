@@ -46,6 +46,8 @@ def execute_bytecode(
     ops = 0
     stdout: list[str] = []
     colored_bytecode = color_bytecode(bytecode) if debug else []
+    if isinstance(timeout, int):
+        timeout = timedelta(seconds=timeout)
 
     def next_token():
         nonlocal ip
@@ -252,7 +254,7 @@ def execute_bytecode(
                     if name not in STL:
                         raise HogVMException(f"Unsupported function call: {name}")
 
-                    push_stack(STL[name](name, args, team, stdout, timeout))
+                    push_stack(STL[name](args, team, stdout, timeout))
         if ip == last_op:
             break
     if debug:
