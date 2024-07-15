@@ -2077,9 +2077,14 @@ export enum RetentionPeriod {
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
 export interface Breakdown {
+    value: string
+    /**
+     * Legacy breakdown has a `property` field that is `value` now.
+     */
     property: string | number
     type: BreakdownType
     normalize_url?: boolean
+    histogram_bin_count?: number
 }
 
 export interface FilterType {

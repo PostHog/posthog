@@ -140,6 +140,8 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
     cleanedParams['breakdown_normalize_url'] = undefined
+    cleanedParams['breakdown_limit'] = undefined
+
     if (isTrends && filters.display === ChartDisplayType.WorldMap) {
         // For the map, make sure we are breaking down by country
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
@@ -147,6 +149,7 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
         useMostRelevantBreakdownType(cleanedParams, filters)
         return
     }
+
     if (canBreakdown) {
         if (filters.breakdown_type && (filters.breakdown || filters.breakdowns)) {
             cleanedParams['breakdown_type'] = filters.breakdown_type
@@ -156,11 +159,26 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
         if (hasBreakdowns && canMultiPropertyBreakdown) {
             cleanedParams['breakdowns'] = filters.breakdowns
         } else if (hasBreakdowns && isTrends) {
-            cleanedParams['breakdown'] = filters.breakdowns && filters.breakdowns[0].property
-            cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
-                cleanedParams['breakdown'] as string,
-                filters.breakdown_normalize_url
-            )
+            // Clean up a legacy breakdown
+            if (filters.breakdowns![0].property) {
+                cleanedParams['breakdown'] = filters.breakdowns![0].property
+                cleanedParams['breakdown_type'] = filters.breakdowns![0].type
+                cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
+                    cleanedParams['breakdown'] as string,
+                    filters.breakdown_normalize_url
+                )
+            } else {
+                cleanedParams['breakdowns'] = filters.breakdowns!.map((b) => {
+                    if (b.normalize_url) {
+                        return {
+                            ...b,
+                            normalize_url: cleanBreakdownNormalizeURL(b.value, filters.breakdown_normalize_url),
+                        }
+                    }
+
+                    return b
+                })
+            }
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
             cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
@@ -171,6 +189,10 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
 
         if (filters.breakdown_type === 'group' && filters.breakdown_group_type_index != undefined) {
             cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
+        }
+
+        if (filters.breakdown_limit) {
+            cleanedParams['breakdown_limit'] = filters.breakdown_limit
         }
     }
 }

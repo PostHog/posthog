@@ -170,6 +170,50 @@ describe('cleanFilters', () => {
         expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', undefined)
     })
 
+    it('keeps multiple breakdowns', () => {
+        const cleanedFilters = cleanFilters({
+            breakdowns: [{ value: 'any', type: 'event' }],
+            insight: InsightType.TRENDS,
+        } as TrendsFilterType)
+
+        expect(cleanedFilters).toHaveProperty('breakdowns', [{ value: 'any', type: 'event' }])
+    })
+
+    it('keeps normalize_url for multiple breakdowns', () => {
+        const cleanedFilters = cleanFilters({
+            breakdowns: [{ value: '$current_url', type: 'event', normalize_url: true }],
+            insight: InsightType.TRENDS,
+        } as TrendsFilterType)
+
+        expect(cleanedFilters).toHaveProperty('breakdowns', [
+            { value: '$current_url', type: 'event', normalize_url: true },
+        ])
+
+        cleanedFilters.breakdowns![0].normalize_url = false
+        expect(cleanedFilters).toHaveProperty('breakdowns', [
+            { value: '$current_url', type: 'event', normalize_url: false },
+        ])
+    })
+
+    it('restores legacy multiple breakdowns', () => {
+        const cleanedFilters = cleanFilters({
+            breakdowns: [{ property: 'any', type: 'event' }],
+            insight: InsightType.TRENDS,
+        } as TrendsFilterType)
+
+        expect(cleanedFilters).toHaveProperty('breakdown', 'any')
+        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+    })
+
+    it('keeps a breakdown limit', () => {
+        const cleanedFilters = cleanFilters({
+            breakdown_limit: 22,
+            insight: InsightType.TRENDS,
+        } as TrendsFilterType)
+
+        expect(cleanedFilters).toHaveProperty('breakdown_limit', 22)
+    })
+
     it('keeps single property filters for trends', () => {
         const cleanedFilters = cleanFilters({
             breakdown: 'one thing',
