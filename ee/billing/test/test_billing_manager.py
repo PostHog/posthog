@@ -1,7 +1,7 @@
+import datetime
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
-from django.utils import timezone
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import Product
@@ -63,7 +63,7 @@ class TestBillingManager(BaseTest):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
         User.objects.create_and_join(
             organization=organization,
@@ -86,7 +86,7 @@ class TestBillingManager(BaseTest):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
         User.objects.create_and_join(
             organization=organization,
@@ -109,7 +109,7 @@ class TestBillingManager(BaseTest):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
         User.objects.create_and_join(
             organization=organization,

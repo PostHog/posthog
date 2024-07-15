@@ -1,3 +1,4 @@
+import datetime
 from typing import cast, Optional
 from freezegun import freeze_time
 import pytest
@@ -37,7 +38,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_retrieve_existing_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
@@ -51,7 +52,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_retrieve_create_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         property = PropertyDefinition.objects.create(team=self.team, name="property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
@@ -64,7 +65,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_search_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
         EventProperty.objects.create(team=self.team, event="$pageview", property="enterprise property")
@@ -136,7 +137,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7)
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
@@ -180,7 +181,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_update_property_definition_property_type(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7)
         )
 
         property = PropertyDefinition.objects.create(team=self.team, name="property")
@@ -197,7 +198,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_update_property_definition_non_numeric(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7)
         )
 
         property = PropertyDefinition.objects.create(
@@ -279,7 +280,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2010, 1, 19, 3, 14, 7)
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
@@ -294,7 +295,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_filter_property_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         EnterprisePropertyDefinition.objects.create(team=self.team, name="plan")
         EnterprisePropertyDefinition.objects.create(team=self.team, name="purchase")
@@ -313,7 +314,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
@@ -326,7 +327,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_get_property_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
@@ -344,7 +345,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_verify_then_unverify(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
@@ -380,7 +381,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
@@ -420,7 +421,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_update_verified_meta_properties_directly(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
@@ -447,7 +448,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_list_property_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
 
         properties: list[dict] = [
