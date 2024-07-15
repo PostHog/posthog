@@ -328,7 +328,7 @@ export class HogExecutor {
 
                             result.capturedPostHogEvents!.push({
                                 team_id: invocation.teamId,
-                                timestamp: DateTime.now().toISO(),
+                                timestamp: DateTime.utc().toISO(),
                                 distinct_id: event.distinct_id || invocation.globals.event.distinct_id,
                                 event: event.event,
                                 properties: {

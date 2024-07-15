@@ -333,7 +333,7 @@ describe('Hog Executor', () => {
                         $hog_function_execution_count: 1,
                     },
                     team_id: 1,
-                    timestamp: '2024-06-07T14:00:00.000+02:00',
+                    timestamp: '2024-06-07T12:00:00.000Z',
                 },
             ])
         })

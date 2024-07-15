@@ -47,36 +47,39 @@ export class AsyncFunctionExecutor {
             return
         }
 
-        // Sanitize the args
-        const [url, fetchOptions] = request.asyncFunctionRequest.args
-
-        if (typeof url !== 'string') {
-            status.error('🦔', `[HogExecutor] Invalid URL`, { ...request, url })
-            return
-        }
-
-        const method = fetchOptions.method || 'POST'
-        const headers = fetchOptions.headers || {
-            'Content-Type': 'application/json',
-        }
-        let body = fetchOptions.body
-        // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-        body = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : body
-
-        // Finally overwrite the args with the sanitized ones
-        request.asyncFunctionRequest.args = [url, { method, headers, body }]
-
-        if (!options?.sync === false) {
-            // TODO: Add rusty hook support
-        }
-
-        status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
-
         const asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse'] = {
             timings: [],
         }
 
         try {
+            // Sanitize the args
+            const [url, fetchOptions] = request.asyncFunctionRequest.args as [
+                string | undefined,
+                Record<string, any> | undefined
+            ]
+
+            if (typeof url !== 'string') {
+                status.error('🦔', `[HogExecutor] Invalid URL`, { ...request, url })
+                return
+            }
+
+            const method = fetchOptions?.method || 'POST'
+            const headers = fetchOptions?.headers || {
+                'Content-Type': 'application/json',
+            }
+            let body = fetchOptions?.body
+            // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
+            body = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : body
+
+            // Finally overwrite the args with the sanitized ones
+            request.asyncFunctionRequest.args = [url, { method, headers, body }]
+
+            if (!options?.sync === false) {
+                // TODO: Add rusty hook support
+            }
+
+            status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
+
             const start = performance.now()
             const fetchResponse = await trackedFetch(url, {
                 method,
@@ -104,7 +107,7 @@ export class AsyncFunctionExecutor {
                 body: responseBody,
             }
         } catch (err) {
-            status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })
+            status.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })
             asyncFunctionResponse.error = 'Something went wrong with the fetch request.'
         }
 
