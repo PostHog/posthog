@@ -39,7 +39,7 @@ const ProviderMappings: Record<
         fileUrlPatternPlaceholder:
             'https://your-storage-container.blob.core.windows.net/airbyte/stripe/invoices/*.parquet',
         accessKeyPlaceholder: 'your-storage-container',
-        accessKeyLabel: 'Storage container name',
+        accessKeyLabel: 'Storage account name',
         accessSecretLabel: 'Account key',
     },
 }
