@@ -184,7 +184,7 @@ export function TaxonomicPropertyFilter({
                                 )}
                             </LemonButton>
                         </LemonDropdown>
-                        {showOperatorValueSelect ? (
+                        {showOperatorValueSelect && (
                             <OperatorValueSelect
                                 propertyDefinitions={propertyDefinitionsByType(
                                     filter?.type || PropertyDefinitionType.Event,
@@ -220,8 +220,6 @@ export function TaxonomicPropertyFilter({
                                     }
                                 }}
                             />
-                        ) : (
-                            <div />
                         )}
                     </div>
                 </div>

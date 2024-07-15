@@ -78,13 +78,13 @@ def property_to_expr(
         # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
         # TODO: revert this when removing legacy insights?
         except ValueError:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         except TypeError:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
     elif isinstance(property, list):
         properties = [property_to_expr(p, team, scope) for p in property]
         if len(properties) == 0:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         if len(properties) == 1:
             return properties[0]
         return ast.And(exprs=properties)
@@ -111,7 +111,7 @@ def property_to_expr(
             raise QueryError(f'PropertyGroupFilter of unknown type "{property.type}"')
 
         if len(property.values) == 0:
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
         if len(property.values) == 1:
             return property_to_expr(property.values[0], team, scope)
 
@@ -120,13 +120,13 @@ def property_to_expr(
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
     elif isinstance(property, EmptyPropertyFilter):
-        return ast.Constant(value=True)
+        return ast.Constant(value=1)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
         except ValueError:
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
-            return ast.Constant(value=True)
+            return ast.Constant(value=1)
     else:
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
@@ -170,7 +170,11 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        properties_field = ast.Field(chain=chain)
+        if property.type == "session":
+            properties_field = None
+        else:
+            properties_field = ast.Field(chain=chain)
+
         field = ast.Field(chain=[*chain, property.key])
 
         if isinstance(value, list):
@@ -219,7 +223,7 @@ def property_to_expr(
                 ]
                 + (
                     []
-                    if properties_field == field
+                    if not properties_field or properties_field == field
                     else [
                         ast.Not(
                             expr=ast.Call(
@@ -247,7 +251,7 @@ def property_to_expr(
                 name="ifNull",
                 args=[
                     ast.Call(name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]),
-                    ast.Constant(value=False),
+                    ast.Constant(value=0),
                 ],
             )
         elif operator == PropertyOperator.NOT_REGEX:
@@ -262,7 +266,7 @@ def property_to_expr(
                             )
                         ],
                     ),
-                    ast.Constant(value=True),
+                    ast.Constant(value=1),
                 ],
             )
         elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:

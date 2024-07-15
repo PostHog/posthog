@@ -168,8 +168,10 @@ def calculate_for_query_based_insight(
         is_cached=response.get("is_cached", False),
         timezone=response.get("timezone"),
         next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
+        cache_target_age=response.get("cache_target_age"),
         timings=response.get("timings"),
         query_status=response.get("query_status"),
+        hogql=response.get("hogql"),
     )
 
 

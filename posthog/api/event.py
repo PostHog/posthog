@@ -215,7 +215,7 @@ class EventViewSet(
 
         except Exception as ex:
             capture_exception(ex)
-            raise ex
+            raise
 
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]

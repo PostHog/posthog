@@ -60,6 +60,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
             showMean: undefined,
+            yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
         }

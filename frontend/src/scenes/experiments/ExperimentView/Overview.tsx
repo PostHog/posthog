@@ -12,20 +12,20 @@ export function Overview(): JSX.Element {
         experimentResults,
         getIndexForVariant,
         experimentInsightType,
-        sortedConversionRates,
+        sortedWinProbabilities,
         getHighestProbabilityVariant,
         areResultsSignificant,
     } = useValues(experimentLogic)
 
     function WinningVariantText(): JSX.Element {
         if (experimentInsightType === InsightType.FUNNELS) {
-            const winningVariant = sortedConversionRates[0]
+            const winningVariant = sortedWinProbabilities[0]
 
             let comparisonVariant
             if (winningVariant.key === 'control') {
-                comparisonVariant = sortedConversionRates[1]
+                comparisonVariant = sortedWinProbabilities[1]
             } else {
-                comparisonVariant = sortedConversionRates.find(({ key }) => key === 'control')
+                comparisonVariant = sortedWinProbabilities.find(({ key }) => key === 'control')
             }
 
             if (!comparisonVariant) {

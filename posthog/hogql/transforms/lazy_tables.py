@@ -7,6 +7,7 @@ from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 
@@ -14,8 +15,8 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 def resolve_lazy_tables(
     node: ast.Expr,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    context: HogQLContext = None,
+    stack: Optional[list[ast.SelectQuery]],
+    context: HogQLContext,
 ):
     LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
 
@@ -67,8 +68,8 @@ class LazyTableResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[list[ast.SelectQuery]] = None,
-        context: HogQLContext = None,
+        stack: Optional[list[ast.SelectQuery]],
+        context: HogQLContext,
     ):
         super().__init__()
         self.field_collectors: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
@@ -304,12 +305,20 @@ class LazyTableResolver(TraversingVisitor):
                 new_join.to_table in joins_to_add or new_join.to_table in tables_to_add
             ):
                 create_override(new_join.to_table, new_join.lazy_join.to_field)
-
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
+            if self.context.property_swapper is not None:
+                subquery = PropertySwapper(
+                    timezone=self.context.property_swapper.timezone,
+                    group_properties=self.context.property_swapper.group_properties,
+                    event_properties={},
+                    person_properties={},
+                    context=self.context,
+                    setTimeZones=False,
+                ).visit(subquery)
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -335,7 +344,6 @@ class LazyTableResolver(TraversingVisitor):
                 self.context,
                 node,
             )
-
             overrides = [
                 *join_constraint_overrides.get(join_scope.to_table, []),
                 *join_constraint_overrides.get(join_scope.from_table, []),
@@ -345,6 +353,15 @@ class LazyTableResolver(TraversingVisitor):
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
             join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
+            if self.context.property_swapper is not None:
+                join_to_add = PropertySwapper(
+                    timezone=self.context.property_swapper.timezone,
+                    group_properties=self.context.property_swapper.group_properties,
+                    event_properties={},
+                    person_properties={},
+                    context=self.context,
+                    setTimeZones=False,
+                ).visit(join_to_add)
 
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type

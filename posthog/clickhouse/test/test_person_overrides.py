@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from time import sleep
 from typing import TypedDict
 from uuid import UUID, uuid4
@@ -124,7 +124,7 @@ def test_person_overrides_dict():
         "override_person_id": uuid4(),
         "merged_at": datetime.fromisoformat("2020-01-02T00:00:00+00:00"),
         "oldest_event": datetime.fromisoformat("2020-01-01T00:00:00+00:00"),
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
         "version": 1,
     }
 

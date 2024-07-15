@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from django.core.cache import cache
 from flaky import flaky
 from rest_framework import status
@@ -1601,8 +1601,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         explicit_datetime = parser.isoparse(target_filter["explicit_datetime"])
 
         self.assertTrue(
-            explicit_datetime <= datetime.now(timezone.utc) - timedelta(days=5)
-            and explicit_datetime >= datetime.now(timezone.utc) - timedelta(days=5, hours=1)
+            explicit_datetime <= datetime.now(UTC) - timedelta(days=5)
+            and explicit_datetime >= datetime.now(UTC) - timedelta(days=5, hours=1)
         )
 
         cohort_id = cohort["id"]

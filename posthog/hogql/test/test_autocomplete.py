@@ -5,7 +5,7 @@ from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse
+from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse, HogLanguage, HogQLQuery, Kind
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
@@ -27,14 +27,17 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     def _select(
         self, query: str, start: int, end: int, database: Optional[Database] = None
     ) -> HogQLAutocompleteResponse:
-        autocomplete = HogQLAutocomplete(kind="HogQLAutocomplete", select=query, startPosition=start, endPosition=end)
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete", query=query, language=HogLanguage.HOG_QL, startPosition=start, endPosition=end
+        )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
     def _expr(self, query: str, start: int, end: int, database: Optional[Database] = None) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
-            expr=query,
-            exprSource="select * from events",
+            query=query,
+            language=HogLanguage.HOG_QL_EXPR,
+            sourceQuery=HogQLQuery(query="select * from events"),
             startPosition=start,
             endPosition=end,
         )
@@ -45,8 +48,22 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     ) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
-            template=query,
-            exprSource="select * from events",
+            query=query,
+            language=HogLanguage.HOG_TEMPLATE,
+            sourceQuery=HogQLQuery(query="select * from events"),
+            startPosition=start,
+            endPosition=end,
+        )
+        return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
+
+    def _program(
+        self, query: str, start: int, end: int, database: Optional[Database] = None
+    ) -> HogQLAutocompleteResponse:
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query=query,
+            language=HogLanguage.HOG,
+            globals={"event": "$pageview"},
             startPosition=start,
             endPosition=end,
         )
@@ -297,7 +314,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
 
         query = "this isn't a string {concat(eve)} <- this is"
-        results = self._template(query=query, start=31, end=31, database=database)
+        results = self._template(query=query, start=28, end=31, database=database)
 
         suggestions = list(filter(lambda x: x.label == "event", results.suggestions))
         assert len(suggestions) == 1
@@ -306,3 +323,30 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion is not None
         assert suggestion.label == "event"
         assert suggestion.insertText == "event"
+
+    def test_autocomplete_hog(self):
+        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+
+        # 1
+        query = "let var1 := 3; let otherVar := 5; print(v)"
+        results = self._program(query=query, start=41, end=41, database=database)
+
+        suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
+        assert sorted([suggestion.label for suggestion in suggestions]) == ["event", "otherVar", "var1"]
+
+        suggestions = list(filter(lambda x: x.kind == Kind.FUNCTION, results.suggestions))
+        assert len(suggestions) > 0
+
+        # 2
+        query = "let var1 := 3; let otherVar := 5; print(v)"
+        results = self._program(query=query, start=16, end=16, database=database)
+
+        suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
+        assert sorted([suggestion.label for suggestion in suggestions]) == ["event", "var1"]
+
+        # 3
+        query = "let var1 := 3; let otherVar := 5; print(v)"
+        results = self._program(query=query, start=34, end=34, database=database)
+
+        suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
+        assert sorted([suggestion.label for suggestion in suggestions]) == ["event", "otherVar", "var1"]

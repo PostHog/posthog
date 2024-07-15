@@ -39,6 +39,7 @@ export function ActionsLineGraph({
         showLegend,
         hiddenLegendIndexes,
         querySource,
+        yAxisScaleType,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -88,6 +89,7 @@ export function ActionsLineGraph({
             showValuesOnSeries={showValuesOnSeries}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
+            yAxisScaleType={yAxisScaleType}
             tooltip={
                 isLifecycle
                     ? {

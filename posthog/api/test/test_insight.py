@@ -15,7 +15,9 @@ from posthog.hogql.query import execute_hogql_query
 from rest_framework import status
 from parameterized import parameterized
 
+from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
     Cohort,
     Dashboard,
@@ -41,6 +43,8 @@ from posthog.schema import (
     FilterLogicalOperator,
     HogQLFilters,
     HogQLQuery,
+    InsightNodeKind,
+    NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     TrendsQuery,
@@ -280,6 +284,45 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(insight_on_dashboard.get("filters_hash", None))
 
         self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
+
+    def test_get_insight_in_shared_context(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "the dashboard", "filters": {"date_from": "-180d"}}
+        )
+
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": filter_dict, "name": "insight", "dashboards": [dashboard_id]}
+        )
+        sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
+
+        valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
+
+        with patch(
+            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+        ) as calculate_for_query_based_insight:
+            self.client.get(valid_url)
+            calculate_for_query_based_insight.assert_called_once_with(
+                mock.ANY,
+                dashboard=mock.ANY,
+                execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                user=mock.ANY,
+            )
+
+        with patch(
+            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+        ) as calculate_for_query_based_insight:
+            self.client.get(valid_url, data={"refresh": True})
+            calculate_for_query_based_insight.assert_called_once_with(
+                mock.ANY,
+                dashboard=mock.ANY,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                user=mock.ANY,
+            )
 
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -3405,3 +3448,44 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
         self.assertTrue(response.json()["is_cached"])
+
+    def test_insight_returns_cached_hogql(self) -> None:
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "filterTestAccounts": False,
+                    "kind": InsightNodeKind.TRENDS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        }
+                    ],
+                    "interval": "day",
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "short_id": insight.short_id,
+            },
+        ).json()
+
+        self.assertNotIn("code", response)  # Watching out for an error code
+        self.assertEqual(response["results"][0]["last_refresh"], None)
+        self.assertIsNone(response["results"][0]["hogql"])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights",
+            data={"short_id": insight.short_id, "refresh": True},
+        ).json()
+
+        self.assertNotIn("code", response)
+        self.assertIsNotNone(response["results"][0]["hogql"])

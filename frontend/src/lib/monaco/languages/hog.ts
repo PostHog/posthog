@@ -4,7 +4,8 @@
 // Adapted from: https://raw.githubusercontent.com/microsoft/monaco-editor/main/src/basic-languages/typescript/typescript.ts
 
 import { languages } from 'monaco-editor'
-export const conf: languages.LanguageConfiguration = {
+
+export const conf: () => languages.LanguageConfiguration = () => ({
     wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
 
     comments: {
@@ -70,9 +71,9 @@ export const conf: languages.LanguageConfiguration = {
             end: new RegExp('^\\s*//\\s*#?endregion\\b'),
         },
     },
-}
+})
 
-export const language: languages.IMonarchLanguage = {
+export const language: () => languages.IMonarchLanguage = () => ({
     // Set defaultToken to invalid to see what you do not tokenize yet
     defaultToken: 'invalid',
     tokenPostfix: '.hog',
@@ -242,4 +243,4 @@ export const language: languages.IMonarchLanguage = {
             { include: 'common' },
         ],
     },
-}
+})

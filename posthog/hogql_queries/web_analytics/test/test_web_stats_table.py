@@ -722,3 +722,155 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             results,
         )
+
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_source_medium_campaign(self, session_table_version: SessionTableVersion):
+        d1 = "d1"
+        s1 = str(uuid7("2024-06-26"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={"$session_id": s1, "utm_source": "google", "$referring_domain": "google.com"},
+        )
+
+        d2 = "d2"
+        s2 = str(uuid7("2024-06-26"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={
+                "name": d2,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-06-26",
+            properties={"$session_id": s2, "$referring_domain": "news.ycombinator.com", "utm_medium": "referral"},
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN,
+            session_table_version=session_table_version,
+        ).results
+
+        self.assertEqual(
+            [["google / (none) / (none)", 1, 1], ["news.ycombinator.com / referral / (none)", 1, 1]],
+            results,
+        )
+
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_null_in_utm_tags(self, session_table_version: SessionTableVersion):
+        d1 = "d1"
+        s1 = str(uuid7("2024-06-26"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={"$session_id": s1, "utm_source": "google"},
+        )
+
+        d2 = "d2"
+        s2 = str(uuid7("2024-06-26"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={
+                "name": d2,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-06-26",
+            properties={
+                "$session_id": s2,
+            },
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            session_table_version=session_table_version,
+        ).results
+
+        self.assertEqual(
+            [["google", 1.0, 1.0], [None, 1.0, 1.0]],
+            results,
+        )
+
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_is_not_set_filter(self, session_table_version: SessionTableVersion):
+        d1 = "d1"
+        s1 = str(uuid7("2024-06-26"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={"$session_id": s1, "utm_source": "google"},
+        )
+
+        d2 = "d2"
+        s2 = str(uuid7("2024-06-26"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={
+                "name": d2,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-06-26",
+            properties={
+                "$session_id": s2,
+            },
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            properties=[EventPropertyFilter(key="utm_source", operator=PropertyOperator.IS_NOT_SET)],
+            session_table_version=session_table_version,
+        ).results
+
+        self.assertEqual(
+            [[None, 1.0, 1.0]],
+            results,
+        )

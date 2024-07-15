@@ -37,6 +37,10 @@ fetch(inputs.url, {
                     "value": "PUT",
                 },
                 {
+                    "label": "PATCH",
+                    "value": "PATCH",
+                },
+                {
                     "label": "GET",
                     "value": "GET",
                 },
@@ -45,12 +49,14 @@ fetch(inputs.url, {
                     "value": "DELETE",
                 },
             ],
+            "default": "POST",
             "required": False,
         },
         {
             "key": "body",
             "type": "json",
             "label": "JSON Body",
+            "default": {"event": "{event}", "person": "{person}"},
             "secret": False,
             "required": False,
         },

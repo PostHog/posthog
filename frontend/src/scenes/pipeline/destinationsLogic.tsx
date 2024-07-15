@@ -14,7 +14,6 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginType,
-    ProductKey,
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
@@ -43,6 +42,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
+        toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
         deleteNode: (destination: Destination) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
         deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
@@ -191,6 +191,18 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
                     return values.hogFunctions.filter((hogFunction) => hogFunction.id !== destination.hog_function.id)
                 },
+                toggleNodeHogFunction: async ({ destination, enabled }) => {
+                    const { hogFunctions } = values
+                    const hogFunctionIndex = hogFunctions.findIndex((hf) => hf.id === destination.hog_function.id)
+                    const response = await api.hogFunctions.update(destination.hog_function.id, {
+                        enabled,
+                    })
+                    return [
+                        ...hogFunctions.slice(0, hogFunctionIndex),
+                        response,
+                        ...hogFunctions.slice(hogFunctionIndex + 1),
+                    ]
+                },
             },
         ],
     })),
@@ -225,26 +237,20 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 )
 
                 const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
-                    Object.values(pluginConfigs)
-                        .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType>(
-                            (pluginConfig) => ({
+                    ([] as (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[])
+                        .concat(hogFunctions)
+                        .concat(
+                            Object.values(pluginConfigs).map((pluginConfig) => ({
                                 ...pluginConfig,
                                 plugin_info: plugins[pluginConfig.plugin] || null,
-                            })
+                            }))
                         )
                         .concat(rawBatchExports)
-                        .concat(hogFunctions)
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(d, PipelineStage.Destination)
                 )
                 const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.PIPELINE_DESTINATIONS]
             },
         ],
     }),
@@ -256,8 +262,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             }
             if (destination.backend === PipelineBackend.Plugin) {
                 actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
-            } else {
+            } else if (destination.backend === PipelineBackend.BatchExport) {
                 actions.toggleNodeBatchExport({ destination: destination, enabled: enabled })
+            } else if (destination.backend === PipelineBackend.HogFunction) {
+                actions.toggleNodeHogFunction(destination, enabled)
             }
         },
         deleteNode: ({ destination }) => {

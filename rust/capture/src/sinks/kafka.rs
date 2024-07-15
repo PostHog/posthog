@@ -110,6 +110,9 @@ pub struct KafkaSink {
     partition: Option<OverflowLimiter>,
     main_topic: String,
     historical_topic: String,
+    client_ingestion_warning_topic: String,
+    exceptions_topic: String,
+    heatmaps_topic: String,
 }
 
 impl KafkaSink {
@@ -158,6 +161,9 @@ impl KafkaSink {
             partition,
             main_topic: config.kafka_topic,
             historical_topic: config.kafka_historical_topic,
+            client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
+            exceptions_topic: config.kafka_exceptions_topic,
+            heatmaps_topic: config.kafka_heatmaps_topic,
         })
     }
 
@@ -187,6 +193,12 @@ impl KafkaSink {
                     (&self.main_topic, Some(event_key.as_str()))
                 }
             }
+            DataType::ClientIngestionWarning => (
+                &self.client_ingestion_warning_topic,
+                Some(event_key.as_str()),
+            ),
+            DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
+            DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
         };
 
         match self.producer.send_result(FutureRecord {
@@ -325,6 +337,9 @@ mod tests {
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
+            kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
+            kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
+            kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_tls: false,
         };
         let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");

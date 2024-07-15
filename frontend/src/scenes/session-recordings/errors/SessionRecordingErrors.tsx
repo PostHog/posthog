@@ -3,7 +3,7 @@ import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
+import { Sparkline } from 'lib/components/Sparkline'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 

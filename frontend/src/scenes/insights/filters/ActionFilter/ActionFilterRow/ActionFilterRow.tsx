@@ -449,7 +449,6 @@ export function ActionFilterRow({
                                                     // eslint-disable-next-line react/forbid-dom-props
                                                     <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                                         <HogQLEditor
-                                                            disablePersonProperties
                                                             value={mathHogQL}
                                                             onChange={(currentValue) => {
                                                                 onMathHogQLSelect(index, currentValue)

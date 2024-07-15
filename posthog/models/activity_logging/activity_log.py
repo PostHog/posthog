@@ -395,7 +395,7 @@ def log_activity(
         if settings.TEST:
             # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
             # as we currently don't treat activity logs as critical
-            raise e
+            raise
 
 
 @dataclasses.dataclass(frozen=True)

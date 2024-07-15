@@ -4,9 +4,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -30,7 +28,6 @@ function DateAndDurationFilters({
                 <DateFilter
                     dateFrom={filters.date_from ?? '-3d'}
                     dateTo={filters.date_to}
-                    disabled={filters.live_mode}
                     onChange={(changedDateFrom, changedDateTo) => {
                         setFilters({
                             date_from: changedDateFrom,
@@ -74,8 +71,6 @@ export const AdvancedSessionRecordingsFilters = ({
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const allowedPropertyTaxonomyTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
@@ -84,16 +79,10 @@ export const AdvancedSessionRecordingsFilters = ({
         ...groupsTaxonomicTypes,
     ]
 
-    const hasHogQLFiltering = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]
-
-    if (hasHogQLFiltering) {
-        allowedPropertyTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
-    }
+    allowedPropertyTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
 
     const addFilterTaxonomyTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
-    if (hasHogQLFiltering) {
-        addFilterTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
-    }
+    addFilterTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
 
     return (
         <div className="space-y-2 bg-light p-3">
@@ -125,15 +114,9 @@ export const AdvancedSessionRecordingsFilters = ({
                 buttonProps={{ type: 'secondary', size: 'small' }}
             />
 
-            {hasHogQLFiltering ? (
-                <LemonLabel info="Show recordings by persons, cohorts, and more that match the set criteria">
-                    Properties
-                </LemonLabel>
-            ) : (
-                <LemonLabel info="Show recordings by persons who match the set criteria">
-                    Persons and cohorts
-                </LemonLabel>
-            )}
+            <LemonLabel info="Show recordings by persons, cohorts, and more that match the set criteria">
+                Properties
+            </LemonLabel>
 
             <TestAccountFilterSwitch
                 checked={filters.filter_test_accounts ?? false}
@@ -144,7 +127,7 @@ export const AdvancedSessionRecordingsFilters = ({
             {showPropertyFilters && (
                 <PropertyFilters
                     pageKey="session-recordings"
-                    buttonText={hasHogQLFiltering ? 'Add filter' : 'Person or cohort'}
+                    buttonText="Add filter"
                     taxonomicGroupTypes={addFilterTaxonomyTypes}
                     propertyFilters={filters.properties}
                     onChange={(properties) => {
@@ -165,7 +148,7 @@ function ConsoleFilters({
     setFilters,
 }: {
     filters: RecordingFilters
-    setFilters: (filterS: RecordingFilters) => void
+    setFilters: (filters: RecordingFilters) => void
 }): JSX.Element {
     function updateLevelChoice(checked: boolean, level: FilterableLogLevel): void {
         const newChoice = filters.console_logs?.filter((c) => c !== level) || []

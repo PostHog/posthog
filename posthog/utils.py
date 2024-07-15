@@ -1289,12 +1289,12 @@ async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.d
     default_expires = datetime.timedelta(minutes=5)
 
     if not expires:
-        expires = datetime.datetime.now(tz=datetime.timezone.utc) + default_expires
+        expires = datetime.datetime.now(tz=datetime.UTC) + default_expires
 
     sleep_generator = sleep_time_generator()
 
     while not task.ready():
-        if datetime.datetime.now(tz=datetime.timezone.utc) > expires:
+        if datetime.datetime.now(tz=datetime.UTC) > expires:
             child_states = []
             child: AsyncResult
             children = task.children or []

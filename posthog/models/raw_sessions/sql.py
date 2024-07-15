@@ -5,13 +5,6 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
-from posthog.settings import TEST
-
-# the date of the day after this PR will be merged, this allows us to run the backfill script on complete days
-# with a condition like toYYYYMMDD(timestamp) < X
-INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 20240626"
-if TEST:
-    INGEST_FROM_DATE = "toYYYYMMDD(timestamp) >= 0"
 
 TABLE_BASE_NAME = "raw_sessions"
 RAW_SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -170,7 +163,7 @@ SELECT
     timestamp AS max_timestamp,
 
     -- urls
-    [{current_url}] AS urls,
+    if({current_url} IS NOT NULL, [{current_url}], []) AS urls,
     initializeAggregation('argMinState', {current_url_string}, timestamp) as entry_url,
     initializeAggregation('argMaxState', {current_url_string}, timestamp) as end_url,
     initializeAggregation('argMaxState', {external_click_url}, timestamp) as last_external_click_url,
@@ -329,11 +322,12 @@ SELECT
     -- replay
     false as maybe_has_session_replay
 FROM {database}.sharded_events
-WHERE and(
-    bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7, -- has a session id and is valid uuidv7
-    {INGEST_FROM_DATE}
-)
-GROUP BY session_id_v7, team_id
+WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
+GROUP BY
+    team_id,
+    toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+    cityHash64(session_id_v7),
+    session_id_v7
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
         current_url=source_url_column("$current_url"),
@@ -370,7 +364,6 @@ GROUP BY session_id_v7, team_id
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
-        INGEST_FROM_DATE=INGEST_FROM_DATE,
     )
 )
 

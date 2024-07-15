@@ -53,6 +53,28 @@ async def _run(
         external_data_schema_id=schema.id,
     )
 
+    await _execute_run(workflow_id, inputs, mock_data_response)
+
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
+    assert len(res.results) == 1
+
+    for name, field in external_tables.get(table_name, {}).items():
+        if field.hidden:
+            continue
+        assert name in (res.columns or [])
+
+    await sync_to_async(source.refresh_from_db)()
+    assert source.job_inputs.get("reset_pipeline", None) is None
+
+    return workflow_id, inputs
+
+
+async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, mock_data_response):
     def mock_paginate(
         class_self,
         path: str = "",
@@ -90,22 +112,6 @@ async def _run(
                     task_queue=DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-
-    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
-
-    assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
-
-    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
-    assert len(res.results) == 1
-
-    for name, field in external_tables.get(table_name, {}).items():
-        if field.hidden:
-            continue
-        assert name in (res.columns or [])
-
-    await sync_to_async(source.refresh_from_db)()
-    assert source.job_inputs.get("reset_pipeline", None) is None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -363,3 +369,43 @@ async def test_reset_pipeline(team, stripe_balance_transaction):
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
         mock_data_response=stripe_balance_transaction["data"],
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_make_sure_deletions_occur(team, stripe_balance_transaction):
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_balance_transaction["data"],
+    )
+
+    @sync_to_async
+    def get_jobs():
+        job_ids = (
+            ExternalDataJob.objects.filter(
+                team_id=team.pk,
+                pipeline_id=inputs.external_data_source_id,
+            )
+            .order_by("-created_at")
+            .values_list("id", flat=True)
+        )
+
+        return [str(job_id) for job_id in job_ids]
+
+    with mock.patch("posthog.warehouse.models.external_data_job.get_s3_client") as mock_s3_client:
+        s3_client_mock = mock.Mock()
+        mock_s3_client.return_value = s3_client_mock
+
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+        job_ids = await get_jobs()
+        latest_job = job_ids[0]
+        assert s3_client_mock.exists.call_count == 3
+
+        for call in s3_client_mock.exists.call_args_list:
+            assert latest_job not in call[0][0]

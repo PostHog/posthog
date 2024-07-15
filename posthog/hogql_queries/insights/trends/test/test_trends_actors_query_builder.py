@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Optional, cast
 
 from freezegun import freeze_time
@@ -70,7 +70,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def _get_utc_string(self, dt: datetime | None) -> str | None:
         if dt is None:
             return None
-        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+        return dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%SZ")
 
     def test_time_frame(self):
         self.team.timezone = "Europe/Berlin"

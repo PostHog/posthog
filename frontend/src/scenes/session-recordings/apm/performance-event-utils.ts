@@ -222,7 +222,7 @@ export function mapRRWebNetworkRequest(
     return data as PerformanceEvent
 }
 
-export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
+export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWithTime[]>): PerformanceEvent[] {
     // we only support rrweb/network@1 events or posthog/network@1 events in any one recording
     // apart from during testing, where we might have both
     // if we have both, we only display posthog/network@1 events

@@ -18,7 +18,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadPreflight', // Gracefully handled if it fails
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
-    'loadResults', // Special error handling on insights
     'authenticate', // Special error handling on login
     'signup', // Special error handling on login
     'loadLatestVersion',

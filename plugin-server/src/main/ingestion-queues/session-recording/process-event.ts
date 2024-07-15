@@ -255,7 +255,7 @@ export const createSessionReplayEvent = (
     session_id: string,
     events: RRWebEvent[],
     snapshot_source: string | null
-) => {
+): { event: SummarizedSessionRecordingEvent; warnings: string[] } => {
     const timestamps = getTimestampsFrom(events)
 
     // but every event where chunk index = 0 must have an eventsSummary
@@ -267,6 +267,8 @@ export const createSessionReplayEvent = (
         // it is safe to throw here as it caught a level up so that we can see this happening in Sentry
         throw new Error('ignoring an empty session recording event')
     }
+
+    const warnings: string[] = []
 
     let clickCount = 0
     let keypressCount = 0
@@ -303,6 +305,10 @@ export const createSessionReplayEvent = (
                 consoleErrorCount += 1
             }
         }
+
+        if (event.type === RRWebEventType.Custom && event.data?.tag === 'Message too large') {
+            warnings.push('replay_message_too_large')
+        }
     })
 
     const activeTime = activeMilliseconds(events)
@@ -330,5 +336,5 @@ export const createSessionReplayEvent = (
         snapshot_source: snapshot_source || 'web',
     }
 
-    return data
+    return { event: data, warnings }
 }

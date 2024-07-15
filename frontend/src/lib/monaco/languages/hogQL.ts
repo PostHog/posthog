@@ -2,7 +2,7 @@
 
 import { languages } from 'monaco-editor'
 
-export const conf: languages.LanguageConfiguration = {
+export const conf: () => languages.LanguageConfiguration = () => ({
     comments: {
         lineComment: '--',
         blockComment: ['/*', '*/'],
@@ -26,9 +26,9 @@ export const conf: languages.LanguageConfiguration = {
         { open: '"', close: '"' },
         { open: "'", close: "'" },
     ],
-}
+})
 
-export const language: languages.IMonarchLanguage = {
+export const language: () => languages.IMonarchLanguage = () => ({
     defaultToken: '',
     tokenPostfix: '.sql',
     ignoreCase: true,
@@ -844,4 +844,4 @@ export const language: languages.IMonarchLanguage = {
             // NOT SUPPORTED
         ],
     },
-}
+})

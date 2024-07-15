@@ -85,8 +85,8 @@ class TestSessionsAPI(APIBaseTest):
             "Organic Search",
             "Organic Shopping",
             "Organic Video",
-            "Other",
-            "Paid Other",
+            "Unknown",
+            "Paid Unknown",
             "Paid Search",
             "Paid Shopping",
             "Paid Video",
@@ -101,7 +101,7 @@ class TestSessionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         actual_values = {entry["name"] for entry in response.json()}
         expected_values = {
-            "Paid Other",
+            "Paid Unknown",
             "Paid Search",
             "Paid Shopping",
             "Paid Video",

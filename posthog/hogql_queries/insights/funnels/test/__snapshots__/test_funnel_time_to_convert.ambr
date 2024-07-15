@@ -89,8 +89,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                         and isNull(max_steps))) AS step_runs
+           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                         and isNull(max(max_steps)))) AS step_runs
         WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params) AS average_conversion_time
   FROM
     (SELECT plus(
@@ -124,8 +124,8 @@
                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                        and isNull(max_steps))) AS step_runs
+                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                        and isNull(max(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner,
                                                                                                                                             (SELECT histogram_params.from_seconds AS from_seconds
                                                                                                                                              FROM
@@ -157,8 +157,8 @@
                                                                                                                                                                      WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                                                                                                                                          WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                                    GROUP BY aggregation_target, steps
-                                                                                                                                                   HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                                                 and isNull(max_steps))) AS step_runs
+                                                                                                                                                   HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                                                 and isNull(max(max_steps)))) AS step_runs
                                                                                                                                                 WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params)),
                                                                                                                                       (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                                        FROM
@@ -190,8 +190,8 @@
                                                                                                                                                                WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                                                                                                                                    WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                              GROUP BY aggregation_target, steps
-                                                                                                                                             HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                                           and isNull(max_steps))) AS step_runs
+                                                                                                                                             HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                                           and isNull(max(max_steps)))) AS step_runs
                                                                                                                                           WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))),
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
@@ -223,8 +223,8 @@
                                                                                                                                                   WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                              and isNull(max_steps))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds,
             count() AS person_count
      FROM
@@ -303,8 +303,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps))) AS step_runs
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps)))) AS step_runs
      GROUP BY bin_from_seconds) AS results
   RIGHT OUTER JOIN
     (SELECT plus(
@@ -338,8 +338,8 @@
                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                        and isNull(max_steps))) AS step_runs
+                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                        and isNull(max(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(numbers.number,
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
@@ -371,8 +371,8 @@
                                                                                                                                                   WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                              and isNull(max_steps))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds
      FROM numbers(plus(ifNull(
                                 (SELECT histogram_params.bin_count AS bin_count
@@ -405,18 +405,19 @@
                                                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
                                              WHERE ifNull(equals(step_0, 1), 0)))
                                        GROUP BY aggregation_target, steps
-                                       HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                     and isNull(max_steps))) AS step_runs
+                                       HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                     and isNull(max(max_steps)))) AS step_runs
                                     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), 0), 1)) AS numbers) AS fill ON equals(results.bin_from_seconds, fill.bin_from_seconds)
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_basic_strict
@@ -490,8 +491,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                         and isNull(max_steps))) AS step_runs
+           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                         and isNull(max(max_steps)))) AS step_runs
         WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params) AS average_conversion_time
   FROM
     (SELECT plus(
@@ -520,8 +521,8 @@
                                       WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                        and isNull(max_steps))) AS step_runs
+                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                        and isNull(max(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner,
                                                                                                                                             (SELECT histogram_params.from_seconds AS from_seconds
                                                                                                                                              FROM
@@ -548,8 +549,8 @@
                                                                                                                                                                WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                                                                                                                                          WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                                    GROUP BY aggregation_target, steps
-                                                                                                                                                   HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                                                 and isNull(max_steps))) AS step_runs
+                                                                                                                                                   HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                                                 and isNull(max(max_steps)))) AS step_runs
                                                                                                                                                 WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params)),
                                                                                                                                       (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                                        FROM
@@ -576,8 +577,8 @@
                                                                                                                                                          WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                                                                                                                                    WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                              GROUP BY aggregation_target, steps
-                                                                                                                                             HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                                           and isNull(max_steps))) AS step_runs
+                                                                                                                                             HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                                           and isNull(max(max_steps)))) AS step_runs
                                                                                                                                           WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))),
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
@@ -604,8 +605,8 @@
                                                                                                                                             WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                              and isNull(max_steps))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds,
             count() AS person_count
      FROM
@@ -665,8 +666,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps))) AS step_runs
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps)))) AS step_runs
      GROUP BY bin_from_seconds) AS results
   RIGHT OUTER JOIN
     (SELECT plus(
@@ -695,8 +696,8 @@
                                       WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                        and isNull(max_steps))) AS step_runs
+                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                        and isNull(max(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(numbers.number,
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
@@ -723,8 +724,8 @@
                                                                                                                                             WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                              and isNull(max_steps))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds
      FROM numbers(plus(ifNull(
                                 (SELECT histogram_params.bin_count AS bin_count
@@ -752,18 +753,19 @@
                                                    WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))))))
                                              WHERE ifNull(equals(step_0, 1), 0)))
                                        GROUP BY aggregation_target, steps
-                                       HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                     and isNull(max_steps))) AS step_runs
+                                       HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                     and isNull(max(max_steps)))) AS step_runs
                                     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), 0), 1)) AS numbers) AS fill ON equals(results.bin_from_seconds, fill.bin_from_seconds)
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_basic_unordered
@@ -925,8 +927,8 @@
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
-           HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                         and isNull(max_steps))) AS step_runs
+           HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                         and isNull(max(max_steps)))) AS step_runs
         WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params) AS average_conversion_time
   FROM
     (SELECT plus(
@@ -987,8 +989,8 @@
                                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                        and isNull(max_steps))) AS step_runs
+                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                        and isNull(max(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner,
                                                                                                                                             (SELECT histogram_params.from_seconds AS from_seconds
                                                                                                                                              FROM
@@ -1047,8 +1049,8 @@
                                                                                                                                                                WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                                                                                                                          WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                                    GROUP BY aggregation_target, steps
-                                                                                                                                                   HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                                                 and isNull(max_steps))) AS step_runs
+                                                                                                                                                   HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                                                 and isNull(max(max_steps)))) AS step_runs
                                                                                                                                                 WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params)),
                                                                                                                                       (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                                        FROM
@@ -1107,8 +1109,8 @@
                                                                                                                                                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                                                                                                                    WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                              GROUP BY aggregation_target, steps
-                                                                                                                                             HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                                           and isNull(max_steps))) AS step_runs
+                                                                                                                                             HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                                           and isNull(max(max_steps)))) AS step_runs
                                                                                                                                           WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))),
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
@@ -1167,8 +1169,8 @@
                                                                                                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                              and isNull(max_steps))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds,
             count() AS person_count
      FROM
@@ -1316,8 +1318,8 @@
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps))) AS step_runs
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps)))) AS step_runs
      GROUP BY bin_from_seconds) AS results
   RIGHT OUTER JOIN
     (SELECT plus(
@@ -1378,8 +1380,8 @@
                                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                 WHERE ifNull(equals(step_0, 1), 0)))
                           GROUP BY aggregation_target, steps
-                          HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                        and isNull(max_steps))) AS step_runs
+                          HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                        and isNull(max(max_steps)))) AS step_runs
                        WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), multiply(numbers.number,
                                                                                                                          (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
                                                                                                                           FROM
@@ -1438,8 +1440,8 @@
                                                                                                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                                                                                                                       WHERE ifNull(equals(step_0, 1), 0)))
                                                                                                                                 GROUP BY aggregation_target, steps
-                                                                                                                                HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                                                                                                              and isNull(max_steps))) AS step_runs
+                                                                                                                                HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                                                                                                              and isNull(max(max_steps)))) AS step_runs
                                                                                                                              WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params))) AS bin_from_seconds
      FROM numbers(plus(ifNull(
                                 (SELECT histogram_params.bin_count AS bin_count
@@ -1499,17 +1501,18 @@
                                                    WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-07 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-06-13 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
                                              WHERE ifNull(equals(step_0, 1), 0)))
                                        GROUP BY aggregation_target, steps
-                                       HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                                                     and isNull(max_steps))) AS step_runs
+                                       HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                                                     and isNull(max(max_steps)))) AS step_runs
                                     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), 0), 1)) AS numbers) AS fill ON equals(results.bin_from_seconds, fill.bin_from_seconds)
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=2000000,
+                     max_expanded_ast_elements=2000000,
+                     max_query_size=1048576,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---

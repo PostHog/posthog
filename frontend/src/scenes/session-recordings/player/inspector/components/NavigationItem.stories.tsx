@@ -6,7 +6,7 @@ import {
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 import { mswDecorator } from '~/mocks/browser'
-import { PerformanceEvent } from '~/types'
+import { PerformanceEvent, RecordingEventType } from '~/types'
 
 type Story = StoryObj<typeof NavigationItem>
 const meta: Meta<typeof NetworkRequestTiming> = {
@@ -17,6 +17,11 @@ const meta: Meta<typeof NetworkRequestTiming> = {
             get: {},
         }),
     ],
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
 }
 export default meta
 
@@ -124,6 +129,85 @@ AllSlow.args = {
         dom_interactive: 7400,
         first_contentful_paint: 3100,
     } as PerformanceEvent,
+    expanded: false,
+}
+
+export const WebVitalsLoading: Story = BasicTemplate.bind({})
+WebVitalsLoading.args = {
+    item: {
+        load_event_end: 7400,
+        dom_interactive: 7400,
+        first_contentful_paint: 3100,
+        web_vitals: new Set([
+            {
+                event: '$web_vitals',
+                fullyLoaded: false,
+                properties: {
+                    $web_vitals_CLS_value: 0.1,
+                    $web_vitals_LCP_value: 100,
+                    $web_vitals_FCP_value: 200,
+                    $web_vitals_INP_value: 300,
+                },
+            } as unknown as RecordingEventType,
+        ]),
+    } as unknown as PerformanceEvent,
+    expanded: false,
+}
+
+export const WebVitalsAllFast: Story = BasicTemplate.bind({})
+WebVitalsAllFast.args = {
+    item: {
+        web_vitals: new Set([
+            {
+                event: '$web_vitals',
+                fullyLoaded: true,
+                properties: {
+                    $web_vitals_CLS_value: 0.05,
+                    $web_vitals_LCP_value: 100,
+                    $web_vitals_FCP_value: 200,
+                    $web_vitals_INP_value: 199,
+                },
+            } as unknown as RecordingEventType,
+        ]),
+    } as unknown as PerformanceEvent,
+    expanded: false,
+}
+
+export const WebVitalsAllMedium: Story = BasicTemplate.bind({})
+WebVitalsAllMedium.args = {
+    item: {
+        web_vitals: new Set([
+            {
+                event: '$web_vitals',
+                fullyLoaded: true,
+                properties: {
+                    $web_vitals_CLS_value: 0.15,
+                    $web_vitals_LCP_value: 3000,
+                    $web_vitals_FCP_value: 1801,
+                    $web_vitals_INP_value: 250,
+                },
+            } as unknown as RecordingEventType,
+        ]),
+    } as unknown as PerformanceEvent,
+    expanded: false,
+}
+
+export const WebVitalsAllSlow: Story = BasicTemplate.bind({})
+WebVitalsAllSlow.args = {
+    item: {
+        web_vitals: new Set([
+            {
+                event: '$web_vitals',
+                fullyLoaded: true,
+                properties: {
+                    $web_vitals_CLS_value: 0.3,
+                    $web_vitals_LCP_value: 4001,
+                    $web_vitals_FCP_value: 3001,
+                    $web_vitals_INP_value: 550,
+                },
+            } as unknown as RecordingEventType,
+        ]),
+    } as unknown as PerformanceEvent,
     expanded: false,
 }
 

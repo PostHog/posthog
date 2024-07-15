@@ -1,11 +1,11 @@
 import uuid
-from enum import Enum
+from enum import StrEnum
 from typing import Optional
 
 from django.conf import settings
 
 
-class ReplicationScheme(str, Enum):
+class ReplicationScheme(StrEnum):
     NOT_SHARDED = "NOT_SHARDED"
     SHARDED = "SHARDED"
     REPLICATED = "REPLICATED"

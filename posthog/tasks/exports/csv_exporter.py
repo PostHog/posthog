@@ -173,8 +173,9 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             # TRENDS LIKE
             for index, item in enumerate(results):
                 line = {"series": item.get("label", f"Series #{index + 1}")}
-                if item.get("action", {}).get("custom_name"):
-                    line["custom name"] = item.get("action").get("custom_name")
+                action = item.get("action")
+                if isinstance(action, dict) and action.get("custom_name"):
+                    line["custom name"] = action.get("custom_name")
                 if item.get("aggregated_value"):
                     line["total count"] = item.get("aggregated_value")
                 else:
@@ -215,7 +216,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
             response = make_api_call(access_token, body, limit, method, next_url, path)
         except HTTPError as e:
             if "Query size exceeded" not in e.response.text:
-                raise e
+                raise
 
             if limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                 break  # Already tried with the lowest limit, so return what we have
@@ -398,4 +399,4 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
 
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
         EXPORT_FAILED_COUNTER.labels(type="csv").inc()
-        raise e
+        raise

@@ -1,3 +1,4 @@
+from django.conf import settings
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -85,8 +86,7 @@ class BillingManager:
                 products = self.get_default_products(organization)
                 response["products"] = products["products"]
 
-            stripe_portal_url = self._get_stripe_portal_url(organization)
-            response["stripe_portal_url"] = stripe_portal_url
+            response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
 
             # Extend the products with accurate usage_limit info
             for product in response["products"]:
@@ -207,7 +207,7 @@ class BillingManager:
 
         return data
 
-    def _get_stripe_portal_url(self, organization: Organization) -> BillingStatus:
+    def _get_stripe_portal_url(self, organization: Organization) -> str:
         """
         Retrieves stripe protal url
         """

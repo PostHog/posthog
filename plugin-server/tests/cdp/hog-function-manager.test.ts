@@ -86,10 +86,10 @@ describe('HogFunctionManager', () => {
     })
 
     it('returns the hog functions', async () => {
-        let functionsMap = manager.getTeamHogFunctions(teamId1)
+        let items = manager.getTeamHogFunctions(teamId1)
 
-        expect(functionsMap).toEqual({
-            [hogFunctions[0].id]: {
+        expect(items).toEqual([
+            {
                 id: hogFunctions[0].id,
                 team_id: teamId1,
                 name: 'Test Hog Function team 1',
@@ -114,7 +114,7 @@ describe('HogFunctionManager', () => {
                     },
                 },
             },
-        })
+        ])
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -126,18 +126,24 @@ describe('HogFunctionManager', () => {
         // This is normally dispatched by django
         await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
 
-        functionsMap = manager.getTeamHogFunctions(teamId1)
+        items = manager.getTeamHogFunctions(teamId1)
 
-        expect(functionsMap[hogFunctions[0].id]).toMatchObject({
-            id: hogFunctions[0].id,
-            name: 'Test Hog Function team 1 updated',
-        })
+        expect(items).toMatchObject([
+            {
+                id: hogFunctions[0].id,
+                name: 'Test Hog Function team 1 updated',
+            },
+        ])
     })
 
     it('removes disabled functions', async () => {
-        let functionsMap = manager.getTeamHogFunctions(teamId1)
+        let items = manager.getTeamHogFunctions(teamId1)
 
-        expect(functionsMap).toHaveProperty(hogFunctions[0].id)
+        expect(items).toMatchObject([
+            {
+                id: hogFunctions[0].id,
+            },
+        ])
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -149,14 +155,14 @@ describe('HogFunctionManager', () => {
         // This is normally dispatched by django
         await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
 
-        functionsMap = manager.getTeamHogFunctions(teamId1)
+        items = manager.getTeamHogFunctions(teamId1)
 
-        expect(functionsMap).not.toHaveProperty(hogFunctions[0].id)
+        expect(items).toEqual([])
     })
 
     it('enriches integration inputs if found and belonging to the team', () => {
-        const function1Inputs = manager.getTeamHogFunctions(teamId1)[hogFunctions[0].id].inputs
-        const function2Inputs = manager.getTeamHogFunctions(teamId2)[hogFunctions[1].id].inputs
+        const function1Inputs = manager.getTeamHogFunctions(teamId1)[0].inputs
+        const function2Inputs = manager.getTeamHogFunctions(teamId2)[0].inputs
 
         // Only the right team gets the integration inputs enriched
         expect(function1Inputs).toEqual({

@@ -55,7 +55,22 @@ ExtractErrors = {
 DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
 
 
+class DataWarehouseTableManager(models.Manager):
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related("created_by", "external_data_source")
+            .prefetch_related("externaldataschema_set")
+        )
+
+
 class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+    # loading external_data_source and credentials is easily N+1,
+    # so we have a custom object manager meaning people can't forget to load them
+    # this also means we _always_ have two joins whenever we load tables
+    objects = DataWarehouseTableManager()
+
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
         CSVWithNames = "CSVWithNames", "CSVWithNames"
@@ -132,7 +147,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if safe_expose_ch_error:
                 self._safe_expose_ch_error(err)
             else:
-                raise err
+                raise
 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")
@@ -165,7 +180,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if safe_expose_ch_error:
                 self._safe_expose_ch_error(err)
             else:
-                raise err
+                raise
 
         return result[0][0]
 
@@ -181,8 +196,11 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 clickhouse_type = type["clickhouse"]
 
+            is_nullable = False
+
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+                is_nullable = True
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
             if clickhouse_type.startswith("Array("):
@@ -194,7 +212,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 column_invalid = False
 
             if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                structure.append(f"`{column}` {clickhouse_type}")
+                if is_nullable:
+                    structure.append(f"`{column}` Nullable({clickhouse_type})")
+                else:
+                    structure.append(f"`{column}` {clickhouse_type}")
 
             # Support for 'old' style columns
             if isinstance(type, str):
@@ -203,7 +224,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
 
-            fields[column] = hogql_type(name=column)
+            fields[column] = hogql_type(name=column, nullable=is_nullable)
 
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())

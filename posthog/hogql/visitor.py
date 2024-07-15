@@ -29,7 +29,7 @@ class Visitor(Generic[T]):
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
-            raise e
+            raise
 
 
 class TraversingVisitor(Visitor[None]):
@@ -299,6 +299,10 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.increment)
         self.visit(node.body)
 
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        self.visit(node.expr)
+        self.visit(node.body)
+
     def visit_expr_statement(self, node: ast.ExprStatement):
         self.visit(node.expr)
 
@@ -412,6 +416,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             tuple=self.visit(node.tuple),
             index=node.index,
+            nullish=node.nullish,
         )
 
     def visit_tuple(self, node: ast.Tuple):
@@ -438,6 +443,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             array=self.visit(node.array),
             property=self.visit(node.property),
+            nullish=node.nullish,
         )
 
     def visit_array(self, node: ast.Array):
@@ -644,6 +650,16 @@ class CloningVisitor(Visitor[Any]):
             initializer=self.visit(node.initializer) if node.initializer else None,
             condition=self.visit(node.condition),
             increment=self.visit(node.increment),
+            body=self.visit(node.body),
+        )
+
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        return ast.ForInStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            valueVar=node.valueVar,
+            keyVar=node.keyVar,
+            expr=self.visit(node.expr),
             body=self.visit(node.body),
         )
 

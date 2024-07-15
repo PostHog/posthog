@@ -95,6 +95,7 @@ interface LemonCollapsePanelProps {
     size: LemonButtonProps['size']
     onChange: (isExpanded: boolean) => void
     className?: string
+    dataAttr?: string
 }
 
 function LemonCollapsePanel({
@@ -103,6 +104,7 @@ function LemonCollapsePanel({
     isExpanded,
     size,
     className,
+    dataAttr,
     onChange,
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
@@ -113,6 +115,7 @@ function LemonCollapsePanel({
                 onClick={() => onChange(!isExpanded)}
                 icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 className="LemonCollapsePanel__header"
+                {...(dataAttr ? { 'data-attr': dataAttr } : {})}
                 size={size}
             >
                 {header}

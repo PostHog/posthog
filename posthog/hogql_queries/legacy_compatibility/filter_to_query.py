@@ -1,8 +1,9 @@
 import copy
-from enum import Enum
+from enum import StrEnum
 import json
 import re
 from typing import Any, Literal
+
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
@@ -35,7 +36,7 @@ from posthog.types import InsightQueryNode
 from posthog.utils import str_to_bool
 
 
-class MathAvailability(str, Enum):
+class MathAvailability(StrEnum):
     Unavailable = ("Unavailable",)
     All = ("All",)
     ActorsOnly = "ActorsOnly"
@@ -320,12 +321,20 @@ def _breakdown_filter(_filter: dict):
     if breakdownFilter["breakdown_type"] == "events":
         breakdownFilter["breakdown_type"] = "event"
 
-    if _filter.get("breakdowns") is not None:
-        if len(_filter.get("breakdowns")) == 1:
-            breakdownFilter["breakdown_type"] = _filter.get("breakdowns")[0].get("type", None)
-            breakdownFilter["breakdown"] = _filter.get("breakdowns")[0].get("property", None)
-        else:
-            raise Exception("Could not convert multi-breakdown property `breakdowns` - found more than one breakdown")
+    if _filter.get("breakdowns") is not None and isinstance(_filter["breakdowns"], list):
+        breakdowns = []
+        for breakdown in _filter["breakdowns"]:
+            if isinstance(breakdown, dict) and "property" in breakdown:
+                breakdowns.append(
+                    {
+                        "type": breakdown.get("type", "event"),
+                        "value": breakdown["property"],
+                        "normalize_url": breakdown.get("normalize_url", None),
+                    }
+                )
+
+        if len(breakdowns) > 0:
+            breakdownFilter["breakdowns"] = breakdowns
 
     if breakdownFilter["breakdown"] is not None and breakdownFilter["breakdown_type"] is None:
         breakdownFilter["breakdown_type"] = "event"
@@ -376,6 +385,7 @@ def _insight_filter(filter: dict):
                 showValuesOnSeries=filter.get("show_values_on_series"),
                 showPercentStackView=filter.get("show_percent_stack_view"),
                 showLabelsOnSeries=filter.get("show_label_on_series"),
+                yAxisScaleType=filter.get("y_axis_scale_type"),
             )
         }
     elif _insight_type(filter) == "FUNNELS":

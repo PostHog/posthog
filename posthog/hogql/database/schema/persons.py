@@ -1,5 +1,4 @@
-from typing import cast, Optional
-from typing_extensions import Self
+from typing import cast, Optional, Self
 import posthoganalytics
 
 from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
@@ -226,7 +225,7 @@ class PersonsTable(LazyTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:
-            return select_from_persons_table(table_to_add, context, node, filter=clone_expr(self.filter, True, True))
+            return select_from_persons_table(table_to_add, context, node, filter=clone_expr(self.filter, True))
         return select_from_persons_table(table_to_add, context, node)
 
     def to_printed_clickhouse(self, context):

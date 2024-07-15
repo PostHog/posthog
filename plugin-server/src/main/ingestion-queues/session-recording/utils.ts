@@ -12,6 +12,27 @@ import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
 
+const { promisify } = require('node:util')
+const { unzip } = require('node:zlib')
+
+const GZIP_HEADER = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+
+function isGzipped(buffer: Buffer): boolean {
+    if (buffer.length < GZIP_HEADER.length) {
+        return false
+    }
+
+    for (let i = 0; i < GZIP_HEADER.length; i++) {
+        if (buffer[i] !== GZIP_HEADER[i]) {
+            return false
+        }
+    }
+
+    return true
+}
+
+const do_unzip = promisify(unzip)
+
 const counterKafkaMessageReceived = new Counter({
     name: 'recording_blob_ingestion_kafka_message_received',
     help: 'The number of messages we have received from Kafka',
@@ -246,18 +267,27 @@ export const parseKafkaMessage = async (
     let messagePayload: RawEventMessage
     let event: PipelineEvent
 
+    let messageUnzipped = message.value
     try {
-        messagePayload = JSON.parse(message.value.toString())
+        if (isGzipped(message.value)) {
+            messageUnzipped = await do_unzip(message.value)
+        }
+    } catch (error) {
+        return dropMessage('invalid_gzip_data', { error, team_id: teamIdWithConfig.teamId })
+    }
+
+    try {
+        messagePayload = JSON.parse(messageUnzipped.toString())
         event = JSON.parse(messagePayload.data)
     } catch (error) {
-        return dropMessage('invalid_json', { error })
+        return dropMessage('invalid_json', { error, team_id: teamIdWithConfig.teamId })
     }
 
     const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
-        return dropMessage('received_non_snapshot_message')
+        return dropMessage('received_non_snapshot_message', { team_id: teamIdWithConfig.teamId })
     }
 
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {

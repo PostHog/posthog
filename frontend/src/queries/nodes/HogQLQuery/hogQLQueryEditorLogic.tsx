@@ -4,7 +4,6 @@ import { actions, connect, kea, key, listeners, path, props, propsChanged, reduc
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 // Note: we can only import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
 // `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
@@ -13,10 +12,11 @@ import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
 import type { editor } from 'monaco-editor'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 
@@ -27,6 +27,7 @@ export interface HogQLQueryEditorLogicProps {
     onChange?: (query: string) => void
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    metadataSource?: DataNode
 }
 
 export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
@@ -38,18 +39,9 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             actions.setQueryInput(props.query.query)
         }
     }),
-    connect((props: HogQLQueryEditorLogicProps) => ({
-        values: [
-            codeEditorLogic({
-                key: `hogQLQueryEditor/${key}`,
-                query: props.query.query,
-                language: 'hogql',
-                metadataFilters: props.query.filters,
-            }),
-            ['hasErrors', 'error', 'isValidView'],
-        ],
-        actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery']],
-    })),
+    connect({
+        actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery'], dataWarehouseSceneLogic, ['updateView']],
+    }),
     actions({
         saveQuery: true,
         setQueryInput: (queryInput: string) => ({ queryInput }),
@@ -59,6 +51,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         draftFromPromptComplete: true,
         saveAsView: true,
         saveAsViewSuccess: (name: string) => ({ name }),
+        onUpdateView: true,
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
@@ -124,6 +117,9 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 query: values.queryInput,
             }
             await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
+        },
+        onUpdateView: async () => {
+            actions.updateView(values.queryInput)
         },
     })),
 ])

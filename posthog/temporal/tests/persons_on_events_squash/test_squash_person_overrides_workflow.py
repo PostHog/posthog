@@ -1,7 +1,7 @@
 import operator
 import random
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import NamedTuple, TypedDict
 from uuid import UUID, uuid4
 
@@ -862,7 +862,7 @@ async def test_delete_person_overrides_mutation_within_grace_period(
     activity_environment, events_to_override, person_overrides_data, clickhouse_client
 ):
     """Test we do not delete person overrides if they are within the grace period."""
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     override_timestamp = int(now.timestamp())
     team_id, person_override = next(iter(person_overrides_data.items()))
     distinct_id, _ = next(iter(person_override))
@@ -914,7 +914,7 @@ async def test_delete_person_overrides_mutation_within_grace_period(
     assert int(row[0]) == not_deleted_person["team_id"]
     assert row[1] == not_deleted_person["distinct_id"]
     assert UUID(row[2]) == UUID(not_deleted_person["person_id"])
-    _timestamp = datetime.strptime(row[3], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    _timestamp = datetime.strptime(row[3], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
     # _timestamp is up to second precision
     assert _timestamp == now.replace(microsecond=0)
 

@@ -3,7 +3,7 @@ import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { languages } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
-import { AutocompleteCompletionItem, HogQLAutocomplete, NodeKind } from '~/queries/schema'
+import { AutocompleteCompletionItem, HogLanguage, HogQLAutocomplete, NodeKind } from '~/queries/schema'
 
 const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): languages.CompletionItemKind => {
     switch (kind) {
@@ -78,9 +78,7 @@ const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string)
     return `3-${label}`
 }
 
-export const hogQLAutocompleteProvider = (
-    type: 'hogQL' | 'hogTemplate' | 'hogExpr'
-): languages.CompletionItemProvider => ({
+export const hogQLAutocompleteProvider = (type: HogLanguage): languages.CompletionItemProvider => ({
     triggerCharacters: [' ', ',', '.', '{'],
     provideCompletionItems: async (model, position) => {
         const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
@@ -101,13 +99,12 @@ export const hogQLAutocompleteProvider = (
         })
         const query: HogQLAutocomplete = {
             kind: NodeKind.HogQLAutocomplete,
+            language: type,
             // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
-            ...(type === 'hogQL'
-                ? { select: model.getValue() }
-                : type === 'hogExpr'
-                ? { expr: model.getValue(), exprSource: 'select * from events' }
-                : { template: model.getValue(), exprSource: 'select * from events' }),
+            query: model.getValue(),
             filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
+            globals: logic.isMounted() ? logic.props.globals : undefined,
+            sourceQuery: logic.isMounted() ? logic.props.sourceQuery : undefined,
             startPosition: startOffset,
             endPosition: endOffset,
         }

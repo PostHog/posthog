@@ -6,9 +6,8 @@ import { tryJsonParse } from 'lib/utils'
 
 import { LogEntry } from '~/types'
 
+import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
-import { pipelineHogFunctionConfigurationLogic, sanitizeConfiguration } from './pipelineHogFunctionConfigurationLogic'
-import { createExampleEvent } from './utils/event-conversion'
 
 export interface HogFunctionTestLogicProps {
     id: string
@@ -29,8 +28,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     key((props) => props.id),
     path((id) => ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionTestLogic', id]),
     connect((props: HogFunctionTestLogicProps) => ({
-        values: [pipelineHogFunctionConfigurationLogic({ id: props.id }), ['configuration', 'configurationHasErrors']],
-        actions: [pipelineHogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
+        values: [
+            hogFunctionConfigurationLogic({ id: props.id }),
+            ['configuration', 'configurationHasErrors', 'exampleInvocationGlobals'],
+        ],
+        actions: [hogFunctionConfigurationLogic({ id: props.id }), ['touchConfigurationField']],
     })),
     actions({
         setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
@@ -72,12 +74,12 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     return
                 }
 
-                const event = tryJsonParse(data.globals)
+                const globals = tryJsonParse(data.globals)
                 const configuration = sanitizeConfiguration(values.configuration)
 
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id, {
-                        event,
+                        globals,
                         mock_async_functions: data.mock_async_functions,
                         configuration,
                     })
@@ -89,7 +91,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         },
     })),
-    afterMount(({ actions }) => {
-        actions.setTestInvocationValue('globals', JSON.stringify(createExampleEvent(), null, 2))
+
+    afterMount(({ actions, values }) => {
+        actions.setTestInvocationValue('globals', JSON.stringify(values.exampleInvocationGlobals, null, 2))
     }),
 ])

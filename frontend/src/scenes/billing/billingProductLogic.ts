@@ -1,12 +1,11 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
+import { BillingPlanType, BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -63,7 +62,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setBillingProductLoading: (productKey: string | null) => ({ productKey }),
         initiateProductUpgrade: (
             product: BillingProductV2Type | BillingProductV2AddonType,
-            plan: BillingV2PlanType,
+            plan: BillingPlanType,
             redirectPath?: string
         ) => ({
             plan,
@@ -156,7 +155,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         currentAndUpgradePlans: [
             (_s, p) => [p.product],
             (product) => {
-                const currentPlanIndex = product.plans.findIndex((plan: BillingV2PlanType) => plan.current_plan)
+                const currentPlanIndex = product.plans.findIndex((plan: BillingPlanType) => plan.current_plan)
                 const currentPlan = currentPlanIndex >= 0 ? product.plans?.[currentPlanIndex] : null
                 const upgradePlan =
                     // If in debug mode and with no license there will be
@@ -188,9 +187,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 const addonTiers = product.addons
                     ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
                     ?.map((addon: BillingProductV2AddonType) => addon.tiers)
-                const productAndAddonTiers: BillingV2TierType[][] = [product.tiers, ...addonTiers].filter(
+                const productAndAddonTiers: BillingTierType[][] = [product.tiers, ...addonTiers].filter(
                     Boolean
-                ) as BillingV2TierType[][]
+                ) as BillingTierType[][]
                 return product.tiers
                     ? isEditingBillingLimit
                         ? convertAmountToUsage(
@@ -288,52 +287,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
-                const { currentPlan } = values.currentAndUpgradePlans
-
-                if (currentPlan?.initial_billing_limit) {
-                    actions.setProductSpecificAlert({
-                        status: 'warning',
-                        title: 'Billing Limit Automatically Applied',
-                        pathName: '/organization/billing',
-                        dismissKey: `auto-apply-billing-limit-${props.product.type}`,
-                        message: `To protect your costs and ours, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${props.product.name}.`,
-                        action: {
-                            onClick: () => {
-                                actions.setIsEditingBillingLimit(true)
-                                setTimeout(() => {
-                                    if (props.billingLimitInputRef?.current) {
-                                        props.billingLimitInputRef?.current.focus()
-                                        props.billingLimitInputRef?.current.scrollIntoView({
-                                            behavior: 'smooth',
-                                            block: 'nearest',
-                                        })
-                                    }
-                                }, 0)
-                            },
-                            children: 'Update billing limit',
-                        },
-                    })
-                } else {
-                    setTimeout(() => {
-                        if (props.productRef?.current) {
-                            props.productRef?.current.scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'center',
-                            })
-                        }
-                    }, 0)
-                }
+                setTimeout(() => {
+                    if (props.productRef?.current) {
+                        props.productRef?.current.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center',
+                        })
+                    }
+                }, 0)
             }
         },
         initiateProductUpgrade: ({ plan, product, redirectPath }) => {
             actions.setBillingProductLoading(product.type)
-            let products = `${product.type}:${plan?.plan_key}`
-            if (
-                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                values.billing?.subscription_level == 'free'
-            ) {
-                products += ',all_products:'
-            }
+            const products = `${product.type}:${plan?.plan_key}`
             actions.handleProductUpgrade(products, redirectPath)
         },
         handleProductUpgrade: ({ products, redirectPath }) => {
@@ -355,9 +321,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               ?.map((addon: BillingProductV2AddonType) => addon.tiers)
                         : []
 
-                const productAndAddonTiers: BillingV2TierType[][] = [props.product.tiers, ...addonTiers].filter(
+                const productAndAddonTiers: BillingTierType[][] = [props.product.tiers, ...addonTiers].filter(
                     Boolean
-                ) as BillingV2TierType[][]
+                ) as BillingTierType[][]
 
                 const newAmountAsUsage = props.product.tiers
                     ? convertAmountToUsage(`${input}`, productAndAddonTiers, values.billing?.discount_percent)

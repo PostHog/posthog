@@ -46,7 +46,9 @@ describe('replay events ingester', () => {
     })
 
     test('does not ingest messages from a month in the future', async () => {
-        const twoMonthsFromNow = DateTime.utc().plus({ months: 2 })
+        const now = DateTime.utc()
+        const twoMonthsFromNow = now.plus({ months: 2 })
+        const expectedDaysFromNow = twoMonthsFromNow.diff(now, 'days').days
 
         await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
 
@@ -67,7 +69,7 @@ describe('replay events ingester', () => {
         expect(details).toEqual(
             expect.objectContaining({
                 isValid: true,
-                daysFromNow: 61,
+                daysFromNow: expectedDaysFromNow,
                 timestamp: expectedTimestamp,
             })
         )

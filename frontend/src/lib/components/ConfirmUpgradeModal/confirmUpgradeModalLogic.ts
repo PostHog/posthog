@@ -1,6 +1,6 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 
-import { BillingV2PlanType } from '~/types'
+import { BillingPlanType } from '~/types'
 
 import type { confirmUpgradeModalLogicType } from './confirmUpgradeModalLogicType'
 
@@ -8,7 +8,7 @@ export const confirmUpgradeModalLogic = kea<confirmUpgradeModalLogicType>([
     path(['lib', 'components', 'ConfirmUpgradeModal', 'confirmUpgradeModalLogic']),
     actions({
         showConfirmUpgradeModal: (
-            upgradePlan: BillingV2PlanType,
+            upgradePlan: BillingPlanType,
             confirmCallback: () => void,
             cancelCallback: () => void
         ) => ({
@@ -22,7 +22,7 @@ export const confirmUpgradeModalLogic = kea<confirmUpgradeModalLogicType>([
     }),
     reducers({
         upgradePlan: [
-            null as BillingV2PlanType | null,
+            null as BillingPlanType | null,
             {
                 showConfirmUpgradeModal: (_, { upgradePlan }) => upgradePlan,
                 hideConfirmUpgradeModal: () => null,
