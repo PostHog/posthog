@@ -33,7 +33,7 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
                     },
                     "body": {
                         "event_name": "event-name",
-                        "created_at": "2024-01-01T00:00:00Z",
+                        "created_at": 1704067200000,
                         "email": "example@posthog.com",
                         "id": "distinct-id",
                     },

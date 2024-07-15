@@ -19,7 +19,7 @@ if (empty(email)) {
 
 let body := {
     'event_name': event.name,
-    'created_at': toUnixTimestamp(toDateTime(event.timestamp)),
+    'created_at': toInt(toUnixTimestamp(toDateTime(event.timestamp))),
     'email': inputs.email,
     'id': event.distinct_id,
 }
