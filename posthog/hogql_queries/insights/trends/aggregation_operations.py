@@ -42,8 +42,14 @@ class QueryAlternator:
     def append_select(self, expr: ast.Expr) -> None:
         self._selects.append(expr)
 
+    def extend_select(self, exprs: list[ast.Expr]) -> None:
+        self._selects.extend(exprs)
+
     def append_group_by(self, expr: ast.Expr) -> None:
         self._group_bys.append(expr)
+
+    def extend_group_by(self, exprs: list[ast.Expr]) -> None:
+        self._group_bys.extend(exprs)
 
     def replace_select_from(self, join_expr: ast.JoinExpr) -> None:
         self._select_from = join_expr

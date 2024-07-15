@@ -2,19 +2,10 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import {
-    ClickHouseTimestamp,
-    Hub,
-    Person,
-    PropertyOperator,
-    PropertyUpdateOperation,
-    RawAction,
-    Team,
-} from '../../src/types'
-import { DB, GroupId } from '../../src/utils/db/db'
+import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
+import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
-import * as dbMetrics from '../../src/utils/db/metrics'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
@@ -45,11 +36,6 @@ describe('DB', () => {
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-    const CLICKHOUSE_TIMESTAMP = '2000-10-14 11:42:06.502' as ClickHouseTimestamp
-
-    function fetchGroupCache(teamId: number, groupTypeIndex: number, groupKey: string) {
-        return db.redisGet(db.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey), null, 'fetchGroupCache')
-    }
 
     function runPGQuery(queryString: string, values: any[] = null) {
         return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, values, 'testQuery')
@@ -627,149 +613,6 @@ describe('DB', () => {
                 properties_last_updated_at: { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
                 properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
-            })
-        })
-    })
-
-    describe('updateGroupCache()', () => {
-        it('updates redis', async () => {
-            await db.updateGroupCache(2, 0, 'group_key', {
-                created_at: CLICKHOUSE_TIMESTAMP,
-                properties: { prop: 'val' },
-            })
-
-            expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
-                created_at: CLICKHOUSE_TIMESTAMP,
-                properties: { prop: 'val' },
-            })
-        })
-    })
-
-    describe('getGroupsColumns()', () => {
-        beforeEach(() => {
-            jest.spyOn(db, 'fetchGroup')
-            jest.spyOn(db, 'redisGet')
-        })
-
-        describe('one group', () => {
-            it('tries to fetch data from the cache first, avoiding the database', async () => {
-                await db.updateGroupCache(2, 0, 'group_key', {
-                    properties: { foo: 'bar' },
-                    created_at: CLICKHOUSE_TIMESTAMP,
-                })
-
-                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
-                expect(result).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: CLICKHOUSE_TIMESTAMP,
-                })
-
-                expect(db.fetchGroup).not.toHaveBeenCalled()
-            })
-
-            it('tries to fetch data from Postgres if Redis is down', async () => {
-                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, {}, {}, 0, undefined, {
-                    cache: false,
-                })
-
-                jest.spyOn(db, 'redisGet').mockRejectedValue(new Error())
-
-                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
-
-                expect(result).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: CLICKHOUSE_TIMESTAMP,
-                })
-                expect(db.fetchGroup).toHaveBeenCalled()
-            })
-
-            it('tries to fetch data from Postgres if there is no cached data', async () => {
-                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, {}, {}, 0, undefined, {
-                    cache: false,
-                })
-
-                const result = await db.getGroupsColumns(2, [[0, 'group_key']])
-
-                expect(result).toEqual({
-                    group0_properties: JSON.stringify({ foo: 'bar' }),
-                    group0_created_at: CLICKHOUSE_TIMESTAMP,
-                })
-                expect(db.fetchGroup).toHaveBeenCalled()
-            })
-
-            it('triggers a metric if the data doesnt exist in Postgres or Redis', async () => {
-                const groupDataMissingCounterSpy = jest.spyOn(dbMetrics.groupDataMissingCounter, 'inc')
-                await db.getGroupsColumns(2, [[0, 'unknown_key']])
-
-                expect(groupDataMissingCounterSpy).toHaveBeenCalledTimes(1)
-            })
-        })
-
-        describe('multiple groups', () => {
-            it('fetches data from cache for some groups and postgres for others', async () => {
-                const groupIds: GroupId[] = [
-                    [0, '0'],
-                    [1, '1'],
-                    [2, '2'],
-                    [3, '3'],
-                    [4, '4'],
-                ]
-
-                for (const [groupTypeIndex, groupKey] of [groupIds[0], groupIds[3]]) {
-                    await db.updateGroupCache(2, groupTypeIndex, groupKey, {
-                        properties: { cached: true },
-                        created_at: CLICKHOUSE_TIMESTAMP,
-                    })
-                }
-
-                for (const [groupTypeIndex, groupKey] of groupIds) {
-                    await db.insertGroup(
-                        2,
-                        groupTypeIndex,
-                        groupKey,
-                        { cached: false },
-                        TIMESTAMP,
-                        {},
-                        {},
-                        0,
-                        undefined,
-                        { cache: false }
-                    )
-                }
-                const result = await db.getGroupsColumns(2, [
-                    [0, '0'],
-                    [1, '1'],
-                    [2, '2'],
-                    [3, '3'],
-                    [4, '4'],
-                ])
-
-                // verify that the first and fourth calls have cached=true and all other have cached=false
-                expect(result).toEqual({
-                    group0_created_at: CLICKHOUSE_TIMESTAMP,
-                    group0_properties: JSON.stringify({
-                        cached: true,
-                    }),
-                    group1_created_at: CLICKHOUSE_TIMESTAMP,
-                    group1_properties: JSON.stringify({
-                        cached: false,
-                    }),
-                    group2_created_at: CLICKHOUSE_TIMESTAMP,
-                    group2_properties: JSON.stringify({
-                        cached: false,
-                    }),
-                    group3_created_at: CLICKHOUSE_TIMESTAMP,
-                    group3_properties: JSON.stringify({
-                        cached: true,
-                    }),
-                    group4_created_at: CLICKHOUSE_TIMESTAMP,
-                    group4_properties: JSON.stringify({
-                        cached: false,
-                    }),
-                })
-
-                expect(db.redisGet).toHaveBeenCalledTimes(5)
-                expect(db.fetchGroup).toHaveBeenCalledTimes(3)
             })
         })
     })

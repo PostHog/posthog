@@ -59,6 +59,9 @@ class FeatureFlag(models.Model):
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
+    def __str__(self):
+        return f"{self.key} ({self.pk})"
+
     def get_analytics_metadata(self) -> dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
@@ -180,7 +183,7 @@ class FeatureFlag(models.Model):
                                 if not cohort:
                                     return self.conditions
                             else:
-                                cohort = Cohort.objects.using(using_database).get(
+                                cohort = Cohort.objects.db_manager(using_database).get(
                                     pk=cohort_id, team_id=self.team_id, deleted=False
                                 )
                                 seen_cohorts_cache[cohort_id] = cohort
@@ -284,7 +287,7 @@ class FeatureFlag(models.Model):
                             if not cohort:
                                 continue
                         else:
-                            cohort = Cohort.objects.using(using_database).get(
+                            cohort = Cohort.objects.db_manager(using_database).get(
                                 pk=cohort_id, team_id=self.team_id, deleted=False
                             )
                             seen_cohorts_cache[cohort_id] = cohort
@@ -347,9 +350,6 @@ class FeatureFlag(models.Model):
                     return True
         return False
 
-    def __str__(self):
-        return f"{self.key} ({self.pk})"
-
 
 @mutable_receiver(pre_delete, sender=Experiment)
 def delete_experiment_flags(sender, instance, **kwargs):
@@ -407,7 +407,7 @@ def set_feature_flags_for_team_in_cache(
         all_feature_flags = feature_flags
     else:
         all_feature_flags = list(
-            FeatureFlag.objects.using(using_database).filter(team_id=team_id, active=True, deleted=False)
+            FeatureFlag.objects.db_manager(using_database).filter(team_id=team_id, active=True, deleted=False)
         )
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data

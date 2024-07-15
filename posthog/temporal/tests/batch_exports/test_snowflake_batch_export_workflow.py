@@ -872,7 +872,15 @@ async def assert_clickhouse_records_in_snowflake(
         if batch_export_schema is not None:
             schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
         elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = ["team_id", "distinct_id", "person_id", "properties", "version", "_inserted_at"]
+            schema_column_names = [
+                "team_id",
+                "distinct_id",
+                "person_id",
+                "properties",
+                "person_version",
+                "person_distinct_id_version",
+                "_inserted_at",
+            ]
 
     expected_records = []
     async for record_batch in iter_model_records(

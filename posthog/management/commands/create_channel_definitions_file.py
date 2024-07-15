@@ -8,7 +8,6 @@ from typing import Optional
 
 from django.core.management.base import BaseCommand
 
-
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 
 
@@ -102,8 +101,48 @@ class Command(BaseCommand):
         for bing_domain in ("bing.com", "bing.com.cn", "bing.net", "bingworld.com"):
             entries[(bing_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
-        # misc other domains that GA4 misses
-        entries["duckduckgo.com", EntryKind.source] = SourceEntry("Search", "Paid Search", "Organic Search")
+        # The Google-provided list is missing some other search engines, or miss some subdomains, so add them here
+        for search_domain in (
+            # from https://en.wikipedia.org/wiki/List_of_search_engines
+            "www.ask.com",
+            "search.brave.com",
+            # Baidu is included already
+            "www.dogpile.com",
+            "duckduckgo.com",
+            "www.ecosia.org",
+            "www.excite.com",
+            "www.gigablast.com",
+            # Google domains included above
+            "www.hotbot.com",
+            "kagi.com",
+            "www.lycos.com",
+            "www.metacrawler.com",
+            # Microsoft Bing domains included above
+            "www.mojeek.com",
+            "www.qwant.com",
+            "www.sogou.com",
+            "www.startpage.com",
+            "swisscows.com",
+            "www.webcrawler.com",
+            # Yahoo already included
+            # Yandex already included
+            "you.com",
+            # some other popular search engines
+            "www.kiddle.co",
+            "www.egerin.com",
+            "presearch.io",
+            "perplexity.ai",
+            "m.search.naver.com",
+            "yep.com",
+            "andisearch.com",
+            "phind.com",
+            "komo.ai",
+            "sevasearch.org",
+            "coccoc.com",
+            "so.com",
+            "seznam.cz",
+        ):
+            entries[(search_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
@@ -127,6 +166,12 @@ class Command(BaseCommand):
             entries[audio_medium, EntryKind.medium] = SourceEntry(None, None, "Audio")
         for push_medium in ("push", "mobile", "notification"):
             entries[push_medium, EntryKind.medium] = SourceEntry(None, None, "Push")
+
+        # add without www. for all entries
+        without_www = {
+            (hostname[4:], kind): entry for ((hostname, kind), entry) in entries.items() if hostname.startswith("www.")
+        }
+        entries.update(without_www)
 
         rows = [
             [hostname, kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]

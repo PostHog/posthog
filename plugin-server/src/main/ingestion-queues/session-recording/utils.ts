@@ -273,21 +273,21 @@ export const parseKafkaMessage = async (
             messageUnzipped = await do_unzip(message.value)
         }
     } catch (error) {
-        return dropMessage('invalid_gzip_data', { error })
+        return dropMessage('invalid_gzip_data', { error, team_id: teamIdWithConfig.teamId })
     }
 
     try {
         messagePayload = JSON.parse(messageUnzipped.toString())
         event = JSON.parse(messagePayload.data)
     } catch (error) {
-        return dropMessage('invalid_json', { error })
+        return dropMessage('invalid_json', { error, team_id: teamIdWithConfig.teamId })
     }
 
     const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
-        return dropMessage('received_non_snapshot_message')
+        return dropMessage('received_non_snapshot_message', { team_id: teamIdWithConfig.teamId })
     }
 
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {

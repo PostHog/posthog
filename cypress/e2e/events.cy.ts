@@ -1,5 +1,3 @@
-import { dayjs } from 'lib/dayjs'
-
 const interceptPropertyDefinitions = (): void => {
     cy.intercept('/api/event/values/?key=%24browser').as('getBrowserValues')
 

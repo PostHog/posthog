@@ -176,9 +176,15 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             type: 'json',
             schema_valid: true,
         },
-        version: {
-            name: 'version',
-            hogql_value: 'version',
+        person_version: {
+            name: 'person_version',
+            hogql_value: 'person_version',
+            type: 'integer',
+            schema_valid: true,
+        },
+        person_distinct_id_version: {
+            name: 'person_distinct_id_version',
+            hogql_value: 'person_distinct_id_version',
             type: 'integer',
             schema_valid: true,
         },

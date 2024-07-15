@@ -4,14 +4,18 @@ from unittest.case import skip
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
+import pytest
 
 from posthog.api.test.test_team import create_team
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
 from posthog.models import Team, Cohort, GroupTypeMapping
 from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
+    Breakdown,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
@@ -222,6 +226,74 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
                 properties={"some_property": 20},
                 team=other_team,
             )
+
+    def _create_numeric_events(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"$geoip_country_code": "US"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"$geoip_country_code": "DE"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"$geoip_country_code": "DE"},
+        )
+
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2023-04-29 16:00",
+            properties={"some_property": 20},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person2",
+            timestamp="2023-04-29 17:00",
+            properties={"some_property": 60},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2023-05-01 16:00",
+            properties={"some_property": 40},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2023-05-01 18:00",
+            properties={"some_property": 0},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person2",
+            timestamp="2023-05-01 17:00",
+            properties={"some_property": 80},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person3",
+            timestamp="2023-05-01 16:00",
+            properties={"$browser": "Safari"},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2023-05-06 16:00",
+            properties={"some_property": 20},
+            team=self.team,
+        )
+        PropertyDefinition.objects.create(team=self.team, name="some_property", property_type=PropertyType.Numeric)
 
     def test_trends_single_series_persons(self):
         self._create_events()
@@ -626,3 +698,189 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_event_count(result[0]), 2)
         self.assertEqual(get_distinct_id(result[1]), "person1")
         self.assertEqual(get_event_count(result[1]), 1)
+
+    def test_trends_event_multiple_breakdowns_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(value="$browser")]),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Safari"])
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 2)
+        self.assertEqual(get_distinct_id(result[1]), "person3")
+        self.assertEqual(get_event_count(result[1]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Firefox"])
+
+        self.assertEqual(len(result), 0)
+
+    def test_trends_person_multiple_breakdown_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(value="$geoip_country_code", type=BreakdownType.PERSON)]
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["DE"])
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 2)
+        self.assertEqual(get_distinct_id(result[1]), "person3")
+        self.assertEqual(get_event_count(result[1]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["UK"])
+
+        self.assertEqual(len(result), 0)
+
+    @skip("fails, as other returns all breakdowns, even those that should be display with the breakdown_limit")
+    def test_trends_multiple_breakdowns_others_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        value="$browser",
+                    )
+                ],
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Chrome"])
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 2)
+
+        result = self._get_actors(
+            trends_query=source_query, day="2023-04-29", breakdown=["$$_posthog_breakdown_other_$$"]
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 2)
+
+    def test_trends_multiple_breakdown_null_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        value="$browser",
+                    )
+                ],
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-06", breakdown=["Chrome"])
+
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(
+            trends_query=source_query, day="2023-05-06", breakdown=["$$_posthog_breakdown_null_$$"]
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+    def test_trends_multiple_breakdowns_hogql_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(value="properties.some_property", type=BreakdownType.HOGQL)],
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["20"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["10"])
+
+        self.assertEqual(len(result), 0)
+
+    def test_trends_breakdown_filter_by_range(self):
+        self._create_numeric_events()
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdown="some_property",
+                breakdown_histogram_bin_count=4,
+            ),
+        )
+
+        # should not include 20
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="[0,20]")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        # should include all
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown='["",""]')
+        self.assertEqual(len(result), 3)
+
+        # should include null
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=BREAKDOWN_NULL_STRING_LABEL)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        # handles invalid values
+        with pytest.raises(ValueError, match=".*valid float or int values.*"):
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown='["str","str"]')
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown='["str",10]')
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="[10,false]")
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="[{},{}]")
+
+    def test_trends_multiple_breakdowns_filter_by_range(self):
+        self._create_numeric_events()
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(value="some_property", histogram_bin_count=4)]),
+        )
+
+        # should not include 20
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[0,20]"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        # should include all
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=['["",""]'])
+        self.assertEqual(len(result), 3)
+
+        # should include null
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=[BREAKDOWN_NULL_STRING_LABEL])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        # handles invalid values
+        with pytest.raises(ValueError, match=".*valid float or int values.*"):
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=['["str","str"]'])
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=['["str",10]'])
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[10,false]"])
+            result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[{},{}]"])

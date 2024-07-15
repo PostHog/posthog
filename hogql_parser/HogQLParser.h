@@ -34,41 +34,41 @@ public:
     DASH = 114, DOLLAR = 115, DOT = 116, EQ_DOUBLE = 117, EQ_SINGLE = 118, 
     GT_EQ = 119, GT = 120, HASH = 121, IREGEX_SINGLE = 122, IREGEX_DOUBLE = 123, 
     LBRACE = 124, LBRACKET = 125, LPAREN = 126, LT_EQ = 127, LT = 128, NOT_EQ = 129, 
-    NOT_IREGEX = 130, NOT_REGEX = 131, NULLISH = 132, PERCENT = 133, PLUS = 134, 
-    QUERY = 135, QUOTE_DOUBLE = 136, QUOTE_SINGLE_TEMPLATE = 137, QUOTE_SINGLE_TEMPLATE_FULL = 138, 
-    QUOTE_SINGLE = 139, REGEX_SINGLE = 140, REGEX_DOUBLE = 141, RBRACE = 142, 
-    RBRACKET = 143, RPAREN = 144, SEMICOLON = 145, SLASH = 146, UNDERSCORE = 147, 
-    MULTI_LINE_COMMENT = 148, SINGLE_LINE_COMMENT = 149, WHITESPACE = 150, 
-    STRING_TEXT = 151, STRING_ESCAPE_TRIGGER = 152, FULL_STRING_TEXT = 153, 
-    FULL_STRING_ESCAPE_TRIGGER = 154
+    NOT_IREGEX = 130, NOT_REGEX = 131, NULL_PROPERTY = 132, NULLISH = 133, 
+    PERCENT = 134, PLUS = 135, QUERY = 136, QUOTE_DOUBLE = 137, QUOTE_SINGLE_TEMPLATE = 138, 
+    QUOTE_SINGLE_TEMPLATE_FULL = 139, QUOTE_SINGLE = 140, REGEX_SINGLE = 141, 
+    REGEX_DOUBLE = 142, RBRACE = 143, RBRACKET = 144, RPAREN = 145, SEMICOLON = 146, 
+    SLASH = 147, UNDERSCORE = 148, MULTI_LINE_COMMENT = 149, SINGLE_LINE_COMMENT = 150, 
+    WHITESPACE = 151, STRING_TEXT = 152, STRING_ESCAPE_TRIGGER = 153, FULL_STRING_TEXT = 154, 
+    FULL_STRING_ESCAPE_TRIGGER = 155
   };
 
   enum {
     RuleProgram = 0, RuleDeclaration = 1, RuleExpression = 2, RuleVarDecl = 3, 
     RuleIdentifierList = 4, RuleStatement = 5, RuleReturnStmt = 6, RuleIfStmt = 7, 
-    RuleWhileStmt = 8, RuleForStmt = 9, RuleFuncStmt = 10, RuleVarAssignment = 11, 
-    RuleExprStmt = 12, RuleEmptyStmt = 13, RuleBlock = 14, RuleKvPair = 15, 
-    RuleKvPairList = 16, RuleSelect = 17, RuleSelectUnionStmt = 18, RuleSelectStmtWithParens = 19, 
-    RuleSelectStmt = 20, RuleWithClause = 21, RuleTopClause = 22, RuleFromClause = 23, 
-    RuleArrayJoinClause = 24, RuleWindowClause = 25, RulePrewhereClause = 26, 
-    RuleWhereClause = 27, RuleGroupByClause = 28, RuleHavingClause = 29, 
-    RuleOrderByClause = 30, RuleProjectionOrderByClause = 31, RuleLimitAndOffsetClause = 32, 
-    RuleOffsetOnlyClause = 33, RuleSettingsClause = 34, RuleJoinExpr = 35, 
-    RuleJoinOp = 36, RuleJoinOpCross = 37, RuleJoinConstraintClause = 38, 
-    RuleSampleClause = 39, RuleOrderExprList = 40, RuleOrderExpr = 41, RuleRatioExpr = 42, 
-    RuleSettingExprList = 43, RuleSettingExpr = 44, RuleWindowExpr = 45, 
-    RuleWinPartitionByClause = 46, RuleWinOrderByClause = 47, RuleWinFrameClause = 48, 
-    RuleWinFrameExtend = 49, RuleWinFrameBound = 50, RuleExpr = 51, RuleColumnTypeExpr = 52, 
-    RuleColumnExprList = 53, RuleColumnExpr = 54, RuleColumnArgList = 55, 
-    RuleColumnArgExpr = 56, RuleColumnLambdaExpr = 57, RuleHogqlxTagElement = 58, 
-    RuleHogqlxTagAttribute = 59, RuleWithExprList = 60, RuleWithExpr = 61, 
-    RuleColumnIdentifier = 62, RuleNestedIdentifier = 63, RuleTableExpr = 64, 
-    RuleTableFunctionExpr = 65, RuleTableIdentifier = 66, RuleTableArgList = 67, 
-    RuleDatabaseIdentifier = 68, RuleFloatingLiteral = 69, RuleNumberLiteral = 70, 
-    RuleLiteral = 71, RuleInterval = 72, RuleKeyword = 73, RuleKeywordForAlias = 74, 
-    RuleAlias = 75, RuleIdentifier = 76, RuleEnumValue = 77, RulePlaceholder = 78, 
-    RuleString = 79, RuleTemplateString = 80, RuleStringContents = 81, RuleFullTemplateString = 82, 
-    RuleStringContentsFull = 83
+    RuleWhileStmt = 8, RuleForStmt = 9, RuleForInStmt = 10, RuleFuncStmt = 11, 
+    RuleVarAssignment = 12, RuleExprStmt = 13, RuleEmptyStmt = 14, RuleBlock = 15, 
+    RuleKvPair = 16, RuleKvPairList = 17, RuleSelect = 18, RuleSelectUnionStmt = 19, 
+    RuleSelectStmtWithParens = 20, RuleSelectStmt = 21, RuleWithClause = 22, 
+    RuleTopClause = 23, RuleFromClause = 24, RuleArrayJoinClause = 25, RuleWindowClause = 26, 
+    RulePrewhereClause = 27, RuleWhereClause = 28, RuleGroupByClause = 29, 
+    RuleHavingClause = 30, RuleOrderByClause = 31, RuleProjectionOrderByClause = 32, 
+    RuleLimitAndOffsetClause = 33, RuleOffsetOnlyClause = 34, RuleSettingsClause = 35, 
+    RuleJoinExpr = 36, RuleJoinOp = 37, RuleJoinOpCross = 38, RuleJoinConstraintClause = 39, 
+    RuleSampleClause = 40, RuleOrderExprList = 41, RuleOrderExpr = 42, RuleRatioExpr = 43, 
+    RuleSettingExprList = 44, RuleSettingExpr = 45, RuleWindowExpr = 46, 
+    RuleWinPartitionByClause = 47, RuleWinOrderByClause = 48, RuleWinFrameClause = 49, 
+    RuleWinFrameExtend = 50, RuleWinFrameBound = 51, RuleExpr = 52, RuleColumnTypeExpr = 53, 
+    RuleColumnExprList = 54, RuleColumnExpr = 55, RuleColumnArgList = 56, 
+    RuleColumnArgExpr = 57, RuleColumnLambdaExpr = 58, RuleHogqlxTagElement = 59, 
+    RuleHogqlxTagAttribute = 60, RuleWithExprList = 61, RuleWithExpr = 62, 
+    RuleColumnIdentifier = 63, RuleNestedIdentifier = 64, RuleTableExpr = 65, 
+    RuleTableFunctionExpr = 66, RuleTableIdentifier = 67, RuleTableArgList = 68, 
+    RuleDatabaseIdentifier = 69, RuleFloatingLiteral = 70, RuleNumberLiteral = 71, 
+    RuleLiteral = 72, RuleInterval = 73, RuleKeyword = 74, RuleKeywordForAlias = 75, 
+    RuleAlias = 76, RuleIdentifier = 77, RuleEnumValue = 78, RulePlaceholder = 79, 
+    RuleString = 80, RuleTemplateString = 81, RuleStringContents = 82, RuleFullTemplateString = 83, 
+    RuleStringContentsFull = 84
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -98,6 +98,7 @@ public:
   class IfStmtContext;
   class WhileStmtContext;
   class ForStmtContext;
+  class ForInStmtContext;
   class FuncStmtContext;
   class VarAssignmentContext;
   class ExprStmtContext;
@@ -255,6 +256,7 @@ public:
     ReturnStmtContext *returnStmt();
     IfStmtContext *ifStmt();
     WhileStmtContext *whileStmt();
+    ForInStmtContext *forInStmt();
     ForStmtContext *forStmt();
     FuncStmtContext *funcStmt();
     VarAssignmentContext *varAssignment();
@@ -351,6 +353,29 @@ public:
   };
 
   ForStmtContext* forStmt();
+
+  class  ForInStmtContext : public antlr4::ParserRuleContext {
+  public:
+    ForInStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *FOR();
+    antlr4::tree::TerminalNode *LPAREN();
+    antlr4::tree::TerminalNode *LET();
+    std::vector<IdentifierContext *> identifier();
+    IdentifierContext* identifier(size_t i);
+    antlr4::tree::TerminalNode *IN();
+    ExpressionContext *expression();
+    antlr4::tree::TerminalNode *RPAREN();
+    StatementContext *statement();
+    antlr4::tree::TerminalNode *COMMA();
+    antlr4::tree::TerminalNode *SEMICOLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  ForInStmtContext* forInStmt();
 
   class  FuncStmtContext : public antlr4::ParserRuleContext {
   public:
@@ -1377,6 +1402,17 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprNullTupleAccessContext : public ColumnExprContext {
+  public:
+    ColumnExprNullTupleAccessContext(ColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *NULL_PROPERTY();
+    antlr4::tree::TerminalNode *DECIMAL_LITERAL();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprPrecedence1Context : public ColumnExprContext {
   public:
     ColumnExprPrecedence1Context(ColumnExprContext *ctx);
@@ -1481,6 +1517,17 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprNullPropertyAccessContext : public ColumnExprContext {
+  public:
+    ColumnExprNullPropertyAccessContext(ColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *NULL_PROPERTY();
+    IdentifierContext *identifier();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprTrimContext : public ColumnExprContext {
   public:
     ColumnExprTrimContext(ColumnExprContext *ctx);
@@ -1570,6 +1617,19 @@ public:
     antlr4::tree::TerminalNode *LPAREN();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RPAREN();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ColumnExprNullArrayAccessContext : public ColumnExprContext {
+  public:
+    ColumnExprNullArrayAccessContext(ColumnExprContext *ctx);
+
+    std::vector<ColumnExprContext *> columnExpr();
+    ColumnExprContext* columnExpr(size_t i);
+    antlr4::tree::TerminalNode *NULL_PROPERTY();
+    antlr4::tree::TerminalNode *LBRACKET();
+    antlr4::tree::TerminalNode *RBRACKET();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

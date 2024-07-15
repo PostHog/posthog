@@ -4,6 +4,7 @@ from unittest.mock import ANY, patch
 from rest_framework import status
 
 from posthog.models.action.action import Action
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 
@@ -194,6 +195,80 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "attr": f"inputs__{key}",
             }, f"Did not get error for {key}, got {res.json()}"
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_secret_inputs_not_returned(self, *args):
+        payload = {
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
+            ],
+            "inputs": {
+                "url": {
+                    "value": "I AM SECRET",
+                },
+            },
+        }
+        expectation = {
+            "url": {
+                "secret": True,
+            }
+        }
+        # Check not returned
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        assert res.json()["inputs"] == expectation
+        res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}")
+        assert res.json()["inputs"] == expectation
+
+        # Finally check the DB has the real value
+        obj = HogFunction.objects.get(id=res.json()["id"])
+        assert obj.inputs["url"]["value"] == "I AM SECRET"
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_secret_inputs_not_updated_if_not_changed(self, *args):
+        payload = {
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
+            ],
+            "inputs": {
+                "url": {
+                    "value": "I AM SECRET",
+                },
+            },
+        }
+        expectation = {"url": {"secret": True}}
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
+        assert res.json()["inputs"] == expectation, res.json()
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}",
+            data={
+                "inputs": {
+                    "url": {
+                        "secret": True,
+                    },
+                },
+            },
+        )
+        assert res.json()["inputs"] == expectation
+
+        # Finally check the DB has the real value
+        obj = HogFunction.objects.get(id=res.json()["id"])
+        assert obj.inputs["url"]["value"] == "I AM SECRET"
+
+        # And check we can still update it
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}",
+            data={"inputs": {"url": {"value": "I AM A NEW SECRET"}}},
+        )
+        assert res.json()["inputs"] == expectation
+
+        # Finally check the DB has the real value
+        obj = HogFunction.objects.get(id=res.json()["id"])
+        assert obj.inputs["url"]["value"] == "I AM A NEW SECRET"
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_generates_hog_bytecode(self, *args):

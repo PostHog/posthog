@@ -62,7 +62,7 @@ interface EventUUIDsMatching {
 
 interface BackendEventsMatching {
     matchType: 'backend'
-    filters: RecordingFilters
+    filters: RecordingUniversalFilters
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
@@ -126,7 +126,7 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
     })
 }
 
-function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
+export function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
     const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
     const filters = nestedFilters.values as UniversalFilterValue[]
 
@@ -813,6 +813,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setSelectedRecordingId: () => buildURL(false),
+            setUniversalFilters: () => buildURL(true),
             setAdvancedFilters: () => buildURL(true),
             setSimpleFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
@@ -843,6 +844,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
                     )
                 }
+            }
+            if (values.useUniversalFiltering && params.filters && !equal(params.filters, values.filters)) {
+                actions.setUniversalFilters(params.filters)
+                actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
             }
         }
         return {

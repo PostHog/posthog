@@ -13,7 +13,10 @@ import {
     performanceEventDataLogic,
 } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import {
+    convertUniversalFiltersToLegacyFilters,
+    MatchingEventsMatchType,
+} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import {
     MatchedRecordingEvent,
@@ -140,7 +143,7 @@ function snapshotDescription(snapshot: eventWithTime): string {
 
 function timeRelativeToStart(
     thingWithTime: eventWithTime | PerformanceEvent | RecordingConsoleLogV2 | RecordingEventType,
-    start: Dayjs | undefined
+    start: Dayjs | null
 ): {
     timeInRecording: number
     timestamp: dayjs.Dayjs
@@ -241,7 +244,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     if (!filters) {
                         throw new Error('Backend matching events type must include its filters')
                     }
-                    const params = toParams({ ...filters, session_ids: [props.sessionRecordingId] })
+                    const params = toParams({
+                        ...convertUniversalFiltersToLegacyFilters(filters),
+                        session_ids: [props.sessionRecordingId],
+                    })
                     const response = await api.recordings.getMatchingEvents(params)
                     return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
                 },
