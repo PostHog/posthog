@@ -583,10 +583,7 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_replay_capture_other_kafka_error(self, kafka_produce: MagicMock) -> None:
-        kafka_produce.side_effect = [
-            NoBrokersAvailable(),
-            None,  # Return None for successful calls
-        ]
+        kafka_produce.side_effect = NoBrokersAvailable()
 
         response = self._send_august_2023_version_session_recording_event(
             event_data=[
