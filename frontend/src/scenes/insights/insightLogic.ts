@@ -22,7 +22,10 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { getInsightFilterOrQueryForPersistance } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import {
+    getInsightFilterOrQueryForPersistance,
+    queryNodeToFilter,
+} from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode } from '~/queries/schema'
 import {
@@ -35,6 +38,7 @@ import {
     SetInsightOptions,
 } from '~/types'
 
+import { isInsightVizNode } from '../../queries/utils'
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
@@ -287,16 +291,46 @@ export const insightLogic = kea<insightLogicType>([
         savedInsight: [
             () => props.cachedInsight || ({} as InsightModel),
             {
-                setInsight: (state, { insight, options: { fromPersistentApi } }) =>
-                    fromPersistentApi ? { ...insight, filters: cleanFilters(insight.filters || {}) } : state,
-                loadInsightSuccess: (_, { legacyInsight }) => ({
-                    ...legacyInsight,
-                    filters: cleanFilters(legacyInsight.filters || {}),
-                }),
-                updateInsightSuccess: (_, { legacyInsight }) => ({
-                    ...legacyInsight,
-                    filters: cleanFilters(legacyInsight.filters || {}),
-                }),
+                setInsight: (state, { insight, options: { fromPersistentApi } }) => {
+                    if (!fromPersistentApi) {
+                        return state
+                    }
+
+                    if (insight.query && isInsightVizNode(insight.query)) {
+                        return {
+                            ...insight,
+                            filters: queryNodeToFilter(insight.query.source),
+                        }
+                    }
+
+                    return { ...insight, filters: cleanFilters(insight.filters || {}) }
+                },
+                loadInsightSuccess: (_, { legacyInsight }) => {
+                    if (legacyInsight.query && isInsightVizNode(legacyInsight.query)) {
+                        return {
+                            ...legacyInsight,
+                            filters: queryNodeToFilter(legacyInsight.query.source),
+                        }
+                    }
+
+                    return {
+                        ...legacyInsight,
+                        filters: cleanFilters(legacyInsight.filters || {}),
+                    }
+                },
+                updateInsightSuccess: (_, { legacyInsight }) => {
+                    if (legacyInsight.query && isInsightVizNode(legacyInsight.query)) {
+                        return {
+                            ...legacyInsight,
+                            filters: queryNodeToFilter(legacyInsight.query.source),
+                        }
+                    }
+
+                    return {
+                        ...legacyInsight,
+                        filters: cleanFilters(legacyInsight.filters || {}),
+                    }
+                },
             },
         ],
         insightLoading: [
