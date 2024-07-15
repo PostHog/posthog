@@ -19,7 +19,7 @@ if (empty(email)) {
 
 let body := {
     'event_name': event.name,
-    'created_at': event.timestamp, // TODO: This does't work and needs to be converted to an epoch number in follow up
+    'created_at': toUnixTimestamp(toDateTime(event.timestamp)),
     'email': inputs.email,
     'id': event.distinct_id,
 }
