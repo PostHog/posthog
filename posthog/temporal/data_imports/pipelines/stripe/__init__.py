@@ -36,6 +36,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "type": "OPTIONAL_CONFIG",
                 },
             },
+            "table_format": "delta",
         },
         "Charge": {
             "name": "Charge",
@@ -64,6 +65,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "transfer_group": "OPTIONAL_CONFIG",
                 },
             },
+            "table_format": "delta",
         },
         "Customer": {
             "name": "Customer",
@@ -91,6 +93,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "test_clock": "OPTIONAL_CONFIG",
                 },
             },
+            "table_format": "delta",
         },
         "Invoice": {
             "name": "Invoice",
@@ -121,6 +124,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "subscription": "OPTIONAL_CONFIG",
                 },
             },
+            "table_format": "delta",
         },
         "Price": {
             "name": "Price",
@@ -152,6 +156,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "type": "OPTIONAL_CONFIG",
                 },
             },
+            "table_format": "delta",
         },
         "Product": {
             "name": "Product",
@@ -181,6 +186,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "url": "OPTIONAL_CONFIG",
                 },
             },
+            "table_format": "delta",
         },
         "Subscription": {
             "name": "Subscription",
@@ -213,6 +219,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     # "test_clock": "OPTIONAL_CONFIG",
                 },
             },
+            "table_format": "delta",
         },
     }
 

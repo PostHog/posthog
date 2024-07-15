@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
-import { PipelineNode } from './types'
+import { PipelineBackend, PipelineNode } from './types'
 
 export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNode }): JSX.Element {
     const logic = pipelineNodeMetricsLogic({ id: pipelineNode.id })
@@ -29,5 +29,8 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
         })
     }
 
+    if (pipelineNode.backend == PipelineBackend.HogFunction) {
+        return <span className="italic">Coming soon</span>
+    }
     return <Sparkline loading={appMetricsResponse === null} labels={dates} data={displayData} className="max-w-24" />
 }

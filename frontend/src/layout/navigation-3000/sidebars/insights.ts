@@ -1,9 +1,7 @@
+import { api } from '@posthog/apps-common'
 import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { insightsApi } from 'scenes/insights/utils/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -12,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { insightsModel } from '~/models/insightsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightModel } from '~/types'
 
 import { BasicListItem, SidebarCategory } from '../types'
@@ -29,8 +26,6 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             ['activeScene', 'sceneParams'],
             navigation3000Logic,
             ['searchTerm'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [savedInsightsLogic, ['loadInsights', 'setSavedInsightsFilters', 'duplicateInsight']],
     })),
@@ -50,10 +45,6 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
         ],
     })),
     selectors(({ actions, values, cache }) => ({
-        queryBasedInsightSaving: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
-        ],
         contents: [
             (s) => [s.insights, s.infiniteInsights, s.insightsLoading, teamLogic.selectors.currentTeamId],
             (insights, infiniteInsights, insightsLoading, currentTeamId) => [
@@ -61,72 +52,65 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                     key: 'insights',
                     noun: 'insight',
                     onAdd: urls.insightNew(),
-                    items: infiniteInsights.map((legacyInsight) => {
-                        if (!legacyInsight) {
-                            return undefined
-                        }
-
-                        const insight = getQueryBasedInsightModel(legacyInsight)
-
-                        return {
-                            key: insight.short_id,
-                            name: insight.name || insight.derived_name || 'Untitled',
-                            isNamePlaceholder: !insight.name,
-                            url: urls.insightView(insight.short_id),
-                            searchMatch: findSearchTermInItemName(
-                                insight.name || insight.derived_name || '',
-                                values.searchTerm
-                            ),
-                            menuItems: (initiateRename) => [
-                                {
-                                    items: [
-                                        {
-                                            to: urls.insightEdit(insight.short_id),
-                                            label: 'Edit',
-                                        },
-                                        {
-                                            onClick: () => {
-                                                actions.duplicateInsight(insight)
+                    items: infiniteInsights.map(
+                        (insight) =>
+                            insight &&
+                            ({
+                                key: insight.short_id,
+                                name: insight.name || insight.derived_name || 'Untitled',
+                                isNamePlaceholder: !insight.name,
+                                url: urls.insightView(insight.short_id),
+                                searchMatch: findSearchTermInItemName(
+                                    insight.name || insight.derived_name || '',
+                                    values.searchTerm
+                                ),
+                                menuItems: (initiateRename) => [
+                                    {
+                                        items: [
+                                            {
+                                                to: urls.insightEdit(insight.short_id),
+                                                label: 'Edit',
                                             },
-                                            label: 'Duplicate',
-                                        },
-                                    ],
-                                },
-                                {
-                                    items: [
-                                        {
-                                            onClick: initiateRename,
-                                            label: 'Rename',
-                                            keyboardShortcut: ['enter'],
-                                        },
-                                        {
-                                            onClick: () => {
-                                                void deleteInsightWithUndo({
-                                                    object: insight,
-                                                    endpoint: `projects/${currentTeamId}/insights`,
-                                                    callback: actions.loadInsights,
-                                                    options: {
-                                                        writeAsQuery: values.queryBasedInsightSaving,
-                                                        readAsQuery: true,
-                                                    },
-                                                })
+                                            {
+                                                onClick: () => {
+                                                    actions.duplicateInsight(insight)
+                                                },
+                                                label: 'Duplicate',
                                             },
-                                            status: 'danger',
-                                            label: 'Delete insight',
-                                        },
-                                    ],
+                                        ],
+                                    },
+                                    {
+                                        items: [
+                                            {
+                                                onClick: initiateRename,
+                                                label: 'Rename',
+                                                keyboardShortcut: ['enter'],
+                                            },
+                                            {
+                                                onClick: () => {
+                                                    void deleteWithUndo({
+                                                        object: insight,
+                                                        endpoint: `projects/${currentTeamId}/insights`,
+                                                        callback: actions.loadInsights,
+                                                    })
+                                                },
+                                                status: 'danger',
+                                                label: 'Delete insight',
+                                            },
+                                        ],
+                                    },
+                                ],
+                                onRename: async (newName) => {
+                                    const updatedItem = await api.update(
+                                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
+                                        {
+                                            name: newName,
+                                        }
+                                    )
+                                    insightsModel.actions.renameInsightSuccess(updatedItem)
                                 },
-                            ],
-                            onRename: async (newName) => {
-                                const updatedItem = await insightsApi.update(
-                                    insight.id,
-                                    { name: newName },
-                                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: false }
-                                )
-                                insightsModel.actions.renameInsightSuccess(updatedItem)
-                            },
-                        } as BasicListItem
-                    }),
+                            } as BasicListItem)
+                    ),
                     loading: insightsLoading,
                     remote: {
                         isItemLoaded: (index) => !!(cache.requestedInsights[index] || infiniteInsights[index]),
