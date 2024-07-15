@@ -31,10 +31,10 @@ TEST_ROOT_BUCKET = "test_exports"
 
 
 class TestExports(APIBaseTest):
-    exported_asset: ExportedAsset = None
-    dashboard: Dashboard = None
-    insight: Insight = None
-    tile: DashboardTile = None
+    exported_asset: ExportedAsset
+    dashboard: Dashboard
+    insight: Insight
+    tile: DashboardTile
 
     def teardown_method(self, method) -> None:
         s3 = resource(
