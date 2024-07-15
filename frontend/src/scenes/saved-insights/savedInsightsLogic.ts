@@ -321,17 +321,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                   }
               ]
             | void => {
-            if (router.values.location.pathname === urls.savedInsights()) {
-                const nextValues = cleanFilters(values.filters)
-                const urlValues = cleanFilters(router.values.searchParams)
-                if (!objectsEqual(nextValues, urlValues)) {
-                    return [
-                        urls.savedInsights(),
-                        objectDiffShallow(cleanFilters({}), nextValues),
-                        {},
-                        { replace: false },
-                    ]
-                }
+            const nextValues = cleanFilters(values.filters)
+            const urlValues = cleanFilters(router.values.searchParams)
+            if (!objectsEqual(nextValues, urlValues)) {
+                return [urls.savedInsights(), objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
             }
         }
         return {
