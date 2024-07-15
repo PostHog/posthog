@@ -246,11 +246,12 @@ def changes_between(
     """
     changes: list[Change] = []
 
+    if previous is None and current is None:
+        # there are no changes between two things that don't exist
+        return changes
+
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
-
-    if previous is not None and current is not None:
-        fields = current._meta.get_fields()
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
         filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
 
