@@ -55,7 +55,22 @@ ExtractErrors = {
 DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
 
 
+class DataWarehouseTableManager(models.Manager):
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related("created_by", "external_data_source")
+            .prefetch_related("externaldataschema_set")
+        )
+
+
 class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+    # loading external_data_source and credentials is easily N+1,
+    # so we have a custom object manager meaning people can't forget to load them
+    # this also means we _always_ have two joins whenever we load tables
+    objects = DataWarehouseTableManager()
+
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"
         CSVWithNames = "CSVWithNames", "CSVWithNames"

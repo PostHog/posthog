@@ -1,0 +1,10 @@
+["_h", 33, 1234334543, 2, "fromUnixTimestamp", 1, 36, 0, 2, "print", 1, 35, 36, 0, 2, "toString", 1, 2, "print", 1, 35,
+36, 0, 2, "toUnixTimestamp", 1, 2, "toInt", 1, 2, "print", 1, 35, 32, "-", 2, "print", 1, 35, 32, "2024-05-03", 2,
+"toDate", 1, 36, 1, 2, "print", 1, 35, 36, 1, 2, "toString", 1, 2, "print", 1, 35, 36, 1, 2, "toUnixTimestamp", 1, 2,
+"toInt", 1, 2, "print", 1, 35, 32, "-", 2, "print", 1, 35, 32, "2024-05-03T12:34:56Z", 2, "toDateTime", 1, 36, 2, 2,
+"print", 1, 35, 36, 2, 2, "toString", 1, 2, "print", 1, 35, 36, 2, 2, "toUnixTimestamp", 1, 2, "toInt", 1, 2, "print",
+1, 35, 32, "------", 2, "print", 1, 35, 32, "Europe/Brussels", 36, 2, 2, "toTimeZone", 2, 2, "print", 1, 35, 32,
+"Europe/Brussels", 36, 2, 2, "toTimeZone", 2, 2, "toString", 1, 2, "print", 1, 35, 32, "-", 2, "print", 1, 35, 32,
+"Europe/Tallinn", 36, 2, 2, "toTimeZone", 2, 2, "print", 1, 35, 32, "Europe/Tallinn", 36, 2, 2, "toTimeZone", 2, 2,
+"toString", 1, 2, "print", 1, 35, 32, "-", 2, "print", 1, 35, 32, "America/New_York", 36, 2, 2, "toTimeZone", 2, 2,
+"print", 1, 35, 32, "America/New_York", 36, 2, 2, "toTimeZone", 2, 2, "toString", 1, 2, "print", 1, 35, 35, 35, 35]
