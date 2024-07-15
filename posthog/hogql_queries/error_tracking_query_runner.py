@@ -31,6 +31,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self._where(),
             order_by=self._order_by(),
+            group_by=[ast.Field(chain=["events", "properties", "$exception_type"])],
         )
 
     def _where(self):
@@ -39,7 +40,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=["event"]),
                 right=ast.Constant(value="$exception"),
-            )
+            ),
+            ast.Placeholder(field="filters"),
         ]
 
         if self.query.fingerprint:
@@ -54,11 +56,19 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return ast.And(exprs=where_exprs)
 
     def _order_by(self):
-        order: ast.Literal["ASC"] | ast.Literal["DESC"] = "ASC" if self.query.order == "first_seen" else "DESC"
-        return [ast.OrderExpr(expr=ast.Field(chain=[self.query.order]), order=order)] if self.query.order else None
+        return (
+            [
+                ast.OrderExpr(
+                    expr=ast.Field(chain=[self.query.order]),
+                    order="ASC" if self.query.order == "first_seen" else "DESC",
+                )
+            ]
+            if self.query.order
+            else None
+        )
 
     def calculate(self):
-        properties = self.query.filterGroup.values if self.query.filterGroup else None
+        properties = self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
@@ -67,11 +77,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
-            # filters=HogQLFilters(
-            #     dateRange=self.query.dateRange,
-            #     filterTestAccounts=self.query.filterTestAccounts,
-            #     properties=properties,
-            # ),
+            filters=HogQLFilters(
+                dateRange=self.query.dateRange,
+                filterTestAccounts=self.query.filterTestAccounts,
+                properties=properties,
+            ),
         )
 
         return ErrorTrackingQueryResponse(
