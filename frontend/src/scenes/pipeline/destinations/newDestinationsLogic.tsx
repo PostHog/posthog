@@ -108,8 +108,6 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         description: plugin.description || '',
                         backend: PipelineBackend.Plugin,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
-
-                        // status: plugin.status,
                     })),
                     ...Object.values(hogFunctionTemplates).map((hogFunction) => ({
                         icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
@@ -121,6 +119,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                             {},
                             hashParams
                         ).url,
+                        status: hogFunction.status,
                     })),
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,

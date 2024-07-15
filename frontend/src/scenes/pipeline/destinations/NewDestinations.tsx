@@ -1,5 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -56,7 +56,22 @@ export function DestinationOptionsTable(): JSX.Element {
                         sticky: true,
                         render: function RenderName(_, target) {
                             return (
-                                <LemonTableLink to={target.url} title={target.name} description={target.description} />
+                                <LemonTableLink
+                                    to={target.url}
+                                    title={
+                                        <>
+                                            {target.name}
+                                            {target.status === 'alpha' ? (
+                                                <LemonTag type="caution">Experimental</LemonTag>
+                                            ) : target.status === 'beta' ? (
+                                                <LemonTag type="highlight">Beta</LemonTag>
+                                            ) : target.status === 'stable' ? (
+                                                <LemonTag type="breakdown">New</LemonTag> // Once Hog Functions are fully released we can remove the new label
+                                            ) : undefined}
+                                        </>
+                                    }
+                                    description={target.description}
+                                />
                             )
                         },
                     },
