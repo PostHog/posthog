@@ -124,6 +124,13 @@ class QueryStatusManager:
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
 
+        if not query_status.complete and not query_status.error and query_status.task_id:
+            task = celery.app.AsyncResult(query_status.task_id)
+            if task.state == "FAILURE":
+                query_status.error = True
+                query_status.error_message = str(task.result)
+                self.store_query_status(query_status)
+
         return query_status
 
     def delete_query_status(self):
