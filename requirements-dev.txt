@@ -10,7 +10,9 @@ annotated-types==0.5.0
 argcomplete==2.0.0
     # via datamodel-code-generator
 asgiref==3.7.2
-    # via django
+    # via
+    #   django
+    #   django-stubs
 asttokens==2.4.1
     # via inline-snapshot
 async-timeout==4.0.2
@@ -50,9 +52,9 @@ django==5.0.7
     # via
     #   django-stubs
     #   django-stubs-ext
-django-stubs==4.2.7
+django-stubs==5.0.2
     # via djangorestframework-stubs
-django-stubs-ext==5.0.0
+django-stubs-ext==5.0.2
     # via django-stubs
 djangorestframework-stubs==3.14.5
 dnspython==2.2.1
@@ -231,9 +233,7 @@ types-markdown==3.3.9
 types-paramiko==3.4.0.20240423
 types-python-dateutil==2.8.3
 types-pytz==2023.3.0.0
-    # via
-    #   django-stubs
-    #   types-tzlocal
+    # via types-tzlocal
 types-pyyaml==6.0.1
     # via
     #   django-stubs
@@ -248,7 +248,7 @@ types-s3transfer==0.10.1
 types-toml==0.10.8.20240310
     # via inline-snapshot
 types-tzlocal==5.1.0.1
-typing-extensions==4.7.1
+typing-extensions==4.12.2
     # via
     #   boto3-stubs
     #   django-stubs
