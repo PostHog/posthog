@@ -241,10 +241,13 @@ def changes_between(
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> list[Change]:
+    """
+    Identifies changes between two models by comparing fields
+    """
     changes: list[Change] = []
 
-    if previous is None and current is None:
-        return changes
+    if previous is not None:
+        fields = current._meta.get_fields() if current is not None else []
 
     if previous is not None and current is not None:
         fields = current._meta.get_fields()
@@ -261,12 +264,14 @@ def changes_between(
                 right = _read_through_relation(right)
 
             if field == "tagged_items":
-                field = "tags"
+                field = "tags"  # or the UI needs to be coupled to this internal backend naming
 
             if field == "dashboards" and "dashboard_tiles" in filtered_fields:
+                # only process dashboard_tiles when it is present. It supersedes dashboards
                 continue
 
             if model_type == "Insight" and field == "dashboard_tiles":
+                # the api exposes this as dashboards and that's what the activity describers expect
                 field = "dashboards"
 
             if left is None and right is not None:
