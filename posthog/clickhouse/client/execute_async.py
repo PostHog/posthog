@@ -63,7 +63,7 @@ class QueryStatusManager:
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
             seconds=self.STATUS_TTL_SECONDS
         )
-        self.redis_client.set(self.results_key, value, exat=query_status.expiration_time.timestamp())
+        self.redis_client.set(self.results_key, value, exat=int(query_status.expiration_time.timestamp()))
 
     def _store_clickhouse_query_progress_dict(self, query_progress_dict):
         value = json.dumps(query_progress_dict)
@@ -114,9 +114,9 @@ class QueryStatusManager:
             return ClickhouseQueryProgress(**query_progress)
         except Exception as e:
             logger.exception("Clickhouse Status Check Failed", error=e)
-            pass
+            return None
 
-    def get_query_status(self, show_progress=False) -> QueryStatus:
+    def get_query_status(self, show_progress: bool = False) -> QueryStatus:
         byte_results = self._get_results()
 
         if not byte_results:
