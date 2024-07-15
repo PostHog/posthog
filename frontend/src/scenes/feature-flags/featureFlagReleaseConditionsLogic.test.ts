@@ -254,6 +254,19 @@ describe('the feature flag release conditions logic', () => {
                     affectedUsers: { 0: 140, 1: 240 },
                     totalUsers: 2000,
                 })
+
+            // select its value
+            await expectLogic(logic, () => {
+                logic.actions.removeConditionSet(0)
+            })
+                .toDispatchActions(['setAffectedUsers'])
+                .toMatchValues({
+                    affectedUsers: { 0: 240, 1: 240 },
+                })
+                .toDispatchActions(['setAffectedUsers'])
+                .toMatchValues({
+                    affectedUsers: { 0: 240, 1: undefined },
+                })
         })
 
         it('computes blast radius percentages accurately', async () => {
