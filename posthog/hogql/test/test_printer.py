@@ -387,10 +387,10 @@ class TestPrinter(BaseTest):
             "Aggregation 'avg' cannot be nested inside another aggregation 'avg'.",
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
-        self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array[1]")
+        self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array.1")
         self._assert_expr_error(
             "properties.id.0",
-            "SQL indexes start from one, not from zero. E.g: array[1]",
+            "SQL indexes start from one, not from zero. E.g: array.1",
         )
         self._assert_expr_error(
             "event as `as%d`",

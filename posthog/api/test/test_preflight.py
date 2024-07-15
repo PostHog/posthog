@@ -5,11 +5,10 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.cloud_utils import (
-    TEST_clear_instance_license_cache,
-)
+from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.organization import Organization, OrganizationInvite
+from posthog.models.organization import Organization
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
