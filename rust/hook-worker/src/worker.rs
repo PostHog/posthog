@@ -3,9 +3,11 @@ use std::time;
 use std::{collections, iter};
 
 use chrono::Utc;
+use futures::channel::oneshot::Canceled;
 use futures::future::join_all;
 use health::HealthHandle;
 use http::StatusCode;
+use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use reqwest::{header, Client};
 use serde_json::{json, Value};
@@ -213,6 +215,25 @@ impl<'p> WebhookWorker<'p> {
     }
 }
 
+async fn log_kafka_error_and_sleep(step: &str, error: Option<KafkaError>) {
+    match error {
+        Some(error) => error!("error sending hog message to kafka ({}): {}", step, error),
+        None => error!("error sending hog message to kafka ({})", step),
+    }
+
+    // Errors producing to Kafka *should* be exceedingly rare, but when they happen we don't want
+    // to enter a tight loop where we re-send the hook payload, fail to produce to Kafka, and
+    // repeat over and over again. We also don't want to commit the job as done and not produce
+    // something to Kafka, as the Hog task would then be lost.
+    //
+    // For this reason, we sleep before aborting the batch, in hopes that Kafka has recovered by the
+    // time we retry.
+    //
+    // In the future we may want to consider dequeueing completed jobs from PG itself rather than
+    // using a Kafka intermediary.
+    sleep(Duration::from_secs(30)).await;
+}
+
 async fn process_batch<'a>(
     mut batch: PgTransactionBatch<'a, WebhookJobParameters, Value>,
     http_client: Client,
@@ -258,9 +279,8 @@ async fn process_batch<'a>(
                         }) {
                             Ok(future) => kafka_ack_futures.push(future),
                             Err((error, _)) => {
-                                error!("error producing kafka message: {}", error);
-                                sleep(Duration::from_secs(30)).await;
-                                return; // Return early to avoid committing the batch.
+                                // Return early to avoid committing the batch.
+                                return log_kafka_error_and_sleep("send", Some(error)).await;
                             }
                         };
                     }
@@ -276,15 +296,13 @@ async fn process_batch<'a>(
         match result {
             Ok(Ok(_)) => {}
             Ok(Err((error, _))) => {
-                error!("error awaiting kafka ack: {}", error);
-                sleep(Duration::from_secs(30)).await;
-                return; // Return early to avoid committing the batch.
+                // Return early to avoid committing the batch.
+                return log_kafka_error_and_sleep("ack", Some(error)).await;
             }
-            Err(_) => {
+            Err(Canceled) => {
                 // Cancelled due to timeout while retrying
-                error!("error producing kafka message: timed out");
-                sleep(Duration::from_secs(30)).await;
-                return; // Return early to avoid committing the batch.
+                // Return early to avoid committing the batch.
+                return log_kafka_error_and_sleep("timeout", None).await;
             }
         }
     }
