@@ -21,7 +21,7 @@ def to_hog_date(year: int, month: int, day: int):
     }
 
 
-def to_hog_datetime(timestamp: float | dict, zone: Optional[str] = None):
+def to_hog_datetime(timestamp: int | float | dict, zone: Optional[str] = None):
     if isinstance(timestamp, dict) and is_hog_date(timestamp):
         dt = datetime.datetime(
             year=timestamp["year"], month=timestamp["month"], day=timestamp["day"], tzinfo=pytz.timezone(zone or "UTC")
@@ -59,8 +59,16 @@ def toUnixTimestamp(date, timezone: Optional[str] = None):
     return date.timestamp()
 
 
-def fromUnixTimestamp(timestamp: float):
+def fromUnixTimestamp(timestamp: int | float):
     return to_hog_datetime(timestamp)
+
+
+def toUnixTimestampMilli(date, timezone: Optional[str] = None):
+    return int(toUnixTimestamp(date, timezone) * 1000)
+
+
+def fromUnixTimestampMilli(timestamp: int):
+    return fromUnixTimestamp(float(timestamp) / 1000.0)
 
 
 def toTimeZone(date: dict, timezone: str):
@@ -73,7 +81,10 @@ def toTimeZone(date: dict, timezone: str):
 
 
 def toDate(string):
-    dt = datetime.datetime.fromisoformat(string)
+    if isinstance(input, int) or isinstance(input, float):
+        dt = datetime.datetime.fromtimestamp(input)
+    else:
+        dt = datetime.datetime.fromisoformat(string)
     return {
         "__hogDate__": True,
         "year": dt.year,
@@ -82,11 +93,14 @@ def toDate(string):
     }
 
 
-def toDateTime(string):
-    dt = datetime.datetime.fromisoformat(string)
+def toDateTime(input):
+    if isinstance(input, int) or isinstance(input, float):
+        dt = float(input)
+    else:
+        dt = datetime.datetime.fromisoformat(input).timestamp()
     return {
         "__hogDateTime__": True,
-        "dt": dt.timestamp(),
+        "dt": dt,
         "zone": "UTC",
     }
 
