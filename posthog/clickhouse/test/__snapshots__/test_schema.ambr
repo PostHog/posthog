@@ -456,7 +456,7 @@
       metric_name LowCardinality(String),
       successes SimpleAggregateFunction(sum, Int64),
       skipped SimpleAggregateFunction(sum, Int64),
-      failures SimpleAggregateFunction(sum, Int64),
+      failures SimpleAggregateFunction(sum, Int64)
       
   , _timestamp DateTime
   , _offset UInt64
@@ -2101,7 +2101,7 @@
       metric_name LowCardinality(String),
       successes SimpleAggregateFunction(sum, Int64),
       skipped SimpleAggregateFunction(sum, Int64),
-      failures SimpleAggregateFunction(sum, Int64),
+      failures SimpleAggregateFunction(sum, Int64)
       
   , _timestamp DateTime
   , _offset UInt64
@@ -3196,7 +3196,7 @@
       metric_name LowCardinality(String),
       successes SimpleAggregateFunction(sum, Int64),
       skipped SimpleAggregateFunction(sum, Int64),
-      failures SimpleAggregateFunction(sum, Int64),
+      failures SimpleAggregateFunction(sum, Int64)
       
   , _timestamp DateTime
   , _offset UInt64
