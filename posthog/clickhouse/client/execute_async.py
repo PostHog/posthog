@@ -81,7 +81,10 @@ class QueryStatusManager:
             # Don't fail because of progress checking
             return {}
 
-        return json.loads(byte_results) if byte_results is not None else {}
+        if byte_results is None:
+            return {}
+
+        return json.loads(byte_results)
 
     def update_clickhouse_query_progresses(self, clickhouse_query_progresses):
         clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
@@ -92,6 +95,24 @@ class QueryStatusManager:
     def has_results(self):
         return self._get_results() is not None
 
+    def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
+        try:
+            clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
+            query_progress = {
+                "bytes_read": 0,
+                "rows_read": 0,
+                "estimated_rows_total": 0,
+                "time_elapsed": 0,
+                "active_cpu_time": 0,
+            }
+            for single_query_progress in clickhouse_query_progress_dict.values():
+                for k in query_progress.keys():
+                    query_progress[k] += single_query_progress[k]
+            return ClickhouseQueryProgress(**query_progress)
+        except Exception as e:
+            logger.exception("Clickhouse Status Check Failed", error=e)
+            pass
+
     def get_query_status(self, show_progress=False) -> QueryStatus:
         byte_results = self._get_results()
 
@@ -101,25 +122,7 @@ class QueryStatusManager:
         query_status = QueryStatus(**json.loads(byte_results))
 
         if show_progress and not query_status.complete:
-            try:
-                clickhouse_query_progress_dict = self._get_clickhouse_query_progress_dict()
-                query_progress = {
-                    "bytes_read": 0,
-                    "rows_read": 0,
-                    "estimated_rows_total": 0,
-                    "time_elapsed": 0,
-                    "active_cpu_time": 0,
-                }
-                for single_query_progress in clickhouse_query_progress_dict.values():
-                    query_progress["bytes_read"] += single_query_progress["bytes_read"]
-                    query_progress["rows_read"] += single_query_progress["rows_read"]
-                    query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
-                    query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
-                    query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
-                query_status.query_progress = ClickhouseQueryProgress(**query_progress)
-            except Exception as e:
-                logger.exception("Clickhouse Status Check Failed", error=e)
-                pass
+            query_status.query_progress = self.get_clickhouse_progresses()
 
         return query_status
 
