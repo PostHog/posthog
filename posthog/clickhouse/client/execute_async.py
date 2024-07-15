@@ -127,6 +127,7 @@ class QueryStatusManager:
         if not query_status.complete and query_status.task_id:
             task = celery.app.AsyncResult(query_status.task_id)
             if task.state == "FAILURE":
+                query_status.complete = True
                 query_status.error = True
                 query_status.error_message = str(task.result)
                 self.store_query_status(query_status)
