@@ -113,7 +113,11 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         ]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
-        latest_completed_run = instance.jobs.order_by("-created_at").first()
+        latest_completed_run = (
+            ExternalDataJob.objects.filter(pipeline_id=instance.pk, status="Completed", team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
 
         return latest_completed_run.created_at if latest_completed_run else None
 
@@ -177,12 +181,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
+
         return context
 
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related(
             "created_by",
-            "jobs",
             Prefetch(
                 "schemas",
                 queryset=ExternalDataSchema.objects.select_related("table__credential", "table__external_data_source"),
