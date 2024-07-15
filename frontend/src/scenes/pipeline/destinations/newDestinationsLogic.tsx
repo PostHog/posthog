@@ -1,28 +1,62 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import FuseClass from 'fuse.js'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, HogFunctionTemplateType, PluginType } from '~/types'
+import {
+    BATCH_EXPORT_SERVICE_NAMES,
+    BatchExportService,
+    HogFunctionTemplateType,
+    PipelineStage,
+    PluginType,
+} from '~/types'
 
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
+import { PipelineBackend } from '../types'
 import { loadPluginsFromUrl, RenderApp, RenderBatchExportIcon } from '../utils'
-
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
 
 export type NewDestinationItemType = {
     icon: JSX.Element
+    url: string
     name: string
     description: string
-    kind: 'plugin' | 'batchExport' | 'hogFunction'
+    backend: PipelineBackend
     status?: 'stable' | 'beta' | 'alpha'
 }
+
+export type NewDestinationFilters = {
+    search?: string
+    kind?: PipelineBackend
+}
+
+// Helping kea-typegen navigate the exported default class for Fuse
+export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
     connect({
         values: [userLogic, ['user']],
     }),
     path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
+    actions({
+        setFilters: (filters: Partial<NewDestinationFilters>) => ({ filters }),
+        resetFilters: true,
+    }),
+    reducers({
+        filters: [
+            {} as NewDestinationFilters,
+            {
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                }),
+                resetFilters: () => ({}),
+            },
+        ],
+    }),
     loaders({
         plugins: [
             {} as Record<number, PluginType>,
@@ -64,33 +98,95 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                 return services
             },
         ],
-
         destinations: [
-            (s) => [s.plugins, s.hogFunctionTemplates, s.batchExportServiceNames],
-            (plugins, hogFunctionTemplates, batchExportServiceNames): NewDestinationItemType[] => {
+            (s) => [s.plugins, s.hogFunctionTemplates, s.batchExportServiceNames, router.selectors.hashParams],
+            (plugins, hogFunctionTemplates, batchExportServiceNames, hashParams): NewDestinationItemType[] => {
                 return [
                     ...Object.values(plugins).map((plugin) => ({
                         icon: <RenderApp plugin={plugin} />,
                         name: plugin.name,
                         description: plugin.description || '',
-                        kind: 'plugin',
-                        status: plugin.status,
+                        backend: PipelineBackend.Plugin,
+                        url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
+
+                        // status: plugin.status,
                     })),
                     ...Object.values(hogFunctionTemplates).map((hogFunction) => ({
                         icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
                         name: hogFunction.name,
                         description: hogFunction.description,
-                        kind: 'hogFunction',
+                        backend: PipelineBackend.HogFunction,
+                        url: combineUrl(
+                            urls.pipelineNodeNew(PipelineStage.Destination, `hog-${hogFunction.id}`),
+                            {},
+                            hashParams
+                        ).url,
                     })),
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
                         name: service,
                         description: `${service} batch export`,
-                        kind: 'batchExport',
+                        backend: PipelineBackend.BatchExport,
+                        url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
                     })),
                 ]
             },
         ],
+
+        destinationsFuse: [
+            (s) => [s.destinations],
+            (destinations): Fuse => {
+                return new FuseClass(destinations || [], {
+                    keys: ['name', 'description'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+
+        filteredDestinations: [
+            (s) => [s.filters, s.destinations, s.destinationsFuse],
+            (filters, destinations, destinationsFuse): NewDestinationItemType[] => {
+                const { search, kind } = filters
+
+                return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
+                    if (kind && dest.backend !== kind) {
+                        return false
+                    }
+                    return true
+                })
+            },
+        ],
+    })),
+
+    actionToUrl(({ values }) => {
+        const urlFromFilters = (): [
+            string,
+            Record<string, any>,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => [
+            router.values.location.pathname,
+            {
+                ...values.filters,
+            },
+            router.values.hashParams,
+            {
+                replace: true,
+            },
+        ]
+
+        return {
+            setFilters: () => urlFromFilters(),
+            resetFilters: () => urlFromFilters(),
+        }
+    }),
+
+    urlToAction(({ actions }) => ({
+        '*': (_, { search, kind }) => {
+            actions.setFilters({ search, kind })
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadPlugins()

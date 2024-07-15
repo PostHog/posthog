@@ -1,6 +1,5 @@
-import { afterMount, connect, kea, path, props, selectors } from 'kea'
+import { connect, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -10,7 +9,6 @@ import {
     BATCH_EXPORT_SERVICE_NAMES,
     BatchExportService,
     Breadcrumb,
-    HogFunctionTemplateType,
     PipelineStage,
     PipelineTab,
     PluginType,
@@ -48,25 +46,10 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
                 },
             },
         ],
-        hogFunctionTemplates: [
-            {} as Record<string, HogFunctionTemplateType>,
-            {
-                loadHogFunctionTemplates: async () => {
-                    const templates = await api.hogFunctions.listTemplates()
-                    return templates.results.reduce((acc, template) => {
-                        acc[template.id] = template
-                        return acc
-                    }, {} as Record<string, HogFunctionTemplateType>)
-                },
-            },
-        ],
     }),
 
     selectors(() => ({
-        loading: [
-            (s) => [s.pluginsLoading, s.hogFunctionTemplatesLoading],
-            (pluginsLoading, hogFunctionTemplatesLoading) => pluginsLoading || hogFunctionTemplatesLoading,
-        ],
+        loading: [(s) => [s.pluginsLoading], (pluginsLoading) => pluginsLoading],
         breadcrumbs: [
             (_, p) => [p.stage, p.pluginId, p.batchExportDestination],
             (stage, pluginId, batchDestination): Breadcrumb[] => [
@@ -100,8 +83,4 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
             },
         ],
     })),
-    afterMount(({ actions }) => {
-        actions.loadPlugins()
-        actions.loadHogFunctionTemplates()
-    }),
 ])

@@ -50,8 +50,8 @@ export function Destinations(): JSX.Element {
 }
 
 export function DestinationsTable(props: PipelineDestinationsLogicProps): JSX.Element {
-    const { loading, filteredDestinations, filters } = useValues(pipelineDestinationsLogic(props))
-    const { setFilters } = useActions(pipelineDestinationsLogic(props))
+    const { loading, filteredDestinations, filters, destinations } = useValues(pipelineDestinationsLogic(props))
+    const { setFilters, resetFilters } = useActions(pipelineDestinationsLogic(props))
 
     const hasHogFunctions = !!useFeatureFlag('HOG_FUNCTIONS')
 
@@ -190,6 +190,16 @@ export function DestinationsTable(props: PipelineDestinationsLogicProps): JSX.El
                             },
                         },
                     ]}
+                    emptyState={
+                        destinations.length === 0 && !loading ? (
+                            'No destinations found'
+                        ) : (
+                            <>
+                                No destinations matching filters.{' '}
+                                <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
+                            </>
+                        )
+                    }
                 />
             </BindLogic>
         </>

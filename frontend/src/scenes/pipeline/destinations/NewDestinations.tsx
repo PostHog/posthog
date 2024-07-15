@@ -1,97 +1,62 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { LemonButton, LemonInput, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { urls } from 'scenes/urls'
 
-import { BatchExportService, HogFunctionTemplateType, PipelineStage, PluginType } from '~/types'
+import { PipelineStage } from '~/types'
 
-import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
-import { pipelineNodeNewLogic } from '../pipelineNodeNewLogic'
 import { PipelineBackend } from '../types'
-import { getBatchExportUrl, RenderApp, RenderBatchExportIcon } from '../utils'
-
-type TableEntry = {
-    backend: PipelineBackend
-    id: string | number
-    name: string
-    description: string
-    url?: string
-    icon: JSX.Element
-}
-
-function convertPluginToTableEntry(plugin: PluginType): TableEntry {
-    return {
-        backend: PipelineBackend.Plugin,
-        id: plugin.id,
-        name: plugin.name,
-        description: plugin.description || '',
-        icon: <RenderApp plugin={plugin} />,
-        // TODO: ideally we'd link to docs instead of GitHub repo, so it can open in panel
-        // Same for transformations and destinations tables
-        url: plugin.url,
-    }
-}
-
-function convertBatchExportToTableEntry(service: BatchExportService['type']): TableEntry {
-    return {
-        backend: PipelineBackend.BatchExport,
-        id: service as string,
-        name: service,
-        description: `${service} batch export`,
-        icon: <RenderBatchExportIcon type={service} />,
-        url: getBatchExportUrl(service),
-    }
-}
-
-function convertHogFunctionToTableEntry(hogFunction: HogFunctionTemplateType): TableEntry {
-    return {
-        backend: PipelineBackend.HogFunction,
-        id: `hog-${hogFunction.id}`, // TODO: This weird identifier thing isn't great
-        name: hogFunction.name,
-        description: hogFunction.description,
-        icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
-    }
-}
+import { newDestinationsLogic } from './newDestinationsLogic'
 
 export function DestinationOptionsTable(): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { batchExportServiceNames, plugins, loading, hogFunctionTemplates } = useValues(pipelineNodeNewLogic)
-    const pluginTargets = Object.values(plugins).map(convertPluginToTableEntry)
-    const batchExportTargets = Object.values(batchExportServiceNames).map(convertBatchExportToTableEntry)
-    const hogFunctionTargets = hogFunctionsEnabled
-        ? Object.values(hogFunctionTemplates).map(convertHogFunctionToTableEntry)
-        : []
-    const targets = [...hogFunctionTargets, ...batchExportTargets, ...pluginTargets]
+    const { loading, filteredDestinations, filters } = useValues(newDestinationsLogic)
+    const { setFilters } = useActions(newDestinationsLogic)
 
-    const { hashParams } = useValues(router)
     return (
         <>
+            <div className="flex items-center mb-2 gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    value={filters.search ?? ''}
+                    onChange={(e) => setFilters({ search: e })}
+                />
+                <div className="flex-1" />
+                <LemonSelect
+                    type="secondary"
+                    size="small"
+                    options={
+                        [
+                            { label: 'All kinds', value: null },
+                            hogFunctionsEnabled
+                                ? { label: 'Realtime (new)', value: PipelineBackend.HogFunction }
+                                : undefined,
+                            { label: 'Realtime', value: PipelineBackend.Plugin },
+                            { label: 'Batch exports', value: PipelineBackend.BatchExport },
+                        ].filter(Boolean) as { label: string; value: PipelineBackend | null }[]
+                    }
+                    value={filters.kind}
+                    onChange={(e) => setFilters({ kind: e ?? undefined })}
+                />
+            </div>
             <LemonTable
-                dataSource={targets}
+                dataSource={filteredDestinations}
                 size="small"
                 loading={loading}
                 columns={[
                     {
                         title: 'App',
                         width: 0,
-                        render: function RenderAppInfo(_, target) {
-                            return target.icon
-                        },
+                        render: (_, target) => target.icon,
                     },
                     {
                         title: 'Name',
                         sticky: true,
                         render: function RenderName(_, target) {
                             return (
-                                <LemonTableLink
-                                    to={urls.pipelineNodeNew(PipelineStage.Destination, target.id)}
-                                    title={target.name}
-                                    description={target.description}
-                                />
+                                <LemonTableLink to={target.url} title={target.name} description={target.description} />
                             )
                         },
                     },
@@ -103,16 +68,10 @@ export function DestinationOptionsTable(): JSX.Element {
                             return (
                                 <LemonButton
                                     type="primary"
-                                    data-attr={`new-${PipelineStage.Destination}-${target.id}`}
+                                    data-attr={`new-${PipelineStage.Destination}`}
                                     icon={<IconPlusSmall />}
                                     // Preserve hash params to pass config in
-                                    to={
-                                        combineUrl(
-                                            urls.pipelineNodeNew(PipelineStage.Destination, target.id),
-                                            {},
-                                            hashParams
-                                        ).url
-                                    }
+                                    to={target.url}
                                 >
                                     Create
                                 </LemonButton>

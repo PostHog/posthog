@@ -2,6 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
@@ -67,6 +68,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
         setFilters: (filters: Partial<DestinationFilters>) => ({ filters }),
+        resetFilters: true,
     }),
     reducers({
         filters: [
@@ -76,6 +78,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     ...state,
                     ...filters,
                 }),
+                resetFilters: () => ({}),
             },
         ],
     }),
@@ -308,6 +311,44 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             }
         },
     })),
+
+    actionToUrl(({ props, values }) => {
+        if (!props.syncFiltersWithUrl) {
+            return {}
+        }
+        const urlFromFilters = (): [
+            string,
+            Record<string, any>,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => [
+            router.values.location.pathname,
+            {
+                ...values.filters,
+            },
+            router.values.hashParams,
+            {
+                replace: true,
+            },
+        ]
+
+        return {
+            setFilters: () => urlFromFilters(),
+            resetFilters: () => urlFromFilters(),
+        }
+    }),
+
+    urlToAction(({ props, actions }) => ({
+        '*': (_, { search, onlyActive, kind }) => {
+            if (!props.syncFiltersWithUrl) {
+                return
+            }
+            actions.setFilters({ search, onlyActive: onlyActive === 'true', kind })
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadPlugins()
         actions.loadPluginConfigs()
