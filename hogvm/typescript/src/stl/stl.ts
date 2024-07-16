@@ -14,7 +14,7 @@ import {
     toUnixTimestampMilli,
     formatDateTime,
 } from './date'
-import { sha256Hex, md5Hex } from './crypto'
+import { sha256Hex, sha256HmacChainHex, md5Hex } from './crypto'
 import { printHogStringOutput } from './print'
 
 export const STL: Record<string, (args: any[], name: string, timeout: number) => any> = {
@@ -244,6 +244,9 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     },
     md5Hex([str]) {
         return md5Hex(str)
+    },
+    sha256HmacChainHex([data]) {
+        return sha256HmacChainHex(data)
     },
     keys([obj]) {
         if (typeof obj === 'object') {

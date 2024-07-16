@@ -21,7 +21,7 @@ from .date import (
     is_hog_datetime,
     is_hog_date,
 )
-from .crypto import sha256Hex, md5Hex
+from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -254,6 +254,10 @@ def _md5Hex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     return md5Hex(args[0])
 
 
+def _sha256HmacChainHex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    return sha256HmacChainHex(args[0])
+
+
 def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
     obj = args[0]
     if isinstance(obj, dict):
@@ -402,6 +406,7 @@ STL: dict[str, Callable[[list[Any], Optional["Team"], list[str] | None, int], An
     "generateUUIDv4": generateUUIDv4,
     "sha256Hex": _sha256Hex,
     "md5Hex": _md5Hex,
+    "sha256HmacChainHex": _sha256HmacChainHex,
     "keys": keys,
     "values": values,
     "arrayPushBack": arrayPushBack,
