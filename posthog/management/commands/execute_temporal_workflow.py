@@ -107,7 +107,7 @@ class Command(BaseCommand):
         WORKFLOWS = BATCH_EXPORT_WORKFLOWS + DATA_IMPORT_WORKFLOWS + PROXY_SERVICE_WORKFLOWS
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
-        except IndexError:
+        except StopIteration:
             raise ValueError(f"No workflow with name '{workflow_name}'")
         except AttributeError:
             raise TypeError(
