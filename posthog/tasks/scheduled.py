@@ -93,8 +93,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
 
-    add_periodic_task_with_expiry(
-        sender, 60 * 60, schedule_warming_for_teams_task.s(), "schedule warming for largest teams"
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/30"),
+        schedule_warming_for_teams_task.s(),
+        name="schedule warming for largest teams",
     )
 
     # Update events table partitions twice a week
