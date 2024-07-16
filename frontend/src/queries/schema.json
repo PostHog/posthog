@@ -8902,6 +8902,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "WebOverviewQuery",
                     "type": "string"
@@ -9011,6 +9014,9 @@
                 "doPathCleaning": {
                     "type": "boolean"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "includeBounceRate": {
                     "type": "boolean"
                 },
@@ -9109,6 +9115,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "WebTopClicksQuery",
