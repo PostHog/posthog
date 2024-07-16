@@ -85,6 +85,7 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_function_overflow = 'cdp-function-overflow',
+    functional_tests = 'functional-tests',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(

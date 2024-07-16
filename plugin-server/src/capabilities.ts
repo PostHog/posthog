@@ -106,5 +106,22 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpFunctionOverflow: true,
                 ...sharedCapabilities,
             }
+        // This is only for functional tests, which time out if all capabilities are used
+        // ideally we'd run just the specific capability needed per test, but that's not easy to do atm
+        case PluginServerMode.functional_tests:
+            return {
+                mmdb: true,
+                ingestion: true,
+                ingestionHistorical: true,
+                eventsIngestionPipelines: true,
+                pluginScheduledTasks: true,
+                processPluginJobs: true,
+                processAsyncOnEventHandlers: true,
+                processAsyncWebhooksHandlers: true,
+                sessionRecordingBlobIngestion: true,
+                appManagementSingleton: true,
+                preflightSchedules: true,
+                ...sharedCapabilities,
+            }
     }
 }
