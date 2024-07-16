@@ -48,6 +48,14 @@ fetch('https://api.sendgrid.com/v3/marketing/contacts', {
             "required": True,
         },
         {
+            "key": "email",
+            "type": "string",
+            "label": "The email of the user",
+            "default": "{person.properties.email}",
+            "secret": False,
+            "required": True,
+        },
+        {
             "key": "properties",
             "type": "dictionary",
             "label": "Property mapping",
