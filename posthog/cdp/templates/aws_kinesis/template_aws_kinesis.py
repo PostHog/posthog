@@ -9,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     # icon_url="/api/projects/@current/hog_functions/icon/?id=posthog.com&temp=true",
     hog="""
 fn uploadToKinesis(data) {
-  let endpoint := f'https://kinesis.{inputs.aws_region}.amazonaws.com'
+  let region := inputs.aws_region
+  let endpoint := f'https://kinesis.{region}.amazonaws.com'
   let service := 'kinesis'
   let amzDate := formatDateTime(now(), '%Y%m%dT%H%i%sZ')
   let date := formatDateTime(now(), '%Y%m%d')
@@ -19,32 +20,26 @@ fn uploadToKinesis(data) {
     'PartitionKey': inputs.aws_kinesis_partition_key,
     'Data': base64Encode(data),
   })
-  // print('payload', payload)
 
   let requestHeaders := {
     'Content-Type': 'application/x-amz-json-1.1',
     'X-Amz-Target': 'Kinesis_20131202.PutRecord',
     'X-Amz-Date': amzDate,
-    'Host': f'kinesis.{inputs.aws_region}.amazonaws.com',
+    'Host': f'kinesis.{region}.amazonaws.com',
   }
-  // print('requestHeaders', requestHeaders)
 
   let canonicalHeaderParts := []
   for (let key, value in requestHeaders) {
     let val := replaceAll(trim(value), '\\s+', ' ')
-    // print(key, val)
     canonicalHeaderParts := arrayPushBack(canonicalHeaderParts, f'{lower(key)}:{val}')
   }
   let canonicalHeaders := arrayStringConcat(arraySort(canonicalHeaderParts), '\n') || '\n'
-
-  // print('canonicalHeaders', canonicalHeaders)
 
   let signedHeaderParts := []
   for (let key, value in requestHeaders) {
     signedHeaderParts := arrayPushBack(signedHeaderParts, lower(key))
   }
   let signedHeaders := arrayStringConcat(arraySort(signedHeaderParts), ';')
-  // print('signedHeaders', signedHeaders)
 
   let canonicalRequest := arrayStringConcat([
     'POST',
@@ -54,11 +49,8 @@ fn uploadToKinesis(data) {
     signedHeaders,
     sha256Hex(payload),
   ], '\n')
-  print('canonicalRequest', canonicalRequest)
 
-  let credentialScope := f'{date}/{inputs.aws_region}/{service}/aws4_request'
-  // print('credentialScope', credentialScope)
-
+  let credentialScope := f'{date}/{region}/{service}/aws4_request'
   let stringToSign := arrayStringConcat([
     'AWS4-HMAC-SHA256',
     amzDate,
@@ -66,16 +58,30 @@ fn uploadToKinesis(data) {
     sha256Hex(canonicalRequest),
   ], '\n')
 
-  print('stringToSign', stringToSign)
+  let signature := sha256HmacChainHex([
+    f'AWS4{inputs.aws_secret_access_key}', date, region, service, 'aws4_request', stringToSign
+  ])
 
-  // fetch(inputs.url, {
-  //   'headers': inputs.headers,
-  //   'body': inputs.body,
-  //   'method': inputs.method
-  // })
+  let authorizationHeader :=
+      f'AWS4-HMAC-SHA256 Credential={inputs.aws_access_key_id}/{credentialScope}, ' ||
+      f'SignedHeaders={signedHeaders}, ' ||
+      f'Signature={signature}'
+
+  requestHeaders['Authorization'] := authorizationHeader
+
+  let res := fetch(endpoint, {
+    'headers': requestHeaders,
+    'body': payload,
+    'method': 'POST'
+  })
+
+  if (res.status >= 200 and res.status < 300) {
+    print('Event sent successfully!')
+    return
+  }
+
+  print('Error sending event:', res.status, res.body)
 }
-
-//uploadToKinesis('Hello, World!')
 
 uploadToKinesis(jsonStringify(inputs.payload))
 """.strip(),
