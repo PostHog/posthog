@@ -12,6 +12,7 @@ from django.conf import settings
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
@@ -84,6 +85,13 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, Decimal):
             # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
+        if isinstance(obj, FeatureFlag):
+            return {
+                "id": obj.id,
+                "key": obj.key,
+                "name": obj.name,
+                # Add any other fields you want to include
+            }
 
         return json.JSONEncoder.default(self, obj)
 
@@ -208,7 +216,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
     # TODO: Don't try and track changes to survey targeting, we will support
     # this with https://github.com/PostHog/posthog/issues/23725
-    "Survey": ["targeting_flag", "linked_flag", "internal_targeting_flag"],
+    # "Survey": ["internal_targeting_flag"],
 }
 
 
@@ -240,6 +248,7 @@ def changes_between(
     model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
+    previous_targeting_flag: Optional[models.Model] = None,
 ) -> list[Change]:
     """
     Identifies changes between two models by comparing fields
@@ -255,14 +264,26 @@ def changes_between(
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
         filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
 
-        for field in filtered_fields:
-            left = getattr(previous, field, None)
-            if isinstance(left, models.Manager):
-                left = _read_through_relation(left)
+        # Special handling for deleted targeting_flag
+        if previous_targeting_flag:
+            changes.append(
+                Change(type=model_type, field="targeting_flag", action="deleted", before=previous_targeting_flag)
+            )
 
-            right = getattr(current, field, None)
-            if isinstance(right, models.Manager):
-                right = _read_through_relation(right)
+        for field in filtered_fields:
+            try:
+                left = getattr(previous, field, None)
+                if isinstance(left, models.Manager):
+                    left = _read_through_relation(left)
+            except models.ObjectDoesNotExist:
+                left = None
+
+            try:
+                right = getattr(current, field, None)
+                if isinstance(right, models.Manager):
+                    right = _read_through_relation(right)
+            except models.ObjectDoesNotExist:
+                right = None
 
             if field == "tagged_items":
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming

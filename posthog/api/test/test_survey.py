@@ -1203,6 +1203,7 @@ class TestSurvey(APIBaseTest):
 
     @freeze_time("2023-05-01 12:00:00")
     def test_update_survey_records_activity(self):
+        self.maxDiff = None
         survey = Survey.objects.create(
             team=self.team,
             name="Original Survey",

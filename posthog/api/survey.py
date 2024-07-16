@@ -317,6 +317,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
+        targeting_flag_before_update = instance.targeting_flag if instance.targeting_flag else None
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 instance.targeting_flag.delete()
@@ -355,7 +356,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         iteration_count = validated_data.get("iteration_count")
         if instance.current_iteration is not None and instance.current_iteration > iteration_count > 0:
             raise serializers.ValidationError(
-                f"Cannot change survey recurrence to {validated_data.get('iteration_count')}, should be at least {instance.current_iteration}"
+                f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
             )
 
         instance.iteration_count = iteration_count
@@ -363,10 +364,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         instance = super().update(instance, validated_data)
 
-        self._add_user_survey_interacted_filters(instance, end_date)
-        self._associate_actions(instance, validated_data.get("conditions"))
         team = Team.objects.get(id=self.context["team_id"])
-        changes = changes_between("Survey", previous=before_update, current=instance)
+        changes = changes_between(
+            "Survey",
+            previous=before_update,
+            current=instance,
+            previous_targeting_flag=targeting_flag_before_update,
+        )
         log_activity(
             organization_id=team.organization_id,
             team_id=self.context["team_id"],
@@ -377,6 +381,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             activity="updated",
             detail=Detail(changes=changes, name=instance.name),
         )
+
+        self._add_user_survey_interacted_filters(instance, end_date)
+        self._associate_actions(instance, validated_data.get("conditions"))
         return instance
 
     def _associate_actions(self, instance: Survey, conditions):
