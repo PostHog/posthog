@@ -224,3 +224,50 @@ class TestS3Table(BaseTest):
             "http://url.com", DataWarehouseTable.TableFormat.Delta, "key", "secret", "some structure", None
         )
         assert res == "deltaLake('http://url.com', 'key', 'secret', 'some structure')"
+
+    def test_s3_build_function_call_azure(self):
+        res = build_function_call(
+            "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
+            DataWarehouseTable.TableFormat.Parquet,
+            "tomposthogtest",
+            "blah",
+            "some structure",
+            None,
+        )
+
+        assert (
+            res
+            == "azureBlobStorage('https://tomposthogtest.blob.core.windows.net', 'somecontainer', 'path/to/file.parquet', 'tomposthogtest', 'blah', 'Parquet', 'auto', 'some structure')"
+        )
+
+    def test_s3_build_function_call_azure_without_structure(self):
+        res = build_function_call(
+            "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
+            DataWarehouseTable.TableFormat.Parquet,
+            "tomposthogtest",
+            "blah",
+            None,
+            None,
+        )
+
+        assert (
+            res
+            == "azureBlobStorage('https://tomposthogtest.blob.core.windows.net', 'somecontainer', 'path/to/file.parquet', 'tomposthogtest', 'blah', 'Parquet', 'auto')"
+        )
+
+    def test_s3_build_function_call_azure_with_context(self):
+        self._init_database()
+
+        res = build_function_call(
+            "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
+            DataWarehouseTable.TableFormat.Parquet,
+            "tomposthogtest",
+            "blah",
+            None,
+            self.context,
+        )
+
+        assert (
+            res
+            == "azureBlobStorage(%(hogql_val_0_sensitive)s, %(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_5)s, 'auto')"
+        )
