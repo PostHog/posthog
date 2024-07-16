@@ -371,7 +371,8 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
+        with self.assertNumQueries(17):
+            response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)

@@ -1,8 +1,16 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
+import { DateTime } from 'luxon'
+
 import { GroupTypeToColumnIndex, RawClickHouseEvent, Team } from '../types'
-import { clickHouseTimestampToISO } from '../utils/utils'
-import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, ParsedClickhouseEvent } from './types'
+import { safeClickhouseString } from '../utils/db/utils'
+import { clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import {
+    HogFunctionCapturedEvent,
+    HogFunctionFilterGlobals,
+    HogFunctionInvocationGlobals,
+    ParsedClickhouseEvent,
+} from './types'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
@@ -139,5 +147,21 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         properties: globals.event.properties,
         person: globals.person ? { properties: globals.person.properties } : undefined,
         ...groups,
+    }
+}
+
+export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Team): any => {
+    return {
+        uuid: new UUIDT().toString(),
+        distinct_id: safeClickhouseString(event.distinct_id),
+        data: JSON.stringify({
+            event: event.event,
+            distinct_id: event.distinct_id,
+            properties: event.properties,
+            timestamp: event.timestamp,
+        }),
+        now: DateTime.now().toISO(),
+        sent_at: DateTime.now().toISO(),
+        token: team.api_token,
     }
 }
