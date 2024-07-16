@@ -1,5 +1,3 @@
-import { Webhook } from '@posthog/plugin-scaffold'
-
 import { PluginsServerConfig } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
@@ -29,6 +27,7 @@ export class AsyncFunctionExecutor {
         status.info('🦔', `[AsyncFunctionExecutor] Executing async function`, loggingContext)
 
         switch (request.asyncFunctionRequest.name) {
+            // TODO: Add error case here - if we don't get a valid queued message then we should log something against the function
             case 'fetch':
                 return await this.asyncFunctionFetch(request, options)
             default:
@@ -44,82 +43,79 @@ export class AsyncFunctionExecutor {
         request: HogFunctionInvocationResult,
         options?: AsyncFunctionExecutorOptions
     ): Promise<HogFunctionInvocationAsyncResponse | undefined> {
-        // TODO: validate the args
-        const args = request.asyncFunctionRequest!.args ?? []
-        const url: string = args[0]
-        const fetchOptions = args[1]
-
-        const method = fetchOptions.method || 'POST'
-        const headers = fetchOptions.headers || {
-            'Content-Type': 'application/json',
-        }
-        const body = fetchOptions.body || {}
-
-        const webhook: Webhook = {
-            url,
-            method: method,
-            headers: headers,
-            body: typeof body === 'string' ? body : JSON.stringify(body, undefined, 4),
+        if (!request.asyncFunctionRequest) {
+            return
         }
 
-        const success = false
-
-        if (!options?.sync === false) {
-            // NOTE: Purposefully disabled for now - once we have callback support we can re-enable
-            // const SPECIAL_CONFIG_ID = -3 // Hardcoded to mean Hog
-            // const success = await this.rustyHook.enqueueIfEnabledForTeam({
-            //     webhook: webhook,
-            //     teamId: hogFunction.team_id,
-            //     pluginId: SPECIAL_CONFIG_ID,
-            //     pluginConfigId: SPECIAL_CONFIG_ID,
-            // })
+        const asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse'] = {
+            timings: [],
         }
 
-        if (!success) {
+        try {
+            // Sanitize the args
+            const [url, fetchOptions] = request.asyncFunctionRequest.args as [
+                string | undefined,
+                Record<string, any> | undefined
+            ]
+
+            if (typeof url !== 'string') {
+                status.error('🦔', `[HogExecutor] Invalid URL`, { ...request, url })
+                return
+            }
+
+            const method = fetchOptions?.method || 'POST'
+            const headers = fetchOptions?.headers || {
+                'Content-Type': 'application/json',
+            }
+            let body = fetchOptions?.body
+            // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
+            body = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : body
+
+            // Finally overwrite the args with the sanitized ones
+            request.asyncFunctionRequest.args = [url, { method, headers, body }]
+
+            if (!options?.sync === false) {
+                // TODO: Add rusty hook support
+            }
+
             status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)
 
-            const asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse'] = {
-                timings: [],
-            }
+            const start = performance.now()
+            const fetchResponse = await trackedFetch(url, {
+                method,
+                body,
+                headers,
+                timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
+            })
 
+            let responseBody = await fetchResponse.text()
             try {
-                const start = performance.now()
-                const fetchResponse = await trackedFetch(url, {
-                    method: webhook.method,
-                    body: webhook.body,
-                    headers: webhook.headers,
-                    timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
-                })
-
-                let body = await fetchResponse.text()
-                try {
-                    body = JSON.parse(body)
-                } catch (err) {
-                    // Ignore
-                }
-
-                const duration = performance.now() - start
-
-                asyncFunctionResponse.timings.push({
-                    kind: 'async_function',
-                    duration_ms: duration,
-                })
-
-                asyncFunctionResponse.response = {
-                    status: fetchResponse.status,
-                    body: body,
-                }
+                responseBody = JSON.parse(responseBody)
             } catch (err) {
-                status.error('🦔', `[HogExecutor] Error during fetch`, { ...request, error: String(err) })
-                asyncFunctionResponse.error = 'Something went wrong with the fetch request.'
+                // Ignore
             }
 
-            const response: HogFunctionInvocationAsyncResponse = {
-                ...request,
-                asyncFunctionResponse,
-            }
+            const duration = performance.now() - start
 
-            return response
+            asyncFunctionResponse.timings.push({
+                kind: 'async_function',
+                duration_ms: duration,
+            })
+
+            asyncFunctionResponse.response = {
+                status: fetchResponse.status,
+                body: responseBody,
+            }
+        } catch (err) {
+            status.error('🦔', `[HogExecutor] Error during fetch`, { error: String(err) })
+            asyncFunctionResponse.error = 'Something went wrong with the fetch request.'
         }
+
+        const response: HogFunctionInvocationAsyncResponse = {
+            ...request,
+            asyncFunctionResponse,
+        }
+
+        return response
     }
 }
