@@ -28,10 +28,9 @@ BASE_APP_METRICS2_COLUMNS = """
     -- This may be ommitted if app_source is a singleton.
     -- Examples: A plugin config id, a hog application config id
     instance_id String,
+    metric_kind LowCardinality(String),
     metric_name LowCardinality(String),
-    successes SimpleAggregateFunction(sum, Int64),
-    skipped SimpleAggregateFunction(sum, Int64),
-    failures SimpleAggregateFunction(sum, Int64)
+    count SimpleAggregateFunction(sum, Int64)
 """.strip()
 
 # NOTE: We have producers that take advantage of the timestamp being truncated to the hour,
@@ -48,7 +47,7 @@ CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER '{settings.CLICKHOUSE
 )
 ENGINE = {SHARDED_APP_METRICS2_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTAMP_TRUNCATION}, metric_name)
+ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTAMP_TRUNCATION}, metric_kind, metric_name)
 {ttl_period("timestamp", APP_METRICS2_TTL_DAYS, unit="DAY")}
 """
 )
@@ -73,10 +72,9 @@ CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_C
     app_source LowCardinality(String),
     app_source_id String,
     instance_id String,
+    metric_kind String,
     metric_name String,
-    successes Int64,
-    skipped Int64,
-    failures Int64
+    count Int64
 )
 ENGINE={kafka_engine(topic=KAFKA_APP_METRICS2)}
 """
@@ -92,10 +90,9 @@ timestamp,
 app_source,
 app_source_id,
 instance_id,
+metric_kind,
 metric_name,
-successes,
-skipped,
-failures
+count
 FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics2
 """
 )
@@ -109,10 +106,9 @@ INSERT INTO sharded_app_metrics2 (
     app_source,
     app_source_id,
     instance_id,
+    metric_kind,
     metric_name,
-    successes,
-    skipped,
-    failures,
+    count,
     _timestamp,
     _offset,
     _partition
@@ -126,7 +122,9 @@ SELECT
     %(successes)s,
     %(skipped)s,
     %(failures)s,
+    %(metric_kind)s,
     %(metric_name)s,
+    %(count)s,
     now(),
     0,
     0
