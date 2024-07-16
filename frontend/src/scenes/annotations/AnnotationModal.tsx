@@ -112,7 +112,7 @@ export function AnnotationModal({
                                         // we can't let them change scope to insight as we don't know which insight to map to
                                         (existingModalAnnotation
                                             ? !existingModalAnnotation?.dashboard_item &&
-                                              "Annotation wasn't originally scoped to an insight so we can't reduce scope to insight level"
+                                              "To select this scope, open this annotation on the target insight"
                                             : undefined),
                                 },
                                 {
