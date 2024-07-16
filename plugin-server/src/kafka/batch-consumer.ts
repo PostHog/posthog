@@ -75,6 +75,7 @@ export const startBatchConsumer = async ({
     kafkaStatisticIntervalMs = 0,
     fetchMinBytes,
     maxHealthHeartbeatIntervalMs = 60_000,
+    rebalance_cb = true
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -104,6 +105,7 @@ export const startBatchConsumer = async ({
      */
     kafkaStatisticIntervalMs?: number
     maxHealthHeartbeatIntervalMs?: number
+    rebalance_cb?: true | ((...args: any[]) => void // TODO: type this properly
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -170,7 +172,7 @@ export const startBatchConsumer = async ({
         // for details on the advantages of this rebalancing strategy as well as
         // how it works.
         'partition.assignment.strategy': 'cooperative-sticky',
-        rebalance_cb: true,
+        rebalance_cb,
         offset_commit_cb: true,
     }
 
