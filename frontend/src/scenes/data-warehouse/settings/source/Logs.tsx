@@ -1,24 +1,12 @@
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonInput,
-    LemonSelect,
-    LemonSkeleton,
-    LemonTable,
-    LemonTableColumns,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 import { LogLevelDisplay } from 'scenes/pipeline/utils'
 
-import { ExternalDataSourceSchema, LogEntry } from '~/types'
+import { ExternalDataJob, LogEntry } from '~/types'
 
-import {
-    dataWarehouseSourceSettingsLogic,
-    DataWarehouseSourceSettingsLogicProps,
-} from './dataWarehouseSourceSettingsLogic'
 import { ALL_LOG_LEVELS, schemaLogLogic } from './schemaLogLogic'
 
 const columns: LemonTableColumns<LogEntry> = [
@@ -51,44 +39,17 @@ const columns: LemonTableColumns<LogEntry> = [
     },
 ]
 
-export const Logs = (): JSX.Element => {
-    const { source, sourceLoading, parentSettingsTab } = useValues(dataWarehouseSourceSettingsLogic)
-
-    if (sourceLoading && !source) {
-        return <LemonSkeleton active />
-    }
-
-    return (
-        <>
-            <LogsView
-                settingsLogicProps={{
-                    id: source!.id,
-                    parentSettingsTab,
-                }}
-            />
-        </>
-    )
-}
-
 interface LogsTableProps {
-    settingsLogicProps: DataWarehouseSourceSettingsLogicProps
+    job: ExternalDataJob
 }
 
-export const LogsView = ({ settingsLogicProps }: LogsTableProps): JSX.Element => {
-    const logic = schemaLogLogic({ settingsLogicProps })
-    const { logs, logsLoading, logsBackground, isThereMoreToLoad, levelFilters, source, selectedSchemaId } =
-        useValues(logic)
-    const { revealBackground, loadSchemaLogsMore, setLogLevelFilters, setSearchTerm, setSchema } = useActions(logic)
+export const LogsView = ({ job }: LogsTableProps): JSX.Element => {
+    const logic = schemaLogLogic({ job })
+    const { logs, logsLoading, logsBackground, isThereMoreToLoad, levelFilters } = useValues(logic)
+    const { revealBackground, loadSchemaLogsMore, setLogLevelFilters, setSearchTerm } = useActions(logic)
 
     return (
         <div className="ph-no-capture space-y-2 flex-1">
-            <h3>Schema</h3>
-            <LemonSelect
-                placeholder="Select schema"
-                value={source!.schemas.find((schema) => schema.id === selectedSchemaId)?.name}
-                options={source!.schemas.map((schema) => ({ label: schema.name, value: schema.id }))}
-                onChange={(schemaId: ExternalDataSourceSchema['id']) => setSchema(schemaId)}
-            />
             <LemonInput
                 type="search"
                 placeholder="Search for messages containing…"

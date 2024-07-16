@@ -1,29 +1,23 @@
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 
-import { ExternalDataSourceSchema, LogEntry, LogEntryLevel } from '~/types'
+import { ExternalDataJob, ExternalDataSourceSchema, LogEntry, LogEntryLevel } from '~/types'
 
-import {
-    dataWarehouseSourceSettingsLogic,
-    DataWarehouseSourceSettingsLogicProps,
-} from './dataWarehouseSourceSettingsLogic'
 import type { schemaLogLogicType } from './schemaLogLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
 
 interface SchemaLogLogicProps {
-    settingsLogicProps: DataWarehouseSourceSettingsLogicProps
+    job: ExternalDataJob
 }
 
 export const schemaLogLogic = kea<schemaLogLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'source', 'schemaLogLogic']),
     props({} as SchemaLogLogicProps),
-    connect((props: SchemaLogLogicProps) => ({
-        values: [dataWarehouseSourceSettingsLogic(props.settingsLogicProps), ['source']],
-    })),
+    key(({ job }) => job.id),
     actions({
         clearBackgroundLogs: true,
         setLogLevelFilters: (levelFilters: LogEntryLevel[]) => ({ levelFilters }),
@@ -31,16 +25,14 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
         setSchema: (schemaId: ExternalDataSourceSchema['id']) => ({ schemaId }),
         markLogsEnd: true,
     }),
-    loaders(({ values, actions, cache }) => ({
+    loaders(({ values, actions, cache, props }) => ({
         logs: {
             __default: [] as LogEntry[],
             loadSchemaLogs: async () => {
-                if (!values.selectedSchemaId) {
-                    return []
-                }
-                const response = await api.externalDataSchemas.logs(values.selectedSchemaId, {
+                const response = await api.externalDataSchemas.logs(props.job.schema.id, {
                     level: values.levelFilters.join(','),
                     search: values.searchTerm,
+                    instance_id: props.job.id,
                 })
 
                 if (!cache.pollingInterval) {
@@ -56,6 +48,7 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
                 const response = await api.externalDataSchemas.logs(values.selectedSchemaId, {
                     level: values.levelFilters.join(','),
                     search: values.searchTerm,
+                    instance_id: props.job.id,
                     before: values.leadingEntry?.timestamp,
                 })
 
@@ -74,12 +67,10 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
         logsBackground: {
             __default: [] as LogEntry[],
             loadSchemaLogsBackgroundPoll: async () => {
-                if (!values.selectedSchema) {
-                    return []
-                }
-                const response = await api.externalDataSchemas.logs(values.selectedSchema.id, {
+                const response = await api.externalDataSchemas.logs(props.job.schema.id, {
                     level: values.levelFilters.join(','),
                     search: values.searchTerm,
+                    instance_id: props.job.id,
                     after: values.leadingEntry?.timestamp,
                 })
 

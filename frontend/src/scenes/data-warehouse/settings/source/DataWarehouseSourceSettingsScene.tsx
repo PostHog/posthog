@@ -11,7 +11,6 @@ import {
     DataWarehouseSourceSettingsLogicProps,
     DataWarehouseSourceSettingsTabs,
 } from './dataWarehouseSourceSettingsLogic'
-import { Logs } from './Logs'
 import { Schemas } from './Schemas'
 import { Syncs } from './Syncs'
 
@@ -39,13 +38,11 @@ export const scene: SceneExport = {
 const TabContent: Record<DataWarehouseSourceSettingsTabs, () => JSX.Element> = {
     [DataWarehouseSourceSettingsTabs.Schemas]: Schemas,
     [DataWarehouseSourceSettingsTabs.Syncs]: Syncs,
-    [DataWarehouseSourceSettingsTabs.Logs]: Logs,
 }
 
 const FriendlyTabNames: Record<DataWarehouseSourceSettingsTabs, string> = {
     [DataWarehouseSourceSettingsTabs.Schemas]: 'Schemas',
     [DataWarehouseSourceSettingsTabs.Syncs]: 'Syncs',
-    [DataWarehouseSourceSettingsTabs.Logs]: 'Logs',
 }
 
 export function DataWarehouseSourceSettingsScene(): JSX.Element {
