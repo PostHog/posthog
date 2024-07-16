@@ -163,7 +163,7 @@ def send_fatal_plugin_error(
 async def send_batch_export_run_failure(
     batch_export_run_id: str,
 ) -> None:
-    logger = structlog.get_logger()
+    logger = structlog.get_logger("django")
 
     is_email_available_result = await sync_to_async(is_email_available)(with_absolute_urls=True)
     if not is_email_available_result:

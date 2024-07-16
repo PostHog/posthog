@@ -44,9 +44,11 @@ class BaseHogFunctionTemplateTest(BaseTest):
         # Return an object simulating the
         data = {
             "event": {
-                "id": "event-id",
+                "uuid": "event-id",
+                "name": "event-name",
                 "distinct_id": "distinct-id",
                 "properties": {"$current_url": "https://example.com"},
+                "timestamp": "2024-01-01T00:00:00Z",
             },
             "person": {"id": "person-id", "properties": {"email": "example@posthog.com"}},
             "source": {"url": "https://us.posthog.com/hog_functions/1234"},
