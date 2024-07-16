@@ -7372,6 +7372,10 @@
                         {
                             "const": "snapshot_source",
                             "type": "string"
+                        },
+                        {
+                            "const": "visited_page",
+                            "type": "string"
                         }
                     ]
                 },
