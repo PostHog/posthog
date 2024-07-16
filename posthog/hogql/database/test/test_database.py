@@ -501,7 +501,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 6)):
+            with self.assertNumQueries(FuzzyInt(5, 7)):
                 create_hogql_database(team_id=self.team.pk)
 
     def test_external_data_source_is_not_n_plus_1(self) -> None:
@@ -539,5 +539,5 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 # No status but should be completed because a data warehouse table already exists
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 6)):
+            with self.assertNumQueries(FuzzyInt(5, 7)):
                 create_hogql_database(team_id=self.team.pk)

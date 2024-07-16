@@ -10,6 +10,7 @@ import { isRunInProgress } from 'scenes/batch_exports/utils'
 
 import { BatchExportConfiguration, GroupedBatchExportRuns } from '~/types'
 
+import { BatchExportBackfill } from './BatchExportBackfill'
 import { batchExportRunsLogic, BatchExportRunsLogicProps } from './batchExportRunsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 
@@ -38,13 +39,13 @@ export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element 
         <>
             {dateSelector}
             <BatchExportRunsGrouped
+                id={id}
                 groupedRuns={groupedRuns}
                 loading={loading}
                 retryRun={retryRun}
                 hasMoreRunsToLoad={hasMoreRunsToLoad}
                 loadOlderRuns={loadOlderRuns}
                 interval={batchExportConfig.interval}
-                openBackfillModal={() => {}} // TODO
             />
         </>
     )
@@ -89,210 +90,238 @@ export function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.El
     const logic = batchExportRunsLogic({ id })
 
     const { batchExportConfig, latestRuns, loading, hasMoreRunsToLoad } = useValues(logic)
-    const { loadOlderRuns, retryRun } = useActions(logic)
+    const { openBackfillModal, loadOlderRuns, retryRun } = useActions(logic)
     const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
-
-    const openBackfillModal = (): any => {} // TODO
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
     }
 
     return (
-        <LemonTable
-            dataSource={latestRuns}
-            loading={loading}
-            loadingSkeletonRows={5}
-            footer={
-                hasMoreRunsToLoad && (
-                    <div className="flex items-center m-2">
-                        <LemonButton center fullWidth onClick={loadOlderRuns} loading={loading}>
-                            Load more rows
-                        </LemonButton>
-                    </div>
-                )
-            }
-            columns={[
-                {
-                    title: 'Status',
-                    key: 'status',
-                    width: 0,
-                    render: (_, run) => <BatchExportRunIcon runs={[run]} showLabel />,
-                },
-                {
-                    title: 'ID',
-                    key: 'runId',
-                    render: (_, run) => run.id,
-                },
-                {
-                    title: 'Data interval start',
-                    key: 'dataIntervalStart',
-                    tooltip: 'Start of the time range to export',
-                    render: (_, run) => {
-                        return (
-                            <TZLabel time={run.data_interval_start} formatDate="MMMM DD, YYYY" formatTime="HH:mm:ss" />
-                        )
+        <>
+            <LemonTable
+                dataSource={latestRuns}
+                loading={loading}
+                loadingSkeletonRows={5}
+                footer={
+                    hasMoreRunsToLoad && (
+                        <div className="flex items-center m-2">
+                            <LemonButton center fullWidth onClick={loadOlderRuns} loading={loading}>
+                                Load more rows
+                            </LemonButton>
+                        </div>
+                    )
+                }
+                columns={[
+                    {
+                        title: 'Status',
+                        key: 'status',
+                        width: 0,
+                        render: (_, run) => <BatchExportRunIcon runs={[run]} showLabel />,
                     },
-                },
-                {
-                    title: 'Data interval end',
-                    key: 'dataIntervalEnd',
-                    tooltip: 'End of the time range to export',
-                    render: (_, run) => {
-                        return <TZLabel time={run.data_interval_end} formatDate="MMMM DD, YYYY" formatTime="HH:mm:ss" />
+                    {
+                        title: 'ID',
+                        key: 'runId',
+                        render: (_, run) => run.id,
                     },
-                },
-                {
-                    title: 'Run start',
-                    key: 'runStart',
-                    tooltip: 'Date and time when this BatchExport run started',
-                    render: (_, run) => <TZLabel time={run.created_at} />,
-                },
-                {
-                    key: 'actions',
-                    width: 0,
-                    render: function RenderActions(_, run) {
-                        if (canEnableNewDestinations) {
-                            return <RunRetryModal run={run} retryRun={retryRun} />
-                        }
+                    {
+                        title: 'Data interval start',
+                        key: 'dataIntervalStart',
+                        tooltip: 'Start of the time range to export',
+                        render: (_, run) => {
+                            return (
+                                <TZLabel
+                                    time={run.data_interval_start}
+                                    formatDate="MMMM DD, YYYY"
+                                    formatTime="HH:mm:ss"
+                                />
+                            )
+                        },
                     },
-                },
-            ]}
-            emptyState={
-                <>
-                    No runs in this time range. Your exporter runs every <b>{batchExportConfig.interval}</b>.
-                    <br />
-                    {canEnableNewDestinations && (
-                        <LemonButton type="primary" onClick={openBackfillModal}>
-                            Create historic export
-                        </LemonButton>
-                    )}
-                </>
-            }
-        />
+                    {
+                        title: 'Data interval end',
+                        key: 'dataIntervalEnd',
+                        tooltip: 'End of the time range to export',
+                        render: (_, run) => {
+                            return (
+                                <TZLabel
+                                    time={run.data_interval_end}
+                                    formatDate="MMMM DD, YYYY"
+                                    formatTime="HH:mm:ss"
+                                />
+                            )
+                        },
+                    },
+                    {
+                        title: 'Run start',
+                        key: 'runStart',
+                        tooltip: 'Date and time when this BatchExport run started',
+                        render: (_, run) => <TZLabel time={run.created_at} />,
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, run) {
+                            if (canEnableNewDestinations) {
+                                return <RunRetryModal run={run} retryRun={retryRun} />
+                            }
+                        },
+                    },
+                ]}
+                emptyState={
+                    <>
+                        No runs in this time range. Your exporter runs every <b>{batchExportConfig.interval}</b>.
+                        <br />
+                        {canEnableNewDestinations && (
+                            <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                                Backfill batch export
+                            </LemonButton>
+                        )}
+                    </>
+                }
+            />
+            <BatchExportBackfill id={id} />
+        </>
     )
 }
 
 export function BatchExportRunsGrouped({
+    id,
     groupedRuns,
     loading,
     retryRun,
     hasMoreRunsToLoad,
     loadOlderRuns,
     interval,
-    openBackfillModal,
 }: {
+    id: string
     groupedRuns: GroupedBatchExportRuns[]
     loading: boolean
     retryRun: any
     hasMoreRunsToLoad: boolean
     loadOlderRuns: any
     interval: BatchExportConfiguration['interval']
-    openBackfillModal: any
 }): JSX.Element {
+    const logic = batchExportRunsLogic({ id })
+
     const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    const { openBackfillModal } = useActions(logic)
 
     return (
-        <LemonTable
-            dataSource={groupedRuns}
-            loading={loading}
-            loadingSkeletonRows={5}
-            footer={
-                hasMoreRunsToLoad && (
-                    <div className="flex items-center m-2">
-                        <LemonButton center fullWidth onClick={loadOlderRuns} loading={loading}>
-                            Load more rows
-                        </LemonButton>
-                    </div>
-                )
-            }
-            expandable={{
-                noIndent: true,
-                expandedRowRender: (groupedRuns) => {
-                    return (
-                        <LemonTable
-                            dataSource={groupedRuns.runs}
-                            embedded={true}
-                            columns={[
-                                {
-                                    title: 'Status',
-                                    key: 'status',
-                                    width: 0,
-                                    render: (_, run) => <BatchExportRunIcon runs={[run]} showLabel />,
-                                },
-                                {
-                                    title: 'ID',
-                                    key: 'runId',
-                                    render: (_, run) => run.id,
-                                },
-                                {
-                                    title: 'Run start',
-                                    key: 'runStart',
-                                    tooltip: 'Date and time when this BatchExport run started',
-                                    render: (_, run) => <TZLabel time={run.created_at} />,
-                                },
-                            ]}
-                        />
+        <>
+            <LemonTable
+                dataSource={groupedRuns}
+                loading={loading}
+                loadingSkeletonRows={5}
+                footer={
+                    hasMoreRunsToLoad && (
+                        <div className="flex items-center m-2">
+                            <LemonButton center fullWidth onClick={loadOlderRuns} loading={loading}>
+                                Load more rows
+                            </LemonButton>
+                        </div>
                     )
-                },
-            }}
-            columns={[
-                {
-                    key: 'icon',
-                    width: 0,
-                    render: (_, groupedRun) => {
-                        return <BatchExportRunIcon runs={groupedRun.runs} />
-                    },
-                },
-
-                {
-                    title: 'Data interval start',
-                    key: 'dataIntervalStart',
-                    tooltip: 'Start of the time range to export',
-                    render: (_, run) => {
+                }
+                expandable={{
+                    noIndent: true,
+                    expandedRowRender: (groupedRuns) => {
                         return (
-                            <TZLabel time={run.data_interval_start} formatDate="MMMM DD, YYYY" formatTime="HH:mm:ss" />
+                            <LemonTable
+                                dataSource={groupedRuns.runs}
+                                embedded={true}
+                                columns={[
+                                    {
+                                        title: 'Status',
+                                        key: 'status',
+                                        width: 0,
+                                        render: (_, run) => <BatchExportRunIcon runs={[run]} showLabel />,
+                                    },
+                                    {
+                                        title: 'ID',
+                                        key: 'runId',
+                                        render: (_, run) => run.id,
+                                    },
+                                    {
+                                        title: 'Run start',
+                                        key: 'runStart',
+                                        tooltip: 'Date and time when this BatchExport run started',
+                                        render: (_, run) => <TZLabel time={run.created_at} />,
+                                    },
+                                ]}
+                            />
                         )
                     },
-                },
-                {
-                    title: 'Data interval end',
-                    key: 'dataIntervalEnd',
-                    tooltip: 'End of the time range to export',
-                    render: (_, run) => {
-                        return <TZLabel time={run.data_interval_end} formatDate="MMMM DD, YYYY" formatTime="HH:mm:ss" />
+                }}
+                columns={[
+                    {
+                        key: 'icon',
+                        width: 0,
+                        render: (_, groupedRun) => {
+                            return <BatchExportRunIcon runs={groupedRun.runs} />
+                        },
                     },
-                },
-                {
-                    title: 'Latest run start',
-                    key: 'runStart',
-                    tooltip: 'Date and time when this BatchExport run started',
-                    render: (_, groupedRun) => {
-                        return <TZLabel time={groupedRun.last_run_at} />
+
+                    {
+                        title: 'Data interval start',
+                        key: 'dataIntervalStart',
+                        tooltip: 'Start of the time range to export',
+                        render: (_, run) => {
+                            return (
+                                <TZLabel
+                                    time={run.data_interval_start}
+                                    formatDate="MMMM DD, YYYY"
+                                    formatTime="HH:mm:ss"
+                                />
+                            )
+                        },
                     },
-                },
-                {
-                    key: 'actions',
-                    width: 0,
-                    render: function RenderActions(_, groupedRun) {
-                        if (!isRunInProgress(groupedRun.runs[0]) && canEnableNewDestinations) {
-                            return <RunRetryModal run={groupedRun.runs[0]} retryRun={retryRun} />
-                        }
+                    {
+                        title: 'Data interval end',
+                        key: 'dataIntervalEnd',
+                        tooltip: 'End of the time range to export',
+                        render: (_, run) => {
+                            return (
+                                <TZLabel
+                                    time={run.data_interval_end}
+                                    formatDate="MMMM DD, YYYY"
+                                    formatTime="HH:mm:ss"
+                                />
+                            )
+                        },
                     },
-                },
-            ]}
-            emptyState={
-                <>
-                    No runs in this time range. Your exporter runs every <b>{interval}</b>.
-                    <br />
-                    {canEnableNewDestinations && (
-                        <LemonButton type="primary" onClick={openBackfillModal}>
-                            Create historic export
-                        </LemonButton>
-                    )}
-                </>
-            }
-        />
+                    {
+                        title: 'Latest run start',
+                        key: 'runStart',
+                        tooltip: 'Date and time when this BatchExport run started',
+                        render: (_, groupedRun) => {
+                            return <TZLabel time={groupedRun.last_run_at} />
+                        },
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, groupedRun) {
+                            if (!isRunInProgress(groupedRun.runs[0]) && canEnableNewDestinations) {
+                                return <RunRetryModal run={groupedRun.runs[0]} retryRun={retryRun} />
+                            }
+                        },
+                    },
+                ]}
+                emptyState={
+                    <>
+                        No runs in this time range. Your exporter runs every <b>{interval}</b>.
+                        <br />
+                        {canEnableNewDestinations && (
+                            <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                                Backfill batch export
+                            </LemonButton>
+                        )}
+                    </>
+                }
+            />
+
+            <BatchExportBackfill id={id} />
+        </>
     )
 }
 

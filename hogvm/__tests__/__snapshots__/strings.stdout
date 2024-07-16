@@ -1,0 +1,10 @@
+hello  world
+hello world  
+  hello world
+  hello  world  
+  hello  world  xx
+xxxx  hello  world  
+['hello', 'world', 'and', 'more']
+['hello']
+['hello', 'world']
+['hello', 'world', 'and', 'more']

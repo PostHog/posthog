@@ -802,15 +802,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
         object: ast.Expr = self.visit(ctx.columnExpr(0))
         property: ast.Expr = self.visit(ctx.columnExpr(1))
-        if isinstance(property, ast.Constant) and property.value == 0:
-            raise SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.ArrayAccess(array=object, property=property)
 
     def visitColumnExprNullArrayAccess(self, ctx: HogQLParser.ColumnExprNullArrayAccessContext):
         object: ast.Expr = self.visit(ctx.columnExpr(0))
         property: ast.Expr = self.visit(ctx.columnExpr(1))
-        if isinstance(property, ast.Constant) and property.value == 0:
-            raise SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprPropertyAccess(self, ctx: HogQLParser.ColumnExprPropertyAccessContext):
@@ -865,15 +861,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):
         tuple = self.visit(ctx.columnExpr())
         index = int(ctx.DECIMAL_LITERAL().getText())
-        if index == 0:
-            raise SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.TupleAccess(tuple=tuple, index=index)
 
     def visitColumnExprNullTupleAccess(self, ctx: HogQLParser.ColumnExprNullTupleAccessContext):
         tuple = self.visit(ctx.columnExpr())
         index = int(ctx.DECIMAL_LITERAL().getText())
-        if index == 0:
-            raise SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.TupleAccess(tuple=tuple, index=index, nullish=True)
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):

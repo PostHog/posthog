@@ -328,7 +328,7 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                 />
                 <div className="flex-1" />
                 <LemonButton status="danger" icon={<IconTrash />} size="small" onClick={() => onChange(null)} />
-                <LemonButton size="small" onClick={() => onDone()}>
+                <LemonButton type="secondary" size="small" onClick={() => onDone()}>
                     Done
                 </LemonButton>
             </div>
