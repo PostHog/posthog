@@ -64,7 +64,7 @@ export function Annotations(): JSX.Element {
                     annotation.scope === AnnotationScope.Insight
                         ? `This annotation only applies to the "${annotation.insight_name}" insight`
                         : annotation.scope === AnnotationScope.Dashboard
-                        ? `This annotation applies to all insights in the ${annotation.dashboard_name} dashboard`
+                        ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
                         : annotation.scope === AnnotationScope.Project
                         ? `This annotation applies to all insights in the ${currentTeam?.name} project`
                         : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
