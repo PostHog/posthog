@@ -113,25 +113,32 @@ class Survey(UUIDModel):
         {
             "type": "next_question"
         }
+        ```
 
         End: Ends the survey with a confirmation message.
+        ```json
         {
             "type": "end"
         }
+        ```
 
         Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+        ```json
         {
             "type": "response_based",
             "responseValues": {
                 "responseKey": "value"
             }
         }
+        ```
 
         Specific question: Proceeds to a specific question by index.
+        ```json
         {
             "type": "specific_question",
             "index": 2
         }
+        ```
         """,
     )
     appearance: models.JSONField = models.JSONField(blank=True, null=True)
