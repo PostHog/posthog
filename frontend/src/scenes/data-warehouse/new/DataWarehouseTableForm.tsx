@@ -35,6 +35,13 @@ const ProviderMappings: Record<
         accessKeyLabel: 'Access key',
         accessSecretLabel: 'Access secret',
     },
+    azure: {
+        fileUrlPatternPlaceholder:
+            'https://your-storage-container.blob.core.windows.net/airbyte/stripe/invoices/*.parquet',
+        accessKeyPlaceholder: 'your-storage-container',
+        accessKeyLabel: 'Storage account name',
+        accessSecretLabel: 'Account key',
+    },
 }
 
 export function DatawarehouseTableForm(): JSX.Element {
