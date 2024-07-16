@@ -106,7 +106,8 @@
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
                 "OBJECT_STORAGE_ENABLED": "True",
-                "HOG_HOOK_URL": "http://localhost:3300/hoghook"
+                "HOG_HOOK_URL": "http://localhost:3300/hoghook",
+                "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": "*"
             },
             "presentation": {
                 "group": "main"
