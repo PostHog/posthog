@@ -3,7 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, range } from 'lib/utils'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -121,7 +121,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             },
         ],
         affectedUsers: [
-            { 0: -1 },
+            { 0: undefined } as Record<number, number | undefined>,
             {
                 setAffectedUsers: (state, { index, count }) => ({
                     ...state,
@@ -163,6 +163,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
         addConditionSet: () => {
             actions.setAffectedUsers(values.filters.groups.length - 1, -1)
+        },
+        removeConditionSet: ({ index }) => {
+            const previousLength = Object.keys(values.affectedUsers).length
+            range(index, previousLength).map((idx) => {
+                const count = previousLength - 1 === idx ? undefined : values.affectedUsers[idx + 1]
+                actions.setAffectedUsers(idx, count)
+            })
         },
         setAggregationGroupTypeIndex: () => {
             actions.calculateBlastRadius()
@@ -289,7 +296,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     effectiveTotalUsers = 1
                 }
 
-                return effectiveRolloutPercentage * (affectedUsers[index] / effectiveTotalUsers)
+                return effectiveRolloutPercentage * ((affectedUsers[index] ?? 0) / effectiveTotalUsers)
             },
         ],
     }),
