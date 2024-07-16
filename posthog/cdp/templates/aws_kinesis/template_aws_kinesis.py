@@ -30,10 +30,10 @@ fn uploadToKinesis(data) {
 
   let canonicalHeaderParts := []
   for (let key, value in requestHeaders) {
-    let val := replaceAll(trim(value), '\\s+', ' ')
+    let val := replaceAll(trim(value), '\\\\s+', ' ')
     canonicalHeaderParts := arrayPushBack(canonicalHeaderParts, f'{lower(key)}:{val}')
   }
-  let canonicalHeaders := arrayStringConcat(arraySort(canonicalHeaderParts), '\n') || '\n'
+  let canonicalHeaders := arrayStringConcat(arraySort(canonicalHeaderParts), '\\n') || '\\n'
 
   let signedHeaderParts := []
   for (let key, value in requestHeaders) {
@@ -48,7 +48,7 @@ fn uploadToKinesis(data) {
     canonicalHeaders,
     signedHeaders,
     sha256Hex(payload),
-  ], '\n')
+  ], '\\n')
 
   let credentialScope := f'{date}/{region}/{service}/aws4_request'
   let stringToSign := arrayStringConcat([
@@ -56,7 +56,7 @@ fn uploadToKinesis(data) {
     amzDate,
     credentialScope,
     sha256Hex(canonicalRequest),
-  ], '\n')
+  ], '\\n')
 
   let signature := sha256HmacChainHex([
     f'AWS4{inputs.aws_secret_access_key}', date, region, service, 'aws4_request', stringToSign
