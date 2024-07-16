@@ -9,6 +9,7 @@ const eventProperties = JSON.stringify({
     distinct_id: 'person_id',
     $exception_message: "Cannot read properties of undefined (reading 'onLCP')",
     $exception_type: 'TypeError',
+    $exception_fingerprint: 'TypeError',
     $exception_personURL: 'https://us.posthog.com/project/:id/person/:person_id',
     $exception_level: 'error',
     $sentry_event_id: '790b4d4b9ec6430fb88f18ba2dc7e7c4',
@@ -87,7 +88,7 @@ const eventProperties = JSON.stringify({
 const errorTrackingQueryResponse = {
     columns: [
         'context.columns.error',
-        'properties.$exception_type',
+        'properties.$exception_fingerprint',
         'context.columns.volume',
         'occurrences',
         'sessions',

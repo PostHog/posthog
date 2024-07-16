@@ -316,11 +316,19 @@ export function FeatureFlagReleaseConditions({
                                 ) : (
                                     <Spinner className="mr-1" />
                                 )}{' '}
-                                {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
-                                    ? `(${humanFriendlyNumber(
-                                          Math.floor((affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100)
-                                      )} / ${humanFriendlyNumber(totalUsers)})`
-                                    : ''}{' '}
+                                {(() => {
+                                    const affectedUserCount = affectedUsers[index]
+                                    if (
+                                        affectedUserCount !== undefined &&
+                                        affectedUserCount >= 0 &&
+                                        totalUsers !== null
+                                    ) {
+                                        return `(${humanFriendlyNumber(
+                                            Math.floor((affectedUserCount * (group.rollout_percentage ?? 100)) / 100)
+                                        )} / ${humanFriendlyNumber(totalUsers)})`
+                                    }
+                                    return ''
+                                })()}{' '}
                                 of total {aggregationTargetName}.
                             </div>
                         </div>
