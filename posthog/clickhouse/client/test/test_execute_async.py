@@ -10,6 +10,7 @@ from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -167,9 +168,11 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
 
-        with patch("posthog.api.services.query.process_query_dict", side_effect=TimeoutError):
+        with patch(
+            "posthog.api.services.query.process_query_dict", side_effect=CHQueryErrorTooManySimultaneousQueries("bla")
+        ):
             self.assertRaises(
-                TimeoutError,
+                CHQueryErrorTooManySimultaneousQueries,
                 client.enqueue_process_query_task,
                 **{"team": self.team, "user_id": self.user.id, "query_json": query, "_test_only_bypass_celery": True},
             )
