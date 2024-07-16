@@ -275,13 +275,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if properties:
             raise ValidationError("Experiments do not support global filter properties")
 
-        if instance.is_draft and has_start_date:
-            feature_flag.active = True
-            feature_flag.save()
-            return super().update(instance, validated_data)
-        else:
+        if instance.is_draft:
             # if feature flag variants have changed, update the feature flag.
-            if validated_data["parameters"]:
+            if validated_data.get("parameters"):
                 variants = validated_data["parameters"].get("feature_flag_variants", [])
                 aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
 
@@ -312,6 +308,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
 
+        if instance.is_draft and has_start_date:
+            feature_flag.active = True
+            feature_flag.save()
+            return super().update(instance, validated_data)
+        else:
             # Not a draft, doesn't have start date
             # Or draft without start date
             return super().update(instance, validated_data)
