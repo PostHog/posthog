@@ -208,18 +208,24 @@ def execute_bytecode(
                     push_stack({})
             case Operation.ARRAY:
                 count = next_token()
-                elems = stack[-count:]
-                stack = stack[:-count]
-                mem_used -= sum(mem_stack[-count:])
-                mem_stack = mem_stack[:-count]
-                push_stack(elems)
+                if count > 0:
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    mem_used -= sum(mem_stack[-count:])
+                    mem_stack = mem_stack[:-count]
+                    push_stack(elems)
+                else:
+                    push_stack([])
             case Operation.TUPLE:
                 count = next_token()
-                elems = stack[-count:]
-                stack = stack[:-count]
-                mem_used -= sum(mem_stack[-count:])
-                mem_stack = mem_stack[:-count]
-                push_stack(tuple(elems))
+                if count > 0:
+                    elems = stack[-count:]
+                    stack = stack[:-count]
+                    mem_used -= sum(mem_stack[-count:])
+                    mem_stack = mem_stack[:-count]
+                    push_stack(tuple(elems))
+                else:
+                    push_stack(())
             case Operation.JUMP:
                 count = next_token()
                 ip += count
