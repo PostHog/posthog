@@ -27,7 +27,7 @@ for (let key, value in properties) {
     }
 }
 
-fetch('https://api.sendgrid.com/v3/marketing/contacts', {
+let res := fetch('https://api.sendgrid.com/v3/marketing/contacts', {
     'method': 'PUT',
     'headers': {
         'Authorization': f'Bearer {inputs.api_key}',
@@ -37,6 +37,10 @@ fetch('https://api.sendgrid.com/v3/marketing/contacts', {
       'contacts': [contact]
     }
 })
+
+if (res.status > 300) {
+    print('Error updating contact:', res.status, res.body)
+}
 """.strip(),
     inputs_schema=[
         {

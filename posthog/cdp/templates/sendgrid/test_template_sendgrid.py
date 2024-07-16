@@ -31,7 +31,7 @@ class TestTemplateSendgrid(BaseHogFunctionTemplateTest):
             )
         )
 
-    def test_function_doesn_include_empty_properties(self):
+    def test_function_doesnt_include_empty_properties(self):
         res = self.run_function(
             inputs=self._inputs(
                 properties={
