@@ -8,16 +8,32 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update contacts in Zendesk",
     icon_url="/api/projects/@current/hog_functions/icon/?id=zendesk.com",
     hog="""
+if (empty(inputs.email)) {
+    print('`email` input is empty. Not creating a contact.')
+    return
+}
+
 
 let headers := {
     'Authorization': f'Basic {base64Encode(f'{inputs.email}/token:{inputs.token}')}',
     'Content-Type': 'application/json'
 }
 
-fetch(inputs.url, {
-  'headers': inputs.headers,
-  'body': inputs.body,
-  'method': inputs.method
+let body := {
+    'user': {
+        'user_fields': {
+            event.name: event.created_at
+        }
+    }
+}
+
+// TODO: Get the userID somehow
+let userId := ''
+
+fetch(f'https://{inputs.subdomain}.zendesk.com/api/v2/users/{userId}', {
+  'headers': headers,
+  'body': body,
+  'method': 'PUT'
 });
 """.strip(),
     inputs_schema=[
