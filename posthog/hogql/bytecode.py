@@ -346,27 +346,31 @@ class BytecodeBuilder(Visitor):
 
         # set up a bunch of temporary variables
         expr_local = self._declare_local("__H_expr_H__")  # the obj/array itself
-        expr_keys_local = self._declare_local("__H_keys_H__")  # keys
-        expr_values_local = self._declare_local("__H_values_H__")  # values
-        loop_index_local = self._declare_local("__H_index_H__")  # 0
-        loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
-        key_var_local = self._declare_local(key_var) if key_var is not None else -1  # loop key
-        value_var_local = self._declare_local(value_var)  # loop value
-        response.extend([Operation.NULL] * (7 if key_var is not None else 6))
-        response.extend([*self.visit(node.expr), Operation.SET_LOCAL, expr_local])
+        response.extend(self.visit(node.expr))
 
-        # populate keys, value, loop index and max loop index
         if key_var is not None:
-            response.extend(
-                [Operation.GET_LOCAL, expr_local, Operation.CALL, "keys", 1, Operation.SET_LOCAL, expr_keys_local]
-            )
-        response.extend(
-            [Operation.GET_LOCAL, expr_local, Operation.CALL, "values", 1, Operation.SET_LOCAL, expr_values_local]
-        )
-        response.extend([Operation.INTEGER, 0, Operation.SET_LOCAL, loop_index_local])
-        response.extend(
-            [Operation.GET_LOCAL, expr_values_local, Operation.CALL, "length", 1, Operation.SET_LOCAL, loop_limit_local]
-        )
+            expr_keys_local = self._declare_local("__H_keys_H__")  # keys
+            response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL, "keys", 1])
+        else:
+            expr_keys_local = None
+
+        expr_values_local = self._declare_local("__H_values_H__")  # values
+        response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL, "values", 1])
+
+        loop_index_local = self._declare_local("__H_index_H__")  # 0
+        response.extend([Operation.INTEGER, 0])
+
+        loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
+        response.extend([Operation.GET_LOCAL, expr_values_local, Operation.CALL, "length", 1])
+
+        if key_var is not None:
+            key_var_local = self._declare_local(key_var)  # loop key
+            response.extend([Operation.NULL])
+        else:
+            key_var_local = None
+
+        value_var_local = self._declare_local(value_var)  # loop value
+        response.extend([Operation.NULL])
 
         # check if loop_index < loop_limit
         condition = [Operation.GET_LOCAL, loop_limit_local, Operation.GET_LOCAL, loop_index_local, Operation.LT]
