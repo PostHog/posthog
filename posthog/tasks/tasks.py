@@ -35,7 +35,7 @@ def redis_heartbeat() -> None:
 
 
 @shared_task(
-    ignore_result=False,
+    ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
     acks_late=True,
     autoretry_for=(
