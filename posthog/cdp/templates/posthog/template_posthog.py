@@ -21,6 +21,8 @@ for (let key, value in propertyOverrides) {
 let payload := {
     'token': token,
     'event': event.name,
+    'timestamp': event.timestamp,
+    'distinct_id': event.distinct_id,
     'properties': properties
 }
 
@@ -31,7 +33,6 @@ fetch(f'{host}/e', {
     },
     'body': payload
 })
-
 """.strip(),
     inputs_schema=[
         {

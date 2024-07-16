@@ -7,7 +7,7 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
     template = template_posthog
 
     def test_function_works(self):
-        res = self.run_function(
+        self.run_function(
             inputs={
                 "host": "https://us.i.posthog.com",
                 "token": "TOKEN",
@@ -15,8 +15,6 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
                 "properties": {"additional": "value"},
             }
         )
-
-        assert res.result is None
 
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
@@ -27,8 +25,22 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
                     "body": {
                         "token": "TOKEN",
                         "event": "event-name",
+                        "timestamp": "2024-01-01T00:00:00Z",
+                        "distinct_id": "distinct-id",
                         "properties": {"$current_url": "https://example.com", "additional": "value"},
                     },
                 },
             )
         )
+
+    def test_function_doesnt_include_all_properties(self):
+        self.run_function(
+            inputs={
+                "host": "https://us.i.posthog.com",
+                "token": "TOKEN",
+                "include_all_properties": False,
+                "properties": {"additional": "value"},
+            }
+        )
+
+        assert self.get_mock_fetch_calls()[0][1]["body"]["properties"] == snapshot({"additional": "value"})
