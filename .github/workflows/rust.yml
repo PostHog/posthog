@@ -174,8 +174,10 @@ jobs:
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
-              # select package feature-flags if matrix.package is feature-flags
-              run: cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
+              run: |
+                  echo "Starting cargo test"
+                  cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
+                  echo "Cargo test completed"
 
     linting:
         name: Lint rust services
