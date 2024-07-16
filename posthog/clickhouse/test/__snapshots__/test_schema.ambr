@@ -45,10 +45,9 @@
       app_source LowCardinality(String),
       app_source_id String,
       instance_id String,
+      metric_kind String,
       metric_name String,
-      successes Int64,
-      skipped Int64,
-      failures Int64
+      count Int64
   )
   ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
   
@@ -453,10 +452,9 @@
       -- This may be ommitted if app_source is a singleton.
       -- Examples: A plugin config id, a hog application config id
       instance_id String,
+      metric_kind LowCardinality(String),
       metric_name LowCardinality(String),
-      successes SimpleAggregateFunction(sum, Int64),
-      skipped SimpleAggregateFunction(sum, Int64),
-      failures SimpleAggregateFunction(sum, Int64)
+      count SimpleAggregateFunction(sum, Int64)
       
   , _timestamp DateTime
   , _offset UInt64
@@ -478,10 +476,9 @@
   app_source,
   app_source_id,
   instance_id,
+  metric_kind,
   metric_name,
-  successes,
-  skipped,
-  failures
+  count
   FROM posthog_test.kafka_app_metrics2
   
   '''
@@ -847,10 +844,9 @@
       app_source LowCardinality(String),
       app_source_id String,
       instance_id String,
+      metric_kind String,
       metric_name String,
-      successes Int64,
-      skipped Int64,
-      failures Int64
+      count Int64
   )
   ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
   
@@ -2098,10 +2094,9 @@
       -- This may be ommitted if app_source is a singleton.
       -- Examples: A plugin config id, a hog application config id
       instance_id String,
+      metric_kind LowCardinality(String),
       metric_name LowCardinality(String),
-      successes SimpleAggregateFunction(sum, Int64),
-      skipped SimpleAggregateFunction(sum, Int64),
-      failures SimpleAggregateFunction(sum, Int64)
+      count SimpleAggregateFunction(sum, Int64)
       
   , _timestamp DateTime
   , _offset UInt64
@@ -2110,7 +2105,7 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics2', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_name)
+  ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)
   
   
   '''
@@ -3193,10 +3188,9 @@
       -- This may be ommitted if app_source is a singleton.
       -- Examples: A plugin config id, a hog application config id
       instance_id String,
+      metric_kind LowCardinality(String),
       metric_name LowCardinality(String),
-      successes SimpleAggregateFunction(sum, Int64),
-      skipped SimpleAggregateFunction(sum, Int64),
-      failures SimpleAggregateFunction(sum, Int64)
+      count SimpleAggregateFunction(sum, Int64)
       
   , _timestamp DateTime
   , _offset UInt64
@@ -3205,7 +3199,7 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics2', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_name)
+  ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)
   
   
   '''
