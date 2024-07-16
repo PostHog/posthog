@@ -124,6 +124,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
     }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
+    connect({
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+    }),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),

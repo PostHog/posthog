@@ -23,7 +23,7 @@ const simulateMockFetchAsyncResponse = (result: HogFunctionInvocationResult): Ho
                     duration_ms: 100,
                 },
             ],
-            vmResponse: {
+            response: {
                 status: 200,
                 body: 'success',
             },
@@ -312,6 +312,51 @@ describe('Hog Executor', () => {
                     'Error executing function: Error: Execution timed out after 0.1 seconds. Performed'
                 ),
             ])
+        })
+    })
+
+    describe('posthogCaptue', () => {
+        it('captures events', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.posthog_capture,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const globals = createHogExecutionGlobals()
+            const result = executor.executeFunction(globals, fn)
+            expect(result?.capturedPostHogEvents).toEqual([
+                {
+                    distinct_id: 'distinct_id',
+                    event: 'test (copy)',
+                    properties: {
+                        $hog_function_execution_count: 1,
+                    },
+                    team_id: 1,
+                    timestamp: '2024-06-07T12:00:00.000Z',
+                },
+            ])
+        })
+
+        it('ignores events that have already used their posthogCapture', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.posthog_capture,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const globals = createHogExecutionGlobals({
+                event: {
+                    properties: {
+                        $hog_function_execution_count: 1,
+                    },
+                },
+            } as any)
+            const result = executor.executeFunction(globals, fn)
+            expect(result?.capturedPostHogEvents).toEqual([])
+            expect(result?.logs[1].message).toMatchInlineSnapshot(
+                `"postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured."`
+            )
         })
     })
 })

@@ -15,6 +15,7 @@ from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
+
 logger = structlog.get_logger(__name__)
 
 ActivityScope = Literal[
@@ -205,6 +206,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "property_type_format",
     ],
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
+    # TODO: Don't try and track changes to survey targeting, we will support
+    # this with https://github.com/PostHog/posthog/issues/23725
+    "Survey": ["targeting_flag", "linked_flag", "internal_targeting_flag"],
 }
 
 

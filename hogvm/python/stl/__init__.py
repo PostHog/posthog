@@ -21,6 +21,7 @@ from .date import (
     is_hog_datetime,
     is_hog_date,
 )
+from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -210,10 +211,51 @@ def replaceAll(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
     return args[0].replace(args[1], args[2])
 
 
+def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    if len(args) > 1 and len(args[1]) > 1:
+        return ""
+    return args[0].strip(args[1] if len(args) > 1 else None)
+
+
+def trimLeft(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    if len(args) > 1 and len(args[1]) > 1:
+        return ""
+    return args[0].lstrip(args[1] if len(args) > 1 else None)
+
+
+def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    if len(args) > 1 and len(args[1]) > 1:
+        return ""
+    return args[0].rstrip(args[1] if len(args) > 1 else None)
+
+
+def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    separator = args[0]
+    string = args[1]
+    if len(args) > 2:
+        parts = string.split(separator, args[2])
+        if len(parts) > args[2]:
+            return parts[: args[2]]
+        return parts
+    return string.split(separator)
+
+
 def generateUUIDv4(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
     import uuid
 
     return str(uuid.uuid4())
+
+
+def _sha256Hex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    return sha256Hex(args[0])
+
+
+def _md5Hex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    return md5Hex(args[0])
+
+
+def _sha256HmacChainHex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    return sha256HmacChainHex(args[0])
 
 
 def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
@@ -232,6 +274,65 @@ def values(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
     if isinstance(obj, list) or isinstance(obj, tuple):
         return list(obj)
     return []
+
+
+def arrayPushBack(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    arr = args[0]
+    item = args[1]
+    if not isinstance(arr, list):
+        return [item]
+    return [*arr, item]
+
+
+def arrayPushFront(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    arr = args[0]
+    item = args[1]
+    if not isinstance(arr, list):
+        return [item]
+    return [item, *arr]
+
+
+def arrayPopBack(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    arr = args[0]
+    if not isinstance(arr, list):
+        return []
+    return arr[:-1]
+
+
+def arrayPopFront(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    arr = args[0]
+    if not isinstance(arr, list):
+        return []
+    return arr[1:]
+
+
+def arraySort(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    arr = args[0]
+    if not isinstance(arr, list):
+        return []
+    return sorted(arr)
+
+
+def arrayReverse(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    arr = args[0]
+    if not isinstance(arr, list):
+        return []
+    return arr[::-1]
+
+
+def arrayReverseSort(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> list:
+    arr = args[0]
+    if not isinstance(arr, list):
+        return []
+    return sorted(arr, reverse=True)
+
+
+def arrayStringConcat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> str:
+    arr = args[0]
+    sep = args[1] if len(args) > 1 else ""
+    if not isinstance(arr, list):
+        return ""
+    return sep.join([str(s) for s in arr])
 
 
 def _now(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: int) -> Any:
@@ -298,9 +399,24 @@ STL: dict[str, Callable[[list[Any], Optional["Team"], list[str] | None, int], An
     "decodeURLComponent": decodeURLComponent,
     "replaceOne": replaceOne,
     "replaceAll": replaceAll,
+    "trim": trim,
+    "trimLeft": trimLeft,
+    "trimRight": trimRight,
+    "splitByString": splitByString,
     "generateUUIDv4": generateUUIDv4,
+    "sha256Hex": _sha256Hex,
+    "md5Hex": _md5Hex,
+    "sha256HmacChainHex": _sha256HmacChainHex,
     "keys": keys,
     "values": values,
+    "arrayPushBack": arrayPushBack,
+    "arrayPushFront": arrayPushFront,
+    "arrayPopBack": arrayPopBack,
+    "arrayPopFront": arrayPopFront,
+    "arraySort": arraySort,
+    "arrayReverse": arrayReverse,
+    "arrayReverseSort": arrayReverseSort,
+    "arrayStringConcat": arrayStringConcat,
     "now": _now,
     "toUnixTimestamp": _toUnixTimestamp,
     "fromUnixTimestamp": _fromUnixTimestamp,

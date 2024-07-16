@@ -120,7 +120,10 @@ class DataImportPipeline:
                         if e.exception.args[0] != "Generic error: No data source supplied to write command.":
                             raise
 
-                row_counts = pipeline.last_trace.last_normalize_info.row_counts
+                if pipeline.last_trace.last_normalize_info is not None:
+                    row_counts = pipeline.last_trace.last_normalize_info.row_counts
+                else:
+                    row_counts = {}
                 # Remove any DLT tables from the counts
                 filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
                 counts = Counter(filtered_rows)
@@ -148,7 +151,12 @@ class DataImportPipeline:
                 if isinstance(e.exception, DeltaError):
                     if e.exception.args[0] != "Generic error: No data source supplied to write command.":
                         raise
-            row_counts = pipeline.last_trace.last_normalize_info.row_counts
+
+            if pipeline.last_trace.last_normalize_info is not None:
+                row_counts = pipeline.last_trace.last_normalize_info.row_counts
+            else:
+                row_counts = {}
+
             filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
             counts = Counter(filtered_rows)
             total_counts = total_counts + counts

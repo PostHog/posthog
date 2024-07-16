@@ -34,7 +34,7 @@ def get_hogql_metadata(
     try:
         if query.language == HogLanguage.HOG:
             program = parse_program(query.query)
-            create_bytecode(program, supported_functions={"fetch"}, args=[])
+            create_bytecode(program, supported_functions={"fetch", "posthogCapture"}, args=[])
         else:
             if query.language == HogLanguage.HOG_QL_EXPR or query.language == HogLanguage.HOG_TEMPLATE:
                 context = HogQLContext(

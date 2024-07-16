@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.hogql.database.database import create_hogql_database
+from posthog.api.log_entries import LogEntryMixin
 
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
@@ -166,13 +167,14 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "should_sync", "last_synced_at"]
 
 
-class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+    log_source = "external_data_jobs"
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

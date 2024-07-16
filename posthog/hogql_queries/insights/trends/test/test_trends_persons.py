@@ -884,3 +884,81 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=['["str",10]'])
             result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[10,false]"])
             result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[{},{}]"])
+
+    def test_trends_breakdown_by_boolean(self):
+        PropertyDefinition.objects.create(team=self.team, name="bool", property_type=PropertyType.Boolean)
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+        )
+
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2023-04-29 16:00",
+            properties={"bool": True},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person2",
+            timestamp="2023-04-29 17:00",
+            properties={"bool": False},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person3",
+            timestamp="2023-04-29 17:00",
+            properties={},
+            team=self.team,
+        )
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        value="bool",
+                    )
+                ],
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["true"])
+        self.assertEqual(len(result), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["false"])
+        self.assertEqual(len(result), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=[BREAKDOWN_NULL_STRING_LABEL])
+        self.assertEqual(len(result), 1)
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdown="bool",
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="true")
+        self.assertEqual(len(result), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="false")
+        self.assertEqual(len(result), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=BREAKDOWN_NULL_STRING_LABEL)
+        self.assertEqual(len(result), 1)
