@@ -54,7 +54,7 @@ def build_function_call(
         return return_expr(expr)
 
     # Azure
-    if ".blob.core.windows.net/" in url:
+    if re.match(r"^https:\/\/.+\.blob\.core\.windows\.net\/", url):
         regex_result = re.search(r"(https:\/\/.+\.blob\.core\.windows\.net)\/(.+?)\/(.*)", url)
         if regex_result is None:
             raise ExposedHogQLError("Can't parse Azure blob storage URL")
