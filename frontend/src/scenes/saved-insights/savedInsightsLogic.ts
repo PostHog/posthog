@@ -20,7 +20,7 @@ import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } f
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
-export const INSIGHTS_PER_PAGE = 30
+export const INSIGHTS_PER_PAGE = 3
 
 export interface InsightsResult {
     results: InsightModel[]
@@ -321,10 +321,20 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                   }
               ]
             | void => {
-            const nextValues = cleanFilters(values.filters)
-            const urlValues = cleanFilters(router.values.searchParams)
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.savedInsights(), objectDiffShallow(cleanFilters({}), nextValues), {}, { replace: false }]
+            if (
+                typeof values.currentTeamId === 'number' &&
+                router.values.location.pathname === urls.project(values.currentTeamId, urls.savedInsights())
+            ) {
+                const nextValues = cleanFilters(values.filters)
+                const urlValues = cleanFilters(router.values.searchParams)
+                if (!objectsEqual(nextValues, urlValues)) {
+                    return [
+                        urls.savedInsights(),
+                        objectDiffShallow(cleanFilters({}), nextValues),
+                        {},
+                        { replace: false },
+                    ]
+                }
             }
         }
         return {
