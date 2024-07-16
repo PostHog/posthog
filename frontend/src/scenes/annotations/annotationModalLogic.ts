@@ -34,7 +34,7 @@ export interface AnnotationModalForm {
     scope: AnnotationType['scope']
     content: AnnotationType['content']
     dashboardItemId: AnnotationType['dashboard_item'] | null
-    dashboardId: AnnotationType['dashboard'] | null
+    dashboardId: AnnotationType['dashboard_id'] | null
 }
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
@@ -117,7 +117,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 actions.setAnnotationModalValue('dashboardItemId', insightId)
             }
             if (dashboardId) {
-                actions.setAnnotationModalValue('dashboard', dashboardId)
+                actions.setAnnotationModalValue('dashboardId', dashboardId)
             }
         },
         openModalToCreateAnnotation: ({ initialDate, insightId, dashboardId }) => {
@@ -175,7 +175,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         // update to new insight we're saving from
                         dashboard_item: dashboardItemId,
                         // preserve existing dashboard id
-                        dashboard: values.existingModalAnnotation.dashboard,
+                        dashboard_id: values.existingModalAnnotation.dashboard_id,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
                 } else {
@@ -185,7 +185,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         content,
                         scope,
                         dashboard_item: dashboardItemId,
-                        dashboard: dashboardId,
+                        dashboard_id: dashboardId,
                     })
                     actions.appendAnnotations([createdAnnotation])
                 }

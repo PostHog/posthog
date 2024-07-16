@@ -7,19 +7,11 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
-import {
-    AnnotationScope,
-    DashboardType,
-    DatedAnnotationType,
-    InsightLogicProps,
-    InsightModel,
-    IntervalType,
-} from '~/types'
+import { AnnotationScope, DatedAnnotationType, InsightLogicProps, InsightModel, IntervalType } from '~/types'
 
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 
-export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'dashboardId'> {
-    dashboardId: DashboardType['id'] | undefined
+export interface AnnotationsOverlayLogicProps extends InsightLogicProps {
     insightNumericId: InsightModel['id'] | 'new'
     dates: string[]
     ticks: Tick[]
@@ -43,12 +35,12 @@ export function determineAnnotationsDateGroup(
 
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
-    props({} as AnnotationsOverlayLogicProps),
+    props({ dashboardId: undefined } as AnnotationsOverlayLogicProps),
     key(({ insightNumericId }) => insightNumericId),
     connect(() => ({
         values: [
             insightLogic,
-            ['insightId'],
+            ['insightId', 'savedInsight'],
             insightVizDataLogic,
             ['interval'],
             annotationsModel,
@@ -141,12 +133,13 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         relevantAnnotations: [
-            (s, p) => [s.annotations, s.dateRange, p.insightNumericId, p.dashboardId],
-            (annotations, dateRange, insightNumericId, dashboardNumericId) => {
+            (s, p) => [s.annotations, s.dateRange, p.insightNumericId, p.dashboardId, s.savedInsight],
+            (annotations, dateRange, insightNumericId, dashboardId, savedInsight) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
                 // where 3 projects exceed this limit. To accommodate those, we should always make a request for the
                 // date range of the graph, and not rely on the annotations in the store.
+
                 return (
                     dateRange
                         ? annotations.filter(
@@ -154,8 +147,14 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                                   (annotation.scope !== AnnotationScope.Insight ||
                                       annotation.dashboard_item === insightNumericId) &&
                                   (annotation.scope !== AnnotationScope.Dashboard ||
-                                      annotation.dashboard === dashboardNumericId ||
-                                      annotation.dashboard_item === insightNumericId) &&
+                                      annotation.dashboard_item === insightNumericId ||
+                                      (dashboardId
+                                          ? // on dashboard page, only show annotations if scoped to this dashboard
+                                            annotation.dashboard_id === dashboardId
+                                          : // on insight page, show annotation if insight is on any dashboard which this annotation is scoped to
+                                            savedInsight?.dashboard_tiles?.find(
+                                                ({ dashboard_id }) => dashboard_id === annotation.dashboard_id
+                                            ))) &&
                                   annotation.date_marker &&
                                   annotation.date_marker >= dateRange[0] &&
                                   annotation.date_marker < dateRange[1]

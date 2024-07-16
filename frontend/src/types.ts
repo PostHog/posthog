@@ -1997,7 +1997,7 @@ export interface RawAnnotationType {
     dashboard_item?: number | null
     insight_short_id?: InsightModel['short_id'] | null
     insight_name?: InsightModel['name'] | null
-    dashboard?: DashboardBasicType['id'] | null
+    dashboard_id?: DashboardBasicType['id'] | null
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'

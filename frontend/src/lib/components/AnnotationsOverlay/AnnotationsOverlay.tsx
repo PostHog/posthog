@@ -62,7 +62,6 @@ export function AnnotationsOverlay({
 
     const annotationsOverlayLogicProps: AnnotationsOverlayLogicProps = {
         ...insightProps,
-        dashboardId: insightProps.dashboardId,
         insightNumericId,
         dates,
         ticks: chart.scales.x.ticks,

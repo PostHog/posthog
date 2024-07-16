@@ -30,8 +30,14 @@ export function AnnotationModal({
     overlayRef,
     contentRef,
 }: Pick<LemonModalProps, 'overlayRef' | 'contentRef'>): JSX.Element {
-    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting, onSavedInsight, timezone } =
-        useValues(annotationModalLogic)
+    const {
+        isModalOpen,
+        existingModalAnnotation,
+        annotationModal,
+        isAnnotationModalSubmitting,
+        onSavedInsight,
+        timezone,
+    } = useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
     return (
@@ -106,14 +112,24 @@ export function AnnotationModal({
                                 {
                                     value: AnnotationScope.Insight,
                                     label: annotationScopeToName[AnnotationScope.Insight],
+                                    tooltip: existingModalAnnotation?.insight_name
+                                        ? existingModalAnnotation.insight_name
+                                        : undefined,
                                     disabledReason:
                                         (!onSavedInsight && 'You need to save the insight first.') ||
                                         // if existing annotation data in db (for backwards compatibility) doesn't have insight id set on it
                                         // we can't let them change scope to insight as we don't know which insight to map to
                                         (existingModalAnnotation
                                             ? !existingModalAnnotation?.dashboard_item &&
-                                              "To select this scope, open this annotation on the target insight"
+                                              'To select this scope, open this annotation on the target insight'
                                             : undefined),
+                                    sideIcon: existingModalAnnotation?.insight_short_id ? (
+                                        <Link
+                                            to={urls.insightView(existingModalAnnotation?.insight_short_id)}
+                                            target="_blank"
+                                            targetBlankIcon
+                                        />
+                                    ) : null,
                                 },
                                 {
                                     value: AnnotationScope.Dashboard,
@@ -122,16 +138,15 @@ export function AnnotationModal({
                                         ? existingModalAnnotation.dashboard_name
                                         : undefined,
                                     disabledReason:
-                                        (!onSavedInsight && 'You need to save the insight first.') ||
-                                        // if existing annotation data in db (for backwards compatibility) doesn't have dashboard id set on it
-                                        // we can't let them change scope to dashboard as we don't know which insight to map to
-                                        (existingModalAnnotation
-                                            ? !existingModalAnnotation?.dashboard &&
-                                              "Annotation wasn't originally scoped to a dashboard so we can't reduce scope to insight level"
+                                        (!annotationModal.dashboardId &&
+                                            'To select this scope, open this annotation on the target dashboard') ||
+                                        (existingModalAnnotation && existingModalAnnotation?.dashboard_name
+                                            ? annotationModal.dashboardId != existingModalAnnotation.dashboard_id &&
+                                              `To select this scope, open this annotation on the ${existingModalAnnotation?.dashboard_name} dashboard`
                                             : undefined),
-                                    sideIcon: existingModalAnnotation?.dashboard ? (
+                                    sideIcon: existingModalAnnotation?.dashboard_id ? (
                                         <Link
-                                            to={urls.dashboard(existingModalAnnotation?.dashboard)}
+                                            to={urls.dashboard(existingModalAnnotation?.dashboard_id)}
                                             target="_blank"
                                             targetBlankIcon
                                         />

@@ -54,6 +54,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             organization_id=team.organization_id,
             team_id=team.id,
             created_by=request.user,
+            dashboard_id=request.data.get("dashboard_id", None),
             **validated_data,
         )
         return annotation
