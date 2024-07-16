@@ -1057,6 +1057,8 @@ export type QueryStatus = {
      */
     query_async: true
     team_id: integer
+    insight_id?: integer
+    dashboard_id?: integer
     /**
      * If the query failed, this will be set to true.
      * More information can be found in the error_message field.

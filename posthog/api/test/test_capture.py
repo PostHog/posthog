@@ -25,7 +25,7 @@ from django.test import override_settings
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
 from freezegun import freeze_time
-from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
+from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError, NoBrokersAvailable
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 from parameterized import parameterized
@@ -580,6 +580,18 @@ class TestCapture(BaseTest):
 
         # signal that the client should not retry, we don't want endless retries for unprocessable entries
         assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_replay_capture_other_kafka_error(self, kafka_produce: MagicMock) -> None:
+        kafka_produce.side_effect = NoBrokersAvailable()
+
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ],
+        )
+
+        assert response.status_code == 503
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_from_android(self, _kafka_produce: MagicMock) -> None:

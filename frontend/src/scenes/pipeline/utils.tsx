@@ -270,7 +270,6 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
         },
         {
             label: 'View metrics',
-            status: 'danger',
             to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Metrics),
         },
         {

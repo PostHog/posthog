@@ -150,7 +150,7 @@ export class CdpApi {
                         addLog(response, 'error', 'Failed to execute async function')
                     }
                     asyncFunctionRequest.vmState.stack.push(
-                        convertJSToHog(asyncRes?.asyncFunctionResponse.vmResponse ?? null)
+                        convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null)
                     )
                     response.timings.push(...(asyncRes?.asyncFunctionResponse.timings ?? []))
                 }

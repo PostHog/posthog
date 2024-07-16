@@ -7274,6 +7274,9 @@
                     "description": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
                     "type": "boolean"
                 },
+                "dashboard_id": {
+                    "type": "integer"
+                },
                 "end_time": {
                     "format": "date-time",
                     "type": "string"
@@ -7293,6 +7296,9 @@
                 },
                 "id": {
                     "type": "string"
+                },
+                "insight_id": {
+                    "type": "integer"
                 },
                 "labels": {
                     "items": {
@@ -7367,6 +7373,10 @@
                         },
                         {
                             "const": "snapshot_source",
+                            "type": "string"
+                        },
+                        {
+                            "const": "visited_page",
                             "type": "string"
                         }
                     ]

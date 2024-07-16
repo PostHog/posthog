@@ -637,7 +637,16 @@ def get_event(request):
             scope.set_tag("ph-team-token", token)
             capture_exception(exc, {"data": data})
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
-        pass
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "Unable to store recording snapshot. Please try again. If you are the owner of this app you can check the logs for further details.",
+                code="server_error",
+                type="server_error",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        )
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
