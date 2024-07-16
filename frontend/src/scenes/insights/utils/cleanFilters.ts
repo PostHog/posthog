@@ -167,17 +167,18 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
                     filters.breakdown_normalize_url
                 )
             } else {
-                cleanedParams['breakdowns'] = filters.breakdowns!.map((b) => {
-                    return {
+                cleanedParams['breakdowns'] = filters
+                    .breakdowns!.map((b) => ({
                         value: b.value,
                         type: b.type,
                         histogram_bin_count: b.histogram_bin_count,
                         group_type_index: b.group_type_index,
-                        normalize_url: b.normalize_url
-                            ? cleanBreakdownNormalizeURL(b.value, filters.breakdown_normalize_url)
-                            : b.normalize_url,
-                    }
-                })
+                        normalize_url:
+                            b.normalize_url && b.value
+                                ? cleanBreakdownNormalizeURL(b.value, filters.breakdown_normalize_url)
+                                : b.normalize_url,
+                    }))
+                    .filter((b) => !!b.value)
             }
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
