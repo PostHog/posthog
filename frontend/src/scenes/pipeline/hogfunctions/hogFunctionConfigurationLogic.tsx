@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -120,7 +120,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
         return id ?? templateId ?? 'new'
     }),
+    connect({
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+    }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
+    connect({
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+    }),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
@@ -281,7 +287,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, teamLogic.selectors.currentTeam, groupsModel.selectors.groupTypes],
+            (s) => [s.configuration, s.currentTeam, s.groupTypes],
             (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
                 const globals: HogFunctionInvocationGlobals = {
                     event: {

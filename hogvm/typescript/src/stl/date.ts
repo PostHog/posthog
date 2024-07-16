@@ -57,7 +57,7 @@ export function toHogDateTime(timestamp: number | HogDate, zone?: string): HogDa
 // EXPORTED STL functions
 
 export function now(zone?: string): HogDateTime {
-    return toHogDateTime(Date.now(), zone)
+    return toHogDateTime(Date.now() / 1000, zone)
 }
 
 export function toUnixTimestamp(input: HogDateTime | HogDate | string, zone?: string): number {
@@ -74,6 +74,14 @@ export function fromUnixTimestamp(input: number): HogDateTime {
     return toHogDateTime(input)
 }
 
+export function toUnixTimestampMilli(input: HogDateTime | HogDate | string, zone?: string): number {
+    return toUnixTimestamp(input, zone) * 1000
+}
+
+export function fromUnixTimestampMilli(input: number): HogDateTime {
+    return toHogDateTime(input / 1000)
+}
+
 export function toTimeZone(input: HogDateTime, zone: string): HogDateTime | HogDate {
     if (!isHogDateTime(input)) {
         throw new Error('Expected a DateTime')
@@ -81,8 +89,8 @@ export function toTimeZone(input: HogDateTime, zone: string): HogDateTime | HogD
     return { ...input, zone }
 }
 
-export function toDate(input: string): HogDate {
-    const dt = DateTime.fromISO(input)
+export function toDate(input: string | number): HogDate {
+    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input)
     return {
         __hogDate__: true,
         year: dt.year,
@@ -91,11 +99,11 @@ export function toDate(input: string): HogDate {
     }
 }
 
-export function toDateTime(input: string, zone?: string): HogDateTime {
-    const dt = DateTime.fromISO(input, { zone: zone || 'UTC' })
+export function toDateTime(input: string | number, zone?: string): HogDateTime {
+    const dt = typeof input === 'number' ? input : DateTime.fromISO(input, { zone: zone || 'UTC' }).toSeconds()
     return {
         __hogDateTime__: true,
-        dt: dt.toSeconds(),
+        dt: dt,
         zone: zone || 'UTC',
     }
 }

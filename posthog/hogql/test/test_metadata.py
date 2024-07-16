@@ -339,7 +339,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValidView": False,
                 "notices": [],
                 "warnings": [],
-                "errors": [{"end": 15, "fix": None, "message": "HogQL function `NONO` is not implemented", "start": 9}],
+                "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
             },
         )
 
@@ -361,8 +361,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "errors": [
-                    {"end": 17, "fix": None, "message": "HogQL function `NONO` is not implemented", "start": 11}
-                ],
+                "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
             },
         )
