@@ -55,6 +55,7 @@ class TestQueryStatusManager(SimpleTestCase):
     def test_no_status(self):
         self.manager.store_query_status(self.query_status)
         self.query_status.query_progress = ClickhouseQueryProgress(**ZERO_PROGRESS)
+        self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
     def test_store_clickhouse_query_progress(self):
@@ -66,6 +67,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager.store_query_status(self.query_status)
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": "a"}}
         self.manager._store_clickhouse_query_progress_dict(query_status)
+        self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
     def test_update_clickhouse_query_progresses(self):
@@ -94,6 +96,7 @@ class TestQueryStatusManager(SimpleTestCase):
 
         self.query_status.query_progress = ClickhouseQueryProgress(**{**ZERO_PROGRESS, "bytes_read": 31})
 
+        self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(show_progress=True), self.query_status)
 
 
