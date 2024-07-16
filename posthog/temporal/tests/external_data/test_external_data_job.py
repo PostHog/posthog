@@ -240,6 +240,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
         external_data_schema_id=schema.id,
     )
 
