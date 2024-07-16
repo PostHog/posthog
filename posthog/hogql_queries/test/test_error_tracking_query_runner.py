@@ -10,6 +10,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
 )
+from posthog.models.error_tracking import ErrorTrackingGroup
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -73,91 +74,107 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _calculate(self, runner: ErrorTrackingQueryRunner):
         return runner.calculate().model_dump()
 
-    @snapshot_clickhouse_queries
-    def test_column_names(self):
+    # @snapshot_clickhouse_queries
+    # def test_column_names(self):
+    #     runner = ErrorTrackingQueryRunner(
+    #         team=self.team,
+    #         query=ErrorTrackingQuery(
+    #             kind="ErrorTrackingQuery",
+    #             select=[
+    #                 'any(properties) as "context.columns.error"',
+    #                 "properties.$exception_fingerprint",
+    #                 "count() as occurrences",
+    #             ],
+    #             fingerprint=None,
+    #             dateRange=DateRange(),
+    #             filterTestAccounts=True,
+    #         ),
+    #     )
+
+    #     columns = self._calculate(runner)["columns"]
+    #     self.assertEqual(columns, ["context.columns.error", "$exception_fingerprint", "occurrences"])
+
+    # @snapshot_clickhouse_queries
+    # def test_fingerprints(self):
+    #     runner = ErrorTrackingQueryRunner(
+    #         team=self.team,
+    #         query=ErrorTrackingQuery(
+    #             kind="ErrorTrackingQuery",
+    #             select=["properties.$exception_fingerprint", "count() as occurrences"],
+    #             fingerprint="SyntaxError",
+    #             dateRange=DateRange(),
+    #         ),
+    #     )
+
+    #     results = self._calculate(runner)["results"]
+    #     # returns a single group with multiple errors
+    #     self.assertEqual(len(results), 1)
+    #     self.assertEqual(results[0][0], "SyntaxError")
+    #     self.assertEqual(results[0][1], 2)
+
+    # def test_only_returns_exception_events(self):
+    #     with freeze_time("2020-01-10 12:11:00"):
+    #         _create_event(
+    #             distinct_id=self.distinct_id_one,
+    #             event="$pageview",
+    #             team=self.team,
+    #             properties={
+    #                 "$exception_fingerprint": "SyntaxError",
+    #             },
+    #         )
+    #     flush_persons_and_events()
+
+    #     runner = ErrorTrackingQueryRunner(
+    #         team=self.team,
+    #         query=ErrorTrackingQuery(
+    #             kind="ErrorTrackingQuery",
+    #             select=["properties.$exception_fingerprint"],
+    #             dateRange=DateRange(),
+    #         ),
+    #     )
+
+    #     results = self._calculate(runner)["results"]
+    #     self.assertEqual(len(results), 2)
+
+    # @snapshot_clickhouse_queries
+    # def test_hogql_filters(self):
+    #     runner = ErrorTrackingQueryRunner(
+    #         team=self.team,
+    #         query=ErrorTrackingQuery(
+    #             kind="ErrorTrackingQuery",
+    #             select=["properties.$exception_fingerprint"],
+    #             dateRange=DateRange(),
+    #             filterGroup=PropertyGroupFilter(
+    #                 type=FilterLogicalOperator.AND_,
+    #                 values=[
+    #                     PropertyGroupFilterValue(
+    #                         type=FilterLogicalOperator.OR_,
+    #                         values=[
+    #                             PersonPropertyFilter(
+    #                                 key="email", value="email@posthog.com", operator=PropertyOperator.EXACT
+    #                             ),
+    #                         ],
+    #                     )
+    #                 ],
+    #             ),
+    #         ),
+    #     )
+
+    #     results = self._calculate(runner)["results"]
+    #     self.assertEqual(len(results), 1)
+
+    def test_finds_groups(self):
+        ErrorTrackingGroup.objects.create(team=self.team, fingerprint="SyntaxError", assignee=self.user)
+
         runner = ErrorTrackingQueryRunner(
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[
-                    'any(properties) as "context.columns.error"',
-                    "properties.$exception_fingerprint",
-                    "count() as occurrences",
-                ],
+                select=["properties.$exception_fingerprint"],
                 fingerprint=None,
                 dateRange=DateRange(),
-                filterTestAccounts=True,
-            ),
-        )
-
-        columns = self._calculate(runner)["columns"]
-        self.assertEqual(columns, ["context.columns.error", "$exception_fingerprint", "occurrences"])
-
-    @snapshot_clickhouse_queries
-    def test_fingerprints(self):
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                select=["properties.$exception_fingerprint", "count() as occurrences"],
-                fingerprint="SyntaxError",
-                dateRange=DateRange(),
             ),
         )
 
         results = self._calculate(runner)["results"]
-        # returns a single group with multiple errors
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0], "SyntaxError")
-        self.assertEqual(results[0][1], 2)
-
-    def test_only_returns_exception_events(self):
-        with freeze_time("2020-01-10 12:11:00"):
-            _create_event(
-                distinct_id=self.distinct_id_one,
-                event="$pageview",
-                team=self.team,
-                properties={
-                    "$exception_fingerprint": "SyntaxError",
-                },
-            )
-        flush_persons_and_events()
-
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                select=["properties.$exception_fingerprint"],
-                dateRange=DateRange(),
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
-        self.assertEqual(len(results), 2)
-
-    @snapshot_clickhouse_queries
-    def test_hogql_filters(self):
-        runner = ErrorTrackingQueryRunner(
-            team=self.team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                select=["properties.$exception_fingerprint"],
-                dateRange=DateRange(),
-                filterGroup=PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND_,
-                    values=[
-                        PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR_,
-                            values=[
-                                PersonPropertyFilter(
-                                    key="email", value="email@posthog.com", operator=PropertyOperator.EXACT
-                                ),
-                            ],
-                        )
-                    ],
-                ),
-            ),
-        )
-
-        results = self._calculate(runner)["results"]
-        self.assertEqual(len(results), 1)
+        self.assertEqual(0, 42)

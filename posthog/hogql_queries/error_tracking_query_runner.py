@@ -9,6 +9,8 @@ from posthog.schema import (
     CachedErrorTrackingQueryResponse,
 )
 from posthog.hogql.parser import parse_expr
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.error_tracking import ErrorTrackingGroup
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -33,6 +35,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
             order_by=self._order_by(),
             group_by=[ast.Field(chain=["events", "properties", "$exception_fingerprint"])],
         )
+    
+    def select_mapping(self):
+        for group in error_tracking_groups:
+            
 
     def _where(self):
         where_exprs: list[ast.Expr] = [
@@ -84,6 +90,18 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
         )
 
+        fingerprints = [result[0] for result in query_result.results]
+        groups = self.groups(fingerprints=fingerprints)
+
+        print(groups.fin)
+
+        results = []
+
+        for _, query_result in enumerate(query_result.results):
+            group = groups.first()
+            result = [*query_result, *group]
+            results.append(result)
+
         return ErrorTrackingQueryResponse(
             columns=query_result.columns,
             results=query_result.results,
@@ -91,4 +109,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
+        )
+
+    def error_tracking_groups(self):
+        return ErrorTrackingGroup.objects.prefetch_related("assignee").filter(
+            status__in=[ErrorTrackingGroup.Status.ACTIVE], team=self.team
         )
