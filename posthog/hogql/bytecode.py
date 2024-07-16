@@ -174,11 +174,11 @@ class BytecodeBuilder(Visitor):
             chain.extend([Operation.STRING, element])
         if self.context.globals and node.chain[0] in self.context.globals:
             self.context.notices.append(
-                HogQLNotice(start=node.start, end=node.end, message="Global variable: " + node.chain[0])
+                HogQLNotice(start=node.start, end=node.end, message="Global variable: " + str(node.chain[0]))
             )
         else:
             self.context.warnings.append(
-                HogQLNotice(start=node.start, end=node.end, message="Unknown global variable: " + node.chain[0])
+                HogQLNotice(start=node.start, end=node.end, message="Unknown global variable: " + str(node.chain[0]))
             )
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
