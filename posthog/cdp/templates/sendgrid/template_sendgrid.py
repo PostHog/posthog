@@ -7,7 +7,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-sendgrid",
     name="Update marketing contacts in Sendgrid",
     description="Update marketing contacts in Sendgrid",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=sengrid.com",
+    icon_url="/api/projects/@current/hog_functions/icon/?id=sendgrid.com",
     hog="""
 let email := inputs.email
 let properties := inputs.properties
