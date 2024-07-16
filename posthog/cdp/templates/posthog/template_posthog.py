@@ -64,7 +64,7 @@ fetch(f'{host}/e', {
             "key": "properties",
             "type": "dictionary",
             "label": "Property overrides",
-            "description": "If any values are set, the properties will be mapped to the new keys. If not set, the full payload will be included",
+            "description": "Provided values will override the event properties.",
             "default": {},
             "secret": False,
             "required": False,
