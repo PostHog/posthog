@@ -105,7 +105,7 @@ export class AsyncFunctionExecutor {
                     duration_ms: duration,
                 })
 
-                asyncFunctionResponse.vmResponse = {
+                asyncFunctionResponse.response = {
                     status: fetchResponse.status,
                     body: body,
                 }
