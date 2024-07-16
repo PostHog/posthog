@@ -2077,7 +2077,7 @@ export enum RetentionPeriod {
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
 /**
- * Legacy multiple breakdowns had a `property` and `type` fields.
+ * Legacy multiple breakdowns had `property` and `type` fields.
  * Mirroring the legacy fields here for backwards compatibility with multiple breakdowns.
  */
 export interface Breakdown {
