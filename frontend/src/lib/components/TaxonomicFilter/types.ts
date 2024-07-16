@@ -65,7 +65,7 @@ export interface TaxonomicFilterGroup {
     logic?: LogicWrapper
     value?: string
     searchAlias?: string
-    valuesEndpoint?: (key: string) => string
+    valuesEndpoint?: (propertyKey: string) => string | undefined
     getName?: (instance: any) => string
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string

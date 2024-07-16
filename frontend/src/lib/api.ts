@@ -881,12 +881,6 @@ const api = {
                 )
                 .get()
         },
-        async create(data: any): Promise<InsightModel> {
-            return await new ApiRequest().insights().create({ data })
-        },
-        async update(id: number, data: any): Promise<InsightModel> {
-            return await new ApiRequest().insight(id).update({ data })
-        },
     },
 
     featureFlags: {

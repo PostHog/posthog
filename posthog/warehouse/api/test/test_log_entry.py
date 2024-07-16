@@ -125,6 +125,14 @@ def test_external_data_schema_log_api_with_level_filter(client, external_data_re
     create_external_data_job_log_entry(
         team_id=team.pk,
         external_data_schema_id=schema_id,
+        run_id="fake_workflow_id",
+        message="Test log. Much INFO.",
+        level="INFO",
+    )
+
+    create_external_data_job_log_entry(
+        team_id=team.pk,
+        external_data_schema_id=schema_id,
         run_id=run_id,
         message="Test log. Much DEBUG.",
         level="DEBUG",
@@ -135,6 +143,7 @@ def test_external_data_schema_log_api_with_level_filter(client, external_data_re
         team_id=team.pk,
         external_data_schema_id=schema_id,
         level="INFO",
+        instance_id=run_id,
     )
 
     json_response = response.json()

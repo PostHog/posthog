@@ -143,7 +143,7 @@ function snapshotDescription(snapshot: eventWithTime): string {
 
 function timeRelativeToStart(
     thingWithTime: eventWithTime | PerformanceEvent | RecordingConsoleLogV2 | RecordingEventType,
-    start: Dayjs | undefined
+    start: Dayjs | null
 ): {
     timeInRecording: number
     timestamp: dayjs.Dayjs

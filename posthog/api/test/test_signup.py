@@ -11,12 +11,14 @@ from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
 
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.organization import OrganizationInvite, OrganizationMembership
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
 
@@ -106,6 +108,98 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+
+        self.assertEqual(
+            response.json(),
+            {
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog@posthog.com",
+                "redirect_url": f"/verify_email/{user.uuid}",
+                "is_email_verified": False,
+                "hedgehog_config": None,
+            },
+        )
+
+        # Assert that the user is logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        mock_is_email_available.assert_called()
+        # Assert the email was sent.
+        mock_email_verifier.assert_called_once_with(user)
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.is_email_verification_disabled", return_value=True)
+    def test_api_sign_up_doesnt_require_verification_if_disabled(
+        self,
+        mock_verification_disabled,
+        mock_email_verifier,
+        mock_is_email_available,
+    ):
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+
+        self.assertEqual(
+            response.json(),
+            {
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog@posthog.com",
+                "redirect_url": "/",
+                "is_email_verified": False,
+                "hedgehog_config": None,
+            },
+        )
+        mock_is_email_available.assert_called()
+        mock_verification_disabled.assert_called()
+        mock_email_verifier.assert_not_called()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_email_collision(self):
@@ -1000,6 +1094,68 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(user.organization, self.organization)
         self.assertEqual(user.current_team, team)
         self.assertEqual(user.team, team)
+
+    def test_api_invite_signup_invite_has_private_project_access(self):
+        self.client.logout()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING}
+        ]
+        self.organization.save()
+        private_project = Team.objects.create(
+            name="Private project", organization=self.organization, access_control=True
+        )
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+privatepublic@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+            organization=self.organization,
+            private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+        )
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = cast(User, User.objects.order_by("-pk")[0])
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(user.organization, self.organization)
+        teams = user.teams.filter(organization=self.organization)
+        # user should have access to the private project
+        self.assertTrue(teams.filter(pk=private_project.pk).exists())
+        org_membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
+        explicit_team_membership = ExplicitTeamMembership.objects.get(
+            team=private_project, parent_membership=org_membership
+        )
+        assert explicit_team_membership.level == ExplicitTeamMembership.Level.ADMIN
+        self.assertEqual(teams.count(), 2)
+
+    def test_api_invite_signup_private_project_access_team_no_longer_exists(self):
+        self.client.logout()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING}
+        ]
+        self.organization.save()
+        private_project = Team.objects.create(
+            name="Private project", organization=self.organization, access_control=True
+        )
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+privatepublic@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+            organization=self.organization,
+            private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+        )
+        private_project.delete()
+        assert not Team.objects.filter(pk=private_project.pk).exists()
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = cast(User, User.objects.order_by("-pk")[0])
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(user.organization, self.organization)
+        teams = user.teams.filter(organization=self.organization)
+        self.assertEqual(teams.count(), 1)
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_for_initial_member(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(

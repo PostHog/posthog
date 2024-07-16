@@ -176,11 +176,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     ordering = "-created_at"
     log_source = "external_data_jobs"
 
-    def get_log_entry_instance_id(self) -> str:
-        obj = self.get_object()
-        latest_job = ExternalDataJob.objects.filter(team_id=self.team_id, schema_id=obj.id).latest("created_at")
-        return str(latest_job.pk)
-
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
