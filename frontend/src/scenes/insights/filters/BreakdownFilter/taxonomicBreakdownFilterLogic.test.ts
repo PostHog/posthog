@@ -700,6 +700,46 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
+        it('addBreakdown: handles existing cohort breakdown and a new non-cohort property', async () => {
+            const updateBreakdownFilter = jest.fn().mockImplementation()
+
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdown_type: 'cohort',
+                    breakdown: [1, 2],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+            const changedBreakdown = '$lib_version'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.GroupsPrefix, 0)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: undefined,
+                breakdown: undefined,
+                breakdowns: [
+                    {
+                        type: 'group',
+                        value: '$lib_version',
+                        group_type_index: 0,
+                    },
+                ],
+            })
+            expect(updateBreakdownFilter.mock.calls[0][0]).toHaveProperty('breakdown', undefined)
+            expect(updateBreakdownFilter.mock.calls[0][0]).toHaveProperty('breakdown_type', undefined)
+            expect(updateBreakdownFilter.mock.calls[0][0]).toHaveProperty('breakdown_group_type_index', undefined)
+            expect(updateBreakdownFilter.mock.calls[0][0]).toHaveProperty('breakdown_histogram_bin_count', undefined)
+            expect(updateBreakdownFilter.mock.calls[0][0]).toHaveProperty('breakdown_normalize_url', undefined)
+        })
+
         it('removeBreakdown: deletes a breakdown correctly', async () => {
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,

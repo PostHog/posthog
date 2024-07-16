@@ -250,6 +250,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                         breakdown_type: undefined,
                         breakdown_histogram_bin_count: undefined,
                         breakdown_normalize_url: undefined,
+                        breakdown_group_type_index: undefined,
                         breakdowns: [
                             {
                                 value: breakdownFilter.breakdown as string,
@@ -263,6 +264,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     })
                 } else {
                     props.updateBreakdownFilter({
+                        breakdown: undefined,
+                        breakdown_type: undefined,
+                        breakdown_histogram_bin_count: undefined,
+                        breakdown_normalize_url: undefined,
+                        breakdown_group_type_index: undefined,
                         breakdowns,
                     })
                 }
