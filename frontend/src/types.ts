@@ -913,8 +913,8 @@ export interface SessionPlayerData {
     bufferedToTime: number | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
     durationMs: number
-    start?: Dayjs
-    end?: Dayjs
+    start: Dayjs | null
+    end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
 }

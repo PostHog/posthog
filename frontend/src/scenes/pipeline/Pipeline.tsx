@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { PipelineTab } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
-import { Destinations } from './Destinations'
+import { Destinations } from './destinations/Destinations'
 import { FrontendApps } from './FrontendApps'
 import { ImportApps } from './ImportApps'
 import { importAppsLogic } from './importAppsLogic'

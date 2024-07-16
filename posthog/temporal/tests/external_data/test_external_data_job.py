@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs, import_data_activity
+from posthog.temporal.tests.data_imports.conftest import stripe_customer
 from posthog.warehouse.external_data_source.jobs import create_external_data_job
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
@@ -42,19 +43,15 @@ import aioboto3
 import functools
 from django.conf import settings
 from dlt.sources.helpers.rest_client.client import RESTClient
+from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 import asyncio
 import psycopg
 
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
 
-BUCKET_NAME = "test-external-data-jobs"
+BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
-
-AWS_BUCKET_MOCK_SETTINGS = {
-    "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-    "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-}
 
 
 async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
@@ -85,7 +82,10 @@ async def minio_client(bucket_name):
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     ) as minio_client:
-        await minio_client.create_bucket(Bucket=bucket_name)
+        try:
+            await minio_client.head_bucket(Bucket=bucket_name)
+        except:
+            await minio_client.create_bucket(Bucket=bucket_name)
 
         yield minio_client
 
@@ -370,17 +370,30 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             ]
         )
 
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     with (
         mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
             return_value={"clickhouse": {"id": "string", "name": "string"}},
         ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
@@ -391,7 +404,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/"
         )
 
-        assert len(job_1_customer_objects["Contents"]) == 1
+        assert len(job_1_customer_objects["Contents"]) == 2
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_charges_paginate),
@@ -399,11 +412,14 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
             return_value={"clickhouse": {"id": "string", "name": "string"}},
         ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_2_inputs),
@@ -412,7 +428,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
         job_2_charge_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path()}/charge/"
         )
-        assert len(job_2_charge_objects["Contents"]) == 1
+        assert len(job_2_charge_objects["Contents"]) == 2
 
 
 @pytest.mark.django_db(transaction=True)
@@ -467,14 +483,18 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
         data_selector: Optional[Any] = None,
         hooks: Optional[Any] = None,
     ):
-        return iter(
-            [
-                {
-                    "id": "cus_123",
-                    "name": "John Doe",
-                }
-            ]
-        )
+        return iter(stripe_customer()["data"])
+
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
@@ -482,11 +502,14 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
             return_value={"clickhouse": {"id": "string", "name": "string"}},
         ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
@@ -498,7 +521,7 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
         )
 
         # if job was not canceled, this job would run indefinitely
-        assert len(job_1_customer_objects["Contents"]) == 1
+        assert len(job_1_customer_objects.get("Contents", [])) == 0
 
         await sync_to_async(job_1.refresh_from_db)()
         assert job_1.rows_synced == 0
@@ -563,17 +586,30 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             ]
         )
 
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     with (
         mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
             return_value={"clickhouse": {"id": "string", "name": "string"}},
         ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
@@ -584,7 +620,7 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/"
         )
 
-        assert len(job_1_customer_objects["Contents"]) == 1
+        assert len(job_1_customer_objects["Contents"]) == 2
 
         await sync_to_async(job_1.refresh_from_db)()
         assert job_1.rows_synced == 1
@@ -709,11 +745,26 @@ async def test_run_postgres_job(
 
     job_1, job_1_inputs = await setup_job_1()
 
-    with override_settings(
-        BUCKET_URL=f"s3://{BUCKET_NAME}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            BUCKET_NAME=BUCKET_NAME,
+        ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
@@ -723,7 +774,7 @@ async def test_run_postgres_job(
         job_1_team_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/"
         )
-        assert len(job_1_team_objects["Contents"]) == 1
+        assert len(job_1_team_objects["Contents"]) == 2
 
 
 @pytest.mark.django_db(transaction=True)
