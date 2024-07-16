@@ -1,3 +1,5 @@
+from typing import Optional
+
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import PropertyDefinition, Cohort
 from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery
@@ -27,9 +29,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-    def _program(self, query: str) -> HogQLMetadataResponse:
+    def _program(self, query: str, globals: Optional[dict] = None) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", language="hog", query=query, response=None),
+            query=HogQLMetadata(kind="HogQLMetadata", language="hog", query=query, globals=globals, response=None),
             team=self.team,
         )
 
@@ -340,6 +342,21 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "notices": [],
                 "warnings": [],
                 "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
+            },
+        )
+
+    def test_hog_program_globals(self):
+        metadata = self._program("print(event, region)", globals={"event": "banana"})
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "query": "print(event, region)",
+                "isValid": True,
+                "isValidView": False,
+                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
+                "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
+                "errors": [],
             },
         )
 
