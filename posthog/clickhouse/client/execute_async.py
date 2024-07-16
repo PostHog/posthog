@@ -13,7 +13,7 @@ from rest_framework.exceptions import NotFound
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
@@ -189,16 +189,19 @@ def execute_process_query(
         query_status.end_time = datetime.datetime.now(datetime.UTC)
         process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
+    except CHQueryErrorTooManySimultaneousQueries:
+        raise
     except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
         query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)
         logger.exception("Error processing query for team %s query %s", team_id, query_id)
         sentry_sdk.capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
-    except Exception:  # We cannot reveal anything about the error
+    except Exception as err:  # We cannot reveal anything about the error
         query_status.results = None  # Clear results in case they are faulty
         logger.exception("Error processing query for team %s query %s", team_id, query_id)
-        raise
+        sentry_sdk.capture_exception(err)
+        # Do not raise here, the task itself did its job and we cannot recover
     finally:
         manager.store_query_status(query_status)
 

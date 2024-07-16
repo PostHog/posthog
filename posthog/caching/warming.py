@@ -134,5 +134,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: int):
                 dashboard=dashboard_id is not None,
                 is_cached=results.is_cached if isinstance(results, GenericCachedQueryResponse) else False,
             ).inc()
+        except CHQueryErrorTooManySimultaneousQueries:
+            raise
         except Exception as e:
             capture_exception(e)
