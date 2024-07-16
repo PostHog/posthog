@@ -221,12 +221,12 @@ export class HogExecutor {
         const { vmState } = invocation.asyncFunctionRequest ?? {}
         const { asyncFunctionResponse } = invocation
 
-        if (!vmState || !asyncFunctionResponse.vmResponse || asyncFunctionResponse.error) {
+        if (!vmState || !asyncFunctionResponse.response || asyncFunctionResponse.error) {
             return errorRes(invocation.error ?? 'No VM state provided for async response')
         }
 
         // Add the response to the stack to continue execution
-        vmState.stack.push(convertJSToHog(asyncFunctionResponse.vmResponse ?? null))
+        vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
 
         return this.execute(hogFunction, baseInvocation, vmState)
     }

@@ -266,7 +266,7 @@ describe('CDP Processed Events Consuner', () => {
                         vmState: expect.any(Object),
                     },
                     asyncFunctionResponse: {
-                        vmResponse: {
+                        response: {
                             status: 200,
                             body: { success: true },
                         },

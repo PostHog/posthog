@@ -23,7 +23,7 @@ const simulateMockFetchAsyncResponse = (result: HogFunctionInvocationResult): Ho
                     duration_ms: 100,
                 },
             ],
-            vmResponse: {
+            response: {
                 status: 200,
                 body: 'success',
             },

@@ -21,7 +21,7 @@ const makePropertyDefinition = (name: string, propertyType: PropertyType | undef
 
 const props = (type?: PropertyType | undefined): OperatorValueSelectProps => ({
     type: undefined,
-    propkey: 'the_property',
+    propertyKey: 'the_property',
     onChange: () => {},
     propertyDefinitions: [makePropertyDefinition('the_property', type)],
     defaultOpen: true,

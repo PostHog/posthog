@@ -1,5 +1,5 @@
 const interceptPropertyDefinitions = (): void => {
-    cy.intercept('/api/event/values/?key=%24browser').as('getBrowserValues')
+    cy.intercept('/api/event/values?key=%24browser').as('getBrowserValues')
 
     cy.intercept('api/projects/@current/property_definitions/?limit=5000', {
         fixture: 'api/event/property_definitions',

@@ -7576,6 +7576,9 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "dashboard_id": {
+                    "type": "integer"
+                },
                 "end_time": {
                     "format": "date-time",
                     "type": "string"
@@ -7594,6 +7597,9 @@
                 },
                 "id": {
                     "type": "string"
+                },
+                "insight_id": {
+                    "type": "integer"
                 },
                 "labels": {
                     "items": {
@@ -7668,6 +7674,10 @@
                         },
                         {
                             "const": "snapshot_source",
+                            "type": "string"
+                        },
+                        {
+                            "const": "visited_page",
                             "type": "string"
                         }
                     ]
