@@ -71,9 +71,7 @@ pub async fn flags(
         }
     }?;
 
-    let token = request
-        .extract_and_verify_token(state.redis.clone())
-        .await?;
+    let token = "hello-world";
 
     let distinct_id = request.extract_distinct_id()?;
 

@@ -6,6 +6,7 @@ from typing import Optional
 from unittest.mock import patch
 
 import pytest
+import requests
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, connections
@@ -58,6 +59,17 @@ class TestDecide(BaseTest, QueryMatchingTest):
         r = redis.get_client()
         for key in r.scan_iter("*"):
             r.delete(key)
+        self.value = generate_random_token_personal()
+        self.key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(self.value),
+            scopes=[
+                "insight:read",
+            ],
+        )
+
+
 
         super().setUp()
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
@@ -70,7 +82,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def _post_decide(
         self,
         data=None,
-        origin="http://127.0.0.1:8000",
+        origin="http://127.0.0.1:3001",
         api_version=1,
         distinct_id="example_id",
         groups=None,
@@ -81,30 +93,28 @@ class TestDecide(BaseTest, QueryMatchingTest):
     ):
         if groups is None:
             groups = {}
-        return self.client.post(
-            f"/decide/?v={api_version}",
-            {
-                "data": self._dict_to_b64(
-                    data
-                    or {
-                        "token": self.team.api_token,
-                        "distinct_id": distinct_id,
-                        "groups": groups,
-                        "geoip_disable": geoip_disable,
-                        "disable_flags": disable_flags,
-                    },
-                )
+
+        return requests.post(
+            f"{origin}/flags?api_key={self.value}",
+            json={
+                "token": self.value,
+                "distinct_id": distinct_id,
+                "groups": groups,
+                "geoip_disable": geoip_disable,
+                "disable_flags": disable_flags,
             },
-            HTTP_ORIGIN=origin,
-            REMOTE_ADDR=ip,
-            HTTP_USER_AGENT=user_agent or "PostHog test",
+            headers={
+                "HTTP_ORIGIN": "origin",
+                'Content-Type': 'application/json',
+                "REMOTE_ADDR": ip,
+                "HTTP_USER_AGENT": user_agent or "PostHog test",
+            }
         )
 
     def _update_team(self, data, expected_status_code: int = status.HTTP_200_OK):
         # use a non-csrf client to make requests
         client = Client()
         client.force_login(self.user)
-
         response = client.patch("/api/projects/@current/", data, content_type="application/json")
         self.assertEqual(response.status_code, expected_status_code)
 
@@ -3442,6 +3452,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             ELEMENT_CHAIN_AS_STRING_TEAMS={str(self.team.id)}, ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS={"0"}
         ):
             response = self._post_decide(api_version=3)
+            print("API KEYS are ", list(PersonalAPIKey.objects.all()))
+            print("response is ", response.content)
+            print("defaultConfig.DATABASE_URL is ", connection.get_connection_params())
             self.assertEqual(response.status_code, 200)
             self.assertTrue("elementsChainAsString" in response.json())
             self.assertTrue(response.json()["elementsChainAsString"])
@@ -3727,23 +3740,40 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             person_props = {}
         if groups is None:
             groups = {}
-        return self.client.post(
-            f"/decide/?v={api_version}",
-            {
-                "data": self._dict_to_b64(
-                    data
-                    or {
-                        "token": self.team.api_token,
-                        "distinct_id": distinct_id,
-                        "groups": groups,
-                        "geoip_disable": geoip_disable,
-                        "person_properties": person_props,
-                    },
-                )
-            },
-            HTTP_ORIGIN=origin,
-            REMOTE_ADDR=ip,
-        )
+
+            return requests.post(
+                f"{origin}/flags?api_key={self.value}",
+                json={
+                    "token": self.value,
+                    "distinct_id": distinct_id,
+                    "groups": groups,
+                    "geoip_disable": geoip_disable,
+                    "person_properties": person_props,
+                },
+                headers={
+                    "HTTP_ORIGIN": "origin",
+                    'Content-Type': 'application/json',
+                    "REMOTE_ADDR": ip,
+                    "HTTP_USER_AGENT": "PostHog test",
+                }
+            )
+        # return self.client.post(
+        #     f"/decide/?v={api_version}",
+        #     {
+        #         "data": self._dict_to_b64(
+        #             data
+        #             or {
+        #                 "token": self.team.api_token,
+        #                 "distinct_id": distinct_id,
+        #                 "groups": groups,
+        #                 "geoip_disable": geoip_disable,
+        #                 "person_properties": person_props,
+        #             },
+        #         )
+        #     },
+        #     HTTP_ORIGIN=origin,
+        #     REMOTE_ADDR=ip,
+        # )
 
     def test_healthcheck_uses_read_replica(self):
         org, team, user = self.setup_user_and_team_in_db("replica")
