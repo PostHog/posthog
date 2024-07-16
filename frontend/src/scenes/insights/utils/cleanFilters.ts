@@ -140,7 +140,6 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
     cleanedParams['breakdown_normalize_url'] = undefined
-    cleanedParams['breakdown_limit'] = undefined
 
     if (isTrends && filters.display === ChartDisplayType.WorldMap) {
         // For the map, make sure we are breaking down by country
@@ -169,14 +168,15 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
                 )
             } else {
                 cleanedParams['breakdowns'] = filters.breakdowns!.map((b) => {
-                    if (b.normalize_url) {
-                        return {
-                            ...b,
-                            normalize_url: cleanBreakdownNormalizeURL(b.value, filters.breakdown_normalize_url),
-                        }
+                    return {
+                        value: b.value,
+                        type: b.type,
+                        histogram_bin_count: b.histogram_bin_count,
+                        group_type_index: b.group_type_index,
+                        normalize_url: b.normalize_url
+                            ? cleanBreakdownNormalizeURL(b.value, filters.breakdown_normalize_url)
+                            : b.normalize_url,
                     }
-
-                    return b
                 })
             }
         } else if (filters.breakdown) {
@@ -189,10 +189,6 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
 
         if (filters.breakdown_type === 'group' && filters.breakdown_group_type_index != undefined) {
             cleanedParams['breakdown_group_type_index'] = filters.breakdown_group_type_index
-        }
-
-        if (filters.breakdown_limit) {
-            cleanedParams['breakdown_limit'] = filters.breakdown_limit
         }
     }
 }
