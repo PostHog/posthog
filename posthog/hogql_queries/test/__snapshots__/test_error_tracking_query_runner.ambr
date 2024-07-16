@@ -2,7 +2,7 @@
 # name: TestErrorTrackingQueryRunner.test_column_names
   '''
   SELECT any(events.properties) AS `context.columns.error`,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `$exception_type`,
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `$exception_fingerprint`,
          count() AS occurrences
   FROM events
   INNER JOIN
@@ -24,7 +24,7 @@
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
   WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__pdi__person.properties___email, '%@posthog.com%'), 1))
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')
+  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -38,11 +38,11 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_fingerprints
   '''
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `$exception_type`,
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `$exception_fingerprint`,
          count() AS occurrences
   FROM events
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), 1, ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', ''), 'SyntaxError'), 0))
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')
+  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), 1, ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), 'SyntaxError'), 0))
+  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -56,7 +56,7 @@
 # ---
 # name: TestErrorTrackingQueryRunner.test_hogql_filters
   '''
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `$exception_type`
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `$exception_fingerprint`
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
@@ -77,7 +77,7 @@
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
   WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(equals(events__pdi__person.properties___email, 'email@posthog.com'), 0))
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')
+  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

@@ -31,7 +31,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self._where(),
             order_by=self._order_by(),
-            group_by=[ast.Field(chain=["events", "properties", "$exception_type"])],
+            group_by=[ast.Field(chain=["events", "properties", "$exception_fingerprint"])],
         )
 
     def _where(self):
@@ -48,7 +48,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             where_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["properties", "$exception_type"]),
+                    left=ast.Field(chain=["properties", "$exception_fingerprint"]),
                     right=ast.Constant(value=self.query.fingerprint),
                 )
             )

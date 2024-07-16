@@ -47,7 +47,7 @@ export const errorTrackingQuery = ({
 }): DataTableNode => {
     const select = [
         'any(properties) as "context.columns.error"',
-        'properties.$exception_type',
+        'properties.$exception_fingerprint',
         'count() as occurrences',
         'count(distinct $session_id) as sessions',
         'count(distinct distinct_id) as users',
@@ -57,7 +57,7 @@ export const errorTrackingQuery = ({
 
     const columns = [
         'context.columns.error',
-        'properties.$exception_type',
+        'properties.$exception_fingerprint',
         'occurrences',
         'sessions',
         'users',
@@ -83,7 +83,7 @@ export const errorTrackingQuery = ({
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
         },
-        hiddenColumns: ['properties.$exception_type', 'last_seen', 'first_seen'],
+        hiddenColumns: ['properties.$exception_fingerprint', 'last_seen', 'first_seen'],
         showActions: false,
         showTimings: false,
         columns: columns,

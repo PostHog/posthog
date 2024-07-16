@@ -48,7 +48,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 event="$exception",
                 team=self.team,
                 properties={
-                    "$exception_type": "SyntaxError",
+                    "$exception_fingerprint": "SyntaxError",
                 },
             )
             _create_event(
@@ -56,7 +56,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 event="$exception",
                 team=self.team,
                 properties={
-                    "$exception_type": "TypeError",
+                    "$exception_fingerprint": "TypeError",
                 },
             )
             _create_event(
@@ -64,7 +64,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 event="$exception",
                 team=self.team,
                 properties={
-                    "$exception_type": "SyntaxError",
+                    "$exception_fingerprint": "SyntaxError",
                 },
             )
 
@@ -81,7 +81,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 kind="ErrorTrackingQuery",
                 select=[
                     'any(properties) as "context.columns.error"',
-                    "properties.$exception_type",
+                    "properties.$exception_fingerprint",
                     "count() as occurrences",
                 ],
                 fingerprint=None,
@@ -91,7 +91,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         columns = self._calculate(runner)["columns"]
-        self.assertEqual(columns, ["context.columns.error", "$exception_type", "occurrences"])
+        self.assertEqual(columns, ["context.columns.error", "$exception_fingerprint", "occurrences"])
 
     @snapshot_clickhouse_queries
     def test_fingerprints(self):
@@ -99,7 +99,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=["properties.$exception_type", "count() as occurrences"],
+                select=["properties.$exception_fingerprint", "count() as occurrences"],
                 fingerprint="SyntaxError",
                 dateRange=DateRange(),
             ),
@@ -118,7 +118,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 event="$pageview",
                 team=self.team,
                 properties={
-                    "$exception_type": "SyntaxError",
+                    "$exception_fingerprint": "SyntaxError",
                 },
             )
         flush_persons_and_events()
@@ -127,7 +127,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=["properties.$exception_type"],
+                select=["properties.$exception_fingerprint"],
                 dateRange=DateRange(),
             ),
         )
@@ -141,7 +141,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=["properties.$exception_type"],
+                select=["properties.$exception_fingerprint"],
                 dateRange=DateRange(),
                 filterGroup=PropertyGroupFilter(
                     type=FilterLogicalOperator.AND_,
