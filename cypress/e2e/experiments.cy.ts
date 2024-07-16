@@ -67,7 +67,7 @@ describe('Experiments', () => {
         cy.get('[data-attr="save-experiment"]').first().click()
     })
 
-    const createExperimentInNewUi = () => {
+    const createExperimentInNewUi = (): void => {
         cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
@@ -118,6 +118,11 @@ describe('Experiments', () => {
         cy.get('[data-attr="experiment-start-date"]').contains('a few seconds ago').should('be.visible')
 
         cy.get('[data-attr="stop-experiment"]').first().click()
+        // Wait for the dialog to appear and click the confirmation button
+        cy.get('.LemonModal__layout').should('be.visible')
+        cy.contains('Stop this experiment?').should('be.visible')
+        cy.get('.LemonModal__footer').contains('button', 'Stop').click()
+        // Wait for the dialog to disappear
         cy.get('[data-attr="experiment-creation-date"]').should('not.exist')
         cy.get('[data-attr="experiment-start-date"]').contains('a few seconds ago').should('be.visible')
         cy.get('[data-attr="experiment-end-date"]').contains('a few seconds ago').should('be.visible')

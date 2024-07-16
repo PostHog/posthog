@@ -28,7 +28,6 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -94,6 +93,7 @@ export enum AvailableFeature {
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
     SURVEYS_EVENTS = 'surveys_events',
+    SURVEYS_ACTIONS = 'surveys_actions',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -486,6 +486,7 @@ export interface TeamType extends TeamBasicType {
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
+    autocapture_web_vitals_opt_in?: boolean
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -912,8 +913,8 @@ export interface SessionPlayerData {
     bufferedToTime: number | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
     durationMs: number
-    start?: Dayjs
-    end?: Dayjs
+    start: Dayjs | null
+    end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
 }
@@ -953,7 +954,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source'
+    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -1940,21 +1941,25 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+export type LogEntryLevel = 'DEBUG' | 'LOG' | 'INFO' | 'WARN' | 'WARNING' | 'ERROR'
+
 // The general log entry format that eventually everything should match
 export type LogEntry = {
     log_source_id: string
     instance_id: string
     timestamp: string
-    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    level: LogEntryLevel
     message: string
 }
 
-export enum PluginLogEntryType {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warn = 'WARN',
-    Error = 'ERROR',
+export type LogEntryRequestParams = {
+    limit?: number
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    level?: string
+    search?: string
+    instance_id?: string
 }
 
 export interface PluginLogEntry {
@@ -1963,19 +1968,11 @@ export interface PluginLogEntry {
     plugin_id: number
     plugin_config_id: number
     timestamp: string
-    type: PluginLogEntryType
+    source: string
+    type: LogEntryLevel
     is_system: boolean
     message: string
     instance_id: string
-}
-
-export interface BatchExportLogEntry {
-    team_id: number
-    batch_export_id: number
-    run_id: number
-    timestamp: string
-    level: PipelineLogLevel
-    message: string
 }
 
 export enum AnnotationScope {
@@ -2390,7 +2387,7 @@ export interface TrendResult {
     dates?: string[]
     label: string
     labels: string[]
-    breakdown_value?: string | number
+    breakdown_value?: string | number | string[]
     aggregated_value: number
     status?: string
     compare_label?: CompareLabelType
@@ -2594,6 +2591,12 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        actions: {
+            values: {
+                id: number
+                name: string
+            }[]
+        } | null
         events: {
             repeatedActivation?: boolean
             values: {
@@ -2650,6 +2653,7 @@ export interface SurveyAppearance {
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
+    thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: string
     shuffleQuestions?: boolean
@@ -3349,7 +3353,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         /** Toggled on to draw incompleteness lines in LineGraph.tsx */
         dotted?: boolean
         /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | undefined)[]
+        breakdownValues?: (string | number | string[] | undefined)[]
         /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownLabels?: (string | number | undefined)[]
         /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
@@ -3866,6 +3870,16 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     status?: string
     incremental_field: string | null
     incremental_field_type: string | null
+    sync_frequency: DataWarehouseSyncInterval
+}
+
+export interface ExternalDataJob {
+    id: string
+    created_at: string
+    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    schema: SimpleExternalDataSourceSchema
+    rows_synced: number
+    latest_error: string
 }
 
 export interface SimpleDataWarehouseTable {
@@ -4182,7 +4196,11 @@ export type AvailableOnboardingProducts = Pick<
     {
         [key in ProductKey]: OnboardingProduct
     },
-    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+    | ProductKey.PRODUCT_ANALYTICS
+    | ProductKey.SESSION_REPLAY
+    | ProductKey.FEATURE_FLAGS
+    | ProductKey.SURVEYS
+    | ProductKey.DATA_WAREHOUSE
 >
 
 export type OnboardingProduct = {
@@ -4208,6 +4226,12 @@ export type HogFunctionInputSchemaType = {
     integration_field?: 'slack_channel'
 }
 
+export type HogFunctionInputType = {
+    value: any
+    secret?: boolean
+    bytecode?: any
+}
+
 export type HogFunctionType = {
     id: string
     icon_url?: string
@@ -4220,13 +4244,7 @@ export type HogFunctionType = {
     hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<
-        string,
-        {
-            value: any
-            bytecode?: any
-        }
-    >
+    inputs?: Record<string, HogFunctionInputType>
     filters?: PluginConfigFilters | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
@@ -4264,6 +4282,42 @@ export type HogFunctionStatus = {
         timestamp: number
         rating: number
     }[]
+}
+
+export type HogFunctionInvocationGlobals = {
+    project: {
+        id: number
+        name: string
+        url: string
+    }
+    source?: {
+        name: string
+        url: string
+    }
+    event: {
+        uuid: string
+        name: string
+        distinct_id: string
+        properties: Record<string, any>
+        timestamp: string
+        url: string
+    }
+    person?: {
+        uuid: string
+        name: string
+        url: string
+        properties: Record<string, any>
+    }
+    groups?: Record<
+        string,
+        {
+            id: string // the "key" of the group
+            type: string
+            index: number
+            url: string
+            properties: Record<string, any>
+        }
+    >
 }
 
 export interface AnomalyCondition {

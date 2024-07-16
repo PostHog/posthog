@@ -40,6 +40,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
                 "name": "event-name",
                 "distinct_id": "distinct-id",
                 "properties": {"$current_url": "https://example.com"},
+                "timestamp": "2024-01-01T00:00:00Z",
             },
             "person": {"id": "person-id", "properties": {"email": "example@posthog.com"}},
         }

@@ -4,12 +4,11 @@ from unittest.mock import ANY, patch
 from django.core import mail
 from rest_framework import status
 
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.organization import (
-    Organization,
-    OrganizationInvite,
-    OrganizationMembership,
-)
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
@@ -96,6 +95,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "level": 1,
                 "emailing_attempt_made": True,
                 "message": None,
+                "private_project_access": [],
             },
         )
 
@@ -159,6 +159,137 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(obj.level, OrganizationMembership.Level.OWNER)
 
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
+
+    def test_can_specify_private_project_access_in_invite(self):
+        email = "x@posthog.com"
+        count = OrganizationInvite.objects.count()
+        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
+        ExplicitTeamMembership.objects.create(
+            team=private_team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
+        )
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        obj = OrganizationInvite.objects.get(id=response.json()["id"])
+        self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(
+            obj.private_project_access, [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
+
+        # if member of org but admin of team, should be able to invite new project admins to private project
+        org_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        org_membership.level = OrganizationMembership.Level.MEMBER
+        org_membership.save()
+        email = "y@posthog.com"
+        count = OrganizationInvite.objects.count()
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        obj = OrganizationInvite.objects.get(id=response.json()["id"])
+        self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(
+            obj.private_project_access, [{"id": self.team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
+
+    def test_invite_fails_if_team_in_private_project_access_not_in_org(self):
+        email = "x@posthog.com"
+        count = OrganizationInvite.objects.count()
+        other_org = Organization.objects.create(name="Other Org")
+        team_in_other_org = Team.objects.create(organization=other_org, name="Private Team", access_control=True)
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": team_in_other_org.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Team does not exist on this organization, or it is private and you do not have access to it.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+    def test_invite_fails_if_inviter_does_not_have_access_to_team(self):
+        email = "xx@posthog.com"
+        count = OrganizationInvite.objects.count()
+        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Team does not exist on this organization, or it is private and you do not have access to it.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+    def test_invite_fails_if_inviter_level_is_lower_than_requested_level(self):
+        email = "x@posthog.com"
+        count = OrganizationInvite.objects.count()
+        private_team = Team.objects.create(organization=self.organization, name="Private Team", access_control=True)
+        organization_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        organization_membership.level = OrganizationMembership.Level.MEMBER
+        organization_membership.save()
+        ExplicitTeamMembership.objects.create(
+            team=private_team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.MEMBER,
+        )
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "You cannot invite to a private project with a higher level than your own.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
     def test_cannot_create_invite_for_another_org(self):
         another_org = Organization.objects.create(name="Another Org")

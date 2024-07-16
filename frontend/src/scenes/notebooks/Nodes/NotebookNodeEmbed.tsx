@@ -35,7 +35,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
     const [loaded, setLoaded] = useState(false)
 
     const validUrl = useMemo(() => {
-        if (!src) {
+        // Check the src exists and is a valid URL beginning with http
+        if (!src || /^https?:\/\//.test(src) === false) {
             return null
         }
         try {

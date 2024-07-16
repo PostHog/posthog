@@ -263,10 +263,10 @@ class EventsQueryRunner(QueryRunner):
         if dashboard_filter.properties:
             self.query.properties = (self.query.properties or []) + dashboard_filter.properties
 
-    def columns(self, query_columns: list | None) -> list[str]:
-        columns = query_columns or []
+    def columns(self, result_columns: list | None) -> list[str]:
+        columns = result_columns or []
         return [
-            col if col == "*" or "person" else columns[idx] if len(columns) > idx else col
+            columns[idx] if len(columns) > idx and " as " in col else col
             for idx, col in enumerate(self.select_input_raw())
         ]
 

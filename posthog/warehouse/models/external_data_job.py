@@ -17,7 +17,9 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         CANCELLED = "Cancelled", "Cancelled"
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    pipeline: models.ForeignKey = models.ForeignKey("posthog.ExternalDataSource", on_delete=models.CASCADE)
+    pipeline: models.ForeignKey = models.ForeignKey(
+        "posthog.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE
+    )
     schema: models.ForeignKey = models.ForeignKey(
         "posthog.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True
     )
@@ -39,11 +41,9 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
     def url_pattern_by_schema(self, schema: str) -> str:
         if TEST:
-            return (
-                f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/test-pipeline/{self.folder_path()}/{schema.lower()}/*.parquet"
-            )
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/*.parquet"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
 
     def delete_deprecated_data_in_bucket(self) -> None:
         s3 = get_s3_client()

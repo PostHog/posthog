@@ -23,7 +23,7 @@ const simulateMockFetchAsyncResponse = (result: HogFunctionInvocationResult): Ho
                     duration_ms: 100,
                 },
             ],
-            vmResponse: {
+            response: {
                 status: 200,
                 body: 'success',
             },
@@ -106,6 +106,28 @@ describe('Hog Executor', () => {
             expect(castTimestampOrNow(results[0].logs[1].timestamp, TimestampFormat.ClickHouse)).toEqual(
                 '2024-06-07 12:00:00.001'
             )
+        })
+
+        it('redacts secret values from the logs', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.input_printer,
+                ...HOG_INPUTS_EXAMPLES.secret_inputs,
+            })
+
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+
+            const result = executor.executeFunction(createHogExecutionGlobals(), fn) as HogFunctionInvocationResult
+            expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
+                Array [
+                  "Executing function",
+                  "test",
+                  "{\\"nested\\":{\\"foo\\":\\"***REDACTED***\\"}}",
+                  "{\\"foo\\":\\"***REDACTED***\\"}",
+                  "substring: ***REDACTED***",
+                  "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\"},\\"secret_input_3\\":\\"***REDACTED***\\"}",
+                  "Function completed. Processing time 0ms",
+                ]
+            `)
         })
 
         it('queues up an async function call', () => {

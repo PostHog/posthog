@@ -176,7 +176,7 @@ export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
         /** An error message to indicate something went wrong and the invocation should be stopped */
         error?: any
         /** The data to be passed to the Hog function from the response */
-        vmResponse?: any
+        response?: any
         timings: HogFunctionTiming[]
     }
 }
@@ -210,6 +210,7 @@ export type HogFunctionType = {
 
 export type HogFunctionInputType = {
     value: any
+    secret?: boolean
     bytecode?: HogBytecode | object
 }
 

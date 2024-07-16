@@ -162,6 +162,11 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_EVENTS),
         ],
+        surveysActionsAvailable: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean) =>
+                hasAvailableFeature(AvailableFeature.SURVEYS_ACTIONS),
+        ],
         showSurveysDisabledBanner: [
             (s) => [s.currentTeam, s.currentTeamLoading, s.surveys],
             (currentTeam, currentTeamLoading, surveys) => {

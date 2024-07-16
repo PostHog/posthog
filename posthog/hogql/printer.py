@@ -522,16 +522,17 @@ class _Printer(Visitor):
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
         visited_index = int(str(node.index))
-        if isinstance(node.tuple, ast.Field):
-            return f"{visited_tuple}.{visited_index}"
-
-        return f"({visited_tuple}).{visited_index}"
+        symbol = "?." if self.dialect == "hogql" and node.nullish else "."
+        if isinstance(node.tuple, ast.Field) or isinstance(node.tuple, ast.Tuple) or isinstance(node.tuple, ast.Call):
+            return f"{visited_tuple}{symbol}{visited_index}"
+        return f"({visited_tuple}){symbol}{visited_index}"
 
     def visit_tuple(self, node: ast.Tuple):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return f"{self.visit(node.array)}[{self.visit(node.property)}]"
+        symbol = "?." if self.dialect == "hogql" and node.nullish else ""
+        return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"

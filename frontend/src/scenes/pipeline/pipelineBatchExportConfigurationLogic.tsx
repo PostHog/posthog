@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
 
@@ -176,9 +176,15 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             type: 'json',
             schema_valid: true,
         },
-        version: {
-            name: 'version',
-            hogql_value: 'version',
+        person_version: {
+            name: 'person_version',
+            hogql_value: 'person_version',
+            type: 'integer',
+            schema_valid: true,
+        },
+        person_distinct_id_version: {
+            name: 'person_distinct_id_version',
+            hogql_value: 'person_distinct_id_version',
             type: 'integer',
             schema_valid: true,
         },
