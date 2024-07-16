@@ -296,7 +296,11 @@ class Breakdown:
             return ast.Or(
                 exprs=[
                     none_expr,
-                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")),
+                    ast.CompareOperation(
+                        left=self.get_replace_null_values_transform(left),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=""),
+                    ),
                 ]
             )
 
@@ -323,7 +327,11 @@ class Breakdown:
             except json.JSONDecodeError:
                 raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
 
-        return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=lookup_value))
+        return ast.CompareOperation(
+            left=self.get_replace_null_values_transform(left),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=lookup_value),
+        )
 
     def _get_breakdown_values_transform(self, node: ast.Expr, normalize_url: bool | None = None) -> ast.Call:
         if normalize_url:
