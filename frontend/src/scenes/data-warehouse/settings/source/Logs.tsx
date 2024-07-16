@@ -1,4 +1,4 @@
-import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -7,7 +7,7 @@ import { LogLevelDisplay } from 'scenes/pipeline/utils'
 
 import { ExternalDataJob, LogEntry } from '~/types'
 
-import { ALL_LOG_LEVELS, schemaLogLogic } from './schemaLogLogic'
+import { schemaLogLogic } from './schemaLogLogic'
 
 const columns: LemonTableColumns<LogEntry> = [
     {
@@ -45,37 +45,11 @@ interface LogsTableProps {
 
 export const LogsView = ({ job }: LogsTableProps): JSX.Element => {
     const logic = schemaLogLogic({ job })
-    const { logs, logsLoading, logsBackground, isThereMoreToLoad, levelFilters } = useValues(logic)
-    const { revealBackground, loadSchemaLogsMore, setLogLevelFilters, setSearchTerm } = useActions(logic)
+    const { logs, logsLoading, logsBackground, isThereMoreToLoad } = useValues(logic)
+    const { revealBackground, loadSchemaLogsMore } = useActions(logic)
 
     return (
         <div className="ph-no-capture space-y-2 flex-1">
-            <LemonInput
-                type="search"
-                placeholder="Search for messages containing…"
-                fullWidth
-                onChange={setSearchTerm}
-                allowClear
-            />
-            <div className="flex items-center gap-4">
-                <span>Show logs of type:&nbsp;</span>
-
-                {ALL_LOG_LEVELS.map((type) => {
-                    return (
-                        <LemonCheckbox
-                            key={type}
-                            label={type}
-                            checked={levelFilters.includes(type)}
-                            onChange={(checked) => {
-                                const newLogsTypes = checked
-                                    ? [...levelFilters, type]
-                                    : levelFilters.filter((t) => t != type)
-                                setLogLevelFilters(newLogsTypes)
-                            }}
-                        />
-                    )
-                })}
-            </div>
             <LemonButton
                 onClick={revealBackground}
                 loading={logsLoading}

@@ -8,7 +8,7 @@ import { ExternalDataJob, ExternalDataSourceSchema, LogEntry, LogEntryLevel } fr
 import type { schemaLogLogicType } from './schemaLogLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
+export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 
 interface SchemaLogLogicProps {
     job: ExternalDataJob
@@ -100,7 +100,7 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
         isThereMoreToLoad: [
             true,
             {
-                loadLogsSuccess: (_, { batchExportLogs }) => batchExportLogs.length >= LOGS_PORTION_LIMIT,
+                loadSchemaLogsSuccess: (_, { logs }) => logs.length >= LOGS_PORTION_LIMIT,
                 markLogsEnd: () => false,
             },
         ],
