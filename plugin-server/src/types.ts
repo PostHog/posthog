@@ -81,6 +81,7 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
+    recordings_ingestion_v3 = 'recordings-ingestion-v3',
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_function_overflow = 'cdp-function-overflow',
@@ -329,6 +330,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
+    sessionRecordingV3Ingestion?: boolean
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpFunctionOverflow?: boolean
