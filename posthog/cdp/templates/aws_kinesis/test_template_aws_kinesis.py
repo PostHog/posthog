@@ -1,3 +1,4 @@
+from freezegun import freeze_time
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.aws_kinesis.template_aws_kinesis import template as template_aws_kinesis
 
@@ -5,6 +6,7 @@ from posthog.cdp.templates.aws_kinesis.template_aws_kinesis import template as t
 class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
     template = template_aws_kinesis
 
+    @freeze_time("2024-04-16T12:34:51Z")
     def test_function_works(self):
         res = self.run_function(
             inputs={

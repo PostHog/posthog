@@ -17,11 +17,6 @@ class BaseHogFunctionTemplateTest(BaseTest):
         super().setUp()
         self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "print", "postHogCapture"})
 
-        # inject a stable now() function
-        frozen_time = "2024-04-16T12:34:51Z"
-        freeze_time = compile_hog("fn now() { return toDateTime('" + frozen_time + "') }")
-        self.compiled_hog = freeze_time + self.compiled_hog[1:]
-
         self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))  # noqa: T201
         # Side effect - log the fetch call and return  with sensible output
         self.mock_fetch = MagicMock(
