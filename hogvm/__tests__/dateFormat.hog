@@ -2,6 +2,7 @@ let dt := fromUnixTimestamp(1234377543.123456)
 print(formatDateTime(dt, '%Y-%m-%d %H:%i:%S'))
 print(formatDateTime(dt, '%Y-%m-%d %H:%i:%S', 'Europe/Brussels'))
 print(formatDateTime(dt, '%Y-%m-%d %H:%i:%S', 'America/New_York'))
+print(formatDateTime(dt, '%Y%m%dT%H%i%sZ'))
 
 print('-----')
 print('%a: ' || formatDateTime(dt, '%a'))

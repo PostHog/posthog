@@ -5,17 +5,16 @@ use envconfig::Envconfig;
 use eyre::Result;
 use futures::future::{select, Either};
 use health::{HealthHandle, HealthRegistry};
-use kafka_producer::create_kafka_producer;
 use std::{str::FromStr, time::Duration};
 use tokio::sync::Semaphore;
 use webhooks::WebhookCleaner;
 
+use hook_common::kafka_producer::create_kafka_producer;
 use hook_common::metrics::setup_metrics_routes;
 
 mod cleanup;
 mod config;
 mod handlers;
-mod kafka_producer;
 mod webhooks;
 
 async fn listen(app: Router, bind: String) -> Result<()> {
@@ -63,7 +62,8 @@ async fn main() {
                 WebhookCleaner::new(
                     &config.database_url,
                     kafka_producer,
-                    config.kafka.app_metrics_topic.to_owned(),
+                    config.app_metrics_topic.to_owned(),
+                    config.hog_mode,
                 )
                 .expect("unable to create webhook cleaner"),
             )

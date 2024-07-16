@@ -102,6 +102,7 @@ export type CdpConfig = {
     CDP_WATCHER_MIN_OBSERVATIONS: number
     CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
     CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+    CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -219,6 +220,7 @@ export interface PluginsServerConfig extends CdpConfig {
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
     RUSTY_HOOK_URL: string
+    HOG_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
