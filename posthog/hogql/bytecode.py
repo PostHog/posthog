@@ -248,7 +248,7 @@ class BytecodeBuilder(Visitor):
             return response
 
         if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
-            raise QueryError(f"HogQL function `{node.name}` is not implemented")
+            raise QueryError(f"Hog function `{node.name}` is not implemented")
         if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
             raise QueryError(
                 f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
