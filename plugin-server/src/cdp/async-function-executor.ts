@@ -70,7 +70,8 @@ export class AsyncFunctionExecutor {
         // Finally overwrite the args with the sanitized ones
         request.asyncFunctionRequest.args = [url, { method, headers, body }]
 
-        if (!options?.sync === false && this.hogHookEnabledForTeams(request.teamId)) {
+        // If the caller hasn't forced it to be synchronous and the team has the rustyhook enabled, enqueue it
+        if (!options?.sync && this.hogHookEnabledForTeams(request.teamId)) {
             await this.rustyHook.enqueueForHog(request)
             return
         }
