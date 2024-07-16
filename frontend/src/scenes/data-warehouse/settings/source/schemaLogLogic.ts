@@ -10,7 +10,7 @@ import type { schemaLogLogicType } from './schemaLogLogicType'
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 
-interface SchemaLogLogicProps {
+export interface SchemaLogLogicProps {
     job: ExternalDataJob
 }
 
