@@ -64,6 +64,12 @@ export interface TeamIDWithConfig {
     consoleLogIngestionEnabled: boolean
 }
 
+/**
+ * Experimental
+ *
+ * This version of the ingester is intended to be deployed as a statefulset. That means it can rely on the disk and commit offsets to kafka automatically.
+ * The tradeoff is that it has to manage its own partition assignments in order to ensure that it is always processing the same partitions.
+ */
 export class SessionRecordingIngesterV3 {
     sessions: Record<string, SessionManagerV3> = {}
     replayEventsIngester?: ReplayEventsIngester
