@@ -229,10 +229,14 @@ export function renderColumn(
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
-        return Component ? <Component record={record} columnName={columnName} value={value} query={query} /> : ''
+        return Component ? (
+            <Component record={record} columnName={columnName} value={value} query={query} />
+        ) : (
+            String(value)
+        )
     } else if (context?.columns?.[key]) {
         const Component = context?.columns?.[key]?.render
-        return Component ? <Component record={record} columnName={key} value={value} query={query} /> : ''
+        return Component ? <Component record={record} columnName={key} value={value} query={query} /> : String(value)
     } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline

@@ -1,3 +1,8 @@
+import { toHogDate, toHogDateTime } from './stl/date'
+
+/** Fixed cost per object in memory */
+const COST_PER_UNIT = 8
+
 export function like(string: string, pattern: string, caseInsensitive = false): boolean {
     pattern = String(pattern)
         .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
@@ -52,6 +57,11 @@ export function convertJSToHog(x: any): any {
     if (Array.isArray(x)) {
         return x.map(convertJSToHog)
     } else if (typeof x === 'object' && x !== null) {
+        if (x.__hogDateTime__) {
+            return toHogDateTime(x.dt, x.zone)
+        } else if (x.__hogDate__) {
+            return toHogDate(x.year, x.month, x.day)
+        }
         const map = new Map()
         for (const key in x) {
             map.set(key, convertJSToHog(x[key]))
@@ -71,6 +81,9 @@ export function convertHogToJS(x: any): any {
     } else if (typeof x === 'object' && Array.isArray(x)) {
         return x.map(convertHogToJS)
     } else if (typeof x === 'object' && x !== null) {
+        if (x.__hogDateTime__ || x.__hogDate__) {
+            return x
+        }
         const obj: Record<string, any> = {}
         for (const key in x) {
             obj[key] = convertHogToJS(x[key])
@@ -78,4 +91,41 @@ export function convertHogToJS(x: any): any {
         return obj
     }
     return x
+}
+
+export function calculateCost(object: any, marked: Set<any> | undefined = undefined): any {
+    if (!marked) {
+        marked = new Set()
+    }
+    if (typeof object === 'object' && object !== null) {
+        if (marked.has(object)) {
+            return COST_PER_UNIT
+        }
+        marked.add(object)
+        try {
+            if (object instanceof Map) {
+                return (
+                    COST_PER_UNIT +
+                    Array.from(object.keys()).reduce(
+                        (acc, key) => acc + calculateCost(key, marked) + calculateCost(object.get(key), marked),
+                        0
+                    )
+                )
+            } else if (Array.isArray(object)) {
+                return COST_PER_UNIT + object.reduce((acc, val) => acc + calculateCost(val, marked), 0)
+            }
+            return (
+                COST_PER_UNIT +
+                Object.keys(object).reduce(
+                    (acc, key) => acc + calculateCost(key, marked) + calculateCost(object[key], marked),
+                    0
+                )
+            )
+        } finally {
+            marked.delete(object)
+        }
+    } else if (typeof object === 'string') {
+        return COST_PER_UNIT + object.length
+    }
+    return COST_PER_UNIT
 }

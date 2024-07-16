@@ -1,4 +1,3 @@
-import gzip
 import json
 import re
 from random import random
@@ -23,7 +22,6 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
-from collections.abc import Callable
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -121,7 +119,6 @@ KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
 REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
     "capture_replay_message_production_seconds",
     "Time taken to produce a set of replay messages",
-    labelnames=["compress_in_capture"],
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
@@ -208,7 +205,6 @@ def log_event(
     headers: Optional[list] = None,
     historical: bool = False,
     overflowing: bool = False,
-    value_serializer: Optional[Callable[[Any], Any]] = None,
 ) -> FutureRecordMetadata:
     kafka_topic = _kafka_topic(event_name, historical=historical, overflowing=overflowing)
 
@@ -221,9 +217,7 @@ def log_event(
         else:
             producer = KafkaProducer()
 
-        future = producer.produce(
-            topic=kafka_topic, data=data, key=partition_key, headers=headers, value_serializer=value_serializer
-        )
+        future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception:
@@ -567,8 +561,7 @@ def get_event(request):
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
-                compression_in_capture = _compress_in_capture(token)
-                with REPLAY_MESSAGE_PRODUCTION_TIMER.labels(compress_in_capture=compression_in_capture).time():
+                with REPLAY_MESSAGE_PRODUCTION_TIMER.time():
                     for event, event_uuid, distinct_id in processed_events:
                         capture_args = (
                             event,
@@ -644,21 +637,19 @@ def get_event(request):
             scope.set_tag("ph-team-token", token)
             capture_exception(exc, {"data": data})
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
-        pass
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "Unable to store recording snapshot. Please try again. If you are the owner of this app you can check the logs for further details.",
+                code="server_error",
+                type="server_error",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        )
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
-
-
-def _compress_in_capture(token: str | None) -> bool:
-    if (
-        # this check is only here so that we can test in a limited way in production
-        # ultimately we'll only check this setting
-        (settings.DEBUG or settings.TEST or token == "sTMFPsFhdP1Ssg")
-        and settings.SESSION_RECORDING_KAFKA_COMPRESSION == "gzip-in-capture"
-    ):
-        return True
-    return False
 
 
 def replace_with_warning(
@@ -825,14 +816,9 @@ def capture_internal(
         token=token,
     )
 
-    def gzip_json_serializer(data):
-        json_data = json.dumps(data).encode("utf-8")
-        return gzip.compress(json_data)
-
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
-        value_serializer = gzip_json_serializer if (_compress_in_capture(token)) else None
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
@@ -846,7 +832,6 @@ def capture_internal(
             partition_key=session_id,
             headers=headers,
             overflowing=overflowing,
-            value_serializer=value_serializer,
         )
 
     # We aim to always partition by {team_id}:{distinct_id} but allow

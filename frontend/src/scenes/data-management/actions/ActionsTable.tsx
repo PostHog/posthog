@@ -30,8 +30,7 @@ export function ActionsTable(): JSX.Element {
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
 
-    const { filterType, searchTerm, actionsFiltered, shouldShowProductIntroduction, shouldShowEmptyState } =
-        useValues(actionsLogic)
+    const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -218,21 +217,17 @@ export function ActionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                <ProductIntroduction
-                    productName="Actions"
-                    productKey={ProductKey.ACTIONS}
-                    thingName="action"
-                    isEmpty={shouldShowEmptyState}
-                    description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
-                    docsURL="https://posthog.com/docs/data/actions"
-                    actionElementOverride={
-                        <NewActionButton
-                            onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)}
-                        />
-                    }
-                />
-            )}
+            <ProductIntroduction
+                productName="Actions"
+                productKey={ProductKey.ACTIONS}
+                thingName="action"
+                isEmpty={shouldShowEmptyState}
+                description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
+                docsURL="https://posthog.com/docs/data/actions"
+                actionElementOverride={
+                    <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)} />
+                }
+            />
             {(shouldShowEmptyState && filterType === 'me') || !shouldShowEmptyState ? (
                 <div className="flex items-center justify-between gap-2 mb-4">
                     <LemonInput

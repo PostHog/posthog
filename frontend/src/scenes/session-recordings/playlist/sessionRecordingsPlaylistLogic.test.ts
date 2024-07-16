@@ -8,6 +8,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingF
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
+    convertUniversalFiltersToLegacyFilters,
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_RECORDING_UNIVERSAL_FILTERS,
     DEFAULT_SIMPLE_RECORDING_FILTERS,
@@ -639,6 +640,41 @@ describe('sessionRecordingsPlaylistLogic', () => {
             logic.mount()
 
             expectLogic(logic).toMatchValues({ showOtherRecordings: true })
+        })
+    })
+
+    describe('convertUniversalFiltersToLegacyFilters', () => {
+        it('expands the visited_page filter to a pageview with $current_url property', () => {
+            const result = convertUniversalFiltersToLegacyFilters({
+                ...DEFAULT_RECORDING_UNIVERSAL_FILTERS,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Recording,
+                                    key: 'visited_page',
+                                    value: ['https://example-url.com'],
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            expect(result.events).toEqual([
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    properties: [
+                        { key: '$current_url', operator: 'exact', type: 'event', value: ['https://example-url.com'] },
+                    ],
+                    type: 'events',
+                },
+            ])
         })
     })
 

@@ -51,7 +51,7 @@
 
 .SessionRecordingPlaylistHeightWrapper {
     // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
-    height: calc(100vh - 9rem);
+    height: calc(100vh - 15rem);
     min-height: 41rem;
 }
 
@@ -63,6 +63,6 @@
     }
 
     &:hover {
-        background-color: var(--primary-3000-highlight);
+        background-color: var(--primary-highlight);
     }
 }
