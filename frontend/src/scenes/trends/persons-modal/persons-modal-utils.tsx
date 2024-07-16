@@ -56,27 +56,24 @@ export const cleanedInsightActorsQueryOptions = (
     insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null,
     query: any
 ): [string, any[]][] => {
+    const cleanedOptions = Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
+        return Array.isArray(value) && !!value.length
+    })
     if (!query || !query.source) {
-        return Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
-            return Array.isArray(value) && !!value.length
-        })
+        return cleanedOptions
     }
     const seriesNames = query.source.series.map((s: any) => s.custom_name || s.name)
-
-    return Object.entries(insightActorsQueryOptions ?? {})
-        .filter(([, value]) => {
-            return Array.isArray(value) && !!value.length
-        })
-        .map(([key, value]) => {
-            if (key === 'series') {
-                return [
-                    key,
-                    value.map((v: any, index: number) => ({
-                        ...v,
-                        label: seriesNames[index],
-                    })),
-                ]
-            }
-            return [key, value]
-        })
+    const cleanedOptionsWithCustomSeriesNames: [string, any[]][] = cleanedOptions.map(([key, value]) => {
+        if (key === 'series') {
+            return [
+                key,
+                value.map((v: any, index: number) => ({
+                    ...v,
+                    label: seriesNames[index],
+                })),
+            ]
+        }
+        return [key, value]
+    })
+    return cleanedOptionsWithCustomSeriesNames
 }
