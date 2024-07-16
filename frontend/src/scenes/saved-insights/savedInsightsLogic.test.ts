@@ -63,7 +63,7 @@ describe('savedInsightsLogic', () => {
             },
         })
         initKeaTests()
-        router.actions.push(urls.savedInsights())
+        router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
         logic = savedInsightsLogic()
         logic.mount()
     })
