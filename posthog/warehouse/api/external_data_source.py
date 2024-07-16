@@ -113,12 +113,12 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         ]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
-        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None
+        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
 
         return latest_completed_run.created_at if latest_completed_run else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)
+        active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
         any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
         any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
