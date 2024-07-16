@@ -23,7 +23,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "date_marker",
             "creation_type",
             "dashboard_item",
-            "dashboard",
+            "dashboard_id",
             "dashboard_name",
             "insight_short_id",
             "insight_name",
