@@ -20,7 +20,7 @@ import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } f
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
-export const INSIGHTS_PER_PAGE = 3
+export const INSIGHTS_PER_PAGE = 30
 
 export interface InsightsResult {
     results: InsightModel[]
