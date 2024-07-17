@@ -47,7 +47,7 @@ def select_from_persons_table(
     *,
     filter: Optional[Expr] = None,
 ):
-    version = context.modifiers.personsArgMaxVersion
+    version = context.modifiers.persons_arg_max_version
     if version == PersonsArgMaxVersion.AUTO:
         version = PersonsArgMaxVersion.V1
         # If selecting properties, use the faster v2 query. Otherwise, v1 is faster.
@@ -104,7 +104,7 @@ def select_from_persons_table(
             else:
                 select.where = filter
 
-    if context.modifiers.optimizeJoinedFilters:
+    if context.modifiers.optimize_joined_filters:
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)

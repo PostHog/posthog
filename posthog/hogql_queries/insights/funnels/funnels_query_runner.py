@@ -106,27 +106,27 @@ class FunnelsQueryRunner(QueryRunner):
 
     @cached_property
     def funnel_order_class(self):
-        return get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+        return get_funnel_order_class(self.context.funnels_filter)(context=self.context)
 
     @cached_property
     def funnel_class(self):
-        funnelVizType = self.context.funnelsFilter.funnelVizType
+        funnel_viz_type = self.context.funnels_filter.funnel_viz_type
 
-        if funnelVizType == FunnelVizType.TRENDS:
+        if funnel_viz_type == FunnelVizType.TRENDS:
             return FunnelTrends(context=self.context, **self.kwargs)
-        elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
+        elif funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvert(context=self.context)
         else:
             return self.funnel_order_class
 
     @cached_property
     def funnel_actor_class(self):
-        return get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
+        return get_funnel_actor_class(self.context.funnels_filter)(context=self.context)
 
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=self.query.date_range,
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),

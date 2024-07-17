@@ -49,7 +49,7 @@ class TestCSVExporter(APIBaseTest):
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
             mock_response.json.side_effect = [
                 {
-                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
+                    "next": "http://testserver/api/projects/169/events?order_by=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
                     "results": [
                         {
                             "id": "e9ca132e-400f-4854-a83c-16c151b2f145",
@@ -64,7 +64,7 @@ class TestCSVExporter(APIBaseTest):
                     ],
                 },
                 {
-                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
+                    "next": "http://testserver/api/projects/169/events?order_by=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
                     "results": [
                         {
                             "id": "1624228e-a4f1-48cd-aabc-6baa3ddb22e4",
@@ -535,9 +535,9 @@ class TestCSVExporter(APIBaseTest):
                         {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
                     ],
                     "interval": "day",
-                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
-                    "funnelsFilter": {"funnelVizType": "steps"},
-                    "breakdownFilter": {"breakdown": "utm_medium", "breakdown_type": "event"},
+                    "date_range": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "funnels_filter": {"funnel_viz_type": "steps"},
+                    "breakdown_filter": {"breakdown": "utm_medium", "breakdown_type": "event"},
                 }
             },
         )
@@ -570,9 +570,9 @@ class TestCSVExporter(APIBaseTest):
                         {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
                     ],
                     "interval": "day",
-                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
-                    "funnelsFilter": {"funnelVizType": "steps"},
-                    "breakdownFilter": {"breakdown": "utm_medium", "breakdown_type": "event"},
+                    "date_range": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "funnels_filter": {"funnel_viz_type": "steps"},
+                    "breakdown_filter": {"breakdown": "utm_medium", "breakdown_type": "event"},
                 }
             },
         )
@@ -625,7 +625,7 @@ class TestCSVExporter(APIBaseTest):
             export_context={
                 "source": {
                     "kind": "TrendsQuery",
-                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "date_range": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
                     "series": [
                         {
                             "kind": "EventsNode",
@@ -641,7 +641,11 @@ class TestCSVExporter(APIBaseTest):
                         },
                     ],
                     "interval": "day",
-                    "trendsFilter": {"showLegend": True, "aggregationAxisFormat": "percentage", "formula": "(B/A)*100"},
+                    "trends_filter": {
+                        "show_legend": True,
+                        "aggregation_axis_format": "percentage",
+                        "formula": "(B/A)*100",
+                    },
                 }
             },
         )

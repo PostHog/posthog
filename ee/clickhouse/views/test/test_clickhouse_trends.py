@@ -679,7 +679,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         with freeze_time("2012-01-15T04:01:34.000Z"):
             request = TrendsRequest(
                 date_from="-14d",
-                display="ActionsPie",
+                display="actions_pie",
                 events=[
                     {
                         "id": "$pageview",
@@ -946,7 +946,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
             params = TrendsRequestBreakdown(
                 date_from="-14d",
                 breakdown="key",
-                display="ActionsPie",
+                display="actions_pie",
                 events=[{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
             )
             aggregate_response = get_trends_aggregate_ok(self.client, params, self.team)

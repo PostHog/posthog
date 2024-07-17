@@ -61,7 +61,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
     def _create_query_runner(self, date_from, date_to, interval, aggregation_group_type_index) -> LifecycleQueryRunner:
         series = [EventsNode(event="$pageview")]
         query = LifecycleQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
+            date_range=InsightDateRange(date_from=date_from, date_to=date_to),
             interval=interval,
             series=series,
             aggregation_group_type_index=aggregation_group_type_index,
@@ -641,7 +641,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_query_runner(self, date_from, date_to, interval) -> LifecycleQueryRunner:
         series = [EventsNode(event="$pageview")]
         query = LifecycleQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
+            date_range=InsightDateRange(date_from=date_from, date_to=date_to),
             interval=interval,
             series=series,
         )
@@ -958,7 +958,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1008,7 +1008,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event=None)],
                 ),
@@ -1072,7 +1072,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1173,7 +1173,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                     properties=[EventPropertyFilter(key="$number", value="1", operator=PropertyOperator.EXACT)],
@@ -1198,7 +1198,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[
                         EventsNode(
@@ -1304,7 +1304,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[
                         EventsNode(
@@ -1373,7 +1373,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1418,7 +1418,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[ActionsNode(id=pageview_action.pk)],
                 ),
@@ -1462,7 +1462,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 LifecycleQueryRunner(
                     team=self.team,
                     query=LifecycleQuery(
-                        dateRange=InsightDateRange(date_from="all"),
+                        date_range=InsightDateRange(date_from="all"),
                         interval=IntervalType.DAY,
                         series=[EventsNode(event="$pageview")],
                     ),
@@ -1509,7 +1509,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
                     interval=IntervalType.WEEK,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1568,7 +1568,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
                     interval=IntervalType.WEEK,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1623,7 +1623,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-02-01T00:00:00Z", date_to="2020-09-01T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-02-01T00:00:00Z", date_to="2020-09-01T00:00:00Z"),
                     interval=IntervalType.MONTH,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1666,10 +1666,10 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
-                    filterTestAccounts=True,
+                    filter_test_accounts=True,
                 ),
             )
             .calculate()
@@ -1711,7 +1711,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12", date_to="2020-01-19"),
+                    date_range=InsightDateRange(date_from="2020-01-12", date_to="2020-01-19"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1737,7 +1737,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12", date_to="2020-01-19"),
+                    date_range=InsightDateRange(date_from="2020-01-12", date_to="2020-01-19"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1784,10 +1784,10 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         LifecycleQueryRunner(
             team=self.team,
             query=LifecycleQuery(
-                dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                 interval=IntervalType.DAY,
                 series=[EventsNode(event="$pageview")],
-                samplingFactor=0.1,
+                sampling_factor=0.1,
             ),
         ).calculate()
 
@@ -1831,7 +1831,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = LifecycleQueryRunner(
             team=self.team,
             query=LifecycleQuery(
-                dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                date_range=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                 interval=IntervalType.DAY,
                 series=[EventsNode(event="$pageview")],
                 properties=[CohortPropertyFilter(value=cohort.pk)],

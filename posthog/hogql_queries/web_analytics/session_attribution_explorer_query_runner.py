@@ -37,7 +37,7 @@ class SessionAttributionExplorerQueryRunner(QueryRunner):
             group_by = []
 
             def group_or_agg(group_name, field, result):
-                if group_name in self.query.groupBy:
+                if group_name in self.query.group_by:
                     group_by.append(f'"{result}"')
                     return field
                 else:
@@ -102,7 +102,7 @@ ORDER BY "context.columns.count" DESC
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
-            filters=HogQLFilters(dateRange=self.query.filters.dateRange, properties=self.query.filters.properties)
+            filters=HogQLFilters(date_range=self.query.filters.date_range, properties=self.query.filters.properties)
             if self.query.filters
             else None,
         )

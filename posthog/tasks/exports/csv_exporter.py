@@ -92,8 +92,8 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         # query like
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
-            # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
-            # or {'columns': ['count()', 'event'], 'hasMore': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
+            # e.g. {'columns': ['count()'], 'has_more': False, 'results': [[1775]], 'types': ['UInt64']}
+            # or {'columns': ['count()', 'event'], 'has_more': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
             for row in results:
                 row_dict = {}
                 for idx, x in enumerate(row):
@@ -269,12 +269,12 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
         except QuerySizeExceeded:
-            if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
+            if "breakdown_filter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                 raise
 
             # HACKY: Adjust the breakdown_limit in the query
             limit = int(limit / 2)
-            query["breakdownFilter"]["breakdown_limit"] = limit
+            query["breakdown_filter"]["breakdown_limit"] = limit
             continue
 
         if isinstance(query_response, BaseModel):

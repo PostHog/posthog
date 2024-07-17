@@ -40,14 +40,14 @@ class TestTrendsDashboardFilters(BaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            date_range=InsightDateRange(date_from=date_from, date_to=date_to, explicit_date=explicit_date),
             interval=interval,
             series=query_series,
-            trendsFilter=trends_filters,
-            breakdownFilter=breakdown,
-            filterTestAccounts=filter_test_accounts,
+            trends_filter=trends_filters,
+            breakdown_filter=breakdown,
+            filter_test_accounts=filter_test_accounts,
             properties=properties,
-            compareFilter=compare_filters,
+            compare_filter=compare_filters,
         )
         return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
 
@@ -59,20 +59,20 @@ class TestTrendsDashboardFilters(BaseTest):
             None,
         )
 
-        assert query_runner.query.dateRange is not None
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range is not None
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
         query_runner.apply_dashboard_filters(DashboardFilter())
 
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
     def test_date_from_override_updates_whole_date_range(self):
         query_runner = self._create_query_runner(
@@ -82,20 +82,20 @@ class TestTrendsDashboardFilters(BaseTest):
             None,
         )
 
-        assert query_runner.query.dateRange is not None
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range is not None
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
         query_runner.apply_dashboard_filters(DashboardFilter(date_from="-14d"))
 
-        assert query_runner.query.dateRange.date_from == "-14d"
-        assert query_runner.query.dateRange.date_to is None
+        assert query_runner.query.date_range.date_from == "-14d"
+        assert query_runner.query.date_range.date_to is None
         assert query_runner.query.properties is None  # type: ignore [unreachable]
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
     def test_date_from_and_date_to_override_updates_whole_date_range(self):
         query_runner = self._create_query_runner(
@@ -105,20 +105,20 @@ class TestTrendsDashboardFilters(BaseTest):
             None,
         )
 
-        assert query_runner.query.dateRange is not None
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range is not None
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
         query_runner.apply_dashboard_filters(DashboardFilter(date_from="2024-07-07", date_to="2024-07-14"))
 
-        assert query_runner.query.dateRange.date_from == "2024-07-07"
-        assert query_runner.query.dateRange.date_to == "2024-07-14"
+        assert query_runner.query.date_range.date_from == "2024-07-07"
+        assert query_runner.query.date_range.date_to == "2024-07-14"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
     def test_properties_set_when_no_filters_present(self):
         query_runner = self._create_query_runner(
@@ -128,22 +128,22 @@ class TestTrendsDashboardFilters(BaseTest):
             None,
         )
 
-        assert query_runner.query.dateRange is not None
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range is not None
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
         query_runner.apply_dashboard_filters(
             DashboardFilter(properties=[EventPropertyFilter(key="key", value="value", operator="exact")])
         )
 
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties == [EventPropertyFilter(key="key", value="value", operator="exact")]
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
     def test_properties_list_extends_filters_list(self):
         query_runner = self._create_query_runner(
@@ -154,19 +154,19 @@ class TestTrendsDashboardFilters(BaseTest):
             properties=[EventPropertyFilter(key="abc", value="foo", operator="exact")],
         )
 
-        assert query_runner.query.dateRange is not None
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range is not None
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties == [EventPropertyFilter(key="abc", value="foo", operator="exact")]
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
         query_runner.apply_dashboard_filters(
             DashboardFilter(properties=[EventPropertyFilter(key="xyz", value="bar", operator="regex")])
         )
 
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties == PropertyGroupFilter(
             type=FilterLogicalOperator.AND_,
             values=[
@@ -184,8 +184,8 @@ class TestTrendsDashboardFilters(BaseTest):
                 ),
             ],
         )
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
     def test_properties_list_extends_filters_group(self):
         query_runner = self._create_query_runner(
@@ -208,9 +208,9 @@ class TestTrendsDashboardFilters(BaseTest):
             ),
         )
 
-        assert query_runner.query.dateRange is not None
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range is not None
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties == PropertyGroupFilter(
             type=FilterLogicalOperator.OR_,
             values=[
@@ -224,8 +224,8 @@ class TestTrendsDashboardFilters(BaseTest):
                 ),
             ],
         )
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
         query_runner.apply_dashboard_filters(
             DashboardFilter(
@@ -235,8 +235,8 @@ class TestTrendsDashboardFilters(BaseTest):
             )
         )
 
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties == PropertyGroupFilter(
             type=FilterLogicalOperator.AND_,
             values=[
@@ -259,8 +259,8 @@ class TestTrendsDashboardFilters(BaseTest):
                 ),
             ],
         )
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter is None
 
     def test_breakdown_limit_is_removed_when_too_large_for_dashboard(self):
         query_runner = self._create_query_runner(
@@ -271,26 +271,28 @@ class TestTrendsDashboardFilters(BaseTest):
             breakdown=BreakdownFilter(breakdown="abc", breakdown_limit=5),
         )
 
-        assert query_runner.query.dateRange is not None
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range is not None
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter == BreakdownFilter(breakdown="abc", breakdown_limit=5)
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter == BreakdownFilter(breakdown="abc", breakdown_limit=5)
+        assert query_runner.query.trends_filter is None
 
         query_runner.apply_dashboard_filters(DashboardFilter())  #
 
-        assert query_runner.query.dateRange.date_from == "2020-01-09"
-        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.date_range.date_from == "2020-01-09"
+        assert query_runner.query.date_range.date_to == "2020-01-20"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter == BreakdownFilter(breakdown="abc", breakdown_limit=5)  # Small enough
-        assert query_runner.query.trendsFilter is None
+        assert query_runner.query.breakdown_filter == BreakdownFilter(
+            breakdown="abc", breakdown_limit=5
+        )  # Small enough
+        assert query_runner.query.trends_filter is None
 
-        query_runner.query.breakdownFilter.breakdown_limit = 50
+        query_runner.query.breakdown_filter.breakdown_limit = 50
 
         query_runner.apply_dashboard_filters(DashboardFilter())
 
-        assert query_runner.query.breakdownFilter == BreakdownFilter(
+        assert query_runner.query.breakdown_filter == BreakdownFilter(
             breakdown="abc",
             breakdown_limit=None,  # 50 series would be too many on a dashboard, reverting to default
         )
@@ -305,21 +307,21 @@ class TestTrendsDashboardFilters(BaseTest):
             compare_filters=CompareFilter(compare=True),
         )
 
-        assert query_runner.query.dateRange is not None
-        assert query_runner.query.dateRange.date_from == "2024-07-07"
-        assert query_runner.query.dateRange.date_to == "2024-07-14"
+        assert query_runner.query.date_range is not None
+        assert query_runner.query.date_range.date_from == "2024-07-07"
+        assert query_runner.query.date_range.date_to == "2024-07-14"
         assert query_runner.query.properties is None
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter == TrendsFilter()
-        assert query_runner.query.compareFilter == CompareFilter(compare=True)
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter == TrendsFilter()
+        assert query_runner.query.compare_filter == CompareFilter(compare=True)
 
         query_runner.apply_dashboard_filters(DashboardFilter(date_from="all"))
 
-        assert query_runner.query.dateRange.date_from == "all"
-        assert query_runner.query.dateRange.date_to is None
+        assert query_runner.query.date_range.date_from == "all"
+        assert query_runner.query.date_range.date_to is None
         assert query_runner.query.properties is None  # type: ignore [unreachable]
-        assert query_runner.query.breakdownFilter is None
-        assert query_runner.query.trendsFilter == TrendsFilter()
-        assert query_runner.query.compareFilter == CompareFilter(
+        assert query_runner.query.breakdown_filter is None
+        assert query_runner.query.trends_filter == TrendsFilter()
+        assert query_runner.query.compare_filter == CompareFilter(
             compare=False
         )  # There's no previous period for the "all time" date range

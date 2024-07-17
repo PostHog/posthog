@@ -5,21 +5,21 @@ from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, Funnel
 from rest_framework.exceptions import ValidationError
 
 
-def get_funnel_order_class(funnelsFilter: FunnelsFilter):
+def get_funnel_order_class(funnels_filter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
         FunnelStrict,
         FunnelUnordered,
     )
 
-    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+    if funnels_filter.funnel_order_type == StepOrderValue.UNORDERED:
         return FunnelUnordered
-    elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
+    elif funnels_filter.funnel_order_type == StepOrderValue.STRICT:
         return FunnelStrict
     return Funnel
 
 
-def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
+def get_funnel_actor_class(funnels_filter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import (
         FunnelActors,
         FunnelStrictActors,
@@ -27,36 +27,36 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
         FunnelTrendsActors,
     )
 
-    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
+    if funnels_filter.funnel_viz_type == FunnelVizType.TRENDS:
         return FunnelTrendsActors
     else:
-        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+        if funnels_filter.funnel_order_type == StepOrderValue.UNORDERED:
             return FunnelUnorderedActors
-        elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
+        elif funnels_filter.funnel_order_type == StepOrderValue.STRICT:
             return FunnelStrictActors
         else:
             return FunnelActors
 
 
 def funnel_window_interval_unit_to_sql(
-    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | None,
+    funnel_window_interval_unit: FunnelConversionWindowTimeUnit | None,
 ) -> FUNNEL_WINDOW_INTERVAL_TYPES:
-    if funnelWindowIntervalUnit is None:
+    if funnel_window_interval_unit is None:
         return "DAY"
-    elif funnelWindowIntervalUnit == "second":
+    elif funnel_window_interval_unit == "second":
         return "SECOND"
-    elif funnelWindowIntervalUnit == "minute":
+    elif funnel_window_interval_unit == "minute":
         return "MINUTE"
-    elif funnelWindowIntervalUnit == "hour":
+    elif funnel_window_interval_unit == "hour":
         return "HOUR"
-    elif funnelWindowIntervalUnit == "week":
+    elif funnel_window_interval_unit == "week":
         return "WEEK"
-    elif funnelWindowIntervalUnit == "month":
+    elif funnel_window_interval_unit == "month":
         return "MONTH"
-    elif funnelWindowIntervalUnit == "day":
+    elif funnel_window_interval_unit == "day":
         return "DAY"
     else:
-        raise ValidationError(f"{funnelWindowIntervalUnit} not supported")
+        raise ValidationError(f"{funnel_window_interval_unit} not supported")
 
 
 def get_breakdown_expr(

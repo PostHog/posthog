@@ -123,7 +123,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 select_from=ast.JoinExpr(table=ast.Field(chain=[self.name])),
             )
 
-            execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(s3TableUseInvalidColumns=True))
+            execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(s3_table_use_invalid_columns=True))
             return True
         except:
             return False
@@ -213,7 +213,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 column_invalid = False
 
-            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+            if not column_invalid or (modifiers is not None and modifiers.s3_table_use_invalid_columns):
                 if is_nullable:
                     structure.append(f"`{column}` Nullable({clickhouse_type})")
                 else:

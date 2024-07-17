@@ -59,21 +59,21 @@ class TestSchemaHelpers(TestCase):
 
     def test_serializes_empty_and_missing_insight_filter_equally(self):
         q1 = TrendsQuery(**base_trends)
-        q2 = TrendsQuery(**{**base_trends, "trendsFilter": {}})
+        q2 = TrendsQuery(**{**base_trends, "trends_filter": {}})
 
         self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
         self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
 
     def test_serializes_empty_and_missing_breakdown_filter_equally(self):
         q1 = TrendsQuery(**base_trends)
-        q2 = TrendsQuery(**{**base_trends, "breakdownFilter": {}})
+        q2 = TrendsQuery(**{**base_trends, "breakdown_filter": {}})
 
         self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
         self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
 
     def test_serializes_empty_and_missing_date_range_equally(self):
         q1 = TrendsQuery(**base_trends)
-        q2 = TrendsQuery(**{**base_trends, "dateRange": {}})
+        q2 = TrendsQuery(**{**base_trends, "date_range": {}})
 
         self.assertEqual(to_dict(q1), {"kind": "TrendsQuery", "series": []})
         self.assertEqual(to_dict(q2), {"kind": "TrendsQuery", "series": []})
@@ -86,38 +86,40 @@ class TestSchemaHelpers(TestCase):
         self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": [{"name": "$pageview"}]})
 
     def test_serializes_insight_filter_without_frontend_only_props(self):
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"showLegend": True}})
+        query = TrendsQuery(**{**base_trends, "trends_filter": {"show_legend": True}})
 
         result_dict = to_dict(query)
 
         self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
 
     def test_serializes_retention_filter_without_frontend_only_props(self):
-        query = RetentionQuery(**{"retentionFilter": {"targetEntity": {"uuid": "1"}, "returningEntity": {"uuid": "2"}}})
+        query = RetentionQuery(
+            **{"retention_filter": {"target_entity": {"uuid": "1"}, "returning_entity": {"uuid": "2"}}}
+        )
 
         result_dict = to_dict(query)
 
         self.assertEqual(
-            result_dict, {"kind": "RetentionQuery", "retentionFilter": {"targetEntity": {}, "returningEntity": {}}}
+            result_dict, {"kind": "RetentionQuery", "retention_filter": {"target_entity": {}, "returning_entity": {}}}
         )
 
     def test_serializes_display_with_canonic_alternatives(self):
         # time series (gets removed as ActionsLineGraph is the default)
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsAreaGraph"}})
+        query = TrendsQuery(**{**base_trends, "trends_filter": {"display": "ActionsAreaGraph"}})
         self.assertEqual(to_dict(query), {"kind": "TrendsQuery", "series": []})
 
         # cumulative time series
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "ActionsLineGraphCumulative"}})
+        query = TrendsQuery(**{**base_trends, "trends_filter": {"display": "ActionsLineGraphCumulative"}})
         self.assertEqual(
             to_dict(query),
-            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsLineGraphCumulative"}},
+            {"kind": "TrendsQuery", "series": [], "trends_filter": {"display": "ActionsLineGraphCumulative"}},
         )
 
         # total value
-        query = TrendsQuery(**{**base_trends, "trendsFilter": {"display": "BoldNumber"}})
+        query = TrendsQuery(**{**base_trends, "trends_filter": {"display": "BoldNumber"}})
         self.assertEqual(
             to_dict(query),
-            {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsBarValue"}},
+            {"kind": "TrendsQuery", "series": [], "trends_filter": {"display": "ActionsBarValue"}},
         )
 
     def _assert_filter(self, key: str, num_keys: int, q1: BaseModel, q2: BaseModel):
@@ -129,15 +131,15 @@ class TestSchemaHelpers(TestCase):
 
     @parameterized.expand(
         [
-            ({}, {"date_from": "-7d", "explicitDate": False}, 0),
+            ({}, {"date_from": "-7d", "explicit_date": False}, 0),
             ({"date_to": "2024-02-02"}, {"date_to": "2024-02-02"}, 1),
         ]
     )
     def test_serializes_date_range(self, f1, f2, num_keys):
-        q1 = TrendsQuery(**base_funnel, dateRange=f1)
-        q2 = TrendsQuery(**base_funnel, dateRange=f2)
+        q1 = TrendsQuery(**base_funnel, date_range=f1)
+        q2 = TrendsQuery(**base_funnel, date_range=f2)
 
-        self._assert_filter("dateRange", num_keys, q1, q2)
+        self._assert_filter("date_range", num_keys, q1, q2)
 
     @parameterized.expand(
         [
@@ -148,10 +150,10 @@ class TestSchemaHelpers(TestCase):
         ]
     )
     def test_serializes_trends_filter(self, f1, f2, num_keys):
-        q1 = TrendsQuery(**base_funnel, trendsFilter=f1)
-        q2 = TrendsQuery(**base_funnel, trendsFilter=f2)
+        q1 = TrendsQuery(**base_funnel, trends_filter=f1)
+        q2 = TrendsQuery(**base_funnel, trends_filter=f2)
 
-        self._assert_filter("trendsFilter", num_keys, q1, q2)
+        self._assert_filter("trends_filter", num_keys, q1, q2)
 
     @parameterized.expand(
         [
@@ -159,79 +161,79 @@ class TestSchemaHelpers(TestCase):
             (None, {}, 0),
             # general: ordering of keys
             (
-                {"funnelVizType": FunnelVizType.TIME_TO_CONVERT, "funnelOrderType": StepOrderValue.STRICT},
-                {"funnelOrderType": StepOrderValue.STRICT, "funnelVizType": FunnelVizType.TIME_TO_CONVERT},
+                {"funnel_viz_type": FunnelVizType.TIME_TO_CONVERT, "funnel_order_type": StepOrderValue.STRICT},
+                {"funnel_order_type": StepOrderValue.STRICT, "funnel_viz_type": FunnelVizType.TIME_TO_CONVERT},
                 2,
             ),
-            # binCount
-            # ({}, {"binCount": 4}, 0),
+            # bin_count
+            # ({}, {"bin_count": 4}, 0),
             (
-                {"binCount": 4, "funnelVizType": FunnelVizType.TIME_TO_CONVERT},
-                {"binCount": 4, "funnelVizType": FunnelVizType.TIME_TO_CONVERT},
+                {"bin_count": 4, "funnel_viz_type": FunnelVizType.TIME_TO_CONVERT},
+                {"bin_count": 4, "funnel_viz_type": FunnelVizType.TIME_TO_CONVERT},
                 2,
             ),
-            # breakdownAttributionType
-            ({}, {"breakdownAttributionType": BreakdownAttributionType.FIRST_TOUCH}, 0),
+            # breakdown_attribution_type
+            ({}, {"breakdown_attribution_type": BreakdownAttributionType.FIRST_TOUCH}, 0),
             (
-                {"breakdownAttributionType": BreakdownAttributionType.LAST_TOUCH},
-                {"breakdownAttributionType": BreakdownAttributionType.LAST_TOUCH},
+                {"breakdown_attribution_type": BreakdownAttributionType.LAST_TOUCH},
+                {"breakdown_attribution_type": BreakdownAttributionType.LAST_TOUCH},
                 1,
             ),
-            # breakdownAttributionValue
-            # ({}, {"breakdownAttributionValue": 2}, 0),
+            # breakdown_attribution_value
+            # ({}, {"breakdown_attribution_value": 2}, 0),
             (
-                {"breakdownAttributionType": BreakdownAttributionType.STEP, "breakdownAttributionValue": 2},
-                {"breakdownAttributionType": BreakdownAttributionType.STEP, "breakdownAttributionValue": 2},
+                {"breakdown_attribution_type": BreakdownAttributionType.STEP, "breakdown_attribution_value": 2},
+                {"breakdown_attribution_type": BreakdownAttributionType.STEP, "breakdown_attribution_value": 2},
                 2,
             ),
             # exclusions
             ({}, {"exclusions": []}, 0),
             (
-                {"exclusions": [FunnelExclusionEventsNode(funnelFromStep=0, funnelToStep=1)]},
-                {"exclusions": [FunnelExclusionEventsNode(funnelFromStep=0, funnelToStep=1)]},
+                {"exclusions": [FunnelExclusionEventsNode(funnel_from_step=0, funnel_to_step=1)]},
+                {"exclusions": [FunnelExclusionEventsNode(funnel_from_step=0, funnel_to_step=1)]},
                 1,
             ),
-            # funnelAggregateByHogQL
-            # ({}, {"funnelAggregateByHogQL": ""}, 1),
-            ({"funnelAggregateByHogQL": "distinct_id"}, {"funnelAggregateByHogQL": "distinct_id"}, 1),
-            # funnelFromStep and funnelToStep
-            ({"funnelFromStep": 1, "funnelToStep": 2}, {"funnelFromStep": 1, "funnelToStep": 2}, 2),
-            # funnelOrderType
-            ({}, {"funnelOrderType": StepOrderValue.ORDERED}, 0),
-            ({"funnelOrderType": StepOrderValue.STRICT}, {"funnelOrderType": StepOrderValue.STRICT}, 1),
-            # funnelStepReference
-            ({}, {"funnelStepReference": FunnelStepReference.TOTAL}, 0),
+            # funnel_aggregate_by_hog_q_l
+            # ({}, {"funnel_aggregate_by_hog_q_l": ""}, 1),
+            ({"funnel_aggregate_by_hog_q_l": "distinct_id"}, {"funnel_aggregate_by_hog_q_l": "distinct_id"}, 1),
+            # funnel_from_step and funnel_to_step
+            ({"funnel_from_step": 1, "funnel_to_step": 2}, {"funnel_from_step": 1, "funnel_to_step": 2}, 2),
+            # funnel_order_type
+            ({}, {"funnel_order_type": StepOrderValue.ORDERED}, 0),
+            ({"funnel_order_type": StepOrderValue.STRICT}, {"funnel_order_type": StepOrderValue.STRICT}, 1),
+            # funnel_step_reference
+            ({}, {"funnel_step_reference": FunnelStepReference.TOTAL}, 0),
             (
-                {"funnelStepReference": FunnelStepReference.PREVIOUS},
-                {"funnelStepReference": FunnelStepReference.PREVIOUS},
+                {"funnel_step_reference": FunnelStepReference.PREVIOUS},
+                {"funnel_step_reference": FunnelStepReference.PREVIOUS},
                 1,
             ),
-            # funnelVizType
-            ({}, {"funnelVizType": FunnelVizType.STEPS}, 0),
-            ({"funnelVizType": FunnelVizType.TRENDS}, {"funnelVizType": FunnelVizType.TRENDS}, 1),
-            # funnelWindowInterval
-            ({}, {"funnelWindowInterval": 14}, 0),
-            ({"funnelWindowInterval": 12}, {"funnelWindowInterval": 12}, 1),
-            # funnelWindowIntervalUnit
-            ({}, {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.DAY}, 0),
+            # funnel_viz_type
+            ({}, {"funnel_viz_type": FunnelVizType.STEPS}, 0),
+            ({"funnel_viz_type": FunnelVizType.TRENDS}, {"funnel_viz_type": FunnelVizType.TRENDS}, 1),
+            # funnel_window_interval
+            ({}, {"funnel_window_interval": 14}, 0),
+            ({"funnel_window_interval": 12}, {"funnel_window_interval": 12}, 1),
+            # funnel_window_interval_unit
+            ({}, {"funnel_window_interval_unit": FunnelConversionWindowTimeUnit.DAY}, 0),
             (
-                {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.WEEK},
-                {"funnelWindowIntervalUnit": FunnelConversionWindowTimeUnit.WEEK},
+                {"funnel_window_interval_unit": FunnelConversionWindowTimeUnit.WEEK},
+                {"funnel_window_interval_unit": FunnelConversionWindowTimeUnit.WEEK},
                 1,
             ),
             # hidden_legend_breakdowns
             # ({}, {"hidden_legend_breakdowns": []}, 0),
             # layout
-            ({}, {"breakdownAttributionType": BreakdownAttributionType.FIRST_TOUCH}, 0),
+            ({}, {"breakdown_attribution_type": BreakdownAttributionType.FIRST_TOUCH}, 0),
             (
-                {"breakdownAttributionType": BreakdownAttributionType.LAST_TOUCH},
-                {"breakdownAttributionType": BreakdownAttributionType.LAST_TOUCH},
+                {"breakdown_attribution_type": BreakdownAttributionType.LAST_TOUCH},
+                {"breakdown_attribution_type": BreakdownAttributionType.LAST_TOUCH},
                 1,
             ),
         ]
     )
     def test_serializes_funnels_filter(self, f1, f2, num_keys):
-        q1 = FunnelsQuery(**base_funnel, funnelsFilter=f1)
-        q2 = FunnelsQuery(**base_funnel, funnelsFilter=f2)
+        q1 = FunnelsQuery(**base_funnel, funnels_filter=f1)
+        q2 = FunnelsQuery(**base_funnel, funnels_filter=f2)
 
-        self._assert_filter("funnelsFilter", num_keys, q1, q2)
+        self._assert_filter("funnels_filter", num_keys, q1, q2)

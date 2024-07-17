@@ -347,13 +347,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            date_range=InsightDateRange(date_from=date_from, date_to=date_to, explicit_date=explicit_date),
             interval=interval,
             series=query_series,
-            trendsFilter=trends_filters,
-            breakdownFilter=breakdown,
-            compareFilter=compare_filters,
-            filterTestAccounts=filter_test_accounts,
+            trends_filter=trends_filters,
+            breakdown_filter=breakdown,
+            compare_filter=compare_filters,
+            filter_test_accounts=filter_test_accounts,
         )
         return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
 
@@ -2006,7 +2006,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-20",
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
-            TrendsFilter(smoothingIntervals=7),
+            TrendsFilter(smoothing_intervals=7),
             None,
         )
 
@@ -2064,7 +2064,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             hogql_modifiers=modifiers,
         )
 
-        assert modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
+        assert modifiers.in_cohort_via == InCohortVia.LEFTJOIN_CONJOINED
 
     @patch("posthog.hogql_queries.query_runner.create_default_modifiers_for_team")
     def test_cohort_modifier_with_all_cohort(self, patch_create_default_modifiers_for_team):
@@ -2118,7 +2118,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             hogql_modifiers=modifiers,
         )
 
-        assert modifiers.inCohortVia == InCohortVia.AUTO
+        assert modifiers.in_cohort_via == InCohortVia.AUTO
 
     @patch("posthog.hogql_queries.query_runner.create_default_modifiers_for_team")
     def test_cohort_modifier_with_too_few_cohorts(self, patch_create_default_modifiers_for_team):
@@ -2172,7 +2172,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             hogql_modifiers=modifiers,
         )
 
-        assert modifiers.inCohortVia == InCohortVia.AUTO
+        assert modifiers.in_cohort_via == InCohortVia.AUTO
 
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):
@@ -2700,7 +2700,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         )
-        runner.query.samplingFactor = 0.1
+        runner.query.sampling_factor = 0.1
         response = runner.calculate()
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
@@ -2714,7 +2714,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
         )
-        runner.query.samplingFactor = 0.1
+        runner.query.sampling_factor = 0.1
         response = runner.calculate()
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up

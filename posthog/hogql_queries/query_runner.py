@@ -650,7 +650,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""
-        if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
+        if not hasattr(self.query, "properties") or not hasattr(self.query, "date_range"):
             capture_exception(
                 NotImplementedError(
                     f"{self.query.__class__.__name__} does not support dashboard filters out of the box"
@@ -659,7 +659,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return
 
         # The default logic below applies to all insights and a lot of other queries
-        # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
+        # Notable exception: `HogQLQuery`, which has `properties` and `date_range` within `HogQLFilters`
         if dashboard_filter.properties:
             if self.query.properties:
                 try:
@@ -683,10 +683,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             else:
                 self.query.properties = dashboard_filter.properties
         if dashboard_filter.date_from or dashboard_filter.date_to:
-            if self.query.dateRange is None:
-                self.query.dateRange = DateRange()
-            self.query.dateRange.date_from = dashboard_filter.date_from
-            self.query.dateRange.date_to = dashboard_filter.date_to
+            if self.query.date_range is None:
+                self.query.date_range = DateRange()
+            self.query.date_range.date_from = dashboard_filter.date_from
+            self.query.date_range.date_to = dashboard_filter.date_to
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE
@@ -710,10 +710,10 @@ class QueryResponse(BaseModel, Generic[DataT]):
     columns: Optional[list[str]] = None
     error: Optional[str] = None
     hogql: Optional[str] = None
-    hasMore: Optional[bool] = None
+    has_more: Optional[bool] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
-    samplingRate: Optional[SamplingRate] = None
+    sampling_rate: Optional[SamplingRate] = None
     modifiers: Optional[HogQLQueryModifiers] = None
 
 

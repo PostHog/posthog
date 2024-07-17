@@ -48,7 +48,7 @@ TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
-TRENDS_PIE = "ActionsPie"
+TRENDS_PIE = "actions_pie"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
@@ -89,7 +89,7 @@ DISPLAY_TYPES = Literal[
     "ActionsLineGraph",
     "ActionsLineGraphCumulative",
     "ActionsTable",
-    "ActionsPie",
+    "actions_pie",
     "ActionsBar",
     "ActionsBarValue",
     "WorldMap",

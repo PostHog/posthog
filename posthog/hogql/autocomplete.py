@@ -298,7 +298,7 @@ def extend_responses(
     suggestions.extend(
         [
             AutocompleteCompletionItem(
-                insertText=insert_text(key) if insert_text is not None else key,
+                insert_text=insert_text(key) if insert_text is not None else key,
                 label=key,
                 kind=kind,
                 detail=details[index] if details is not None else None,
@@ -368,8 +368,8 @@ def get_hogql_autocomplete(
         database = create_hogql_database(team_id=team.pk, team_arg=team)
 
     context = HogQLContext(team_id=team.pk, team=team, database=database)
-    if query.sourceQuery is not None:
-        source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
+    if query.source_query is not None:
+        source_query = get_query_runner(query=query.source_query, team=team).to_query()
     else:
         source_query = parse_select("select 1")
 
@@ -382,9 +382,9 @@ def get_hogql_autocomplete(
         (f"{MATCH_ANY_CHARACTER} FROM events", len(MATCH_ANY_CHARACTER)),
     ]:
         try:
-            query_to_try = query.query[: query.endPosition] + extra_characters + query.query[query.endPosition :]
-            query_start = query.startPosition
-            query_end = query.endPosition + length_to_add
+            query_to_try = query.query[: query.end_position] + extra_characters + query.query[query.end_position :]
+            query_start = query.start_position
+            query_end = query.end_position + length_to_add
             node_ast: ast.AST
 
             if query.language == HogLanguage.HOG_QL:
@@ -458,7 +458,7 @@ def get_hogql_autocomplete(
                 filtered_globals = {key: value for key, value in query.globals.items() if key not in existing_values}
                 add_globals_to_suggestions(filtered_globals, response)
 
-            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE) and query.sourceQuery is None:
+            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE) and query.source_query is None:
                 # For Hog, break after the remaining globals are added
                 break
 

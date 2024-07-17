@@ -119,10 +119,10 @@ class TestInsightModel(BaseTest):
         test_cases = [
             (
                 # test that query filters are equal when there are no dashboard filters
-                {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
+                {"date_range": {"date_from": "-14d", "date_to": "-7d"}},
                 {},
                 {
-                    "dateRange": {
+                    "date_range": {
                         "date_from": "-14d",
                         "date_to": "-7d",
                     }
@@ -133,28 +133,28 @@ class TestInsightModel(BaseTest):
                 {},
                 {"date_from": "-14d", "date_to": "-7d"},
                 {
-                    "dateRange": {"date_from": "-14d", "date_to": "-7d", "explicitDate": False},
-                    "filterTestAccounts": None,
+                    "date_range": {"date_from": "-14d", "date_to": "-7d", "explicit_date": False},
+                    "filter_test_accounts": None,
                     "properties": None,
                 },
             ),
             (
                 # test that dashboard filters take priority
-                {"dateRange": {"date_from": "-2d", "date_to": "-1d"}},
+                {"date_range": {"date_from": "-2d", "date_to": "-1d"}},
                 {"date_from": "-4d", "date_to": "-3d"},
                 {
-                    "dateRange": {"date_from": "-4d", "date_to": "-3d", "explicitDate": False},
-                    "filterTestAccounts": None,
+                    "date_range": {"date_from": "-4d", "date_to": "-3d", "explicit_date": False},
+                    "filter_test_accounts": None,
                     "properties": None,
                 },
             ),
             (
                 # test that dashboard filters take priority, even if only one value is set, the other is set to None
-                {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
+                {"date_range": {"date_from": "-14d", "date_to": "-7d"}},
                 {"date_from": "all"},
                 {
-                    "dateRange": {"date_from": "all", "date_to": None, "explicitDate": False},
-                    "filterTestAccounts": None,
+                    "date_range": {"date_from": "all", "date_to": None, "explicit_date": False},
+                    "filter_test_accounts": None,
                     "properties": None,
                 },
             ),
@@ -177,8 +177,8 @@ class TestInsightModel(BaseTest):
                 {},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": None,
-                    "filterTestAccounts": None,
+                    "date_range": None,
+                    "filter_test_accounts": None,
                     "properties": [browser_equals_chrome],
                 },
             ),
@@ -187,8 +187,8 @@ class TestInsightModel(BaseTest):
                 {"properties": [browser_equals_firefox]},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": None,
-                    "filterTestAccounts": None,
+                    "date_range": None,
+                    "filter_test_accounts": None,
                     "properties": [browser_equals_firefox, browser_equals_chrome],
                 },
             ),

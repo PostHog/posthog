@@ -1628,7 +1628,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         query = DataTableNode(
             source=HogQLQuery(
-                query="SELECT count(1) FROM events", filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
+                query="SELECT count(1) FROM events", filters=HogQLFilters(date_range=DateRange(date_from="-3d"))
             ),
         ).model_dump()
         insight_id, _ = self.dashboard_api.create_insight(
@@ -1645,7 +1645,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
+        self.assertEqual(response.json()["query"]["source"]["filters"]["date_range"]["date_from"], "-180d")
 
     def test_dashboard_filters_applied_to_data_visualization_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -1653,7 +1653,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         query = DataVisualizationNode(
             source=HogQLQuery(
-                query="SELECT count(1) FROM events", filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
+                query="SELECT count(1) FROM events", filters=HogQLFilters(date_range=DateRange(date_from="-3d"))
             ),
         ).model_dump()
         insight_id, _ = self.dashboard_api.create_insight(
@@ -1670,7 +1670,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
+        self.assertEqual(response.json()["query"]["source"]["filters"]["date_range"]["date_from"], "-180d")
 
     def test_dashboard_filters_applied_to_events_query_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -3454,7 +3454,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             query={
                 "kind": NodeKind.INSIGHT_VIZ_NODE.value,
                 "source": {
-                    "filterTestAccounts": False,
+                    "filter_test_accounts": False,
                     "kind": InsightNodeKind.TRENDS_QUERY.value,
                     "series": [
                         {

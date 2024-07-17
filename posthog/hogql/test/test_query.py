@@ -1357,7 +1357,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(len(response.results), 1)
 
-            filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-01-02")
+            filters.date_range = DateRange(date_from="2020-01-01", date_to="2020-01-02")
             response = execute_hogql_query(
                 query,
                 team=self.team,
@@ -1369,7 +1369,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(len(response.results), 0)
 
-            filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-02-02")
+            filters.date_range = DateRange(date_from="2020-01-01", date_to="2020-02-02")
             response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
             self.assertEqual(len(response.results), 1)
 
@@ -1492,7 +1492,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 timestamp="2024-07-05T00:00:00Z",
             )
             query = "SELECT session_id, $entry_current_url from sessions WHERE {filters}"
-            filters = HogQLFilters(dateRange=DateRange(date_from="2024-07-04", date_to="2024-07-06"))
+            filters = HogQLFilters(date_range=DateRange(date_from="2024-07-04", date_to="2024-07-06"))
             response = execute_hogql_query(
                 query,
                 team=self.team,

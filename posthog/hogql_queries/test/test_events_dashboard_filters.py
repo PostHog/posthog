@@ -25,7 +25,7 @@ class TestEventsDashboardFilters(BaseTest):
                 before=before,
                 event="$pageview",
                 kind="EventsQuery",
-                orderBy=["timestamp ASC"],
+                order_by=["timestamp ASC"],
                 select=["*"],
                 properties=properties,
             ),

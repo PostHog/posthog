@@ -16,7 +16,7 @@ class FunnelTimeToConvert(FunnelBase):
     ):
         super().__init__(context)
 
-        self.funnel_order = get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
+        self.funnel_order = get_funnel_order_class(self.context.funnels_filter)(context=self.context)
 
     def _format_results(self, results: list) -> FunnelTimeToConvertResults:
         return FunnelTimeToConvertResults(
@@ -25,25 +25,25 @@ class FunnelTimeToConvert(FunnelBase):
         )
 
     def get_query(self) -> ast.SelectQuery:
-        query, funnelsFilter = self.context.query, self.context.funnelsFilter
+        query, funnels_filter = self.context.query, self.context.funnels_filter
 
         steps_per_person_query = self.funnel_order.get_step_counts_query()
         # expects 1 person per row, whatever their max step is, and the step conversion times for this person
 
         # Conversion from which step should be calculated
-        from_step = funnelsFilter.funnelFromStep or 0
+        from_step = funnels_filter.funnel_from_step or 0
         # Conversion to which step should be calculated
-        to_step = funnelsFilter.funnelToStep or len(query.series) - 1
+        to_step = funnels_filter.funnel_to_step or len(query.series) - 1
 
         # Use custom bin_count if provided by user, otherwise infer an automatic one based on the number of samples
-        binCount = funnelsFilter.binCount
-        if binCount is not None:
+        bin_count = funnels_filter.bin_count
+        if bin_count is not None:
             # Custom count is clamped between 1 and 90
-            if binCount < 1:
-                binCount = 1
-            elif binCount > 90:
-                binCount = 90
-            bin_count_identifier = str(binCount)
+            if bin_count < 1:
+                bin_count = 1
+            elif bin_count > 90:
+                bin_count = 90
+            bin_count_identifier = str(bin_count)
             bin_count_expression = None
         else:
             # Auto count is clamped between 1 and 60

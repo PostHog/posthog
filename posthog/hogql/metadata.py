@@ -21,8 +21,8 @@ def get_hogql_metadata(
     team: Team,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
-        isValid=True,
-        isValidView=False,
+        is_valid=True,
+        is_valid_view=False,
         query=query.query,
         errors=[],
         warnings=[],
@@ -48,8 +48,8 @@ def get_hogql_metadata(
                 node = parse_string_template(query.query)
             else:
                 node = parse_expr(query.query)
-            if query.sourceQuery is not None:
-                source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
+            if query.source_query is not None:
+                source_query = get_query_runner(query=query.source_query, team=team).to_query()
                 process_expr_on_table(node, context=context, source_query=source_query)
             else:
                 process_expr_on_table(node, context=context)
@@ -58,7 +58,7 @@ def get_hogql_metadata(
             if query.filters:
                 select_ast = replace_filters(select_ast, query.filters, team)
             _is_valid_view = is_valid_view(select_ast)
-            response.isValidView = _is_valid_view
+            response.is_valid_view = _is_valid_view
             print_ast(
                 select_ast,
                 context=context,
@@ -69,9 +69,9 @@ def get_hogql_metadata(
         response.warnings = context.warnings
         response.notices = context.notices
         response.errors = context.errors
-        response.isValid = len(response.errors) == 0
+        response.is_valid = len(response.errors) == 0
     except Exception as e:
-        response.isValid = False
+        response.is_valid = False
         if isinstance(e, ExposedHogQLError):
             error = str(e)
             if "mismatched input '<EOF>' expecting" in error:

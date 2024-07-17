@@ -17,34 +17,34 @@ class TestModifiers(BaseTest):
     def test_create_default_modifiers_for_team_init(self):
         assert self.team.person_on_events_mode == "disabled"
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED  # NB! not a None
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.DISABLED  # NB! not a None
         modifiers = create_default_modifiers_for_team(
             self.team,
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
+            HogQLQueryModifiers(persons_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         modifiers = create_default_modifiers_for_team(
             self.team,
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+            HogQLQueryModifiers(persons_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
     def test_team_modifiers_override(self):
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED  # the default mode
+        assert modifiers.persons_on_events_mode == self.team.default_modifiers["persons_on_events_mode"]
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.DISABLED  # the default mode
 
-        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.modifiers = {"persons_on_events_mode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-        assert self.team.default_modifiers["personsOnEventsMode"] == PersonsOnEventsMode.DISABLED  # no change here
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert self.team.default_modifiers["persons_on_events_mode"] == PersonsOnEventsMode.DISABLED  # no change here
 
-        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.modifiers = {"persons_on_events_mode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"
@@ -53,7 +53,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
+            modifiers=HogQLQueryModifiers(persons_on_events_mode=PersonsOnEventsMode.DISABLED),
         )
         assert " JOIN " in response.clickhouse
 
@@ -62,7 +62,7 @@ class TestModifiers(BaseTest):
             query,
             team=self.team,
             modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                persons_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
         assert " JOIN " not in response.clickhouse
@@ -125,7 +125,7 @@ class TestModifiers(BaseTest):
             clickhouse_query = execute_hogql_query(
                 query,
                 team=self.team,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=test_case.mode),
+                modifiers=HogQLQueryModifiers(persons_on_events_mode=test_case.mode),
                 pretty=False,
             ).clickhouse
             assert clickhouse_query is not None
@@ -142,7 +142,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1),
+            modifiers=HogQLQueryModifiers(persons_arg_max_version=PersonsArgMaxVersion.V1),
         )
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
@@ -150,7 +150,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
+            modifiers=HogQLQueryModifiers(persons_arg_max_version=PersonsArgMaxVersion.V2),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -159,7 +159,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, properties.$browser, is_identified FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
+            modifiers=HogQLQueryModifiers(persons_arg_max_version=PersonsArgMaxVersion.AUTO),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -167,7 +167,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, properties FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
+            modifiers=HogQLQueryModifiers(persons_arg_max_version=PersonsArgMaxVersion.AUTO),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -175,7 +175,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, is_identified FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
+            modifiers=HogQLQueryModifiers(persons_arg_max_version=PersonsArgMaxVersion.AUTO),
         )
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
@@ -184,7 +184,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select * from persons where id in cohort {cohort.pk}",
             team=self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
+            modifiers=HogQLQueryModifiers(in_cohort_via="subquery"),
         )
         assert "LEFT JOIN" not in response.clickhouse
 
@@ -192,7 +192,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select * from persons where id in cohort {cohort.pk}",
             team=self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia="leftjoin"),
+            modifiers=HogQLQueryModifiers(in_cohort_via="leftjoin"),
         )
         assert "LEFT JOIN" in response.clickhouse
 
@@ -208,7 +208,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
             team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            modifiers=HogQLQueryModifiers(materialization_mode=MaterializationMode.AUTO),
             pretty=False,
         )
         assert (
@@ -218,7 +218,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
             team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_NULL),
+            modifiers=HogQLQueryModifiers(materialization_mode=MaterializationMode.LEGACY_NULL_AS_NULL),
             pretty=False,
         )
         assert (
@@ -228,7 +228,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
             team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING),
+            modifiers=HogQLQueryModifiers(materialization_mode=MaterializationMode.LEGACY_NULL_AS_STRING),
             pretty=False,
         )
         assert "SELECT nullIf(events.`mat_$browser`, '') AS `$browser` FROM events" in response.clickhouse
@@ -236,7 +236,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
             team=self.team,
-            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+            modifiers=HogQLQueryModifiers(materialization_mode=MaterializationMode.DISABLED),
             pretty=False,
         )
         assert (
@@ -249,7 +249,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
+            modifiers=HogQLQueryModifiers(optimize_joined_filters=False),
         )
         # "ilike" shows up once in the response
         assert response is not None
@@ -260,7 +260,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
+            modifiers=HogQLQueryModifiers(optimize_joined_filters=True),
         )
         # "ilike" shows up twice in the response
         assert response is not None

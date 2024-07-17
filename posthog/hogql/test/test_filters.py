@@ -48,7 +48,7 @@ class TestFilters(BaseTest):
     def test_replace_filters_date_range(self):
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
-            HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
+            HogQLFilters(date_range=DateRange(date_from="2020-02-02")),
             self.team,
         )
         self.assertEqual(
@@ -58,7 +58,7 @@ class TestFilters(BaseTest):
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
-            HogQLFilters(dateRange=DateRange(date_to="2020-02-02")),
+            HogQLFilters(date_range=DateRange(date_to="2020-02-02")),
             self.team,
         )
         self.assertEqual(
@@ -68,7 +68,7 @@ class TestFilters(BaseTest):
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
-            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
+            HogQLFilters(date_range=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
             self.team,
         )
         self.assertEqual(
@@ -84,7 +84,7 @@ class TestFilters(BaseTest):
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
-            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
+            HogQLFilters(date_range=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
             self.team,
         )
         self.assertEqual(
@@ -148,7 +148,7 @@ class TestFilters(BaseTest):
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
-            HogQLFilters(filterTestAccounts=True),
+            HogQLFilters(filter_test_accounts=True),
             self.team,
         )
         self.assertEqual(

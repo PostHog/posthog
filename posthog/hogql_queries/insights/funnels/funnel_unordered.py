@@ -39,8 +39,8 @@ class FunnelUnordered(FunnelBase):
     def get_query(self):
         max_steps = self.context.max_steps
 
-        for exclusion in self.context.funnelsFilter.exclusions or []:
-            if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
+        for exclusion in self.context.funnels_filter.exclusions or []:
+            if exclusion.funnel_from_step != 0 or exclusion.funnel_to_step != max_steps - 1:
                 raise ValidationError("Partial Exclusions not allowed in unordered funnels")
 
         if self.context.breakdown and self.context.breakdownType in [
@@ -118,8 +118,8 @@ class FunnelUnordered(FunnelBase):
         return ast.SelectUnionQuery(select_queries=union_queries)
 
     def _get_step_times(self, max_steps: int) -> list[ast.Expr]:
-        windowInterval = self.context.funnelWindowInterval
-        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
+        windowInterval = self.context.funnel_window_interval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnel_window_interval_unit)
 
         exprs: list[ast.Expr] = []
 
@@ -140,8 +140,8 @@ class FunnelUnordered(FunnelBase):
         return exprs
 
     def get_sorting_condition(self, max_steps: int) -> list[ast.Expr]:
-        windowInterval = self.context.funnelWindowInterval
-        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
+        windowInterval = self.context.funnel_window_interval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnel_window_interval_unit)
 
         conditions = []
 
@@ -164,19 +164,19 @@ class FunnelUnordered(FunnelBase):
             return [ast.Alias(alias="steps", expr=ast.Constant(value=1))]
 
     def _get_exclusion_condition(self) -> list[ast.Expr]:
-        funnelsFilter = self.context.funnelsFilter
-        windowInterval = self.context.funnelWindowInterval
-        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
+        funnels_filter = self.context.funnels_filter
+        windowInterval = self.context.funnel_window_interval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnel_window_interval_unit)
 
-        if not funnelsFilter.exclusions:
+        if not funnels_filter.exclusions:
             return []
 
         conditions: list[ast.Expr] = []
 
-        for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
-            from_time = f"latest_{exclusion.funnelFromStep}"
-            to_time = f"event_times[{exclusion.funnelToStep + 1}]"
-            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+        for exclusion_id, exclusion in enumerate(funnels_filter.exclusions):
+            from_time = f"latest_{exclusion.funnel_from_step}"
+            to_time = f"event_times[{exclusion.funnel_to_step + 1}]"
+            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = parse_expr(
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )

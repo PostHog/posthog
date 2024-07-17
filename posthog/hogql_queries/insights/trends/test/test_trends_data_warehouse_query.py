@@ -58,7 +58,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
     def get_response(self, trends_query: TrendsQuery):
         query_date_range = QueryDateRange(
-            date_range=trends_query.dateRange,
+            date_range=trends_query.date_range,
             team=self.team,
             interval=trends_query.interval,
             now=datetime.now(),
@@ -69,7 +69,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         if isinstance(trends_query.series[0], DataWarehouseNode):
             series = trends_query.series[0]
-            modifiers.dataWarehouseEventsModifiers = [
+            modifiers.data_warehouse_events_modifiers = [
                 DataWarehouseEventsModifier(
                     table_name=series.table_name,
                     timestamp_field=series.timestamp_field,
@@ -154,7 +154,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            date_range=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -179,7 +179,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            date_range=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -205,7 +205,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            date_range=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -231,7 +231,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            date_range=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -241,7 +241,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     timestamp_field="created",
                 )
             ],
-            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
+            breakdown_filter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
         with freeze_time("2023-01-07"):
@@ -268,7 +268,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            date_range=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -279,7 +279,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
                 )
             ],
-            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
+            breakdown_filter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
         with freeze_time("2023-01-07"):
@@ -297,7 +297,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            date_range=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -307,7 +307,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     timestamp_field="created",
                 )
             ],
-            trendsFilter=TrendsFilter(display=display_type),
+            trends_filter=TrendsFilter(display=display_type),
         )
 
         with freeze_time("2023-01-07"):

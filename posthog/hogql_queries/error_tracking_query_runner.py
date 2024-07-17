@@ -68,7 +68,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
 
     def calculate(self):
-        properties = self.query.filterGroup.values[0].values if self.query.filterGroup else None
+        properties = self.query.filter_group.values[0].values if self.query.filter_group else None
 
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
@@ -78,8 +78,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             filters=HogQLFilters(
-                dateRange=self.query.dateRange,
-                filterTestAccounts=self.query.filterTestAccounts,
+                date_range=self.query.date_range,
+                filter_test_accounts=self.query.filter_test_accounts,
                 properties=properties,
             ),
         )

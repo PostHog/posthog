@@ -17,7 +17,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
     def __execute(self, query):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        modifiers = HogQLQueryModifiers(session_table_version=SessionTableVersion.V2)
         return execute_hogql_query(
             query=query,
             team=self.team,

@@ -177,11 +177,11 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
     tq = TrendsQuery(
         series=series,
         kind="TrendsQuery",
-        filterTestAccounts=filter.filter_test_accounts,
-        dateRange=InsightDateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
-        samplingFactor=filter.sampling_factor,
+        filter_test_accounts=filter.filter_test_accounts,
+        date_range=InsightDateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
+        sampling_factor=filter.sampling_factor,
         aggregation_group_type_index=filter.aggregation_group_type_index,
-        breakdownFilter=BreakdownFilter(
+        breakdown_filter=BreakdownFilter(
             breakdown=filter.breakdown,
             breakdown_type=filter.breakdown_type,
             breakdown_normalize_url=filter.breakdown_normalize_url,
@@ -192,13 +192,13 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         ),
         properties=_props(filter.to_dict()),
         interval=filter.interval,
-        trendsFilter=TrendsFilter(
+        trends_filter=TrendsFilter(
             display=filter.display,
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
             formula=filter.formula,
-            smoothingIntervals=filter.smoothing_intervals,
+            smoothing_intervals=filter.smoothing_intervals,
         ),
-        compareFilter=CompareFilter(compare=filter.compare, compare_to=filter.compare_to),
+        compare_filter=CompareFilter(compare=filter.compare, compare_to=filter.compare_to),
     )
 
     return tq
@@ -4868,7 +4868,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "-14d",
                 "breakdown": "fake_prop",
                 "breakdown_type": "event",
-                "display": "ActionsPie",
+                "display": "actions_pie",
                 "events": [
                     {
                         "id": "watched movie",
@@ -4883,7 +4883,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
             people_value_1 = self._get_actors(
-                filters=filters, team=self.team, series=0, breakdown="value_1", includeRecordings=True
+                filters=filters, team=self.team, series=0, breakdown="value_1", include_recordings=True
             )
             # Persons with higher value come first
             self.assertEqual(people_value_1[0][0]["distinct_ids"][0], "person2")
@@ -4892,7 +4892,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(people_value_1[2][2], 1)  # 1 event with fake_prop="value_1" in the time range
 
             people_value_2 = self._get_actors(
-                filters=filters, team=self.team, series=0, breakdown="value_2", includeRecordings=True
+                filters=filters, team=self.team, series=0, breakdown="value_2", include_recordings=True
             )
             self.assertEqual(people_value_2[0][0]["distinct_ids"][0], "person2")
             self.assertEqual(people_value_2[0][2], 1)  # 1 event with fake_prop="value_2" in the time range
@@ -4909,7 +4909,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "date_from": "-14d",
                         "breakdown": "name",
                         "breakdown_type": "person",
-                        "display": "ActionsPie",
+                        "display": "actions_pie",
                         "events": [
                             {
                                 "id": "watched movie",
@@ -4935,7 +4935,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "date_from": "-14d",
                         "breakdowns": [{"type": "person", "value": "name"}],
-                        "display": "ActionsPie",
+                        "display": "actions_pie",
                         "events": [
                             {
                                 "id": "watched movie",
@@ -4960,7 +4960,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = {
             "date_from": "-14d",
-            "display": "ActionsPie",
+            "display": "actions_pie",
             "events": [
                 {
                     "id": "watched movie",
@@ -8870,7 +8870,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             series=0,
             breakdown="technology",
             day="2020-01-02",
-            includeRecordings=True,
+            include_recordings=True,
         )
 
         self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
@@ -8933,7 +8933,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 series=0,
                 breakdown="technology",
                 day="2020-01-02",
-                includeRecordings=True,
+                include_recordings=True,
             )
 
             self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
@@ -9283,7 +9283,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
             res = self._get_actors(
-                filters=filter.to_dict(), team=self.team, series=0, day="2020-01-02", includeRecordings=True
+                filters=filter.to_dict(), team=self.team, series=0, day="2020-01-02", include_recordings=True
             )
 
             self.assertEqual(res[0][0]["distinct_ids"], ["person1"])

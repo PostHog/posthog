@@ -385,7 +385,7 @@ class TestExports(APIBaseTest):
                     "export_context": {
                         "path": "&".join(
                             [
-                                f"/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D",
+                                f"/api/projects/{self.team.id}/events?order_by=%5B%22-timestamp%22%5D",
                                 "properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D",
                                 f"after={after}",
                             ]

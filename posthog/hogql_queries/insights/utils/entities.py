@@ -49,7 +49,7 @@ def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_propert
         return False
 
     # different fixed properties
-    if compare_properties and _sorted_property_reprs(a.fixedProperties) != _sorted_property_reprs(b.fixedProperties):
+    if compare_properties and _sorted_property_reprs(a.fixed_properties) != _sorted_property_reprs(b.fixed_properties):
         return False
 
     # TODO: compare math (only for trends)
@@ -69,8 +69,8 @@ def is_superset(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
     if len(properties_a - properties_b) != 0:
         return False
 
-    fixed_properties_a = Counter(_sorted_property_reprs(a.fixedProperties))
-    fixed_properties_b = Counter(_sorted_property_reprs(b.fixedProperties))
+    fixed_properties_a = Counter(_sorted_property_reprs(a.fixed_properties))
+    fixed_properties_b = Counter(_sorted_property_reprs(b.fixed_properties))
 
     return len(fixed_properties_a - fixed_properties_b) == 0
 

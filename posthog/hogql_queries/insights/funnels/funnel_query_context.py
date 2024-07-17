@@ -20,17 +20,17 @@ from posthog.schema import (
 
 class FunnelQueryContext(QueryContext):
     query: FunnelsQuery
-    funnelsFilter: FunnelsFilter
-    breakdownFilter: BreakdownFilter
+    funnels_filter: FunnelsFilter
+    breakdown_filter: BreakdownFilter
 
     interval: IntervalType
 
     breakdown: list[Union[str, int]] | str | int | None
     breakdownType: BreakdownType
-    breakdownAttributionType: BreakdownAttributionType
+    breakdown_attribution_type: BreakdownAttributionType
 
-    funnelWindowInterval: int
-    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
+    funnel_window_interval: int
+    funnel_window_interval_unit: FunnelConversionWindowTimeUnit
 
     actorsQuery: FunnelsActorsQuery | None
 
@@ -53,19 +53,19 @@ class FunnelQueryContext(QueryContext):
     ):
         super().__init__(query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
-        self.funnelsFilter = self.query.funnelsFilter or FunnelsFilter()
-        self.breakdownFilter = self.query.breakdownFilter or BreakdownFilter()
+        self.funnels_filter = self.query.funnels_filter or FunnelsFilter()
+        self.breakdown_filter = self.query.breakdown_filter or BreakdownFilter()
 
         # defaults
         self.interval = self.query.interval or IntervalType.DAY
 
-        self.breakdownType = self.breakdownFilter.breakdown_type or BreakdownType.EVENT
-        self.breakdownAttributionType = (
-            self.funnelsFilter.breakdownAttributionType or BreakdownAttributionType.FIRST_TOUCH
+        self.breakdownType = self.breakdown_filter.breakdown_type or BreakdownType.EVENT
+        self.breakdown_attribution_type = (
+            self.funnels_filter.breakdown_attribution_type or BreakdownAttributionType.FIRST_TOUCH
         )
-        self.funnelWindowInterval = self.funnelsFilter.funnelWindowInterval or 14
-        self.funnelWindowIntervalUnit = (
-            self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.DAY
+        self.funnel_window_interval = self.funnels_filter.funnel_window_interval or 14
+        self.funnel_window_interval_unit = (
+            self.funnels_filter.funnel_window_interval_unit or FunnelConversionWindowTimeUnit.DAY
         )
 
         self.includeTimestamp = include_timestamp
@@ -92,16 +92,16 @@ class FunnelQueryContext(QueryContext):
         # ]:
         #     data.update({"breakdown": [b.get("property") for b in self._filter.breakdowns]})
 
-        if isinstance(self.breakdownFilter.breakdown, str) and self.breakdownType in [
+        if isinstance(self.breakdown_filter.breakdown, str) and self.breakdownType in [
             "person",
             "event",
             "hogql",
             None,
         ]:
-            boxed_breakdown: list[Union[str, int]] = box_value(self.breakdownFilter.breakdown)
+            boxed_breakdown: list[Union[str, int]] = box_value(self.breakdown_filter.breakdown)
             self.breakdown = boxed_breakdown
         else:
-            self.breakdown = self.breakdownFilter.breakdown
+            self.breakdown = self.breakdown_filter.breakdown
 
         self.actorsQuery = None
 

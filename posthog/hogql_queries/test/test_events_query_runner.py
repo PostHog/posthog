@@ -79,7 +79,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 after="-24h",
                 event="$pageview",
                 kind="EventsQuery",
-                orderBy=["timestamp ASC"],
+                order_by=["timestamp ASC"],
                 select=["*"],
                 properties=[filter],
             )
@@ -125,7 +125,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         person = Person.objects.first()
-        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk))  # type: ignore
+        query = EventsQuery(kind="EventsQuery", select=["*"], person_id=str(person.pk))  # type: ignore
 
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
@@ -150,7 +150,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         ]
         self.team.save()
-        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True)
+        query = EventsQuery(kind="EventsQuery", select=["*"], filter_test_accounts=True)
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Constant, where_expr.right)

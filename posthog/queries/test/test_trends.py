@@ -4281,7 +4281,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "-14d",
                 "breakdown": "fake_prop",
                 "breakdown_type": "event",
-                "display": "ActionsPie",
+                "display": "actions_pie",
                 "events": [
                     {
                         "id": "watched movie",
@@ -4372,7 +4372,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "date_from": "-14d",
                         "breakdown": "name",
                         "breakdown_type": "person",
-                        "display": "ActionsPie",
+                        "display": "actions_pie",
                         "events": [
                             {
                                 "id": "watched movie",
@@ -4402,7 +4402,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "date_from": "-14d",
                         "breakdown": "name",
                         "breakdown_type": "person",
-                        "display": "ActionsPie",
+                        "display": "actions_pie",
                         "events": [
                             {
                                 "id": "watched movie",

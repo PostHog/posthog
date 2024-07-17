@@ -88,7 +88,7 @@ class TrendsActorsQueryBuilder:
     @cached_property
     def trends_date_range(self) -> QueryDateRange:
         return QueryDateRange(
-            date_range=self.trends_query.dateRange,
+            date_range=self.trends_query.date_range,
             team=self.team,
             interval=self.trends_query.interval,
             now=datetime.now(),
@@ -98,14 +98,14 @@ class TrendsActorsQueryBuilder:
     def trends_previous_date_range(self) -> QueryPreviousPeriodDateRange | QueryCompareToDateRange:
         if self.is_compare_to:
             return QueryCompareToDateRange(
-                date_range=self.trends_query.dateRange,
+                date_range=self.trends_query.date_range,
                 team=self.team,
                 interval=self.trends_query.interval,
                 now=datetime.now(),
-                compare_to=typing.cast(str, typing.cast(CompareFilter, self.trends_query.compareFilter).compare_to),
+                compare_to=typing.cast(str, typing.cast(CompareFilter, self.trends_query.compare_filter).compare_to),
             )
         return QueryPreviousPeriodDateRange(
-            date_range=self.trends_query.dateRange,
+            date_range=self.trends_query.date_range,
             team=self.team,
             interval=self.trends_query.interval,
             now=datetime.now(),
@@ -113,7 +113,7 @@ class TrendsActorsQueryBuilder:
 
     @cached_property
     def trends_display(self) -> TrendsDisplay:
-        trends_filter = self.trends_query.trendsFilter or TrendsFilter()
+        trends_filter = self.trends_query.trends_filter or TrendsFilter()
         return TrendsDisplay(trends_filter.display)
 
     @cached_property
@@ -129,14 +129,14 @@ class TrendsActorsQueryBuilder:
     @cached_property
     def is_compare_previous(self) -> bool:
         return (
-            bool(self.trends_query.compareFilter and self.trends_query.compareFilter.compare)
+            bool(self.trends_query.compare_filter and self.trends_query.compare_filter.compare)
             and self.compare_value == Compare.PREVIOUS
         )
 
     @cached_property
     def is_compare_to(self) -> bool:
         return (
-            bool(self.trends_query.compareFilter and isinstance(self.trends_query.compareFilter.compare_to, str))
+            bool(self.trends_query.compare_filter and isinstance(self.trends_query.compare_filter.compare_to, str))
             and self.compare_value == Compare.PREVIOUS
         )
 
@@ -218,10 +218,10 @@ class TrendsActorsQueryBuilder:
         )
 
     def _sample_expr(self) -> ast.SampleExpr | None:
-        if self.trends_query.samplingFactor is None:
+        if self.trends_query.sampling_factor is None:
             return None
 
-        return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self.trends_query.samplingFactor)))
+        return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self.trends_query.sampling_factor)))
 
     def _entity_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
@@ -257,7 +257,7 @@ class TrendsActorsQueryBuilder:
 
         # Filter Test Accounts
         if (
-            self.trends_query.filterTestAccounts
+            self.trends_query.filter_test_accounts
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):

@@ -28,7 +28,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         self, query: str, start: int, end: int, database: Optional[Database] = None
     ) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
-            kind="HogQLAutocomplete", query=query, language=HogLanguage.HOG_QL, startPosition=start, endPosition=end
+            kind="HogQLAutocomplete", query=query, language=HogLanguage.HOG_QL, start_position=start, end_position=end
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
@@ -37,9 +37,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG_QL_EXPR,
-            sourceQuery=HogQLQuery(query="select * from events"),
-            startPosition=start,
-            endPosition=end,
+            source_query=HogQLQuery(query="select * from events"),
+            start_position=start,
+            end_position=end,
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
@@ -50,9 +50,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG_TEMPLATE,
-            sourceQuery=HogQLQuery(query="select * from events"),
-            startPosition=start,
-            endPosition=end,
+            source_query=HogQLQuery(query="select * from events"),
+            start_position=start,
+            end_position=end,
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
@@ -64,8 +64,8 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             query=query,
             language=HogLanguage.HOG,
             globals={"event": "$pageview"},
-            startPosition=start,
-            endPosition=end,
+            start_position=start,
+            end_position=end,
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
@@ -83,7 +83,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select  from events"
         results = self._select(query=query, start=7, end=7)
         assert "toDateTime" in [suggestion.label for suggestion in results.suggestions]
-        assert "toDateTime()" in [suggestion.insertText for suggestion in results.suggestions]
+        assert "toDateTime()" in [suggestion.insert_text for suggestion in results.suggestions]
 
     def test_autocomplete_persons_suggestions(self):
         query = "select  from persons"
@@ -294,7 +294,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         suggestion = suggestions[0]
         assert suggestion is not None
         assert suggestion.label == "event-name"
-        assert suggestion.insertText == "`event-name`"
+        assert suggestion.insert_text == "`event-name`"
 
     def test_autocomplete_expressions(self):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
@@ -308,7 +308,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         suggestion = suggestions[0]
         assert suggestion is not None
         assert suggestion.label == "created_at"
-        assert suggestion.insertText == "created_at"
+        assert suggestion.insert_text == "created_at"
 
     def test_autocomplete_template_strings(self):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
@@ -322,7 +322,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         suggestion = suggestions[0]
         assert suggestion is not None
         assert suggestion.label == "event"
-        assert suggestion.insertText == "event"
+        assert suggestion.insert_text == "event"
 
     def test_autocomplete_hog(self):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)

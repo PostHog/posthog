@@ -320,7 +320,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
                                     "attrs": {
                                         "query": {
                                             "kind": "SavedInsightNode",
-                                            "shortId": match,
+                                            "short_id": match,
                                         }
                                     }
                                 }

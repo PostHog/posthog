@@ -37,7 +37,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=self.query.date_range,
             team=self.team,
             interval=None,
             now=datetime.now(),
@@ -166,14 +166,14 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     def _sample_rate_cache_key(self) -> str:
         return generate_cache_key(
-            f"web_analytics_sample_rate_{self.query.dateRange.model_dump_json() if self.query.dateRange else None}_{self.team.pk}_{self.team.timezone}"
+            f"web_analytics_sample_rate_{self.query.date_range.model_dump_json() if self.query.date_range else None}_{self.team.pk}_{self.team.timezone}"
         )
 
     def _get_or_calculate_sample_ratio(self) -> SamplingRate:
         if not self.query.sampling or not self.query.sampling.enabled:
             return SamplingRate(numerator=1)
-        if self.query.sampling.forceSamplingRate:
-            return self.query.sampling.forceSamplingRate
+        if self.query.sampling.force_sampling_rate:
+            return self.query.sampling.force_sampling_rate
 
         cache_key = self._sample_rate_cache_key()
         cached_response = get_safe_cache(cache_key)

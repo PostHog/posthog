@@ -51,9 +51,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         compare: bool = True,
         limit_context: Optional[LimitContext] = None,
     ):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+        modifiers = HogQLQueryModifiers(session_table_version=session_table_version)
         query = WebOverviewQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            date_range=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
             compare=compare,
             modifiers=modifiers,
@@ -93,31 +93,31 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("visitors", visitors.key)
         self.assertEqual(2, visitors.value)
         self.assertEqual(1, visitors.previous)
-        self.assertEqual(100, visitors.changeFromPreviousPct)
+        self.assertEqual(100, visitors.change_from_previous_pct)
 
         views = results[1]
         self.assertEqual("views", views.key)
         self.assertEqual(2, views.value)
         self.assertEqual(2, views.previous)
-        self.assertEqual(0, views.changeFromPreviousPct)
+        self.assertEqual(0, views.change_from_previous_pct)
 
         sessions = results[2]
         self.assertEqual("sessions", sessions.key)
         self.assertEqual(2, sessions.value)
         self.assertEqual(1, sessions.previous)
-        self.assertEqual(100, sessions.changeFromPreviousPct)
+        self.assertEqual(100, sessions.change_from_previous_pct)
 
         duration_s = results[3]
         self.assertEqual("session duration", duration_s.key)
         self.assertEqual(0, duration_s.value)
         self.assertEqual(60 * 60 * 24, duration_s.previous)
-        self.assertEqual(-100, duration_s.changeFromPreviousPct)
+        self.assertEqual(-100, duration_s.change_from_previous_pct)
 
         bounce = results[4]
         self.assertEqual("bounce rate", bounce.key)
         self.assertEqual(100, bounce.value)
         self.assertEqual(0, bounce.previous)
-        self.assertEqual(None, bounce.changeFromPreviousPct)
+        self.assertEqual(None, bounce.change_from_previous_pct)
 
     @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
     def test_all_time(self, session_table_version: SessionTableVersion):
@@ -142,31 +142,31 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("visitors", visitors.key)
         self.assertEqual(2, visitors.value)
         self.assertEqual(None, visitors.previous)
-        self.assertEqual(None, visitors.changeFromPreviousPct)
+        self.assertEqual(None, visitors.change_from_previous_pct)
 
         views = results[1]
         self.assertEqual("views", views.key)
         self.assertEqual(4, views.value)
         self.assertEqual(None, views.previous)
-        self.assertEqual(None, views.changeFromPreviousPct)
+        self.assertEqual(None, views.change_from_previous_pct)
 
         sessions = results[2]
         self.assertEqual("sessions", sessions.key)
         self.assertEqual(3, sessions.value)
         self.assertEqual(None, sessions.previous)
-        self.assertEqual(None, sessions.changeFromPreviousPct)
+        self.assertEqual(None, sessions.change_from_previous_pct)
 
         duration_s = results[3]
         self.assertEqual("session duration", duration_s.key)
         self.assertEqual(60 * 60 * 24 / 3, duration_s.value)
         self.assertEqual(None, duration_s.previous)
-        self.assertEqual(None, duration_s.changeFromPreviousPct)
+        self.assertEqual(None, duration_s.change_from_previous_pct)
 
         bounce = results[4]
         self.assertEqual("bounce rate", bounce.key)
         self.assertAlmostEqual(100 * 2 / 3, bounce.value)
         self.assertEqual(None, bounce.previous)
-        self.assertEqual(None, bounce.changeFromPreviousPct)
+        self.assertEqual(None, bounce.change_from_previous_pct)
 
     @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
     def test_filter_test_accounts(self, session_table_version: SessionTableVersion):

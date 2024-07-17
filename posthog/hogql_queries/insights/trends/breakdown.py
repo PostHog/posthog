@@ -68,9 +68,9 @@ class Breakdown:
 
     @property
     def enabled(self) -> bool:
-        return self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
+        return self.query.breakdown_filter is not None and (
+            self.query.breakdown_filter.breakdown is not None
+            or (self.query.breakdown_filter.breakdowns is not None and len(self.query.breakdown_filter.breakdowns) > 0)
         )
 
     @cached_property
@@ -131,7 +131,7 @@ class Breakdown:
 
         if (
             isinstance(breakdown_filter.breakdown, list)
-            and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
+            and self.modifiers.in_cohort_via == InCohortVia.LEFTJOIN_CONJOINED
         ):
             return [
                 ast.Alias(
@@ -167,13 +167,13 @@ class Breakdown:
         """
         Type checking
         """
-        return cast(BreakdownFilter, self.query.breakdownFilter)
+        return cast(BreakdownFilter, self.query.breakdown_filter)
 
     @property
     def hide_other_aggregation(self) -> bool:
         return (
-            self.query.breakdownFilter.breakdown_hide_other_aggregation or False
-            if self.query.breakdownFilter
+            self.query.breakdown_filter.breakdown_hide_other_aggregation or False
+            if self.query.breakdown_filter
             else False
         )
 
@@ -411,8 +411,8 @@ class Breakdown:
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
         display = (
-            self.query.trendsFilter.display
-            if self.query.trendsFilter is not None and self.query.trendsFilter.display is not None
+            self.query.trends_filter.display
+            if self.query.trends_filter is not None and self.query.trends_filter.display is not None
             else None
         )
         return TrendsDisplay(display)

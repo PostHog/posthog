@@ -57,7 +57,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 10)
 
-        self.assertEqual(response.hasMore, False)
+        self.assertEqual(response.has_more, False)
         self.assertIsNotNone(response.limit)
 
     def test_default_hogql_query_with_limit(self):
@@ -65,7 +65,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         assert response.results is not None
         self.assertEqual(len(response.results), 5)
-        self.assertNotIn("hasMore", response)
+        self.assertNotIn("has_more", response)
 
     def test_hogql_query_filters(self):
         runner = self._create_runner(

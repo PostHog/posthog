@@ -85,10 +85,10 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
         limit_context: Optional[LimitContext] = None,
         properties: Optional[list[SessionPropertyFilter]] = None,
     ):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+        modifiers = HogQLQueryModifiers(session_table_version=session_table_version)
         query = SessionAttributionExplorerQuery(
-            filters=Filters(dateRange=DateRange(date_from=date_from, date_to=date_to), properties=properties or []),
-            groupBy=group_by or [],
+            filters=Filters(date_range=DateRange(date_from=date_from, date_to=date_to), properties=properties or []),
+            group_by=group_by or [],
             modifiers=modifiers,
         )
         runner = SessionAttributionExplorerQueryRunner(team=self.team, query=query, limit_context=limit_context)

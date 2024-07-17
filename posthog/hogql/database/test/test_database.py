@@ -474,7 +474,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
             # disable PoE
             modifiers=create_default_modifiers_for_team(
-                self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+                self.team, HogQLQueryModifiers(persons_on_events_mode=PersonsOnEventsMode.DISABLED)
             ),
         )
         sql = "select person.id from events"

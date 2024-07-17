@@ -35,7 +35,7 @@ class TestSessionWhereClauseExtractorV1(ClickhouseTestMixin, APIBaseTest):
     def inliner(self):
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
-        modifiers.sessionTableVersion = SessionTableVersion.V1
+        modifiers.session_table_version = SessionTableVersion.V1
         context = HogQLContext(
             team_id=team.pk,
             team=team,
@@ -317,7 +317,7 @@ class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     def print_query(self, query: str) -> str:
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
-        modifiers.sessionTableVersion = SessionTableVersion.V1
+        modifiers.session_table_version = SessionTableVersion.V1
         context = HogQLContext(
             team_id=team.pk,
             team=team,

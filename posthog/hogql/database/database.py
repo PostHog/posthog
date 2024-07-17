@@ -226,21 +226,21 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
+    if modifiers.persons_on_events_mode == PersonsOnEventsMode.DISABLED:
         # no change
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+    elif modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
         _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+    elif modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
         _use_person_id_from_person_overrides(database)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+    elif modifiers.persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
         _use_person_id_from_person_overrides(database)
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
@@ -248,7 +248,7 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
+    if modifiers.session_table_version in [SessionTableVersion.V2]:
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
         sessions = SessionsTableV2()
@@ -351,8 +351,8 @@ def create_hogql_database(
 
         return warehouse
 
-    if modifiers.dataWarehouseEventsModifiers:
-        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+    if modifiers.data_warehouse_events_modifiers:
+        for warehouse_modifier in modifiers.data_warehouse_events_modifiers:
             # TODO: add all field mappings
 
             is_view = warehouse_modifier.table_name in views.keys()

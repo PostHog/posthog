@@ -67,7 +67,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [
             TimelineEntry(
-                sessionId="s2",
+                session_id="s2",
                 events=[
                     EventType(
                         id="e1208e6b-8101-4dde-ba21-c47781bb5bad",
@@ -81,7 +81,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId="s3",
+                session_id="s3",
                 events=[
                     EventType(
                         id="04dde300-a6c3-4372-9366-80472c2d02b1",
@@ -103,7 +103,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId="s1",
+                session_id="s1",
                 events=[
                     EventType(
                         id="b826a13e-aae3-4766-b407-0d3a582140e4",
@@ -133,7 +133,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
-        assert response.hasMore is False
+        assert response.has_more is False
 
     @snapshot_clickhouse_queries
     def test_formal_sessions_for_person(self):
@@ -187,13 +187,13 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         person_1_uuid = str(persons["person1"].uuid)
 
         runner = self._create_runner(
-            SessionsTimelineQuery(before="2023-10-02T06:00:00Z", after="2023-10-01T06:00:00Z", personId=person_1_uuid)
+            SessionsTimelineQuery(before="2023-10-02T06:00:00Z", after="2023-10-01T06:00:00Z", person_id=person_1_uuid)
         )
         response = runner.calculate()
 
         assert response.results == [
             TimelineEntry(
-                sessionId="s2",
+                session_id="s2",
                 events=[
                     EventType(
                         id="e1208e6b-8101-4dde-ba21-c47781bb5bad",
@@ -207,7 +207,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId="s1",
+                session_id="s1",
                 events=[
                     EventType(
                         id="b826a13e-aae3-4766-b407-0d3a582140e4",
@@ -237,7 +237,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
-        assert response.hasMore is False
+        assert response.has_more is False
 
     @snapshot_clickhouse_queries
     def test_formal_and_informal_sessions_global(self):
@@ -304,7 +304,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [
             TimelineEntry(
-                sessionId=None,
+                session_id=None,
                 events=[
                     EventType(
                         id="04dde300-a6c3-4372-9366-80472c2d02b1",
@@ -318,7 +318,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId=None,
+                session_id=None,
                 events=[
                     EventType(
                         id="1389d75f-4717-4152-8f21-f3acee936a03",
@@ -332,7 +332,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId="s2",
+                session_id="s2",
                 events=[
                     EventType(
                         id="e1208e6b-8101-4dde-ba21-c47781bb5bad",
@@ -346,7 +346,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId=None,
+                session_id=None,
                 events=[
                     EventType(
                         id="fa16ea8a-3fb9-4cb3-9ce6-de25b21e3016",
@@ -360,7 +360,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId="s3",
+                session_id="s3",
                 events=[
                     EventType(
                         id="605f6843-bf83-4d7b-b9a0-4d6f7f57415f",
@@ -374,7 +374,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId=None,
+                session_id=None,
                 events=[
                     EventType(
                         id="b826a13e-aae3-4766-b407-0d3a582140e4",
@@ -396,7 +396,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId="s1",
+                session_id="s1",
                 events=[
                     EventType(
                         id="6e6e645b-2936-4613-b409-b33f4d9a0f18",
@@ -410,7 +410,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
-        assert response.hasMore is False
+        assert response.has_more is False
 
     @snapshot_clickhouse_queries
     def test_formal_session_with_recording(self):
@@ -452,7 +452,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [
             TimelineEntry(
-                sessionId="s2",
+                session_id="s2",
                 events=[
                     EventType(
                         id="e1208e6b-8101-4dde-ba21-c47781bb5bad",
@@ -466,7 +466,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,  # No recording
             ),
             TimelineEntry(
-                sessionId="s1",
+                session_id="s1",
                 events=[
                     EventType(
                         id="c15119f2-b243-4547-ab46-1b29a0435948",
@@ -488,7 +488,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=540,
             ),
         ]
-        assert response.hasMore is False
+        assert response.has_more is False
 
     @snapshot_clickhouse_queries
     @patch("posthog.hogql_queries.sessions_timeline_query_runner.SessionsTimelineQueryRunner.EVENT_LIMIT", 2)
@@ -524,7 +524,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [
             TimelineEntry(
-                sessionId="s2",
+                session_id="s2",
                 events=[
                     EventType(
                         id="e1208e6b-8101-4dde-ba21-c47781bb5bad",
@@ -538,7 +538,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
             TimelineEntry(
-                sessionId="s1",
+                session_id="s1",
                 events=[
                     EventType(
                         id="c15119f2-b243-4547-ab46-1b29a0435948",
@@ -553,7 +553,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
-        assert response.hasMore is True
+        assert response.has_more is True
 
     @snapshot_clickhouse_queries
     def test_before_and_after(self):
@@ -588,7 +588,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [
             TimelineEntry(
-                sessionId="s1",
+                session_id="s1",
                 events=[
                     EventType(
                         id="c15119f2-b243-4547-ab46-1b29a0435948",
@@ -637,7 +637,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [
             TimelineEntry(
-                sessionId="s1",
+                session_id="s1",
                 events=[
                     EventType(
                         id="c15119f2-b243-4547-ab46-1b29a0435948",

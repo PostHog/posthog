@@ -106,7 +106,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(
             ActorsQuery(
-                fixedProperties=[
+                fixed_properties=[
                     PersonPropertyFilter(
                         key="random_uuid",
                         value=self.random_uuid,
@@ -153,7 +153,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_persons_query_order_by(self):
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"]))
+        runner = self._create_runner(ActorsQuery(select=["properties.email"], order_by=["properties.email DESC"]))
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
 
@@ -167,23 +167,23 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(
-            ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
+            ActorsQuery(select=["properties.email"], order_by=["properties.email DESC"], limit=1)
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        self.assertEqual(response.has_more, True)
 
         runner = self._create_runner(
             ActorsQuery(
                 select=["properties.email"],
-                orderBy=["properties.email DESC"],
+                order_by=["properties.email DESC"],
                 limit=1,
                 offset=2,
             )
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        self.assertEqual(response.has_more, True)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_source_hogql_query_poe_on(self):
@@ -191,7 +191,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
         query = ActorsQuery(
             select=["properties.email"],
-            orderBy=["properties.email DESC"],
+            order_by=["properties.email DESC"],
             source=source_query,
         )
         runner = self._create_runner(query)
@@ -204,7 +204,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
         query = ActorsQuery(
             select=["properties.email"],
-            orderBy=["properties.email DESC"],
+            order_by=["properties.email DESC"],
             source=source_query,
         )
         runner = self._create_runner(query)
@@ -225,11 +225,11 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
                 ],
                 interval=IntervalType.DAY,
-                dateRange=InsightDateRange(date_from="-7d"),
+                date_range=InsightDateRange(date_from="-7d"),
             )
             query = ActorsQuery(
                 select=["properties.email"],
-                orderBy=["properties.email DESC"],
+                order_by=["properties.email DESC"],
                 source=InsightActorsQuery(source=source_query),
             )
             runner = self._create_runner(query)

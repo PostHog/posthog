@@ -24,7 +24,7 @@ class Properties:
 
         # Filter Test Accounts
         if (
-            query.filterTestAccounts
+            query.filter_test_accounts
             and isinstance(team.test_account_filters, list)
             and len(team.test_account_filters) > 0
         ):

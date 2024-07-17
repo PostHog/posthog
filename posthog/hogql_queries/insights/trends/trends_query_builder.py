@@ -192,8 +192,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         else:
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
-                self.query.trendsFilter
-                and self.query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+                self.query.trends_filter
+                and self.query.trends_filter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
                 and (self.series.math == "unique_group" or self.series.math == "dau")
             ):
                 day_start.expr = ast.Call(name="min", args=[day_start.expr])
@@ -326,9 +326,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ]
 
         if (
-            self.query.trendsFilter is not None
-            and self.query.trendsFilter.smoothingIntervals is not None
-            and self.query.trendsFilter.smoothingIntervals > 1
+            self.query.trends_filter is not None
+            and self.query.trends_filter.smoothing_intervals is not None
+            and self.query.trends_filter.smoothing_intervals > 1
         ):
             rolling_average = ast.Alias(
                 alias="total",
@@ -346,7 +346,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     )
                 """,
                     {
-                        "smoothing_interval": ast.Constant(value=int(self.query.trendsFilter.smoothingIntervals)),
+                        "smoothing_interval": ast.Constant(value=int(self.query.trends_filter.smoothing_intervals)),
                         "total_array": total_array,
                     },
                 ),
@@ -432,7 +432,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return 250
 
         return (
-            self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
+            self.query.breakdown_filter and self.query.breakdown_filter.breakdown_limit
         ) or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_select_query(
@@ -459,7 +459,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
 
         if breakdown.enabled:
-            assert self.query.breakdownFilter is not None  # type checking
+            assert self.query.breakdown_filter is not None  # type checking
 
             if breakdown.is_histogram_breakdown:
                 query.ctes = {
@@ -479,12 +479,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             "histogram_bin_count": breakdown_schema.histogram_bin_count,
                         }
                         for breakdown_schema, alias in zip(
-                            cast(list[BreakdownSchema], self.query.breakdownFilter.breakdowns),
+                            cast(list[BreakdownSchema], self.query.breakdown_filter.breakdowns),
                             breakdown.multiple_breakdowns_aliases,
                         )
                     ]
                 else:
-                    filter_bin_count = cast(int, self.query.breakdownFilter.breakdown_histogram_bin_count)
+                    filter_bin_count = cast(int, self.query.breakdown_filter.breakdown_histogram_bin_count)
 
                     breakdown_aliases = [
                         {
@@ -666,7 +666,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # Filter Test Accounts
         if (
-            self.query.filterTestAccounts
+            self.query.filter_test_accounts
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
@@ -713,10 +713,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return ast.And(exprs=filters)
 
     def _sample_value(self) -> ast.RatioExpr:
-        if self.query.samplingFactor is None:
+        if self.query.sampling_factor is None:
             return ast.RatioExpr(left=ast.Constant(value=1))
 
-        return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+        return ast.RatioExpr(left=ast.Constant(value=self.query.sampling_factor))
 
     def session_duration_math_property_wrapper(
         self, default_query: ast.SelectQuery, breakdown: Breakdown
@@ -768,8 +768,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
         display = (
-            self.query.trendsFilter.display
-            if self.query.trendsFilter is not None and self.query.trendsFilter.display is not None
+            self.query.trends_filter.display
+            if self.query.trends_filter is not None and self.query.trends_filter.display is not None
             else None
         )
         return TrendsDisplay(display)

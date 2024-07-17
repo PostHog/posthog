@@ -211,12 +211,12 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         query = StickinessQuery(
             series=query_series,
-            dateRange=InsightDateRange(date_from=query_date_from, date_to=query_date_to),
+            date_range=InsightDateRange(date_from=query_date_from, date_to=query_date_to),
             interval=query_interval,
             properties=properties,
-            stickinessFilter=filters,
-            compareFilter=compare_filters,
-            filterTestAccounts=filter_test_accounts,
+            stickiness_filter=filters,
+            compare_filter=compare_filters,
+            filter_test_accounts=filter_test_accounts,
         )
         return StickinessQueryRunner(team=self.team, query=query, limit_context=limit_context).calculate()
 

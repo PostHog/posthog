@@ -39,31 +39,31 @@ PERSON_ID_COLUMN = 2
 def get_actors(
     filters: dict[str, Any],
     team: Team,
-    funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.EVENTS,
-    funnelCorrelationNames=None,
-    funnelCorrelationPersonConverted: Optional[bool] = None,
-    funnelCorrelationPersonEntity: Optional[EventsNode] = None,
-    funnelCorrelationPropertyValues=None,
-    includeRecordings: Optional[bool] = True,
+    funnel_correlation_type: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.EVENTS,
+    funnel_correlation_names=None,
+    funnel_correlation_person_converted: Optional[bool] = None,
+    funnel_correlation_person_entity: Optional[EventsNode] = None,
+    funnel_correlation_property_values=None,
+    include_recordings: Optional[bool] = True,
 ):
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
-    funnel_actors_query = FunnelsActorsQuery(source=funnels_query, includeRecordings=includeRecordings)
+    funnel_actors_query = FunnelsActorsQuery(source=funnels_query, include_recordings=include_recordings)
     correlation_query = FunnelCorrelationQuery(
         source=funnel_actors_query,
-        funnelCorrelationType=(funnelCorrelationType or FunnelCorrelationResultsType.EVENTS),
-        funnelCorrelationNames=funnelCorrelationNames,
-        # funnelCorrelationExcludeNames=funnelCorrelationExcludeNames,
-        # funnelCorrelationExcludeEventNames=funnelCorrelationExcludeEventNames,
-        # funnelCorrelationEventNames=funnelCorrelationEventNames,
-        # funnelCorrelationEventExcludePropertyNames=funnelCorrelationEventExcludePropertyNames,
+        funnel_correlation_type=(funnel_correlation_type or FunnelCorrelationResultsType.EVENTS),
+        funnel_correlation_names=funnel_correlation_names,
+        # funnel_correlation_exclude_names=funnel_correlation_exclude_names,
+        # funnel_correlation_exclude_event_names=funnel_correlation_exclude_event_names,
+        # funnel_correlation_event_names=funnel_correlation_event_names,
+        # funnel_correlation_event_exclude_property_names=funnel_correlation_event_exclude_property_names,
     )
     correlation_actors_query = FunnelCorrelationActorsQuery(
         source=correlation_query,
-        funnelCorrelationPersonConverted=funnelCorrelationPersonConverted,
-        funnelCorrelationPersonEntity=funnelCorrelationPersonEntity,
-        funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
+        funnel_correlation_person_converted=funnel_correlation_person_converted,
+        funnel_correlation_person_entity=funnel_correlation_person_entity,
+        funnel_correlation_property_values=funnel_correlation_property_values,
     )
-    persons_select = ["id", "person", *(["matched_recordings"] if includeRecordings else [])]
+    persons_select = ["id", "person", *(["matched_recordings"] if include_recordings else [])]
     groups_select = ["actor_id"]
     actors_query = ActorsQuery(
         source=correlation_actors_query,
@@ -159,8 +159,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=True,
-            funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
+            funnel_correlation_person_converted=True,
+            funnel_correlation_person_entity=EventsNode(event="positively_related"),
         )
 
         self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], success_target_persons)
@@ -169,8 +169,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=False,
-            funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
+            funnel_correlation_person_converted=False,
+            funnel_correlation_person_entity=EventsNode(event="negatively_related"),
         )
 
         self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], failure_target_persons)
@@ -179,8 +179,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=False,
-            funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
+            funnel_correlation_person_converted=False,
+            funnel_correlation_person_entity=EventsNode(event="positively_related"),
         )
 
         self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(person_fail.uuid)])
@@ -189,8 +189,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=True,
-            funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
+            funnel_correlation_person_converted=True,
+            funnel_correlation_person_entity=EventsNode(event="negatively_related"),
         )
 
         self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(person_succ.uuid)])
@@ -199,8 +199,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=None,
-            funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
+            funnel_correlation_person_converted=None,
+            funnel_correlation_person_entity=EventsNode(event="positively_related"),
         )
 
         self.assertCountEqual(
@@ -212,8 +212,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=None,
-            funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
+            funnel_correlation_person_converted=None,
+            funnel_correlation_person_entity=EventsNode(event="negatively_related"),
         )
 
         self.assertCountEqual(
@@ -308,8 +308,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=True,
-            funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
+            funnel_correlation_person_converted=True,
+            funnel_correlation_person_entity=EventsNode(event="positively_related"),
         )
 
         self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
@@ -366,8 +366,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=True,
-            funnelCorrelationPersonEntity=EventsNode(event="insight loaded"),
+            funnel_correlation_person_converted=True,
+            funnel_correlation_person_entity=EventsNode(event="insight loaded"),
         )
 
         self.assertEqual(results[0][1]["id"], p1.uuid)
@@ -402,8 +402,8 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelCorrelationPersonConverted=False,
-            funnelCorrelationPersonEntity=EventsNode(event="insight loaded"),
+            funnel_correlation_person_converted=False,
+            funnel_correlation_person_entity=EventsNode(event="insight loaded"),
         )
 
         self.assertEqual(results[0][1]["id"], p1.uuid)
@@ -466,9 +466,9 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
-            funnelCorrelationPersonConverted=True,
-            funnelCorrelationPropertyValues=[
+            funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
+            funnel_correlation_person_converted=True,
+            funnel_correlation_property_values=[
                 {
                     "key": "foo",
                     "value": "bar",
@@ -579,9 +579,9 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
-            funnelCorrelationPersonConverted=True,
-            funnelCorrelationPropertyValues=[
+            funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
+            funnel_correlation_person_converted=True,
+            funnel_correlation_property_values=[
                 {
                     "key": "foo",
                     "value": "bar",
@@ -613,9 +613,9 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(
             filters,
             self.team,
-            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
-            funnelCorrelationPersonConverted=False,
-            funnelCorrelationPropertyValues=[
+            funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
+            funnel_correlation_person_converted=False,
+            funnel_correlation_property_values=[
                 {
                     "key": "foo",
                     "value": "bar",

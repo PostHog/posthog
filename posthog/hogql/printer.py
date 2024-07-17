@@ -102,7 +102,7 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
-    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
+    if context.modifiers.in_cohort_via == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
@@ -149,7 +149,7 @@ def prepare_ast_for_printing(
                     settings.__setattr__(key, value)
             node.settings = None
 
-    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
+    if context.modifiers.in_cohort_via == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context)
 
@@ -996,7 +996,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+                if self.context.modifiers.persons_on_events_mode != PersonsOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -1020,7 +1020,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+                if self.context.modifiers.persons_on_events_mode != PersonsOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -1047,7 +1047,7 @@ class _Printer(Visitor):
 
         args: list[str] = []
 
-        if self.context.modifiers.materializationMode != "disabled":
+        if self.context.modifiers.materialization_mode != "disabled":
             # find a materialized property for the first part of the chain
             materialized_property_sql: Optional[str] = None
             if isinstance(table, ast.TableType):
@@ -1070,7 +1070,7 @@ class _Printer(Visitor):
                 or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
             ):
                 # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+                if self.context.modifiers.persons_on_events_mode != PersonsOnEventsMode.DISABLED:
                     materialized_column = self._get_materialized_column(
                         "events", str(type.chain[0]), "person_properties"
                     )
@@ -1081,7 +1081,7 @@ class _Printer(Visitor):
 
             if materialized_property_sql is not None:
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
+                if self.context.modifiers.materialization_mode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
                 else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
                     materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"

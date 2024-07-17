@@ -45,12 +45,12 @@ def get_actors(
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
     funnel_actors_query = FunnelsActorsQuery(
         source=funnels_query,
-        funnelStep=funnel_step,
-        funnelCustomSteps=funnel_custom_steps,
-        funnelStepBreakdown=funnel_step_breakdown,
-        funnelTrendsDropOff=funnel_trends_drop_off,
-        funnelTrendsEntrancePeriodStart=funnel_trends_entrance_period_start,
-        includeRecordings=include_recordings,
+        funnel_step=funnel_step,
+        funnel_custom_steps=funnel_custom_steps,
+        funnel_step_breakdown=funnel_step_breakdown,
+        funnel_trends_drop_off=funnel_trends_drop_off,
+        funnel_trends_entrance_period_start=funnel_trends_entrance_period_start,
+        include_recordings=include_recordings,
     )
     actors_query = ActorsQuery(
         source=funnel_actors_query,
@@ -307,7 +307,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         parameters = [
-            # funnelStep,  funnel_custom_steps, count
+            # funnel_step,  funnel_custom_steps, count
             (1, [1, 2, 3], 35),
             (2, [2, 3], 15),
             (3, [3], 5),
@@ -315,11 +315,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             (-3, [2], 10),
         ]
 
-        for funnelStep, funnel_custom_steps, expected_count in parameters:
-            results = get_actors(filters, self.team, funnel_step=funnelStep)
+        for funnel_step, funnel_custom_steps, expected_count in parameters:
+            results = get_actors(filters, self.team, funnel_step=funnel_step)
 
             new_results = get_actors(
-                filters, self.team, funnel_step=funnelStep, funnel_custom_steps=funnel_custom_steps
+                filters, self.team, funnel_step=funnel_step, funnel_custom_steps=funnel_custom_steps
             )
 
             self.assertEqual(new_results, results)
@@ -370,7 +370,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(
             filters, self.team, funnel_step=1, funnel_custom_steps=[3]
-        )  # funnelStep=1 means custom steps = [1,2,3]
+        )  # funnel_step=1 means custom steps = [1,2,3]
 
         self.assertEqual(len(results), 5)
 

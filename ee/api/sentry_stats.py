@@ -33,7 +33,7 @@ def get_sentry_stats(start_time: str, end_time: str) -> tuple[dict, int]:
             "id": item["id"],
             "title": item["title"],
             "url": item["permalink"],
-            "shortId": item["shortId"],
+            "short_id": item["short_id"],
         }
         total_count += int(item["count"])
 

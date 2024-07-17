@@ -85,8 +85,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "count() as occurrences",
                 ],
                 fingerprint=None,
-                dateRange=DateRange(),
-                filterTestAccounts=True,
+                date_range=DateRange(),
+                filter_test_accounts=True,
             ),
         )
 
@@ -101,7 +101,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 kind="ErrorTrackingQuery",
                 select=["properties.$exception_fingerprint", "count() as occurrences"],
                 fingerprint="SyntaxError",
-                dateRange=DateRange(),
+                date_range=DateRange(),
             ),
         )
 
@@ -128,7 +128,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
                 select=["properties.$exception_fingerprint"],
-                dateRange=DateRange(),
+                date_range=DateRange(),
             ),
         )
 
@@ -142,8 +142,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
                 select=["properties.$exception_fingerprint"],
-                dateRange=DateRange(),
-                filterGroup=PropertyGroupFilter(
+                date_range=DateRange(),
+                filter_group=PropertyGroupFilter(
                     type=FilterLogicalOperator.AND_,
                     values=[
                         PropertyGroupFilterValue(
