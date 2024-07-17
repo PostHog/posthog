@@ -1050,6 +1050,7 @@
     ["apps.shopify.com", "source", "Shopping", "Paid Shopping", "Organic Shopping", false],
     ["checkout.shopify.com", "source", "Shopping", "Paid Shopping", "Organic Shopping", false],
     ["com.shopify.arrive", "source", "Shopping", "Paid Shopping", "Organic Shopping", true],
+    ["com.shopify.banking", "source", "Shopping", "Paid Shopping", "Organic Shopping", true],
     ["com.shopify.mobile", "source", "Shopping", "Paid Shopping", "Organic Shopping", true],
     ["com.shopify.pos", "source", "Shopping", "Paid Shopping", "Organic Shopping", true],
     ["partners.shopify.com", "source", "Shopping", "Paid Shopping", "Organic Shopping", false],
