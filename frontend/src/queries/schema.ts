@@ -65,6 +65,7 @@ export enum NodeKind {
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ErrorTrackingGroupQuery = 'ErrorTrackingGroupQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -109,6 +110,7 @@ export type AnyDataNode =
     | WebTopClicksQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
+    | ErrorTrackingGroupQuery
 
 /**
  * @discriminator kind
@@ -133,6 +135,7 @@ export type QuerySchema =
     | WebTopClicksQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
+    | ErrorTrackingGroupQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -520,6 +523,7 @@ export interface DataTableNode
                     | WebTopClicksQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
+                    | ErrorTrackingGroupQuery
                 )['response']
             >
         >,
@@ -537,7 +541,7 @@ export interface DataTableNode
         | WebTopClicksQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-
+        | ErrorTrackingGroupQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1268,27 +1272,53 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
 
-export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
-    kind: NodeKind.ErrorTrackingQuery
+interface BaseErrorTrackingQuery<T extends Record<string, any>> extends DataNode<T> {
     select: HogQLExpression[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
-    // Optional as only used when loading a specific group
-    fingerprint?: string
     limit?: integer
     offset?: integer
 }
 
-export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<any[]> {
+export interface ErrorTrackingQuery extends BaseErrorTrackingQuery<ErrorTrackingQueryResponse> {
+    kind: NodeKind.ErrorTrackingQuery
+}
+export interface ErrorTrackingGroupQuery extends BaseErrorTrackingQuery<ErrorTrackingGroupQueryResponse> {
+    kind: NodeKind.ErrorTrackingGroupQuery
+    fingerprint: string
+}
+
+export interface ErrorTrackingGroup {
+    fingerprint: string
+    merged_fingerprints: string[]
+    occurrences: number
+    sessions: number
+    users: number
+    error: string
+    /**  @format date-time */
+    first_seen: string
+    /**  @format date-time */
+    last_seen: string
+    // Sparkline data handled by the DataTable
+    volume?: any
+    assignee: string | null
+    status: 'archived' | 'active' | 'resolved' | 'pending_release'
+}
+
+interface BaseErrorTrackingQueryResponse<T> extends AnalyticsQueryResponseBase<T> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    columns?: unknown[]
+    columns?: string[]
 }
 
+export interface ErrorTrackingQueryResponse extends BaseErrorTrackingQueryResponse<ErrorTrackingGroup[]> {}
+export interface ErrorTrackingGroupQueryResponse extends BaseErrorTrackingQueryResponse<ErrorTrackingGroup> {}
+
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
+export type CachedErrorTrackingGroupQueryResponse = CachedQueryResponse<ErrorTrackingGroupQueryResponse>
 
 export type InsightQueryNode =
     | TrendsQuery

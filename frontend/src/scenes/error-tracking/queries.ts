@@ -2,7 +2,14 @@ import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/Universal
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import { DataTableNode, DateRange, ErrorTrackingQuery, InsightVizNode, NodeKind } from '~/queries/schema'
+import {
+    DataTableNode,
+    DateRange,
+    ErrorTrackingGroupQuery,
+    ErrorTrackingQuery,
+    InsightVizNode,
+    NodeKind,
+} from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter } from '~/types'
 
 export type SparklineConfig = {
@@ -46,8 +53,7 @@ export const errorTrackingQuery = ({
     sparklineSelectedPeriod: string | null
 }): DataTableNode => {
     const select = [
-        'any(properties) as "context.columns.error"',
-        'properties.$exception_fingerprint',
+        'any(properties) as error',
         'count() as occurrences',
         'count(distinct $session_id) as sessions',
         'count(distinct distinct_id) as users',
@@ -55,22 +61,14 @@ export const errorTrackingQuery = ({
         'min(timestamp) as first_seen',
     ]
 
-    const columns = [
-        'context.columns.error',
-        'properties.$exception_fingerprint',
-        'occurrences',
-        'sessions',
-        'users',
-        'last_seen',
-        'first_seen',
-    ]
+    const columns = ['fingerprint', 'error', 'occurrences', 'sessions', 'users', 'last_seen', 'first_seen']
 
     if (sparklineSelectedPeriod) {
         const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
         const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
 
-        select.splice(2, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`)
-        columns.splice(2, 0, 'context.columns.volume')
+        select.splice(2, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as volume`)
+        columns.splice(2, 0, 'volume')
     }
 
     return {
@@ -134,9 +132,9 @@ export const errorTrackingGroupQuery = ({
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-}): ErrorTrackingQuery => {
+}): ErrorTrackingGroupQuery => {
     return {
-        kind: NodeKind.ErrorTrackingQuery,
+        kind: NodeKind.ErrorTrackingGroupQuery,
         select: ['uuid', 'properties', 'timestamp', 'person'],
         fingerprint: fingerprint,
         dateRange: dateRange,

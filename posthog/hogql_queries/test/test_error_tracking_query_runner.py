@@ -82,96 +82,96 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _calculate(self, runner: ErrorTrackingQueryRunner):
         return runner.calculate().model_dump()
 
-    # @snapshot_clickhouse_queries
-    # def test_column_names(self):
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             select=[
-    #                 'any(properties) as "context.columns.error"',
-    #                 "properties.$exception_fingerprint",
-    #                 "count() as occurrences",
-    #             ],
-    #             fingerprint=None,
-    #             dateRange=DateRange(),
-    #             filterTestAccounts=True,
-    #         ),
-    #     )
+    @snapshot_clickhouse_queries
+    def test_column_names(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=[
+                    'any(properties) as "context.columns.error"',
+                    "count() as occurrences",
+                ],
+                fingerprint=None,
+                dateRange=DateRange(),
+                filterTestAccounts=True,
+            ),
+        )
 
-    #     columns = self._calculate(runner)["columns"]
-    #     self.assertEqual(columns, ["context.columns.error", "$exception_fingerprint", "occurrences"])
+        columns = self._calculate(runner)["columns"]
+        self.assertEqual(columns, ["fingerprint", "context.columns.error", "occurrences"])
 
-    # @snapshot_clickhouse_queries
-    # def test_fingerprints(self):
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             select=["properties.$exception_fingerprint", "count() as occurrences"],
-    #             fingerprint="SyntaxError",
-    #             dateRange=DateRange(),
-    #         ),
-    #     )
+    @snapshot_clickhouse_queries
+    def test_fingerprints(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=["count() as occurrences"],
+                fingerprint="SyntaxError",
+                dateRange=DateRange(),
+            ),
+        )
 
-    #     results = self._calculate(runner)["results"]
-    #     # returns a single group with multiple errors
-    #     self.assertEqual(len(results), 1)
-    #     self.assertEqual(results[0][0], "SyntaxError")
-    #     self.assertEqual(results[0][1], 2)
+        results = self._calculate(runner)["results"]
+        # returns a single group with multiple errors
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["fingerprint"], "SyntaxError")
+        self.assertEqual(results[0]["occurrences"], 2)
 
-    # def test_only_returns_exception_events(self):
-    #     with freeze_time("2020-01-10 12:11:00"):
-    #         _create_event(
-    #             distinct_id=self.distinct_id_one,
-    #             event="$pageview",
-    #             team=self.team,
-    #             properties={
-    #                 "$exception_fingerprint": "SyntaxError",
-    #             },
-    #         )
-    #     flush_persons_and_events()
+    def test_only_returns_exception_events(self):
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$pageview",
+                team=self.team,
+                properties={
+                    "$exception_fingerprint": "SyntaxError",
+                },
+            )
+        flush_persons_and_events()
 
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             select=["properties.$exception_fingerprint"],
-    #             dateRange=DateRange(),
-    #         ),
-    #     )
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=["count() as occurrences"],
+                dateRange=DateRange(),
+            ),
+        )
 
-    #     results = self._calculate(runner)["results"]
-    #     self.assertEqual(len(results), 2)
+        results = self._calculate(runner)["results"]
+        self.assertEqual(len(results), 3)
 
-    # @snapshot_clickhouse_queries
-    # def test_hogql_filters(self):
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             select=["properties.$exception_fingerprint"],
-    #             dateRange=DateRange(),
-    #             filterGroup=PropertyGroupFilter(
-    #                 type=FilterLogicalOperator.AND_,
-    #                 values=[
-    #                     PropertyGroupFilterValue(
-    #                         type=FilterLogicalOperator.OR_,
-    #                         values=[
-    #                             PersonPropertyFilter(
-    #                                 key="email", value="email@posthog.com", operator=PropertyOperator.EXACT
-    #                             ),
-    #                         ],
-    #                     )
-    #                 ],
-    #             ),
-    #         ),
-    #     )
+    @snapshot_clickhouse_queries
+    def test_hogql_filters(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=["count() as occurrences"],
+                dateRange=DateRange(),
+                filterGroup=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR_,
+                            values=[
+                                PersonPropertyFilter(
+                                    key="email", value="email@posthog.com", operator=PropertyOperator.EXACT
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            ),
+        )
 
-    #     results = self._calculate(runner)["results"]
-    #     self.assertEqual(len(results), 1)
+        results = self._calculate(runner)["results"]
+        # two errors exist for person with distinct_id_two
+        self.assertEqual(len(results), 2)
 
-    def test_finds_groups(self):
+    def test_merges_and_defaults_groups(self):
         ErrorTrackingGroup.objects.create(
             team=self.team, fingerprint="SyntaxError", merged_fingerprints=["custom_fingerprint"], assignee=self.user
         )
@@ -180,11 +180,30 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=["count()"],
+                select=["count() as occurrences"],
                 fingerprint=None,
                 dateRange=DateRange(),
             ),
         )
 
         results = self._calculate(runner)["results"]
-        self.assertEqual(results, [("SyntaxError", 2), ("TypeError", 1)])
+        self.assertEqual(
+            results,
+            [
+                {
+                    "fingerprint": "SyntaxError",
+                    "merged_fingerprints": ["custom_fingerprint"],
+                    "status": "active",
+                    "assignee": self.user.id,
+                    # count is (2 x SyntaxError) + (1 x custom_fingerprint)
+                    "occurrences": 3,
+                },
+                {
+                    "fingerprint": "TypeError",
+                    "assignee": None,
+                    "merged_fingerprints": [],
+                    "status": "active",
+                    "occurrences": 1,
+                },
+            ],
+        )

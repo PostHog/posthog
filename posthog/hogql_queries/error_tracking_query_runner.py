@@ -1,3 +1,6 @@
+from abc import abstractmethod
+from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -7,17 +10,20 @@ from posthog.schema import (
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
+    ErrorTrackingGroupQuery,
+    ErrorTrackingGroupQueryResponse,
+    CachedErrorTrackingGroupQueryResponse,
 )
 from posthog.hogql.parser import parse_expr
 from posthog.models.error_tracking import ErrorTrackingGroup
 from posthog.models.filters.mixins.utils import cached_property
 
+# Q = TypeVar("Q", bound=BaseModel)
 
-class ErrorTrackingQueryRunner(QueryRunner):
-    query: ErrorTrackingQuery
-    response: ErrorTrackingQueryResponse
+
+class BaseErrorTrackingRunner(QueryRunner):
+    query: ErrorTrackingQuery | ErrorTrackingGroupQuery
     paginator: HogQLHasMorePaginator
-    cached_response: CachedErrorTrackingQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -28,62 +34,71 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        parsed_select = [parse_expr(x) for x in self.query.select]
         return ast.SelectQuery(
-            select=[self.primary_fingerprint_alias(), *parsed_select],
+            select=self._select(),
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self._where(),
-            order_by=self._order_by(),
-            # group_by=[ast.Field(chain=["events", "properties", "$exception_fingerprint"])],
-            group_by=[ast.Field(chain=["primary_fingerprint"])],
+            order_by=self.order_by,
+            group_by=self._group_by(),
         )
 
-    def primary_fingerprint_alias(self):
-        args: list[ast.Expr] = []
-        for group in self.error_tracking_groups:
-            args.extend(
-                [
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["properties", "$exception_fingerprint"]),
-                        right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
-                        op=ast.CompareOperationOp.In,
-                    ),
-                    ast.Constant(value=group["fingerprint"]),
-                ]
-            )
-
-        args.append(ast.Field(chain=["properties", "$exception_fingerprint"]))
-
-        return ast.Alias(
-            alias="primary_fingerprint",
-            expr=ast.Call(
-                name="multiIf",
-                args=args,
-            ),
-        )
+    def _select(self):
+        default_exprs: list[ast.Expr] = self.default_select_exprs
+        parsed_exprs = [parse_expr(x) for x in self.query.select]
+        return [*default_exprs, *parsed_exprs]
 
     def _where(self):
-        where_exprs: list[ast.Expr] = [
+        exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=["event"]),
-                right=ast.Constant(value="$exception"),
+                right=ast.Constant(value="$pageview"),
             ),
             ast.Placeholder(field="filters"),
         ]
+        exprs.extend(self.where_exprs)
+        return ast.And(exprs=exprs)
 
-        if self.query.fingerprint:
-            where_exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["properties", "$exception_fingerprint"]),
-                    right=ast.Constant(value=self.query.fingerprint),
-                )
-            )
+    def _group_by(self):
+        return None
 
-        return ast.And(exprs=where_exprs)
+    def calculate(self):
+        query_result = self.paginator.execute_hogql_query(
+            query=self.to_query(),
+            team=self.team,
+            query_type="ErrorTrackingQuery",
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            filters=HogQLFilters(
+                dateRange=self.query.dateRange,
+                filterTestAccounts=self.query.filterTestAccounts,
+                properties=self.properties,
+            ),
+        )
 
-    def _order_by(self):
+        columns: list[str] = query_result.columns or []
+        results = self.results(columns, query_result.results)
+
+        return self.response(
+            columns=columns,
+            results=results,
+            timings=query_result.timings,
+            hogql=query_result.hogql,
+            modifiers=self.modifiers,
+            **self.paginator.response_params(),
+        )
+
+    @abstractmethod
+    def calculate(self) -> R:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def default_columns(self) -> R:
+        raise NotImplementedError()
+
+    @property
+    def order_by(self):
         return (
             [
                 ast.OrderExpr(
@@ -95,55 +110,101 @@ class ErrorTrackingQueryRunner(QueryRunner):
             else None
         )
 
-    def calculate(self):
-        properties = self.query.filterGroup.values[0].values if self.query.filterGroup else None
+    @cached_property
+    def properties(self):
+        return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
-        query_result = self.paginator.execute_hogql_query(
-            query=self.to_query(),
-            team=self.team,
-            query_type="ErrorTrackingQuery",
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-            filters=HogQLFilters(
-                dateRange=self.query.dateRange,
-                filterTestAccounts=self.query.filterTestAccounts,
-                properties=properties,
+    @property
+    @abstractmethod
+    def where_exprs(self):
+        raise NotImplementedError()
+
+    @property
+    @abstractmethod
+    def where_exprs(self):
+        raise NotImplementedError()
+
+
+class ErrorTrackingQueryRunner(BaseErrorTrackingRunner):
+    query: ErrorTrackingQuery
+    response: ErrorTrackingQueryResponse
+    cached_response: CachedErrorTrackingQueryResponse
+    where_exprs: []
+
+    def default_select(self):
+        args: list[ast.Expr] = []
+        groups = self.error_tracking_groups.values()
+
+        if not groups:
+            return ast.Alias(
+                alias="fingerprint",
+                expr=ast.Field(chain=["properties", "$exception_fingerprint"]),
+            ), ast.Field(chain=["events", "properties", "$exception_fingerprint"])
+
+        for group in groups:
+            # set the "fingerprint" of an exception to match that of the groups primary fingerprint
+            # replaces exceptions in "merged_fingerprints" with the group fingerprint
+            args.extend(
+                [
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["properties", "$exception_fingerprint"]),
+                        right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
+                        op=ast.CompareOperationOp.In,
+                    ),
+                    ast.Constant(value=group["fingerprint"]),
+                ]
+            )
+
+        # default to $exception_fingerprint property for exception events that don't match a group
+        args.append(ast.Field(chain=["properties", "$exception_fingerprint"]))
+
+        return [ast.Alias(
+            alias="fingerprint",
+            expr=ast.Call(
+                name="multiIf",
+                args=args,
             ),
-        )
+        )]
+
+    def group_by(self):
+        return [ast.Field(chain=["fingerprint"])]
+
+    def results(self, columns, results):
+        query_results = [dict(zip(columns, value)) for value in results]
 
         results = []
-        for _, query_result in enumerate(query_result.results):
-            group = next(
-                (x for x in self.error_tracking_groups if x["fingerprint"] == query_result[0]),
+        for result in query_results:
+            fingerprint = result["fingerprint"]
+            group = self.error_tracking_groups.get(
+                fingerprint,
                 {
-                    "fingerprint": query_result[0],
+                    "fingerprint": fingerprint,
                     "assignee": None,
                     "merged_fingerprints": [],
-                    "status": ErrorTrackingGroup.Status.ACTIVE,
+                    "status": str(ErrorTrackingGroup.Status.ACTIVE),
                 },
             )
-            result = {}
+            results.append(group | result)
 
-            result.ex
-            result.append(*group) if group is not None else None
-            results.append(result)
-
-        print(results)
-
-        return ErrorTrackingQueryResponse(
-            columns=query_result.columns,
-            results=query_result.results,
-            timings=query_result.timings,
-            hogql=query_result.hogql,
-            modifiers=self.modifiers,
-            **self.paginator.response_params(),
-        )
+        return results
 
     @cached_property
     def error_tracking_groups(self):
-        return (
+        queryset = (
             ErrorTrackingGroup.objects.prefetch_related("assignee")
             .filter(status__in=[ErrorTrackingGroup.Status.ACTIVE], team=self.team)
             .values("fingerprint", "merged_fingerprints", "status", "assignee")
         )
+        return {item["fingerprint"]: item for item in queryset}
+
+
+
+class ErrorTrackingGroupQueryRunner(BaseErrorTrackingRunner)
+    query: ErrorTrackingGroupQuery
+    response: ErrorTrackingGroupQueryResponse
+    cached_response: CachedErrorTrackingGroupQueryResponse
+    where_exprs: [ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["properties", "$exception_fingerprint"]),
+        right=ast.Constant(value=self.query.fingerprint),
+    )]
