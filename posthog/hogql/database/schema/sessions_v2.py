@@ -106,9 +106,14 @@ class RawSessionsTableV2(Table):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
-            # these are discouraged from being used in queries, use session_id_v7 instead
+            # ideally we'd prefer people to use session_id_v7, but we don't support uint128s in some parts of our stack,
+            # e.g. see https://posthog.sentry.io/issues/5613026650/
+            # we don't want to completely remove it, as it's useful elsewhere, but we don't want to prevent people from
+            # doing select * from sessions
+            "session_id_v7"
+            # id is just an alias for session_id
             "id",
-            "session_id",
+            # we can't return uuid_v7s to the front end, as it tries to cast a uint128
             # our clickhouse driver can't return aggregate states
             "entry_url",
             "end_url",
