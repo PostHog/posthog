@@ -154,22 +154,21 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
             cleanedParams['breakdown_type'] = filters.breakdown_type
         }
 
-        const hasBreakdowns = Array.isArray(filters.breakdowns) && filters.breakdowns?.length > 0
-        if (hasBreakdowns && canMultiPropertyBreakdown) {
+        if (canMultiPropertyBreakdown && filters.breakdowns && filters.breakdowns.length > 0) {
             cleanedParams['breakdowns'] = filters.breakdowns
-        } else if (hasBreakdowns && isTrends) {
+        } else if (isTrends && filters.breakdowns && filters.breakdowns.length > 0) {
             // Clean up a legacy breakdown
-            if (filters.breakdowns![0].property) {
-                cleanedParams['breakdown'] = filters.breakdowns![0].property
-                cleanedParams['breakdown_type'] = filters.breakdowns![0].type || filters.breakdown_type
+            if (filters.breakdowns[0].property) {
+                cleanedParams['breakdown'] = filters.breakdowns[0].property
+                cleanedParams['breakdown_type'] = filters.breakdowns[0].type || filters.breakdown_type
                 cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
                     cleanedParams['breakdown'] as string,
                     filters.breakdown_normalize_url
                 )
             } else {
                 cleanedParams['breakdown_type'] = undefined
-                cleanedParams['breakdowns'] = filters
-                    .breakdowns!.map((b) => ({
+                cleanedParams['breakdowns'] = filters.breakdowns
+                    .map((b) => ({
                         value: b.value,
                         type: b.type,
                         histogram_bin_count: b.histogram_bin_count,
