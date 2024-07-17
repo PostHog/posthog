@@ -133,6 +133,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_FOR_TEAMS: '',
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
+        HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
@@ -180,6 +181,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_MIN_OBSERVATIONS: 3,
         CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: 0.8,
         CDP_WATCHER_DISABLED_RATING_THRESHOLD: 0.5,
+        CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
     }
 }
 

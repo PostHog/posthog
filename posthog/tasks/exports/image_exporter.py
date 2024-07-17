@@ -208,6 +208,8 @@ def export_image(exported_asset: ExportedAsset) -> None:
                         dashboard_filters_json=exported_asset.dashboard.filters if exported_asset.dashboard else None,
                         limit_context=LimitContext.QUERY_ASYNC,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        insight_id=exported_asset.insight.id,
+                        dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                     )
 
             if exported_asset.export_format == "image/png":

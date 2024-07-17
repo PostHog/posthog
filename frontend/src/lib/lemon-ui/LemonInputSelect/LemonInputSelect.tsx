@@ -28,6 +28,8 @@ export type LemonInputSelectProps = Pick<
     disabled?: boolean
     loading?: boolean
     placeholder?: string
+    /** Title shown at the top of the list. Looks the same as section titles in LemonMenu. */
+    title?: string
     disableFiltering?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
@@ -41,6 +43,7 @@ export type LemonInputSelectProps = Pick<
 
 export function LemonInputSelect({
     placeholder,
+    title,
     options = [],
     value,
     loading,
@@ -278,6 +281,7 @@ export function LemonInputSelect({
             className={popoverClassName}
             overlay={
                 <div className="space-y-px overflow-y-auto">
+                    {title && <h5 className="mx-2 my-1">{title}</h5>}
                     {visibleOptions.length ? (
                         visibleOptions?.map((option, index) => {
                             const isHighlighted = index === selectedIndex
