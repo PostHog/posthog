@@ -162,7 +162,7 @@ export function PersonsModal({
                     ) : null}
 
                     {query &&
-                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions).map(([key, options]) =>
+                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) =>
                             key === 'breakdowns' ? (
                                 options.map(({ values }, index) => (
                                     <div key={`${key}_${index}`}>

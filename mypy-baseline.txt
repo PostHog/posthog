@@ -77,8 +77,6 @@ posthog/tasks/tasks.py:0: error: Module "django.utils.timezone" does not explici
 posthog/settings/data_stores.py:0: error: Incompatible types in assignment (expression has type "str | None", variable has type "str")  [assignment]
 posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on line 0  [no-redef]
 posthog/models/filters/mixins/simplify.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
-posthog/models/organization.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/models/organization.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/models/filters/base_filter.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
 posthog/models/team/team.py:0: error: Signature of "create" incompatible with supertype "BaseManager"  [override]
 posthog/models/team/team.py:0: note: Superclass:

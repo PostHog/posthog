@@ -46,8 +46,7 @@ const StatusTagSetting = {
 }
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
-    const { reloadSchema, resyncSchema } = useActions(dataWarehouseSettingsLogic)
-    const { updateSchema } = useActions(dataWarehouseSourceSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema } = useActions(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
@@ -55,6 +54,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
             <LemonTable
                 dataSource={schemas}
                 loading={isLoading}
+                disableTableWhileLoading={false}
                 columns={[
                     {
                         title: 'Schema Name',

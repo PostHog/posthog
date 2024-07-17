@@ -232,7 +232,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         quickFilterProperties: [
-            ['$geoip_country_name', ...(values.currentTeam?.person_display_name_properties || [])] as string[],
+            [...(values.currentTeam?.person_display_name_properties || [])] as string[],
             {
                 persist: true,
             },

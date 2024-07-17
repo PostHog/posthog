@@ -93,6 +93,7 @@ export enum AvailableFeature {
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
     SURVEYS_EVENTS = 'surveys_events',
+    SURVEYS_ACTIONS = 'surveys_actions',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -912,8 +913,8 @@ export interface SessionPlayerData {
     bufferedToTime: number | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
     durationMs: number
-    start?: Dayjs
-    end?: Dayjs
+    start: Dayjs | null
+    end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
 }
@@ -953,7 +954,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source'
+    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -2590,6 +2591,12 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        actions: {
+            values: {
+                id: number
+                name: string
+            }[]
+        } | null
         events: {
             repeatedActivation?: boolean
             values: {
@@ -3810,7 +3817,7 @@ export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2']
+export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
@@ -4275,6 +4282,42 @@ export type HogFunctionStatus = {
         timestamp: number
         rating: number
     }[]
+}
+
+export type HogFunctionInvocationGlobals = {
+    project: {
+        id: number
+        name: string
+        url: string
+    }
+    source?: {
+        name: string
+        url: string
+    }
+    event: {
+        uuid: string
+        name: string
+        distinct_id: string
+        properties: Record<string, any>
+        timestamp: string
+        url: string
+    }
+    person?: {
+        uuid: string
+        name: string
+        url: string
+        properties: Record<string, any>
+    }
+    groups?: Record<
+        string,
+        {
+            id: string // the "key" of the group
+            type: string
+            index: number
+            url: string
+            properties: Record<string, any>
+        }
+    >
 }
 
 export interface AnomalyCondition {
