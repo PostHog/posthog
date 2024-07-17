@@ -9,8 +9,8 @@ from posthog.schema import (
     CachedErrorTrackingQueryResponse,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingGroup
+from posthog.models.filters.mixins.utils import cached_property
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -28,17 +28,39 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
+        parsed_select = [parse_expr(x) for x in self.query.select]
         return ast.SelectQuery(
-            select=[parse_expr(x) for x in self.query.select],
+            select=[self.primary_fingerprint_alias(), *parsed_select],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self._where(),
             order_by=self._order_by(),
-            group_by=[ast.Field(chain=["events", "properties", "$exception_fingerprint"])],
+            # group_by=[ast.Field(chain=["events", "properties", "$exception_fingerprint"])],
+            group_by=[ast.Field(chain=["primary_fingerprint"])],
         )
-    
-    def select_mapping(self):
-        for group in error_tracking_groups:
-            
+
+    def primary_fingerprint_alias(self):
+        args: list[ast.Expr] = []
+        for group in self.error_tracking_groups:
+            args.extend(
+                [
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["properties", "$exception_fingerprint"]),
+                        right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
+                        op=ast.CompareOperationOp.In,
+                    ),
+                    ast.Constant(value=group["fingerprint"]),
+                ]
+            )
+
+        args.append(ast.Field(chain=["properties", "$exception_fingerprint"]))
+
+        return ast.Alias(
+            alias="primary_fingerprint",
+            expr=ast.Call(
+                name="multiIf",
+                args=args,
+            ),
+        )
 
     def _where(self):
         where_exprs: list[ast.Expr] = [
@@ -90,17 +112,24 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
         )
 
-        fingerprints = [result[0] for result in query_result.results]
-        groups = self.groups(fingerprints=fingerprints)
-
-        print(groups.fin)
-
         results = []
-
         for _, query_result in enumerate(query_result.results):
-            group = groups.first()
-            result = [*query_result, *group]
+            group = next(
+                (x for x in self.error_tracking_groups if x["fingerprint"] == query_result[0]),
+                {
+                    "fingerprint": query_result[0],
+                    "assignee": None,
+                    "merged_fingerprints": [],
+                    "status": ErrorTrackingGroup.Status.ACTIVE,
+                },
+            )
+            result = {}
+
+            result.ex
+            result.append(*group) if group is not None else None
             results.append(result)
+
+        print(results)
 
         return ErrorTrackingQueryResponse(
             columns=query_result.columns,
@@ -111,7 +140,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
+    @cached_property
     def error_tracking_groups(self):
-        return ErrorTrackingGroup.objects.prefetch_related("assignee").filter(
-            status__in=[ErrorTrackingGroup.Status.ACTIVE], team=self.team
+        return (
+            ErrorTrackingGroup.objects.prefetch_related("assignee")
+            .filter(status__in=[ErrorTrackingGroup.Status.ACTIVE], team=self.team)
+            .values("fingerprint", "merged_fingerprints", "status", "assignee")
         )

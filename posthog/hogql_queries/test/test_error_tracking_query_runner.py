@@ -68,6 +68,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "$exception_fingerprint": "SyntaxError",
                 },
             )
+            _create_event(
+                distinct_id=self.distinct_id_two,
+                event="$exception",
+                team=self.team,
+                properties={
+                    "$exception_fingerprint": "custom_fingerprint",
+                },
+            )
 
         flush_persons_and_events()
 
@@ -164,17 +172,19 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     #     self.assertEqual(len(results), 1)
 
     def test_finds_groups(self):
-        ErrorTrackingGroup.objects.create(team=self.team, fingerprint="SyntaxError", assignee=self.user)
+        ErrorTrackingGroup.objects.create(
+            team=self.team, fingerprint="SyntaxError", merged_fingerprints=["custom_fingerprint"], assignee=self.user
+        )
 
         runner = ErrorTrackingQueryRunner(
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=["properties.$exception_fingerprint"],
+                select=["count()"],
                 fingerprint=None,
                 dateRange=DateRange(),
             ),
         )
 
         results = self._calculate(runner)["results"]
-        self.assertEqual(0, 42)
+        self.assertEqual(results, [("SyntaxError", 2), ("TypeError", 1)])
