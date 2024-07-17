@@ -32,7 +32,7 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
                 const response = await api.externalDataSchemas.logs(props.job.schema.id, {
                     level: values.levelFilters.join(','),
                     search: values.searchTerm,
-                    instance_id: props.job.id,
+                    instance_id: props.job.workflow_run_id,
                 })
 
                 if (!cache.pollingInterval) {
@@ -48,7 +48,7 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
                 const response = await api.externalDataSchemas.logs(values.selectedSchemaId, {
                     level: values.levelFilters.join(','),
                     search: values.searchTerm,
-                    instance_id: props.job.id,
+                    instance_id: props.job.workflow_run_id,
                     before: values.leadingEntry?.timestamp,
                 })
 
@@ -70,7 +70,7 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
                 const response = await api.externalDataSchemas.logs(props.job.schema.id, {
                     level: values.levelFilters.join(','),
                     search: values.searchTerm,
-                    instance_id: props.job.id,
+                    instance_id: props.job.workflow_run_id,
                     after: values.leadingEntry?.timestamp,
                 })
 

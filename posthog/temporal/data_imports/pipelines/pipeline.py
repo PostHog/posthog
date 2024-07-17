@@ -119,6 +119,8 @@ class DataImportPipeline:
                     if isinstance(e.exception, DeltaError):
                         if e.exception.args[0] != "Generic error: No data source supplied to write command.":
                             raise
+                    else:
+                        raise
 
                 if pipeline.last_trace.last_normalize_info is not None:
                     row_counts = pipeline.last_trace.last_normalize_info.row_counts
@@ -151,6 +153,8 @@ class DataImportPipeline:
                 if isinstance(e.exception, DeltaError):
                     if e.exception.args[0] != "Generic error: No data source supplied to write command.":
                         raise
+                else:
+                    raise
 
             if pipeline.last_trace.last_normalize_info is not None:
                 row_counts = pipeline.last_trace.last_normalize_info.row_counts

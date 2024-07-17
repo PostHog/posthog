@@ -59,7 +59,6 @@ def process_query_task(
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: bool = False,  # TODO: Remove this parameter after the next deploy
 ) -> None:
     """
     Kick off query
