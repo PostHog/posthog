@@ -398,8 +398,6 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-                # For Boolean and untyped properties, treat "true" and "false" as boolean values
-
         return _field_to_compare_op(
             field=field,
             value=value,
