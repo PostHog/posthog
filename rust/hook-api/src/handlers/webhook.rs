@@ -4,7 +4,7 @@ use std::time::Instant;
 use axum::{extract::State, http::StatusCode, Json};
 use hook_common::webhook::{WebhookJobMetadata, WebhookJobParameters};
 use serde_derive::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use url::Url;
 
 use hook_common::pgqueue::{NewJob, PgQueue};
@@ -89,30 +89,32 @@ struct HoghookAsyncFunctionRequest {
     args: HoghookArgs,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct HoghookPayload {
-    #[serde(rename = "asyncFunctionRequest")]
-    async_function_request: HoghookAsyncFunctionRequest,
-
-    #[serde(flatten)]
-    passthrough: Map<String, Value>,
-}
-
 pub async fn post_hoghook(
     State(pg_queue): State<PgQueue>,
-    Json(payload): Json<HoghookPayload>,
+    Json(payload): Json<Value>,
 ) -> Result<Json<WebhookPostResponse>, (StatusCode, Json<WebhookPostResponse>)> {
     debug!("received payload: {:?}", payload);
 
-    if payload.async_function_request.name != "fetch" {
+    // We deserialize a copy of the `asyncFunctionRequest` field here because we want to leave
+    // the original payload unmodified so that it can be passed through exactly as it came to us.
+    let async_function_request = payload
+        .get("asyncFunctionRequest")
+        .ok_or_else(|| bad_request("missing required field 'asyncFunctionRequest'"))?
+        .clone();
+    let async_function_request: HoghookAsyncFunctionRequest =
+        serde_json::from_value(async_function_request).map_err(|err| {
+            let msg = format!("unable to deserialize 'asyncFunctionRequest': {}", err);
+            bad_request(&msg)
+        })?;
+
+    if async_function_request.name != "fetch" {
         return Err(bad_request("asyncFunctionRequest.name must be 'fetch'"));
     }
 
     // Note that the URL is parsed (and thus validated as a valid URL) as part of
     // `get_hostname` below.
-    let url = payload.async_function_request.args.0.clone();
-    let parameters = if let Some(ref fetch_options) = payload.async_function_request.args.1 {
-        let fetch_options = fetch_options.clone();
+    let url = async_function_request.args.0.clone();
+    let parameters = if let Some(fetch_options) = async_function_request.args.1 {
         WebhookJobParameters {
             body: fetch_options.body.unwrap_or("".to_owned()),
             headers: fetch_options.headers.unwrap_or_default(),
@@ -131,17 +133,7 @@ pub async fn post_hoghook(
     let url_hostname = get_hostname(&parameters.url)?;
     let max_attempts = default_max_attempts() as i32;
 
-    // Reconstruct the original JSON payload.
-    let passthrough = {
-        let mut map = payload.passthrough;
-        map.insert(
-            "asyncFunctionRequest".to_owned(),
-            serde_json::to_value(payload.async_function_request).unwrap(),
-        );
-        Value::Object(map)
-    };
-
-    let job = NewJob::new(max_attempts, passthrough, parameters, url_hostname.as_str());
+    let job = NewJob::new(max_attempts, payload, parameters, url_hostname.as_str());
 
     let start_time = Instant::now();
 
