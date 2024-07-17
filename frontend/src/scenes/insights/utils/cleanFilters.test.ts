@@ -205,6 +205,44 @@ describe('cleanFilters', () => {
         expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
     })
 
+    it('restores a breakdown type for legacy multiple breakdowns', () => {
+        const cleanedFilters = cleanFilters({
+            breakdowns: [{ property: 'any' }],
+            breakdown_type: 'event',
+            insight: InsightType.TRENDS,
+        } as TrendsFilterType)
+
+        expect(cleanedFilters).toHaveProperty('breakdown', 'any')
+        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+        expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
+    })
+
+    it('cleans a breakdown when multiple breakdowns are used', () => {
+        const cleanedFilters = cleanFilters({
+            breakdowns: [{ value: 'any', type: 'event' }],
+            breakdown_type: 'event',
+            breakdown: 'test',
+            insight: InsightType.TRENDS,
+        } as TrendsFilterType)
+
+        expect(cleanedFilters).toHaveProperty('breakdowns', [{ value: 'any', type: 'event' }])
+        expect(cleanedFilters).toHaveProperty('breakdown_type', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdown', undefined)
+    })
+
+    it('uses a breakdown when multiple breakdowns are empty', () => {
+        const cleanedFilters = cleanFilters({
+            breakdowns: [],
+            breakdown_type: 'event',
+            breakdown: 'test',
+            insight: InsightType.TRENDS,
+        } as TrendsFilterType)
+
+        expect(cleanedFilters).toHaveProperty('breakdown', 'test')
+        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+        expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
+    })
+
     it('keeps a breakdown limit', () => {
         const cleanedFilters = cleanFilters({
             breakdown_limit: 22,

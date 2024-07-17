@@ -161,12 +161,13 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
             // Clean up a legacy breakdown
             if (filters.breakdowns![0].property) {
                 cleanedParams['breakdown'] = filters.breakdowns![0].property
-                cleanedParams['breakdown_type'] = filters.breakdowns![0].type
+                cleanedParams['breakdown_type'] = filters.breakdowns![0].type || filters.breakdown_type
                 cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
                     cleanedParams['breakdown'] as string,
                     filters.breakdown_normalize_url
                 )
             } else {
+                cleanedParams['breakdown_type'] = undefined
                 cleanedParams['breakdowns'] = filters
                     .breakdowns!.map((b) => ({
                         value: b.value,
