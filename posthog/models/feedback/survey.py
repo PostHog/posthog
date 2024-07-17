@@ -67,7 +67,7 @@ class Survey(UUIDModel):
         - `question`: The text of the question.
         - `description`: Optional description of the question.
         - `descriptionContentType`: Content type of the description (`html` or `text`).
-        - `optional`: Whether the question is optional.
+        - `optional`: Whether the question is optional (`boolean`).
         - `buttonText`: Text displayed on the submit button.
         - `branching`: Branching logic for the question. See branching types below for details.
 
@@ -76,7 +76,7 @@ class Survey(UUIDModel):
         - `question`: The text of the question.
         - `description`: Optional description of the question.
         - `descriptionContentType`: Content type of the description (`html` or `text`).
-        - `optional`: Whether the question is optional.
+        - `optional`: Whether the question is optional (`boolean`).
         - `buttonText`: Text displayed on the submit button.
         - `link`: The URL associated with the question.
         - `branching`: Branching logic for the question. See branching types below for details.
@@ -86,10 +86,10 @@ class Survey(UUIDModel):
         - `question`: The text of the question.
         - `description`: Optional description of the question.
         - `descriptionContentType`: Content type of the description (`html` or `text`).
-        - `optional`: Whether the question is optional.
+        - `optional`: Whether the question is optional (`boolean`).
         - `buttonText`: Text displayed on the submit button.
         - `display`: Display style of the rating (`number` or `emoji`).
-        - `scale`: The scale of the rating.
+        - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
         - `branching`: Branching logic for the question. See branching types below for details.
@@ -99,11 +99,11 @@ class Survey(UUIDModel):
         - `question`: The text of the question.
         - `description`: Optional description of the question.
         - `descriptionContentType`: Content type of the description (`html` or `text`).
-        - `optional`: Whether the question is optional.
+        - `optional`: Whether the question is optional (`boolean`).
         - `buttonText`: Text displayed on the submit button.
-        - `choices`: List of choices for the question.
-        - `shuffleOptions`: Whether to shuffle the order of the choices.
-        - `hasOpenChoice`: Whether the question allows an open-ended response.
+        - `choices`: An array of choices for the question.
+        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Branching logic can be one of the following types:
@@ -115,7 +115,7 @@ class Survey(UUIDModel):
         }
         ```
 
-        End: Ends the survey with a confirmation message.
+        End: Ends the survey, optionally displaying a confirmation message.
         ```json
         {
             "type": "end"
