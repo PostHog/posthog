@@ -418,10 +418,9 @@ def get_hogql_autocomplete(
             node = find_node.node
             parent_node = find_node.parent_node
 
-            if HogLanguage.HOG_TEMPLATE:
-                if isinstance(node, ast.Constant) and parent_node is None:
-                    # Do not show suggestions if not inside the {} part in a template string
-                    continue
+            if HogLanguage.HOG_TEMPLATE and isinstance(node, ast.Constant):
+                # Do not show suggestions if not inside the {} part in a template string
+                continue
 
             if isinstance(query.globals, dict):
                 if isinstance(node, ast.Field):
