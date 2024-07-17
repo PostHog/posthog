@@ -376,48 +376,54 @@ class Command(BaseCommand):
         subprocess.run(["npx", "--no-install", "prettier", "--write", OUTPUT_FILE])
 
 
-async def get_apple(domain_entry, session):
-    (domain, entry) = domain_entry
-    url = f"https://{domain}/.well-known/apple-app-site-association"
-    try:
-        async with session.get(url=url) as response:
-            text = await response.read()
-            body = json.loads(text)
-            app_ids = []
-            for app in body.get("applinks", {}).get("details"):
-                app_id = app.get("appID")
-                if app_id:
-                    bundle_id = app_id.split(".", 1)[1].lower()
-                    if VALID_ENTRY_RE.match(bundle_id):
-                        app_ids.append(bundle_id)
-            return app_ids, entry
-    except:
-        pass
-
-
-async def get_android(domain_entry, session):
-    (domain, entry) = domain_entry
-    url = f"https://{domain}/.well-known/assetlinks.json"
-    try:
-        async with session.get(url=url) as response:
-            text = await response.read()
-            body = json.loads(text)
-            app_ids = []
-            for app in body:
-                package_name = app.get("target", {}).get("package_name")
-                if package_name:
-                    package_name = package_name.lower()
-                    app_ids.append(package_name)
-            return app_ids, entry
-    except:
-        pass
-
-
 async def parallel_lookup_up_apple_apps(url_entries):
+    async def f(domain_entry, session):
+        (domain, entry) = domain_entry
+        url = f"https://{domain}/.well-known/apple-app-site-association"
+        try:
+            async with session.get(url=url) as response:
+                text = await response.read()
+                body = json.loads(text)
+        except:
+            # If we get an error, ignore it. The domain might not have an applinks file, and may not even exist at all,
+            # it just means that we won't be able to get any bundle ids from it.
+            pass
+        app_ids = []
+        if not isinstance(body, dict):
+            return
+        for app in body.get("applinks", {}).get("details", []):
+            app_id = app.get("appID")
+            if app_id:
+                bundle_id = app_id.split(".", 1)[1].lower()
+                if VALID_ENTRY_RE.match(bundle_id):
+                    app_ids.append(bundle_id)
+        return app_ids, entry
+
     async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
-        return await asyncio.gather(*(get_apple(url_entry, session) for url_entry in url_entries))
+        return await asyncio.gather(*(f(url_entry, session) for url_entry in url_entries))
 
 
 async def parallel_lookup_up_android_apps(url_entries):
+    async def f(domain_entry, session):
+        (domain, entry) = domain_entry
+        url = f"https://{domain}/.well-known/assetlinks.json"
+        try:
+            async with session.get(url=url) as response:
+                text = await response.read()
+                body = json.loads(text)
+        except:
+            # If we get an error, ignore it. The domain might not have an assetlinks file, and may not even exist at all,
+            # it just means that we won't be able to get any package ids from it.
+            return
+        app_ids = []
+        if not isinstance(body, list):
+            return
+        for app in body:
+            package_name = app.get("target", {}).get("package_name")
+            if package_name and isinstance(package_name, str):
+                package_name = package_name.lower()
+                app_ids.append(package_name)
+        return app_ids, entry
+
     async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
-        return await asyncio.gather(*(get_android(url_entry, session) for url_entry in url_entries))
+        return await asyncio.gather(*(f(url_entry, session) for url_entry in url_entries))
