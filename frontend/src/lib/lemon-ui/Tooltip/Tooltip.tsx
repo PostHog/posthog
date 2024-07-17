@@ -42,7 +42,7 @@ export function Tooltip({
     offset = 8,
     arrowOffset,
     delayMs = 500,
-    closeDelayMs = 0,
+    closeDelayMs = 0, // Set this to some delay to ensure the content stays open when hovered
     visible: controlledOpen,
 }: TooltipProps): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
