@@ -1042,7 +1042,7 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
     "hopStart",
     "hopEnd",
 )
-RESULT_MINUS_ONE = "indexOf"
+RESULT_MINUS_ONE = ("indexOf",)
 
 
 def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:
