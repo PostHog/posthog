@@ -620,7 +620,6 @@ posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "dict[str, Collection[str]]", variable has type "StripeSourcePayload")  [assignment]
 posthog/warehouse/external_data_source/source.py:0: error: Argument 1 to "_create_source" has incompatible type "StripeSourcePayload"; expected "dict[Any, Any]"  [arg-type]
 posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Incompatible types in assignment (expression has type "str | int", variable has type "int")  [assignment]
-posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Missing positional arguments "schema_id", "internal_error" in call to "UpdateExternalDataJobStatusInputs"  [call-arg]
 posthog/api/test/batch_exports/conftest.py:0: error: Argument "activities" to "ThreadedWorker" has incompatible type "list[function]"; expected "Sequence[Callable[..., Any]]"  [arg-type]
 posthog/temporal/tests/data_imports/test_end_to_end.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/api/test/test_team.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
