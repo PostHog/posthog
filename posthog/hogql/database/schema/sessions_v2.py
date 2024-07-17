@@ -32,8 +32,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id"),
-    "session_id": StringDatabaseField(name="session_id"),
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
@@ -106,15 +104,8 @@ class RawSessionsTableV2(Table):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
-            # ideally we'd prefer people to use session_id_v7, but we don't support uint128s in some parts of our stack,
-            # e.g. see https://posthog.sentry.io/issues/5613026650/
-            # we don't want to completely remove it, as it's useful elsewhere, but we don't want to prevent people from
-            # doing select * from sessions
-            "session_id_v7"
-            # id is just an alias for session_id
-            "id",
-            # we can't return uuid_v7s to the front end, as it tries to cast a uint128
             # our clickhouse driver can't return aggregate states
+            "distinct_id",
             "entry_url",
             "end_url",
             "initial_utm_source",
@@ -125,6 +116,10 @@ class RawSessionsTableV2(Table):
             "initial_referring_domain",
             "initial_gclid",
             "initial_gad_source",
+            "pageview_uniq",
+            "autocapture_uniq",
+            "screen_uniq",
+            "last_external_click_url",
         ]
 
 
@@ -315,6 +310,8 @@ class SessionsTableV2(LazyTable):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
+            "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
+            "id",  # prefer to use session_id
             "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
         ]
 
