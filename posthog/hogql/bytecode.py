@@ -7,6 +7,7 @@ from hogvm.python.execute import execute_bytecode, BytecodeResult
 from hogvm.python.stl import STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
@@ -14,6 +15,7 @@ from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
 )
+from posthog.schema import HogQLNotice
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -58,11 +60,12 @@ def create_bytecode(
     expr: ast.Expr | ast.Statement | ast.Program,
     supported_functions: Optional[set[str]] = None,
     args: Optional[list[str]] = None,
+    context: Optional[HogQLContext] = None,
 ) -> list[Any]:
     bytecode: list[Any] = []
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
-    bytecode.extend(BytecodeBuilder(supported_functions, args).visit(expr))
+    bytecode.extend(BytecodeBuilder(supported_functions, args, context).visit(expr))
     return bytecode
 
 
@@ -80,7 +83,12 @@ class HogFunction:
 
 
 class BytecodeBuilder(Visitor):
-    def __init__(self, supported_functions: Optional[set[str]] = None, args: Optional[list[str]] = None):
+    def __init__(
+        self,
+        supported_functions: Optional[set[str]] = None,
+        args: Optional[list[str]] = None,
+        context: Optional[HogQLContext] = None,
+    ):
         super().__init__()
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
@@ -91,6 +99,7 @@ class BytecodeBuilder(Visitor):
         if args is not None:
             for arg in reversed(args):
                 self._declare_local(arg)
+        self.context = context or HogQLContext(team_id=None)
 
     def _start_scope(self):
         self.scope_depth += 1
@@ -163,6 +172,14 @@ class BytecodeBuilder(Visitor):
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
+        if self.context.globals and node.chain[0] in self.context.globals:
+            self.context.notices.append(
+                HogQLNotice(start=node.start, end=node.end, message="Global variable: " + str(node.chain[0]))
+            )
+        else:
+            self.context.warnings.append(
+                HogQLNotice(start=node.start, end=node.end, message="Unknown global variable: " + str(node.chain[0]))
+            )
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
@@ -490,7 +507,7 @@ class BytecodeBuilder(Visitor):
         elif not isinstance(node.body, ast.ReturnStatement):
             body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
 
-        bytecode = create_bytecode(body, all_known_functions, node.params)
+        bytecode = create_bytecode(body, all_known_functions, node.params, self.context)
         self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
         return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
 
