@@ -1,6 +1,7 @@
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackIntegrationView } from 'lib/integrations/SlackIntegrationHelpers'
@@ -46,7 +47,7 @@ const getSlackAppManifest = (): any => ({
 })
 
 export function SlackIntegration(): JSX.Element {
-    const { slackIntegrations, addToSlackButtonUrl } = useValues(integrationsLogic)
+    const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
@@ -102,8 +103,8 @@ export function SlackIntegration(): JSX.Element {
                 ))}
 
                 <div>
-                    {addToSlackButtonUrl() ? (
-                        <Link to={addToSlackButtonUrl() || ''}>
+                    {slackAvailable ? (
+                        <Link to={api.integrations.authorizeUrl({ kind: 'slack' })} disableClientSideRouting>
                             <img
                                 alt="Connect to Slack workspace"
                                 height="40"

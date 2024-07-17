@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.http import HttpResponse
+from django.shortcuts import redirect
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -56,11 +58,25 @@ class IntegrationViewSet(
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 
+    @action(methods=["GET"], detail=False)
+    def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        kind = request.GET.get("kind")
+        next = request.GET.get("next", "")
+
+        if kind in OauthIntegration.supported_kinds:
+            try:
+                auth_url = OauthIntegration.authorize_url(kind, next=next)
+                return redirect(auth_url)
+            except NotImplementedError:
+                raise ValidationError("Kind not configured")
+
+        raise ValidationError("Kind not supported")
+
     @action(methods=["GET"], detail=True, url_path="channels")
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-
         slack = SlackIntegration(instance)
+
         channels = [
             {
                 "id": channel["id"],

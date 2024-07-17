@@ -10,13 +10,6 @@ import { IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 
-// NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
-// Just means we have to change it back to http once redirected.
-const getOauthRedirectURI = (kind: string, next: string = ''): string =>
-    `${window.location.origin.replace('http://', 'http://')}/integrations/${kind}/callback${
-        next ? '?next=' + encodeURIComponent(next) : ''
-    }`
-
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
     connect({
@@ -54,7 +47,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             try {
                 await api.integrations.create({
                     kind,
-                    config: { state, code, redirect_uri: getOauthRedirectURI(kind, next) },
+                    config: { state, code, next },
                 })
 
                 actions.loadIntegrations()
@@ -87,18 +80,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
 
-        addToSlackButtonUrl: [
+        slackAvailable: [
             (s) => [s.preflight],
             (preflight) => {
-                return (next: string = '') => {
-                    const clientId = preflight?.slack_service?.client_id
-
-                    return clientId
-                        ? `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=channels:read,groups:read,chat:write&redirect_uri=${encodeURIComponent(
-                              getOauthRedirectURI('slack', next)
-                          )}`
-                        : null
-                }
+                // TODO: Change this to be based on preflight or something
+                return preflight.slack_service.available
             },
         ],
     }),

@@ -1,5 +1,6 @@
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackIntegrationView } from 'lib/integrations/SlackIntegrationHelpers'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -30,7 +31,7 @@ export function HogFunctionIntegrationSlackConnection({
     onChange,
     value,
 }: HogFunctionInputIntegrationConfigureProps): JSX.Element {
-    const { integrationsLoading, slackIntegrations, addToSlackButtonUrl } = useValues(integrationsLogic)
+    const { integrationsLoading, slackIntegrations } = useValues(integrationsLogic)
 
     const integration = slackIntegrations?.find((integration) => integration.id === value)
 
@@ -47,7 +48,10 @@ export function HogFunctionIntegrationSlackConnection({
                     label: integration.config.team.name,
                 })) || []),
                 {
-                    to: addToSlackButtonUrl(window.location.pathname + '?target_type=slack') || '',
+                    to: api.integrations.authorizeUrl({
+                        kind: 'slack',
+                        next: window.location.pathname + '?target_type=slack',
+                    }),
                     label: 'Add to different Slack workspace',
                 },
             ]}
