@@ -51,6 +51,7 @@ class OauthConfig:
     client_id: str
     client_secret: str
     scope: str
+    id_path: str
 
 
 class OauthIntegration:
@@ -83,6 +84,7 @@ class OauthIntegration:
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
                 scope="channels:read,groups:read,chat:write",
+                id_path="team.id",
             )
         elif kind == "salesforce":
             if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
@@ -94,6 +96,7 @@ class OauthIntegration:
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full",
+                id_path="instance_url",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -123,6 +126,14 @@ class OauthIntegration:
         if res.status_code != 200 or not config.get("access_token"):
             raise Exception("Oauth error")
 
+        integration_id = None
+
+        for key in oauth_config.id_path.split("."):
+            integration_id = config.get(key)
+
+        if not integration_id:
+            raise Exception("Oauth error")
+
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
             "refresh_token": config.pop("refresh_token", None),
@@ -132,6 +143,7 @@ class OauthIntegration:
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind=kind,
+            integration_id=integration_id,
             defaults={
                 "config": config,
                 "sensitive_config": sensitive_config,
