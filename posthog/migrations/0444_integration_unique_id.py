@@ -9,20 +9,31 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="integration",
-            name="integration_id",
-            field=models.TextField(blank=True, null=True),
-        ),
-        migrations.AlterField(
-            model_name="integration",
-            name="kind",
-            field=models.CharField(choices=[("slack", "Slack"), ("salesforce", "Salesforce")], max_length=10),
-        ),
-        migrations.AddConstraint(
-            model_name="integration",
-            constraint=models.UniqueConstraint(
-                fields=("team", "kind", "integration_id"), name="integration_kind_id_unique"
-            ),
-        ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="integration",
+                    name="integration_id",
+                    field=models.TextField(blank=True, null=True),
+                ),
+                migrations.AlterField(
+                    model_name="integration",
+                    name="kind",
+                    field=models.CharField(choices=[("slack", "Slack"), ("salesforce", "Salesforce")], max_length=10),
+                ),
+            ],
+            database_operations=[
+                # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_integration" ADD COLUMN "integration_id" text NULL;
+                    ALTER TABLE "posthog_integration" ADD CONSTRAINT "posthog_integration_kind_id_unique" UNIQUE ("team_id", "kind", "integration_id"); -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_integration" DROP COLUMN IF EXISTS "integration_id";
+                        ALTER TABLE "posthog_integration" DROP CONSTRAINT IF EXISTS "posthog_integration_kind_id_unique"; -- existing-table-constraint-ignore
+                    """,
+                ),
+            ],
+        )
     ]

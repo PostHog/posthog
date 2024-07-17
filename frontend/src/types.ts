@@ -3531,7 +3531,7 @@ export interface IntegrationType {
     id: number
     kind: IntegrationKind
     name: string
-    icon_url: str
+    icon_url: string
     config: any
     created_by?: UserBasicType | null
     created_at: string

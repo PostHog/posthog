@@ -23,7 +23,9 @@ class Integration(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "kind", "integration_id"], name="integration_kind_id_unique")
+            models.UniqueConstraint(
+                fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
+            )
         ]
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
