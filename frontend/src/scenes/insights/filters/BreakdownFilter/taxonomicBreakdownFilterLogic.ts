@@ -148,7 +148,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     !isDataWarehouseSeries &&
                     (!breakdown_type || isMultipleBreakdownType(breakdown_type))
                 ) {
-                    return Array.isArray(breakdowns) && breakdowns.length >= 3
+                    return breakdowns && breakdowns.length >= 3
                 }
 
                 return !Array.isArray(breakdown) && breakdown != null
@@ -469,6 +469,6 @@ function checkBreakdownExists(
     )
 }
 
-export function multipleBreakdownsEnabled(flags: FeatureFlagsSet): boolean {
+export const multipleBreakdownsEnabled = (flags: FeatureFlagsSet): boolean => {
     return !!flags[FEATURE_FLAGS.MULTIPLE_BREAKDOWNS]
 }
