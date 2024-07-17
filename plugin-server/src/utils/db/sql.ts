@@ -212,7 +212,7 @@ export async function upsertInlinePlugin(hub: Hub, inline: InlinePluginDescripti
             fullPlugin.log_level,
             fullPlugin.description,
             fullPlugin.is_preinstalled,
-            fullPlugin.config_schema,
+            JSON.stringify(fullPlugin.config_schema),
         ],
         'upsertInlinePlugin'
     )
