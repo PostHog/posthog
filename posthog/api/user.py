@@ -501,7 +501,7 @@ def redirect_to_site(request):
         "action": "ph_authorize",
         "token": team.api_token,
         "temporaryToken": request.user.temporary_token,
-        "action_id": request.GET.get("action_id"),
+        "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "apiURL": request.build_absolute_uri("/")[:-1],
@@ -514,7 +514,7 @@ def redirect_to_site(request):
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True
         params["userEmail"] = request.user.email
-        params["distinct_id"] = request.user.distinct_id
+        params["distinctId"] = request.user.distinct_id
 
     # pass the empty string as the safe param so that `//` is encoded correctly.
     # see https://github.com/PostHog/posthog/issues/9671

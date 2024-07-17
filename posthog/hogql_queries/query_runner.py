@@ -439,7 +439,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             user_id=user.id if user else None,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
-            query_json=self.query.model_dump(),
+            query_json=self.query.model_dump(by_alias=True),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
         )
@@ -566,7 +566,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         last_refresh = datetime.now(UTC)
         target_age = self.cache_target_age(last_refresh=last_refresh)
         fresh_response_dict = {
-            **self.calculate().model_dump(),
+            **self.calculate().model_dump(by_alias=True),
             "is_cached": False,
             "last_refresh": last_refresh,
             "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
@@ -669,7 +669,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             (
                                 PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=self.query.properties)
                                 if isinstance(self.query.properties, list)
-                                else PropertyGroupFilterValue(**self.query.properties.model_dump())
+                                else PropertyGroupFilterValue(**self.query.properties.model_dump(by_alias=True))
                             ),
                             PropertyGroupFilterValue(
                                 type=FilterLogicalOperator.AND_, values=dashboard_filter.properties

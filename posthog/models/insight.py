@@ -124,7 +124,11 @@ class Insight(models.Model):
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
         try:
-            return {"kind": "InsightVizNode", "source": filter_to_query(self.filters).model_dump(), "full": True}
+            return {
+                "kind": "InsightVizNode",
+                "source": filter_to_query(self.filters).model_dump(by_alias=True),
+                "full": True,
+            }
         except Exception as e:
             capture_exception(e)
 

@@ -71,7 +71,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def _calculate(self, runner: ErrorTrackingQueryRunner):
-        return runner.calculate().model_dump()
+        return runner.calculate().model_dump(by_alias=True)
 
     @snapshot_clickhouse_queries
     def test_column_names(self):

@@ -91,7 +91,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         "distinct_id",
                         "concat(event, ' ', properties.key)",
                     ],
-                    "has_more": False,
+                    "hasMore": False,
                     "results": [
                         ["test_val1", "sign up", "2", "sign up test_val1"],
                         ["test_val2", "sign out", "2", "sign out test_val2"],
@@ -118,7 +118,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response
                 | {
                     "columns": ["count()", "event"],
-                    "has_more": False,
+                    "hasMore": False,
                     "types": ["UInt64", "String"],
                     "results": [[3, "sign out"], [1, "sign up"]],
                 },
@@ -126,14 +126,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             query.select = ["count()", "event"]
             query.where = ["event == 'sign up' or like(properties.key, '%val2')"]
-            query.order_by = ["count() DESC", "event"]
+            query.orderBy = ["count() DESC", "event"]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
                 response
                 | {
                     "columns": ["count()", "event"],
-                    "has_more": False,
+                    "hasMore": False,
                     "types": ["UInt64", "String"],
                     "results": [[2, "sign out"], [1, "sign up"]],
                 },
@@ -584,7 +584,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_query_not_supported(self):
         query = {
             "kind": "SavedInsightNode",
-            "short_id": "123",
+            "shortId": "123",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

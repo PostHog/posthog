@@ -925,7 +925,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         self.assertEqual(
-            query.model_dump(exclude_defaults=True),
+            query.model_dump(exclude_defaults=True, by_alias=True),
             {"breakdown_filter": {}, "date_range": {}, "series": [], "trends_filter": {}},
         )
 

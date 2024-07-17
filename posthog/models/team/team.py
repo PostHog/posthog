@@ -298,7 +298,7 @@ class Team(UUIDClassicModel):
     def default_modifiers(self) -> dict:
         modifiers = HogQLQueryModifiers()
         set_default_modifier_values(modifiers, self)
-        return modifiers.model_dump()
+        return modifiers.model_dump(by_alias=True)
 
     @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:

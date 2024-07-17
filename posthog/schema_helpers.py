@@ -95,10 +95,10 @@ def to_dict(query: BaseModel) -> dict:
             return dumped
 
     # our schema is generated, so extend the models here
-    query = ExtendedQuery(**query.model_dump())
+    query = ExtendedQuery(**query.model_dump(by_alias=True))
 
     # generate a dict from the pydantic model
-    instance_dict = query.model_dump(exclude_none=True, exclude_defaults=True)
+    instance_dict = query.model_dump(exclude_none=True, exclude_defaults=True, by_alias=True)
 
     return instance_dict
 

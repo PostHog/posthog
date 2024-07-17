@@ -176,7 +176,7 @@ class EventViewSet(
             team = self.team
             filter = Filter(request=request, team=self.team)
             order_by: list[str] = (
-                list(json.loads(request.GET["order_by"])) if request.GET.get("order_by") else ["-timestamp"]
+                list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
 
             query_result = query_events_list(

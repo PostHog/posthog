@@ -4868,7 +4868,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "-14d",
                 "breakdown": "fake_prop",
                 "breakdown_type": "event",
-                "display": "actions_pie",
+                "display": "ActionsPie",
                 "events": [
                     {
                         "id": "watched movie",
@@ -4909,7 +4909,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "date_from": "-14d",
                         "breakdown": "name",
                         "breakdown_type": "person",
-                        "display": "actions_pie",
+                        "display": "ActionsPie",
                         "events": [
                             {
                                 "id": "watched movie",
@@ -4935,7 +4935,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     data={
                         "date_from": "-14d",
                         "breakdowns": [{"type": "person", "value": "name"}],
-                        "display": "actions_pie",
+                        "display": "ActionsPie",
                         "events": [
                             {
                                 "id": "watched movie",
@@ -4960,7 +4960,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = {
             "date_from": "-14d",
-            "display": "actions_pie",
+            "display": "ActionsPie",
             "events": [
                 {
                     "id": "watched movie",
