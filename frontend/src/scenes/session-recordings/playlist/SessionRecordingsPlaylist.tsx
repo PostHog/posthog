@@ -38,7 +38,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         sessionSummaryLoading,
         activeSessionRecordingId,
         hasNext,
-        universalFilters,
     } = useValues(logic)
     const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId, setUniversalFilters } =
         useActions(logic)
@@ -110,11 +109,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
                 {!notebookNode && (
-                    <RecordingsUniversalFilters
-                        filters={universalFilters}
-                        setFilters={setUniversalFilters}
-                        className="border"
-                    />
+                    <RecordingsUniversalFilters filters={filters} setFilters={setUniversalFilters} className="border" />
                 )}
                 <Playlist
                     data-attr="session-recordings-playlist"
@@ -173,7 +168,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
 const ListEmptyState = (): JSX.Element => {
     const { filters, sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
-    const { setAdvancedFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { setUniversalFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-muted-alt">
@@ -189,11 +184,7 @@ const ListEmptyState = (): JSX.Element => {
                             <LemonButton
                                 type="secondary"
                                 data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                                onClick={() => {
-                                    setAdvancedFilters({
-                                        date_from: '-30d',
-                                    })
-                                }}
+                                onClick={() => setUniversalFilters({ date_from: '-30d' })}
                             >
                                 Search over the last 30 days
                             </LemonButton>

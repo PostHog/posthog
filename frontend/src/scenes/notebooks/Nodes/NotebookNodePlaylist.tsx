@@ -21,20 +21,16 @@ const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, simpleFilters, pinned, nodeId, universalFilters } = attributes
+    const { pinned, nodeId, universalFilters } = attributes
     const playerKey = `notebook-${nodeId}`
 
     const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
         () => ({
             logicKey: playerKey,
-            advancedFilters: filters,
-            simpleFilters,
-            universalFilters,
+            filters: universalFilters,
             updateSearchParams: false,
             autoPlay: false,
-            onFiltersChange: (newFilters, legacyFilters) => {
-                updateAttributes({ universalFilters: newFilters, filters: legacyFilters })
-            },
+            onFiltersChange: (newFilters) => updateAttributes({ universalFilters: newFilters }),
             pinnedRecordings: pinned,
             onPinnedChange(recording, isPinned) {
                 updateAttributes({
@@ -44,7 +40,7 @@ const Component = ({
                 })
             },
         }),
-        [playerKey, filters, pinned]
+        [playerKey, universalFilters, pinned]
     )
 
     const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
@@ -116,7 +112,7 @@ export const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, simpleFilters, universalFilters } = attributes
+    const { universalFilters } = attributes
 
     const setUniversalFilters = (filters: Partial<RecordingUniversalFilters>): void => {
         updateAttributes({ universalFilters: { ...universalFilters, ...filters } })

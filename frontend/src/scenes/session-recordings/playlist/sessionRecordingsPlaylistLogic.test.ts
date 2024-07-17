@@ -253,16 +253,12 @@ describe('sessionRecordingsPlaylistLogic', () => {
         describe('date range', () => {
             it('is set by setAdvancedFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAdvancedFilters({
+                    logic.actions.setFilters({
                         date_from: '2021-10-05',
                         date_to: '2021-10-20',
                     })
                 })
                     .toMatchValues({
-                        legacyFilters: expect.objectContaining({
-                            date_from: '2021-10-05',
-                            date_to: '2021-10-20',
-                        }),
                         filters: expect.objectContaining({
                             date_from: '2021-10-05',
                             date_to: '2021-10-20',
@@ -280,26 +276,27 @@ describe('sessionRecordingsPlaylistLogic', () => {
         describe('duration filter', () => {
             it('is set by setAdvancedFilters and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAdvancedFilters({
-                        session_recording_duration: {
-                            type: PropertyFilterType.Recording,
-                            key: 'duration',
-                            value: 600,
-                            operator: PropertyOperator.LessThan,
-                        },
-                    })
-                })
-                    .toMatchValues({
-                        legacyFilters: expect.objectContaining({
-                            session_recording_duration: {
+                    logic.actions.setFilters({
+                        duration: [
+                            {
                                 type: PropertyFilterType.Recording,
                                 key: 'duration',
                                 value: 600,
                                 operator: PropertyOperator.LessThan,
                             },
-                        }),
+                        ],
+                    })
+                })
+                    .toMatchValues({
                         filters: expect.objectContaining({
-                            duration: [{ key: 'duration', operator: 'lt', type: 'recording', value: 600 }],
+                            duration: [
+                                {
+                                    key: 'duration',
+                                    operator: PropertyOperator.LessThan,
+                                    type: PropertyFilterType.Recording,
+                                    value: 600,
+                                },
+                            ],
                         }),
                     })
                     .toDispatchActions(['setAdvancedFilters', 'loadSessionRecordingsSuccess'])

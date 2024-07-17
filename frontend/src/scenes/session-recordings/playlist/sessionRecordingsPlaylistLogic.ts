@@ -227,10 +227,8 @@ export interface SessionRecordingPlaylistLogicProps {
     personUUID?: PersonUUID
     updateSearchParams?: boolean
     autoPlay?: boolean
-    universalFilters?: RecordingUniversalFilters
-    advancedFilters?: RecordingFilters
-    simpleFilters?: RecordingFilters
-    onFiltersChange?: (filters: RecordingUniversalFilters, legacyFilters: RecordingFilters) => void
+    filters?: RecordingUniversalFilters
+    onFiltersChange?: (filters: RecordingUniversalFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
@@ -264,7 +262,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     actions({
-        setUniversalFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
+        setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         setOrderBy: (orderBy: SessionOrderingType) => ({ orderBy }),
@@ -433,10 +431,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
             },
         ],
-        universalFilters: [
-            props.universalFilters ?? DEFAULT_RECORDING_UNIVERSAL_FILTERS,
+        filters: [
+            props.filters ?? DEFAULT_RECORDING_UNIVERSAL_FILTERS,
             {
-                setUniversalFilters: (state, { filters }) => {
+                setFilters: (state, { filters }) => {
                     return {
                         ...state,
                         ...filters,
@@ -524,7 +522,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadSessionRecordingsFailure: () => true,
                 loadSessionRecordingSuccess: () => false,
-                setUniversalFilters: () => false,
+                setFilters: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
@@ -536,9 +534,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings()
             actions.loadPinnedRecordings()
         },
-        setUniversalFilters: ({ filters }) => {
+        setFilters: ({ filters }) => {
             actions.loadSessionRecordings()
-            props.onFiltersChange?.(values.filters, values.legacyFilters)
+            props.onFiltersChange?.(values.filters)
             capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
         },
@@ -549,7 +547,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         resetFilters: () => {
             actions.loadSessionRecordings()
-            props.onFiltersChange?.(values.filters, values.legacyFilters)
+            props.onFiltersChange?.(values.filters)
         },
 
         maybeLoadSessionRecordings: ({ direction }) => {
@@ -576,13 +574,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
-
-        filters: [(s) => [s.universalFilters], (universalFilters): RecordingUniversalFilters => universalFilters],
-        legacyFilters: [
-            (s) => [s.simpleFilters, s.advancedFilters],
-            (simpleFilters, advancedFilters): RecordingFilters =>
-                combineRecordingFilters(simpleFilters, advancedFilters),
-        ],
 
         matchingEventsMatchType: [
             (s) => [s.filters],
@@ -758,15 +749,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             // Support legacy URLs. Can be removed shortly after release
             if (params.simpleFilters || params.advancedFilters) {
-                if (!equal(params.filters, values.universalFilters)) {
-                    actions.setUniversalFilters(
+                if (!equal(params.filters, values.filters)) {
+                    actions.setFilters(
                         convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
                     )
                 }
             }
 
             if (params.filters && !equal(params.filters, values.filters)) {
-                actions.setUniversalFilters(params.filters)
+                actions.setFilters(params.filters)
             }
         }
         return {

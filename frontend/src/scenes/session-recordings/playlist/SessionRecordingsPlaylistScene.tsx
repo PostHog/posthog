@@ -134,8 +134,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             {playlist.short_id && pinnedRecordings !== null ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist
-                        advancedFilters={playlist.filters}
-                        universalFilters={
+                        // backwards compatibilty for legacy filters
+                        filters={
                             playlist.filters && isUniversalFilters(playlist.filters)
                                 ? playlist.filters
                                 : convertLegacyFiltersToUniversalFilters({}, playlist.filters)
