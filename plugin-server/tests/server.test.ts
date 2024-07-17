@@ -19,10 +19,7 @@ function numberOfScheduledJobs() {
 describe('server', () => {
     let pluginsServer: Partial<ServerInstance> | null = null
 
-    function createPluginServer(
-        config: Partial<PluginsServerConfig> = {},
-        capabilities: PluginServerCapabilities | undefined = undefined
-    ) {
+    function createPluginServer(config: Partial<PluginsServerConfig>, capabilities: PluginServerCapabilities) {
         return startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
@@ -43,20 +40,94 @@ describe('server', () => {
         pluginsServer = null
     })
 
-    test('startPluginsServer does not error', async () => {
+    // Running all capabilities together takes too long in tests, so they are split up
+    test('startPluginsServer does not error - ingestion', async () => {
         const testCode = `
         async function processEvent (event) {
             return event
         }
     `
         await resetTestDatabase(testCode)
-        pluginsServer = await createPluginServer()
+        pluginsServer = await createPluginServer(
+            {},
+            {
+                http: true,
+                mmdb: true,
+                ingestion: true,
+                ingestionOverflow: true,
+                ingestionHistorical: true,
+                appManagementSingleton: true,
+                preflightSchedules: true,
+            }
+        )
+    })
+    test('startPluginsServer does not error - pipelines', async () => {
+        const testCode = `
+        async function processEvent (event) {
+            return event
+        }
+    `
+        await resetTestDatabase(testCode)
+        pluginsServer = await createPluginServer(
+            {},
+            {
+                http: true,
+                eventsIngestionPipelines: true,
+            }
+        )
+    })
+
+    test('startPluginsServer does not error - cdp', async () => {
+        const testCode = `
+        async function processEvent (event) {
+            return event
+        }
+    `
+        await resetTestDatabase(testCode)
+        pluginsServer = await createPluginServer(
+            {},
+            {
+                http: true,
+                pluginScheduledTasks: true,
+                processPluginJobs: true,
+                processAsyncOnEventHandlers: true,
+                processAsyncWebhooksHandlers: true,
+                cdpProcessedEvents: true,
+                cdpFunctionCallbacks: true,
+                cdpFunctionOverflow: true,
+            }
+        )
+    })
+
+    test('startPluginsServer does not error - replay', async () => {
+        const testCode = `
+        async function processEvent (event) {
+            return event
+        }
+    `
+        await resetTestDatabase(testCode)
+        pluginsServer = await createPluginServer(
+            {},
+            {
+                http: true,
+                sessionRecordingBlobIngestion: true,
+                sessionRecordingBlobOverflowIngestion: true,
+            }
+        )
     })
 
     test('starting and stopping node-schedule scheduled jobs', async () => {
         expect(numberOfScheduledJobs()).toEqual(0)
 
-        pluginsServer = await createPluginServer()
+        pluginsServer = await createPluginServer(
+            {},
+            {
+                http: true,
+                pluginScheduledTasks: true,
+                processAsyncWebhooksHandlers: true,
+                preflightSchedules: true,
+            }
+        )
 
         expect(numberOfScheduledJobs()).toBeGreaterThan(1)
 
@@ -67,8 +138,11 @@ describe('server', () => {
     })
 
     describe('plugin-server capabilities', () => {
-        test('starts all main services by default', async () => {
-            pluginsServer = await createPluginServer()
+        test('starts graphile for scheduled tasks capability', async () => {
+            pluginsServer = await createPluginServer(
+                {},
+                { ingestion: true, pluginScheduledTasks: true, processPluginJobs: true }
+            )
 
             expect(startGraphileWorker).toHaveBeenCalled()
         })

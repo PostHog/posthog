@@ -2076,10 +2076,20 @@ export enum RetentionPeriod {
 
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
+/**
+ * Legacy multiple breakdowns had `property` and `type` fields.
+ * Mirroring the legacy fields here for backwards compatibility with multiple breakdowns.
+ */
 export interface Breakdown {
-    property: string | number
+    value?: string
+    /**
+     * Legacy breakdown has a `property` field that is `value` now.
+     */
+    property?: string | number
     type: BreakdownType
     normalize_url?: boolean
+    histogram_bin_count?: number
+    group_type_index?: number
 }
 
 export interface FilterType {
@@ -3817,7 +3827,7 @@ export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2']
+export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
@@ -3880,6 +3890,7 @@ export interface ExternalDataJob {
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string
+    workflow_run_id?: string
 }
 
 export interface SimpleDataWarehouseTable {

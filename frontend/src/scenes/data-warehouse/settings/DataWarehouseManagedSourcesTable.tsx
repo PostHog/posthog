@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import azureLogo from 'public/azure-logo.svg'
 import cloudflareLogo from 'public/cloudflare-logo.svg'
 import googleStorageLogo from 'public/google-cloud-storage-logo.png'
 import hubspotLogo from 'public/hubspot-logo.svg'
@@ -190,6 +191,7 @@ export function RenderDataWarehouseSourceIcon({
         aws: s3Logo,
         'google-cloud': googleStorageLogo,
         'cloudflare-r2': cloudflareLogo,
+        azure: azureLogo,
     }[type]
 
     return (

@@ -57,7 +57,7 @@ export function toHogDateTime(timestamp: number | HogDate, zone?: string): HogDa
 // EXPORTED STL functions
 
 export function now(zone?: string): HogDateTime {
-    return toHogDateTime(Date.now(), zone)
+    return toHogDateTime(Date.now() / 1000, zone)
 }
 
 export function toUnixTimestamp(input: HogDateTime | HogDate | string, zone?: string): number {

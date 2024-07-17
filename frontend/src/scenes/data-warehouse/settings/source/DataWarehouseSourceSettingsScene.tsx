@@ -62,7 +62,7 @@ export function DataWarehouseSourceSettingsScene(): JSX.Element {
                 activeKey={currentTab}
                 onChange={(tab) => setCurrentTab(tab as DataWarehouseSourceSettingsTabs)}
                 tabs={Object.entries(TabContent).map(([tab, ContentComponent]) => ({
-                    label: FriendlyTabNames[tab],
+                    label: FriendlyTabNames[tab as DataWarehouseSourceSettingsTabs],
                     key: tab,
                     content: <ContentComponent />,
                 }))}
