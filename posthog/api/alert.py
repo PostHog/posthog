@@ -35,7 +35,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        filters = self.request.GET.dict()
+        filters = self.request.query_params
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
         return queryset
