@@ -184,6 +184,66 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(row1, (p1.uuid, "source1"))
         self.assertEqual(row2, (p2.uuid, "source2"))
 
+    def test_empty_counts(self):
+        s1 = str(uuid7("2024-07-17"))
+        d1 = "d1"
+        _create_event(
+            event="other_event",
+            team=self.team,
+            distinct_id=d1,
+            properties={"$session_id": s1},
+            timestamp="2024-07-17",
+        )
+
+        response = self.__execute(
+            parse_select(
+                "select uniqMerge(pageview_uniq), uniqMerge(autocapture_uniq), uniqMerge(screen_uniq) from raw_sessions",
+            ),
+        )
+        self.assertEqual(response.results or [], [(0, 0, 0)])
+
+        response = self.__execute(
+            parse_select(
+                "select $pageview_count, $autocapture_count, $screen_count from sessions where id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=s1)},
+            ),
+        )
+        self.assertEqual(response.results or [], [(0, 0, 0)])
+
+    def test_counts(self):
+        s1 = str(uuid7())
+        d1 = "d1"
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=d1,
+            properties={"$session_id": s1},
+            timestamp="2023-12-02",
+        )
+        for _ in range(2):
+            _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+            )
+        for _ in range(3):
+            _create_event(
+                event="$screen",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+            )
+        response = self.__execute(
+            parse_select(
+                "select $pageview_count, $autocapture_count, $screen_count from sessions where id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=s1)},
+            ),
+        )
+        self.assertEqual(response.results or [], [(1, 2, 3)])
+
     def test_bounce_rate(self):
         time = time_ns() // (10**6)
         # ensure the sessions ids are sortable by giving them different time components
