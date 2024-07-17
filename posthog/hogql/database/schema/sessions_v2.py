@@ -51,9 +51,10 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_referring_domain": DatabaseField(name="initial_referring_domain"),
     "initial_gclid": DatabaseField(name="initial_gclid"),
     "initial_gad_source": DatabaseField(name="initial_gad_source"),
-    "pageview_count": IntegerDatabaseField(name="pageview_count"),
-    "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
-    "screen_count": IntegerDatabaseField(name="screen_count"),
+    # do not expose the count fields, as we can't rely on them being accurate due to double-counting events
+    "pageview_uniq": DatabaseField(name="pageview_uniq"),
+    "autocapture_uniq": DatabaseField(name="autocapture_uniq"),
+    "screen_uniq": DatabaseField(name="screen_uniq"),
     "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
 }
 
@@ -80,6 +81,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
+    # we expose "count" fields here, though they are actually the aggregates of the uniq columns in the raw tables
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
     "$screen_count": IntegerDatabaseField(name="$screen_count"),
@@ -196,9 +198,10 @@ def select_from_sessions_table_v2(
         "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
         "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
         "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
-        "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
-        "$screen_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "screen_count"])]),
-        "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
+        # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
+        "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
+        "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
+        "$autocapture_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
         "$last_external_click_url": null_if_empty(arg_max_merge_field("last_external_click_url")),
     }
     # Alias

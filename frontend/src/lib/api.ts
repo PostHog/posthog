@@ -734,7 +734,7 @@ class ApiRequest {
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
-            return apiRequest.withQueryString('showProgress=true')
+            return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
     }

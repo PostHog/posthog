@@ -809,10 +809,21 @@ class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    complete: Optional[bool] = False
+    complete: Optional[bool] = Field(
+        default=False,
+        description=(
+            "Whether the query is still running. Will be true if the query is complete, even if it errored. Either"
+            " result or error will be set."
+        ),
+    )
     dashboard_id: Optional[int] = None
     end_time: Optional[AwareDatetime] = None
-    error: Optional[bool] = False
+    error: Optional[bool] = Field(
+        default=False,
+        description=(
+            "If the query failed, this will be set to true. More information can be found in the error_message field."
+        ),
+    )
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
