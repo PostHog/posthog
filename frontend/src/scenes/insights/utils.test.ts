@@ -377,6 +377,46 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel(10, breakdownFilter, [], identity, 2)).toEqual('10')
         expect(formatBreakdownLabel(10, breakdownFilter, [], () => '10s', 0)).toEqual('10s')
     })
+
+    it('handles stringified numbers', () => {
+        const formatter = (_breakdown: any, v: any): any => `${v}s`
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    value: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
+    })
+
+    it('handles array first', () => {
+        const formatter = (_: any, value: any, type: any): any => (type === 'session' ? `${value}s` : value)
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel(['661'], breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    value: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
+    })
 })
 
 describe('formatBreakdownType()', () => {
