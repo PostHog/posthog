@@ -32,8 +32,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id"),
-    "session_id": StringDatabaseField(name="session_id"),
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
@@ -106,10 +104,9 @@ class RawSessionsTableV2(Table):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
-            # these are discouraged from being used in queries, use session_id_v7 instead
-            "id",
-            "session_id",
+            "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
             # our clickhouse driver can't return aggregate states
+            "distinct_id",
             "entry_url",
             "end_url",
             "initial_utm_source",
@@ -120,6 +117,10 @@ class RawSessionsTableV2(Table):
             "initial_referring_domain",
             "initial_gclid",
             "initial_gad_source",
+            "pageview_uniq",
+            "autocapture_uniq",
+            "screen_uniq",
+            "last_external_click_url",
         ]
 
 
@@ -310,6 +311,8 @@ class SessionsTableV2(LazyTable):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
+            "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
+            "id",  # prefer to use session_id
             "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
         ]
 
