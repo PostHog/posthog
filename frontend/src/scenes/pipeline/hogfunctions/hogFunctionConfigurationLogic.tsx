@@ -262,14 +262,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (input.required && !value) {
                         inputErrors[key] = 'This field is required'
                     }
-
-                    if (input.type === 'json' && typeof value === 'string') {
-                        try {
-                            JSON.parse(value)
-                        } catch (e) {
-                            inputErrors[key] = 'Invalid JSON'
-                        }
-                    }
+                    //
+                    // if (input.type === 'json' && typeof value === 'string') {
+                    //     try {
+                    //         JSON.parse(value)
+                    //     } catch (e) {
+                    //         inputErrors[key] = 'Invalid JSON'
+                    //     }
+                    // }
                 })
 
                 return Object.keys(inputErrors).length > 0
