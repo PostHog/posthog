@@ -118,7 +118,7 @@ class EventsTable(Table):
         "elements_chain_href": StringDatabaseField(name="elements_chain_href"),
         "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts"),
         "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids"),
-        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_ids"),
+        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements"),
     }
 
     def to_printed_clickhouse(self, context):
