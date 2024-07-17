@@ -21,6 +21,12 @@ class Migration(migrations.Migration):
                     name="kind",
                     field=models.CharField(choices=[("slack", "Slack"), ("salesforce", "Salesforce")], max_length=10),
                 ),
+                migrations.AddConstraint(
+                    model_name="integration",
+                    constraint=models.UniqueConstraint(
+                        fields=("team", "kind", "integration_id"), name="posthog_integration_kind_id_unique"
+                    ),
+                ),
             ],
             database_operations=[
                 # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
