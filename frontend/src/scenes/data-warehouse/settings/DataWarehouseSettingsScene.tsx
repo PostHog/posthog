@@ -5,7 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSettingsTab } from '~/types'
+import { DataWarehouseSettingsTab, DataWarehouseTab } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import { DataWarehouseManagedSourcesTable } from './DataWarehouseManagedSourcesTable'
@@ -48,7 +48,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
             <DataWarehouseInitialBillingLimitNotice />
             <LemonTabs
                 activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.dataWarehouseSettings(tab as DataWarehouseSettingsTab))}
+                onChange={(tab) => router.actions.push(urls.dataWarehouse(tab as DataWarehouseTab))}
                 tabs={Object.entries(tabToContent).map(([tab, content]) => ({
                     label: (
                         <span className="flex justify-center items-center justify-between gap-1">

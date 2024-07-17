@@ -7,6 +7,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataWarehouseTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DataWarehouseSceneTab } from '../types'
@@ -140,6 +141,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 setEditingView: (_, { id }) => id,
             },
         ],
+        currentTab: [
+            DataWarehouseTab.Explore,
+            {
+                setSceneTab: (_, { tab }) => tab,
+            },
+        ],
     }),
     selectors({
         dataWarehouseTablesBySourceType: [
@@ -256,9 +263,14 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             }
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/data-warehouse/view/:id': ({ id }) => {
             actions.setEditingView(id as string)
+        },
+        '/data-warehouse/:tab': ({ tab }) => {
+            if (tab !== values.currentTab) {
+                actions.setSceneTab(tab as DataWarehouseSceneTab)
+            }
         },
     })),
 ])
