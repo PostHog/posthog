@@ -25,7 +25,7 @@ from django.test import override_settings
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
 from freezegun import freeze_time
-from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
+from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError, NoBrokersAvailable
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 from parameterized import parameterized
@@ -371,7 +371,6 @@ class TestCapture(BaseTest):
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
                 headers=None,
-                value_serializer=None,
             )
 
             if not expect_random_partitioning:
@@ -581,6 +580,18 @@ class TestCapture(BaseTest):
 
         # signal that the client should not retry, we don't want endless retries for unprocessable entries
         assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_replay_capture_other_kafka_error(self, kafka_produce: MagicMock) -> None:
+        kafka_produce.side_effect = NoBrokersAvailable()
+
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ],
+        )
+
+        assert response.status_code == 503
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_from_android(self, _kafka_produce: MagicMock) -> None:
@@ -1743,6 +1754,7 @@ class TestCapture(BaseTest):
                 "highlight",
                 ["x-highlight-request"],
             ),
+            ("DateDome", ["x-datadome-clientid"]),
         ]
     )
     def test_cors_allows_tracing_headers(self, _: str, path: str, headers: list[str]) -> None:
@@ -1989,37 +2001,6 @@ class TestCapture(BaseTest):
             data_sent_to_recording_kafka = json.loads(call_one["data"]["data"])
             assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
             assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
-
-    @patch("posthog.api.capture.session_recording_kafka_producer")
-    @patch("posthog.api.capture.KafkaProducer")
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_can_compress_messages_before_kafka(
-        self,
-        kafka_produce: MagicMock,
-        _default_kafka_producer_mock: MagicMock,
-        session_recording_producer_factory_mock: MagicMock,
-    ) -> None:
-        with self.settings(
-            KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
-            SESSION_RECORDING_KAFKA_HOSTS=[
-                "another-server:9092",
-                "a-fourth.server:9092",
-            ],
-            SESSION_RECORDING_KAFKA_COMPRESSION="gzip-in-capture",
-        ):
-            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
-
-            session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
-            self._send_august_2023_version_session_recording_event(event_data={}, session_id=session_id)
-
-            assert len(kafka_produce.call_args_list) == 1
-
-            call_one = kafka_produce.call_args_list[0][1]
-            assert call_one["key"] == session_id
-            assert call_one["value_serializer"] is not None
-
-            serialized = call_one["value_serializer"]({"i am": "a string"})
-            assert serialized.startswith(b"\x1f\x8b\x08\x00")
 
     def test_get_distinct_id_non_json_properties(self) -> None:
         with self.assertRaises(ValueError):

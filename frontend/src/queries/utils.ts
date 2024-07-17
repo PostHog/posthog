@@ -13,6 +13,7 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
+    ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -32,6 +33,7 @@ import {
     PersonsNode,
     RetentionQuery,
     SavedInsightNode,
+    SessionAttributionExplorerQuery,
     StickinessQuery,
     TrendsQuery,
     WebOverviewQuery,
@@ -116,6 +118,10 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
+export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
+    return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
 }
@@ -126,6 +132,12 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
 
 export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
+}
+
+export function isSessionAttributionExplorerQuery(
+    node?: Record<string, any> | null
+): node is SessionAttributionExplorerQuery {
+    return node?.kind === NodeKind.SessionAttributionExplorerQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

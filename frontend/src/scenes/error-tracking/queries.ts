@@ -2,8 +2,8 @@ import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/Universal
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import { DataTableNode, DateRange, ErrorTrackingOrder, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType } from '~/types'
+import { DataTableNode, DateRange, ErrorTrackingQuery, InsightVizNode, NodeKind } from '~/queries/schema'
+import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter } from '~/types'
 
 export type SparklineConfig = {
     value: number
@@ -39,7 +39,7 @@ export const errorTrackingQuery = ({
     filterGroup,
     sparklineSelectedPeriod,
 }: {
-    order: ErrorTrackingOrder
+    order: ErrorTrackingQuery['order']
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
@@ -47,7 +47,7 @@ export const errorTrackingQuery = ({
 }): DataTableNode => {
     const select = [
         'any(properties) as "context.columns.error"',
-        'properties.$exception_type',
+        'properties.$exception_fingerprint',
         'count() as occurrences',
         'count(distinct $session_id) as sessions',
         'count(distinct distinct_id) as users',
@@ -57,7 +57,7 @@ export const errorTrackingQuery = ({
 
     const columns = [
         'context.columns.error',
-        'properties.$exception_type',
+        'properties.$exception_fingerprint',
         'occurrences',
         'sessions',
         'users',
@@ -73,17 +73,17 @@ export const errorTrackingQuery = ({
         columns.splice(2, 0, 'context.columns.volume')
     }
 
-    const orderDirection = order === 'first_seen' ? 'ASC' : 'DESC'
-
     return {
         kind: NodeKind.DataTableNode,
         source: {
-            kind: NodeKind.EventsQuery,
+            kind: NodeKind.ErrorTrackingQuery,
             select: select,
-            orderBy: [`${order} ${orderDirection}`],
-            ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
+            order: order,
+            dateRange: dateRange,
+            filterGroup: filterGroup as PropertyGroupFilter,
+            filterTestAccounts: filterTestAccounts,
         },
-        hiddenColumns: ['properties.$exception_type', 'last_seen', 'first_seen'],
+        hiddenColumns: ['properties.$exception_fingerprint', 'last_seen', 'first_seen'],
         showActions: false,
         showTimings: false,
         columns: columns,
@@ -125,21 +125,23 @@ export const generateSparklineProps = ({
 }
 
 export const errorTrackingGroupQuery = ({
-    group,
+    fingerprint,
     dateRange,
     filterTestAccounts,
     filterGroup,
 }: {
-    group: string
+    fingerprint: string
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-}): EventsQuery => {
+}): ErrorTrackingQuery => {
     return {
-        kind: NodeKind.EventsQuery,
+        kind: NodeKind.ErrorTrackingQuery,
         select: ['uuid', 'properties', 'timestamp', 'person'],
-        where: [`properties.$exception_type = '${group}'`],
-        ...defaultProperties({ dateRange, filterTestAccounts, filterGroup }),
+        fingerprint: fingerprint,
+        dateRange: dateRange,
+        filterGroup: filterGroup as PropertyGroupFilter,
+        filterTestAccounts: filterTestAccounts,
     }
 }
 
@@ -177,25 +179,5 @@ export const errorTrackingGroupBreakdownQuery = ({
             properties: filterGroup.values as AnyPropertyFilter[],
             filterTestAccounts,
         },
-    }
-}
-
-const defaultProperties = ({
-    dateRange,
-    filterTestAccounts,
-    filterGroup,
-}: {
-    dateRange: DateRange
-    filterTestAccounts: boolean
-    filterGroup: UniversalFiltersGroup
-}): Pick<EventsQuery, 'event' | 'after' | 'before' | 'filterTestAccounts' | 'properties'> => {
-    const properties = filterGroup.values as AnyPropertyFilter[]
-
-    return {
-        event: '$exception',
-        after: dateRange.date_from || undefined,
-        before: dateRange.date_to || undefined,
-        filterTestAccounts,
-        properties,
     }
 }

@@ -6,6 +6,7 @@ from celery.canvas import Signature
 from celery.schedules import crontab
 from django.conf import settings
 
+from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -91,6 +92,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
 
     add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/30"),
+        schedule_warming_for_teams_task.s(),
+        name="schedule warming for largest teams",
+    )
 
     # Update events table partitions twice a week
     sender.add_periodic_task(

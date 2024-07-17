@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.hogql.database.database import create_hogql_database
+from posthog.api.log_entries import LogEntryMixin
 
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
@@ -57,6 +58,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "sync_type",
             "incremental_field",
             "incremental_field_type",
+            "sync_frequency",
         ]
 
         read_only_fields = [
@@ -131,6 +133,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["sync_type_config"] = payload
 
         should_sync = validated_data.get("should_sync", None)
+        sync_frequency = validated_data.get("sync_frequency", None)
 
         if should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -145,6 +148,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         else:
             if should_sync is True:
                 sync_external_data_job_workflow(instance, create=True)
+
+        if sync_frequency:
+            sync_external_data_job_workflow(instance, create=False)
 
         if trigger_refresh:
             source: ExternalDataSource = instance.source
@@ -161,13 +167,14 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "should_sync", "last_synced_at"]
 
 
-class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+    log_source = "external_data_jobs"
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

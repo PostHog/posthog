@@ -35,8 +35,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     actions({
         deleteSource: (source: ExternalDataStripeSource) => ({ source }),
         reloadSource: (source: ExternalDataStripeSource) => ({ source }),
-        reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
-        resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         sourceLoadingFinished: (source: ExternalDataStripeSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
@@ -128,14 +126,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         schemaReloadingById: [
             {} as Record<string, boolean>,
             {
-                reloadSchema: (state, { schema }) => ({
-                    ...state,
-                    [schema.id]: true,
-                }),
-                resyncSchema: (state, { schema }) => ({
-                    ...state,
-                    [schema.id]: true,
-                }),
                 schemaLoadingFinished: (state, { schema }) => ({
                     ...state,
                     [schema.id]: false,
@@ -234,64 +224,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }
             }
             actions.sourceLoadingFinished(source)
-        },
-        reloadSchema: async ({ schema }) => {
-            // Optimistic UI updates before sending updates to the backend
-            const clonedSources = JSON.parse(
-                JSON.stringify(values.dataWarehouseSources?.results ?? [])
-            ) as ExternalDataStripeSource[]
-            const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
-            const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
-            clonedSources[sourceIndex].status = 'Running'
-            clonedSources[sourceIndex].schemas[schemaIndex].status = 'Running'
-
-            actions.loadSourcesSuccess({
-                ...values.dataWarehouseSources,
-                results: clonedSources,
-            })
-
-            try {
-                await api.externalDataSchemas.reload(schema.id)
-                actions.schemaLoadingFinished(schema)
-                actions.loadSources(null)
-
-                posthog.capture('schema reloaded', { sourceType: clonedSources[sourceIndex].source_type })
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
-                } else {
-                    lemonToast.error('Cant reload schema at this time')
-                }
-            }
-        },
-        // Complete refresh
-        resyncSchema: async ({ schema }) => {
-            const clonedSources = JSON.parse(
-                JSON.stringify(values.dataWarehouseSources?.results ?? [])
-            ) as ExternalDataStripeSource[]
-            const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
-            const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
-            clonedSources[sourceIndex].status = 'Running'
-            clonedSources[sourceIndex].schemas[schemaIndex].status = 'Running'
-
-            actions.loadSourcesSuccess({
-                ...values.dataWarehouseSources,
-                results: clonedSources,
-            })
-
-            try {
-                await api.externalDataSchemas.resync(schema.id)
-                actions.schemaLoadingFinished(schema)
-                actions.loadSources(null)
-
-                posthog.capture('schema resynced', { sourceType: clonedSources[sourceIndex].source_type })
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
-                } else {
-                    lemonToast.error('Cant refresh schema at this time')
-                }
-            }
         },
         abortAnyRunningQuery: () => {
             if (cache.abortController) {

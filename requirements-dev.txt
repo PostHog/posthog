@@ -25,7 +25,6 @@ asttokens==2.4.1
 async-timeout==4.0.2
     # via
     #   -c requirements.txt
-    #   aiohttp
     #   redis
 attrs==23.2.0
     # via
@@ -38,7 +37,7 @@ black==23.9.1
     #   -r requirements-dev.in
     #   datamodel-code-generator
     #   inline-snapshot
-boto3-stubs==1.34.84
+boto3-stubs[s3]==1.34.84
     # via -r requirements-dev.in
 botocore-stubs==1.34.84
     # via boto3-stubs
@@ -63,7 +62,7 @@ click==8.1.7
     #   inline-snapshot
 colorama==0.4.4
     # via pytest-watch
-coverage==5.5
+coverage[toml]==5.5
     # via pytest-cov
 cryptography==39.0.2
     # via
@@ -71,7 +70,7 @@ cryptography==39.0.2
     #   types-paramiko
 datamodel-code-generator==0.25.6
     # via -r requirements-dev.in
-django==4.2.11
+django==4.2.14
     # via
     #   -c requirements.txt
     #   django-stubs
@@ -92,17 +91,13 @@ docopt==0.6.2
     # via pytest-watch
 email-validator==2.0.0.post2
     # via pydantic
-exceptiongroup==1.2.1
-    # via
-    #   -c requirements.txt
-    #   pytest
 execnet==2.1.1
     # via pytest-xdist
 executing==2.0.1
     # via inline-snapshot
 faker==17.5.0
     # via -r requirements-dev.in
-fakeredis==2.11.0
+fakeredis[lua]==2.11.0
     # via -r requirements-dev.in
 flaky==3.7.0
     # via -r requirements-dev.in
@@ -203,7 +198,7 @@ pycparser==2.20
     # via
     #   -c requirements.txt
     #   cffi
-pydantic==2.5.3
+pydantic[email]==2.5.3
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
@@ -289,6 +284,7 @@ ruamel-yaml==0.18.6
 ruamel-yaml-clib==0.2.8
     # via ruamel-yaml
 ruff==0.4.10
+    # via -r requirements-dev.in
 six==1.16.0
     # via
     #   -c requirements.txt
@@ -309,14 +305,7 @@ syrupy==4.6.0
 toml==0.10.2
     # via
     #   coverage
-    #   datamodel-code-generator
     #   inline-snapshot
-tomli==2.0.1
-    # via
-    #   black
-    #   django-stubs
-    #   mypy
-    #   pytest
 types-awscrt==0.20.9
     # via botocore-stubs
 types-freezegun==1.1.10
@@ -355,8 +344,6 @@ types-tzlocal==5.1.0.1
 typing-extensions==4.7.1
     # via
     #   -c requirements.txt
-    #   asgiref
-    #   black
     #   boto3-stubs
     #   django-stubs
     #   django-stubs-ext
@@ -371,7 +358,9 @@ urllib3==1.26.18
     #   requests
     #   responses
 watchdog==2.1.8
-    # via pytest-watch
+    # via
+    #   -r requirements-dev.in
+    #   pytest-watch
 yarl==1.9.4
     # via
     #   -c requirements.txt

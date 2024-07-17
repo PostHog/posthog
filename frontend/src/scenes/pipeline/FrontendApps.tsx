@@ -13,24 +13,22 @@ import { SiteApp } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function FrontendApps(): JSX.Element {
-    const { loading, frontendApps, shouldShowProductIntroduction } = useValues(frontendAppsLogic)
+    const { loading, frontendApps } = useValues(frontendAppsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(frontendAppsLogic)
 
-    const shouldShowEmptyState = frontendApps.length === 0
+    const shouldShowEmptyState = frontendApps.length === 0 && !loading
 
     return (
         <>
-            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                <ProductIntroduction
-                    productName="Site apps"
-                    thingName="site app"
-                    productKey={ProductKey.SITE_APPS}
-                    description="Site apps allow you to ..."
-                    docsURL="https://posthog.com/docs/apps/pineapple-mode"
-                    actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
-                    isEmpty={true}
-                />
-            )}
+            <ProductIntroduction
+                productName="Site apps"
+                thingName="site app"
+                productKey={ProductKey.SITE_APPS}
+                description="Site apps allow you to add custom functionality to your website using PostHog."
+                docsURL="https://posthog.com/docs/apps/pineapple-mode"
+                actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
+                isEmpty={shouldShowEmptyState}
+            />
             {!shouldShowEmptyState && (
                 <>
                     <LemonTable

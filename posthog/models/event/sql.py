@@ -65,10 +65,10 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
     , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
     , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
-    , elements_chain_href String DEFAULT extract(elements_chain, '(?::|\")href="(.*?)"')
-    , elements_chain_texts Array(String) DEFAULT arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
-    , elements_chain_ids Array(String) DEFAULT arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"'))
-    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) DEFAULT arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+    , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
+    , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
+    , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
+    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
     , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1

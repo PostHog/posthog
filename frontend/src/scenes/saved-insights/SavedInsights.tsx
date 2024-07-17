@@ -9,6 +9,7 @@ import {
     IconHogQL,
     IconLifecycle,
     IconPerson,
+    IconPieChart,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -16,6 +17,7 @@ import {
     IconStickiness,
     IconTrends,
     IconUserPaths,
+    IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -288,19 +290,19 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.WebStatsTableQuery]: {
         name: 'Web Table',
         description: 'A table of results from web analytics, with a breakdown',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.WebTopClicksQuery]: {
         name: 'Top Clicks',
         description: 'View top clicks for a website',
-        icon: IconTrends,
+        icon: IconPieChart,
         inMenu: true,
     },
     [NodeKind.HogQuery]: {
@@ -308,6 +310,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'Hog query',
         icon: IconHogQL,
         inMenu: true,
+    },
+    [NodeKind.SessionAttributionExplorerQuery]: {
+        name: 'Session Attribution',
+        description: 'Session Attribution Explorer',
+        icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.ErrorTrackingQuery]: {
+        name: 'Error Tracking',
+        description: 'List and explore exception groups',
+        icon: IconWarning,
+        inMenu: false,
     },
 }
 
