@@ -8,7 +8,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import Integration, OauthIntegration, SlackIntegration
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -32,9 +32,10 @@ class IntegrationSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team_id = self.context["team_id"]
 
-        if validated_data["kind"] == "slack":
-            instance = SlackIntegration.integration_from_slack_response(team_id, request.user, validated_data["config"])
-
+        if validated_data["kind"] in OauthIntegration.supported_kinds:
+            instance = OauthIntegration.integration_from_oauth_response(
+                validated_data["kind"], team_id, request.user, validated_data["config"]
+            )
             return instance
 
         raise ValidationError("Kind not supported")
@@ -53,7 +54,7 @@ class IntegrationViewSet(
     serializer_class = IntegrationSerializer
 
     @action(methods=["GET"], detail=True, url_path="channels")
-    def content(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
 
         slack = SlackIntegration(instance)

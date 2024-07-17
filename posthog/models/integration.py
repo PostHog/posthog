@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import hashlib
 import hmac
 import time
@@ -5,9 +6,11 @@ from datetime import timedelta
 from typing import Literal
 
 from django.db import models
+import requests
 from rest_framework.request import Request
 from slack_sdk import WebClient
 
+from django.conf import settings
 from posthog.cache_utils import cache_for
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
@@ -16,6 +19,7 @@ from posthog.models.user import User
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
+        SALESFORCE = "salesforce"
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -31,6 +35,110 @@ class Integration(models.Model):
     # Meta
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+
+
+@dataclass
+class OauthConfig:
+    authorize_url: str
+    token_url: str
+    client_id: str
+    client_secret: str
+
+
+class OauthIntegration:
+    supported_kinds = ["slack", "salesforce"]
+    integration: Integration
+    kind: str
+
+    def __init__(self, integration: Integration, kind: str) -> None:
+        self.integration = integration
+        self.kind = kind
+
+    @classmethod
+    @cache_for(timedelta(minutes=5))
+    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
+        if kind == "slack":
+            from_settings = get_instance_settings(
+                [
+                    "SLACK_APP_CLIENT_ID",
+                    "SLACK_APP_CLIENT_SECRET",
+                    "SLACK_APP_SIGNING_SECRET",
+                ]
+            )
+
+            if not from_settings["SLACK_APP_CLIENT_ID"] or not from_settings["SLACK_APP_CLIENT_SECRET"]:
+                raise NotImplementedError("Slack app not configured")
+
+            return OauthConfig(
+                authorize_url="https://slack.com/oauth/v2/authorize",
+                token_url="https://slack.com/api/oauth.v2.access",
+                client_id=from_settings["SLACK_APP_CLIENT_ID"],
+                client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
+            )
+        elif kind == "salesforce":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            return OauthConfig(
+                authorize_url="https://login.salesforce.com/services/oauth2/authorize",
+                token_url="https://login.salesforce.com/services/oauth2/token",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+            )
+
+        raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
+
+    @classmethod
+    def integration_from_oauth_response(
+        cls, kind: str, team_id: str, created_by: User, params: dict[str, str]
+    ) -> Integration:
+        config = cls.oauth_config_for_kind(kind)
+
+        redirect_uri = params["redirect_uri"]
+        code = params["code"]
+
+        res = requests.post(
+            config.token_url,
+            data={
+                "client_id": config.client_id,
+                "client_secret": config.client_secret,
+                "code": code,
+                "redirect_uri": redirect_uri,
+            },
+        )
+
+        if res.status_code != 200:
+            raise Exception("Oauth error")
+
+        config = {}
+        sensitive_config = {}
+
+        raise NotImplementedError("wat")
+
+        # config = {
+        #     "app_id": res.get("app_id"),  # Like  "A03KWE2FJJ2",
+        #     "authed_user": res.get("authed_user"),  # Like {"id": "U03DCBD92JX"},
+        #     "scope": res.get("scope"),  # Like "incoming-webhook,channels:read,chat:write",
+        #     "token_type": res.get("token_type"),  # Like "bot",
+        #     "bot_user_id": res.get("bot_user_id"),  # Like "U03LFNLTARX",
+        #     "team": res.get("team"),  # Like {"id": "TSS5W8YQZ", "name": "PostHog"},
+        #     "enterprise": res.get("enterprise"),
+        #     "is_enterprise_install": res.get("is_enterprise_install"),
+        # }
+
+        # sensitive_config = {"access_token": res.get("access_token")}
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=kind,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        return integration
 
 
 class SlackIntegrationError(Exception):

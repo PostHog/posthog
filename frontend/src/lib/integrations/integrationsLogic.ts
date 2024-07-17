@@ -12,49 +12,10 @@ import type { integrationsLogicType } from './integrationsLogicType'
 
 // NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
 // Just means we have to change it back to http once redirected.
-const getSlackRedirectUri = (next: string = ''): string =>
-    `${window.location.origin.replace('http://', 'https://')}/integrations/slack/redirect${
+const getOauthRedirectURI = (kind: string, next: string = ''): string =>
+    `${window.location.origin.replace('http://', 'https://')}/integrations/${kind}/callback${
         next ? '?next=' + encodeURIComponent(next) : ''
     }`
-
-const getSlackEventsUri = (): string =>
-    `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`
-
-// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
-export const getSlackAppManifest = (): any => ({
-    display_information: {
-        name: 'PostHog',
-        description: 'Product Insights right where you need them',
-        background_color: '#f54e00',
-    },
-    features: {
-        app_home: {
-            home_tab_enabled: false,
-            messages_tab_enabled: false,
-            messages_tab_read_only_enabled: true,
-        },
-        bot_user: {
-            display_name: 'PostHog',
-            always_online: false,
-        },
-        unfurl_domains: [window.location.hostname],
-    },
-    oauth_config: {
-        redirect_urls: [getSlackRedirectUri()],
-        scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
-        },
-    },
-    settings: {
-        event_subscriptions: {
-            request_url: getSlackEventsUri(),
-            bot_events: ['link_shared'],
-        },
-        org_deploy_enabled: false,
-        socket_mode_enabled: false,
-        token_rotation_enabled: false,
-    },
-})
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
@@ -63,7 +24,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
     }),
 
     actions({
-        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        handleOauthCallback: (kind: string, searchParams: any) => ({ kind, searchParams }),
         deleteIntegration: (id: number) => ({ id }),
     }),
 
@@ -79,7 +40,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        handleRedirect: async ({ kind, searchParams }) => {
+        handleOauthCallback: async ({ kind, searchParams }) => {
             switch (kind) {
                 case 'slack': {
                     const { state, code, error, next } = searchParams
@@ -95,7 +56,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     try {
                         await api.integrations.create({
                             kind: 'slack',
-                            config: { state, code, redirect_uri: getSlackRedirectUri(next) },
+                            config: { state, code, redirect_uri: getOauthRedirectURI('slack', next) },
                         })
 
                         actions.loadIntegrations()
@@ -123,8 +84,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        '/integrations/:kind/redirect': ({ kind = '' }, searchParams) => {
-            actions.handleRedirect(kind, searchParams)
+        '/integrations/:kind/callback': ({ kind = '' }, searchParams) => {
+            actions.handleOauthCallback(kind, searchParams)
         },
     })),
     selectors({
@@ -143,7 +104,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
                     return clientId
                         ? `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=channels:read,groups:read,chat:write&redirect_uri=${encodeURIComponent(
-                              getSlackRedirectUri(next)
+                              getOauthRedirectURI('slack', next)
                           )}`
                         : null
                 }
