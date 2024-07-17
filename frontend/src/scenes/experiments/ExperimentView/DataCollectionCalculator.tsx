@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -136,9 +136,25 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
             <div className="w-full">
                 <div className="mb-4 experiment-preview-row">
                     <div className="flex items-center">
-                        <b>Minimum acceptable improvement</b>
-                        <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
-                            <IconInfo className="ml-1 text-muted text-xl" />
+                        <b>Minimum detectable effect</b>
+                        <Tooltip
+                            title={
+                                <div>
+                                    <div>
+                                        The Minimum detectable effect represents the smallest change or difference that
+                                        you want to be able to detect in your experiment.
+                                    </div>
+                                    <div>
+                                        Read more in the{' '}
+                                        <Link to="https://posthog.com/docs/experiments/sample-size-running-time#minimum-detectable-effect-mde">
+                                            documentation.
+                                        </Link>
+                                    </div>
+                                </div>
+                            }
+                            closeDelayMs={200}
+                        >
+                            <IconInfo className="text-muted-alt text-base ml-1" />
                         </Tooltip>
                     </div>
                     <div className="flex gap-4">
@@ -159,7 +175,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         />
                         <LemonInput
                             className="w-1/6"
-                            data-attr="min-acceptable-improvement"
+                            data-attr="min-detectable-effect"
                             type="number"
                             min={1}
                             max={sliderMaxValue}

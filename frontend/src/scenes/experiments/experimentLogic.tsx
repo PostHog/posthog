@@ -860,7 +860,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
                 },
         ],
-        // TODO: unify naming (Minimum detectable change/Minimum detectable effect/Minimum acceptable improvement)
         minimumDetectableEffect: [
             (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
             (newExperiment, experimentInsightType, conversionMetrics, trendResults): number => {
