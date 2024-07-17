@@ -1,3 +1,4 @@
+import uuid
 from time import time_ns
 
 import pytest
@@ -243,6 +244,48 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
             ),
         )
         self.assertEqual(response.results or [], [(1, 2, 3)])
+
+    def test_idempotent_event_counts(self):
+        s1 = str(uuid7())
+        d1 = "d1"
+        pageview_uuid = str(uuid.uuid4())
+        autocapture_uuid = str(uuid.uuid4())
+        screen_uuid = str(uuid.uuid4())
+
+        # simulate inserting the same event multiple times
+        for _ in range(5):
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+                event_uuid=pageview_uuid,
+            )
+            _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+                event_uuid=autocapture_uuid,
+            )
+            _create_event(
+                event="$screen",
+                team=self.team,
+                distinct_id=d1,
+                properties={"$session_id": s1},
+                timestamp="2023-12-02",
+                event_uuid=screen_uuid,
+            )
+
+        response = self.__execute(
+            parse_select(
+                "select $pageview_count, $autocapture_count, $screen_count from sessions where id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=s1)},
+            ),
+        )
+        self.assertEqual(response.results or [], [(1, 1, 1)])
 
     def test_bounce_rate(self):
         time = time_ns() // (10**6)
