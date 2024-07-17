@@ -520,19 +520,23 @@ class _Printer(Visitor):
         return f"not({self.visit(node.expr)})"
 
     def visit_tuple_access(self, node: ast.TupleAccess):
+        to_add = 1 if self.dialect == "clickhouse" else 0
+
         visited_tuple = self.visit(node.tuple)
         visited_index = int(str(node.index))
         symbol = "?." if self.dialect == "hogql" and node.nullish else "."
         if isinstance(node.tuple, ast.Field) or isinstance(node.tuple, ast.Tuple) or isinstance(node.tuple, ast.Call):
-            return f"{visited_tuple}{symbol}{visited_index}"
-        return f"({visited_tuple}){symbol}{visited_index}"
+            return f"{visited_tuple}{symbol}{visited_index + to_add}"
+        return f"({visited_tuple}){symbol}{visited_index + to_add}"
 
     def visit_tuple(self, node: ast.Tuple):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
+        to_add = "+1" if self.dialect == "clickhouse" else ""
+
         symbol = "?." if self.dialect == "hogql" and node.nullish else ""
-        return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
+        return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}{to_add}]"
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
