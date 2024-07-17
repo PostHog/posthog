@@ -138,10 +138,7 @@ describe('Inline plugin', () => {
             now: '',
             event: '',
             uuid: '',
-            properties: {
-                version: '1.2.3',
-                version2: '1.0.0+20130313144700',
-            },
+            properties: {},
         }
 
         const method = await instance.getPluginMethod('processEvent')
@@ -162,6 +159,9 @@ describe('Inline plugin', () => {
             expect(flattened.properties.version2__patch).toEqual(expected.patch)
             expect(flattened.properties.version2__preRelease).toEqual(expected.preRelease)
             expect(flattened.properties.version2__build).toEqual(expected.build)
+
+            // reset the event for the next iteration
+            test_event.properties = {}
         }
     })
 })
