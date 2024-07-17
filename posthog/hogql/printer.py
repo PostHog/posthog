@@ -29,7 +29,12 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
 )
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
+from posthog.hogql.functions.mapping import (
+    ALL_EXPOSED_FUNCTION_NAMES,
+    validate_function_args,
+    HOGQL_COMPARISON_MAPPING,
+    RESULT_MINUS_ONE,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
@@ -900,8 +905,14 @@ class _Printer(Visitor):
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 args_part = f"({', '.join(args)})"
-                return f"{relevant_clickhouse_name}{params_part}{args_part}"
-            else:
+                response = f"{relevant_clickhouse_name}{params_part}{args_part}"
+
+                if node.name in RESULT_MINUS_ONE:
+                    response = f"({response}-1)"
+
+                return response
+
+            else:  # dialect=='hogql'
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args ])})"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
