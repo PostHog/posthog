@@ -139,10 +139,14 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         <b>Minimum detectable effect</b>
                         <Tooltip
                             title={
-                                <div>
+                                <div className="space-y-2">
                                     <div>
-                                        The Minimum detectable effect represents the smallest change or difference that
-                                        you want to be able to detect in your experiment.
+                                        The Minimum detectable effect represents the smallest change that you want to be
+                                        able to detect in your experiment.
+                                    </div>
+                                    <div>
+                                        To make things easier, we initially set this value to a reasonable default.
+                                        However, we encourage you to review and adjust it based on your specific goals.
                                     </div>
                                     <div>
                                         Read more in the{' '}
