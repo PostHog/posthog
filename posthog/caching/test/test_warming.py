@@ -125,9 +125,9 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
 
     @patch("posthog.caching.warming.largest_teams")
     @patch("posthog.caching.warming.priority_insights")
-    @patch("posthog.caching.warming.warm_insight_cache_task.si")
+    @patch("posthog.caching.warming.group")
     def test_schedule_warming_for_teams_task_with_empty_insight_tuples(
-        self, mock_warm_insight_cache_task_si, mock_priority_insights, mock_largest_teams
+        self, mock_group, mock_priority_insights, mock_largest_teams
     ):
         mock_largest_teams.return_value = [self.team1.pk, self.team2.pk]
         mock_priority_insights.return_value = iter([])
@@ -135,21 +135,23 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         schedule_warming_for_teams_task()
 
         mock_priority_insights.assert_called()
-        mock_warm_insight_cache_task_si.assert_not_called()
+        mock_group.assert_called()
+        call_args_list = list(mock_group.call_args_list[0][0][0])
+        self.assertEqual(len(call_args_list), 0)
 
     @patch("posthog.caching.warming.largest_teams")
     @patch("posthog.caching.warming.priority_insights")
-    @patch("posthog.caching.warming.warm_insight_cache_task.si")
+    @patch("posthog.caching.warming.group")
     def test_schedule_warming_for_teams_task_with_non_empty_insight_tuples(
-        self, mock_warm_insight_cache_task_si, mock_priority_insights, mock_largest_teams
+        self, mock_group, mock_priority_insights, mock_largest_teams
     ):
         mock_largest_teams.return_value = [self.team1.pk, self.team2.pk]
         mock_priority_insights.return_value = iter([("1234", "5678"), ("2345", None)])
 
         schedule_warming_for_teams_task()
 
-        mock_priority_insights.assert_called()
-        self.assertEqual(mock_warm_insight_cache_task_si.call_count, 2)
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][0], "1234")
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][1], "5678")
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[1][0][0], "2345")
+        mock_group.assert_called()
+        call_args_list = list(mock_group.call_args_list[0][0][0])
+        self.assertEqual(len(call_args_list), 2)
+        self.assertEqual(call_args_list[0].args, ("1234", "5678"))
+        self.assertEqual(call_args_list[1].args, ("2345", None))
