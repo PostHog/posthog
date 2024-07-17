@@ -464,7 +464,6 @@ def property_to_expr(
                     )
                 },
             )
-            # return element_chain_key_filter("href", str(value), operator)
 
         if property.key == "text":
             return parse_expr(
