@@ -64,6 +64,8 @@ export const capture = async ({
     $set_once = undefined,
     topic = ['$performance_event', '$snapshot_items'].includes(event)
         ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        : ['$$client_ingestion_warning'].includes(event)
+        ? 'client_iwarnings_ingestion'
         : 'events_plugin_ingestion',
 }: {
     teamId: number | null
@@ -264,6 +266,16 @@ export const getScheduledPluginJob = async (jobId: string) => {
 
 export const reloadAction = async (teamId: number, actionId: number) => {
     await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
+}
+
+export const fetchIngestionWarnings = async (teamId: number) => {
+    const queryResult = (await clickHouseClient.querying(`
+        SELECT *,
+        FROM ingestion_warnings
+        WHERE team_id = ${teamId}
+        ORDER BY timestamp ASC
+    `)) as unknown as ClickHouse.ObjectQueryResult<any>
+    return queryResult.data.map((warning) => ({ ...warning, details: JSON.parse(warning.details) }))
 }
 
 export const fetchEvents = async (teamId: number, uuid?: string) => {

@@ -10,6 +10,7 @@ from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -54,6 +55,7 @@ class TestQueryStatusManager(SimpleTestCase):
     def test_no_status(self):
         self.manager.store_query_status(self.query_status)
         self.query_status.query_progress = ClickhouseQueryProgress(**ZERO_PROGRESS)
+        self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
     def test_store_clickhouse_query_progress(self):
@@ -65,6 +67,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager.store_query_status(self.query_status)
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": "a"}}
         self.manager._store_clickhouse_query_progress_dict(query_status)
+        self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
     def test_update_clickhouse_query_progresses(self):
@@ -93,6 +96,7 @@ class TestQueryStatusManager(SimpleTestCase):
 
         self.query_status.query_progress = ClickhouseQueryProgress(**{**ZERO_PROGRESS, "bytes_read": 31})
 
+        self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(show_progress=True), self.query_status)
 
 
@@ -160,15 +164,18 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
+        self.assertTrue(result.complete)
         assert result.error_message
         self.assertRegex(result.error_message, "no viable alternative at input")
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
 
-        with patch("posthog.api.services.query.process_query_dict", side_effect=TimeoutError):
+        with patch(
+            "posthog.api.services.query.process_query_dict", side_effect=CHQueryErrorTooManySimultaneousQueries("bla")
+        ):
             self.assertRaises(
-                TimeoutError,
+                CHQueryErrorTooManySimultaneousQueries,
                 client.enqueue_process_query_task,
                 **{"team": self.team, "user_id": self.user.id, "query_json": query, "_test_only_bypass_celery": True},
             )

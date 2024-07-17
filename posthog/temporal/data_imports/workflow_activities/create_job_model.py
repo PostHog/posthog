@@ -34,6 +34,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
         external_data_source_id=inputs.source_id,
         external_data_schema_id=inputs.schema_id,
         workflow_id=activity.info().workflow_id,
+        workflow_run_id=activity.info().workflow_run_id,
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.get)(team_id=inputs.team_id, id=inputs.schema_id)

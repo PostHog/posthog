@@ -383,7 +383,7 @@ class Breakdown:
             group_type_index=group_type_index,
         )
 
-        if histogram_bin_count is not None and not self.ignore_histogram_bin_count:
+        if histogram_bin_count is not None:
             return ast.Alias(
                 alias=alias,
                 expr=ast.Field(chain=properties_chain),
@@ -416,10 +416,3 @@ class Breakdown:
             else None
         )
         return TrendsDisplay(display)
-
-    @property
-    def ignore_histogram_bin_count(self):
-        """
-        For "Total Value" display options `histogram_bin_count` doesn't apply.
-        """
-        return self._trends_display.is_total_value()
