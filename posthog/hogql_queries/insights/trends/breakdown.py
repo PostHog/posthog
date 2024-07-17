@@ -296,7 +296,11 @@ class Breakdown:
             return ast.Or(
                 exprs=[
                     none_expr,
-                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value="")),
+                    ast.CompareOperation(
+                        left=self.get_replace_null_values_transform(left),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=""),
+                    ),
                 ]
             )
 
@@ -323,7 +327,11 @@ class Breakdown:
             except json.JSONDecodeError:
                 raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
 
-        return ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=lookup_value))
+        return ast.CompareOperation(
+            left=self.get_replace_null_values_transform(left),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=lookup_value),
+        )
 
     def _get_breakdown_values_transform(self, node: ast.Expr, normalize_url: bool | None = None) -> ast.Call:
         if normalize_url:
@@ -375,7 +383,7 @@ class Breakdown:
             group_type_index=group_type_index,
         )
 
-        if histogram_bin_count is not None and not self.ignore_histogram_bin_count:
+        if histogram_bin_count is not None:
             return ast.Alias(
                 alias=alias,
                 expr=ast.Field(chain=properties_chain),
@@ -408,10 +416,3 @@ class Breakdown:
             else None
         )
         return TrendsDisplay(display)
-
-    @property
-    def ignore_histogram_bin_count(self):
-        """
-        For "Total Value" display options `histogram_bin_count` doesn't apply.
-        """
-        return self._trends_display.is_total_value()

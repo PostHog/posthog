@@ -324,6 +324,12 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.label == "event"
         assert suggestion.insertText == "event"
 
+        results = self._template(query=query, start=5, end=5, database=database)
+        assert len(results.suggestions) == 0
+
+        results = self._template(query=query, start=5, end=6, database=database)
+        assert len(results.suggestions) == 0
+
     def test_autocomplete_hog(self):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
 
