@@ -12,7 +12,7 @@ export function IntegrationView({
     return (
         <div className="rounded border flex justify-between items-center p-2 bg-bg-light">
             <div className="flex items-center gap-4 ml-2">
-                <img src={integration.icon_url} className="h-10 w-10" />
+                <img src={integration.icon_url} className="h-10 w-10 rounded" />
                 <div>
                     <div>
                         Connected to <strong>{integration.name}</strong>
