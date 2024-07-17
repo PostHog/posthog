@@ -6,8 +6,9 @@ from .customerio.template_customerio import template as customerio
 from .intercom.template_intercom import template as intercom
 from .sendgrid.template_sendgrid import template as sendgrid
 from .clearbit.template_clearbit import template as clearbit
+from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 
-HOG_FUNCTION_TEMPLATES = [webhook, hello_world, slack, hubspot, customerio, intercom, sendgrid, clearbit]
+HOG_FUNCTION_TEMPLATES = [webhook, hello_world, slack, hubspot, customerio, intercom, sendgrid, aws_kinesis, clearbit]
 
 HOG_FUNCTION_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
 

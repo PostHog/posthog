@@ -30,6 +30,7 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
     )
 
     workflow_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
     __repr__ = sane_repr("id")
 

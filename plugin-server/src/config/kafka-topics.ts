@@ -2,7 +2,7 @@
 
 import { isTestEnv } from '../utils/env-utils'
 
-const suffix = isTestEnv() ? '_test' : ''
+export const suffix = isTestEnv() ? '_test' : ''
 export const prefix = process.env.KAFKA_PREFIX || ''
 
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
