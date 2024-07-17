@@ -22,7 +22,7 @@ const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefine
     return id ? <Link to={urls.featureFlag(id)}>{displayName}</Link> : displayName
 }
 
-const featureFlagActionsMapping: Record<
+export const featureFlagActionsMapping: Record<
     keyof FeatureFlagType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {

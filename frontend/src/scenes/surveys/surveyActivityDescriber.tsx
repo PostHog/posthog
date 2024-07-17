@@ -304,13 +304,124 @@ const surveyActionsMapping: Record<
             ],
         }
     },
+    // targeting_flag: function onTargetingFlag(change) {
+    //     const beforeFlag = change?.before as FeatureFlagBasicType | null
+    //     const afterFlag = change?.after as FeatureFlagBasicType | null
+    //     const changes: JSX.Element[] = []
+
+    //     if (!beforeFlag && afterFlag) {
+    //         changes.push(<>added targeting flag</>)
+    //     } else if (beforeFlag && !afterFlag) {
+    //         changes.push(<>removed targeting flag</>)
+    //     } else if (beforeFlag && afterFlag) {
+    //         if (beforeFlag.key !== afterFlag.key) {
+    //             changes.push(
+    //                 <>
+    //                     changed targeting flag key from <strong>{beforeFlag.key}</strong> to{' '}
+    //                     <strong>{afterFlag.key}</strong>
+    //                 </>
+    //             )
+    //         }
+    //         if (beforeFlag.name !== afterFlag.name) {
+    //             changes.push(
+    //                 <>
+    //                     changed targeting flag name from <strong>{beforeFlag.name}</strong> to{' '}
+    //                     <strong>{afterFlag.name}</strong>
+    //                 </>
+    //             )
+    //         }
+    //         if (beforeFlag.active !== afterFlag.active) {
+    //             changes.push(<>{afterFlag.active ? 'activated' : 'deactivated'} targeting flag</>)
+    //         }
+    //         if (JSON.stringify(beforeFlag.filters) !== JSON.stringify(afterFlag.filters)) {
+    //             changes.push(<>modified targeting flag filters</>)
+    //         }
+    //     }
+
+    //     return changes.length > 0
+    //         ? {
+    //               description: changes,
+    //           }
+    //         : null
+    // },
+    // targeting_flag: function onTargetingFlag(change, logItem) {
+    //     const beforeFlag = change?.before as FeatureFlagBasicType | null
+    //     const afterFlag = change?.after as FeatureFlagBasicType | null
+    //     const changes: Description[] = []
+
+    //     if (!beforeFlag && afterFlag) {
+    //         changes.push(<>added targeting flag</>)
+    //         // Describe the new flag using the feature flag mapping
+    //         Object.keys(afterFlag).forEach((key) => {
+    //             const flagChange = {
+    //                 field: key,
+    //                 before: undefined,
+    //                 after: afterFlag[key as keyof FeatureFlagBasicType],
+    //             }
+    //             const description = featureFlagActionsMapping[key as keyof FeatureFlagType]?.(flagChange, logItem)
+    //             if (description?.description) {
+    //                 changes.push(...description.description)
+    //             }
+    //         })
+    //     } else if (beforeFlag && !afterFlag) {
+    //         changes.push(<>removed targeting flag</>)
+    //     } else if (beforeFlag && afterFlag) {
+    //         // Compare each field and use the feature flag mapping to describe changes
+    //         Object.keys(afterFlag).forEach((key) => {
+    //             if (
+    //                 JSON.stringify(beforeFlag[key as keyof FeatureFlagBasicType]) !==
+    //                 JSON.stringify(afterFlag[key as keyof FeatureFlagBasicType])
+    //             ) {
+    //                 const flagChange = {
+    //                     field: key,
+    //                     before: beforeFlag[key as keyof FeatureFlagBasicType],
+    //                     after: afterFlag[key as keyof FeatureFlagBasicType],
+    //                 }
+    //                 const description = featureFlagActionsMapping[key as keyof FeatureFlagType]?.(flagChange, logItem)
+    //                 if (description?.description) {
+    //                     changes.push(...description.description)
+    //                 }
+    //             }
+    //         })
+    //     }
+
+    //     return changes.length > 0
+    //         ? {
+    //               description: changes,
+    //           }
+    //         : null
+    // },
     targeting_flag: function onTargetingFlag(change) {
         const beforeFlag = change?.before as FeatureFlagBasicType | null
         const afterFlag = change?.after as FeatureFlagBasicType | null
-        const changes: JSX.Element[] = []
+        const changes: Description[] = []
 
         if (!beforeFlag && afterFlag) {
-            changes.push(<>added targeting flag</>)
+            changes.push(
+                <>
+                    added targeting flag with key <strong>{afterFlag.key}</strong>
+                </>
+            )
+            // changes.push(
+            //     <>
+            //         set flag name to <strong>{afterFlag.name}</strong>
+            //     </>
+            // )
+            // changes.push(
+            //     <>
+            //         set flag status to <strong>{afterFlag.active ? 'active' : 'inactive'}</strong>
+            //     </>
+            // )
+
+            // Describe the filters
+            if (afterFlag.filters?.groups?.length > 0) {
+                changes.push(
+                    <>
+                        set targeting conditions to:
+                        <pre>{JSON.stringify(afterFlag.filters, null, 2)}</pre>
+                    </>
+                )
+            }
         } else if (beforeFlag && !afterFlag) {
             changes.push(<>removed targeting flag</>)
         } else if (beforeFlag && afterFlag) {
@@ -322,19 +433,26 @@ const surveyActionsMapping: Record<
                     </>
                 )
             }
-            if (beforeFlag.name !== afterFlag.name) {
+            // if (beforeFlag.name !== afterFlag.name) {
+            //     changes.push(
+            //         <>
+            //             changed targeting flag name from <strong>{beforeFlag.name}</strong> to{' '}
+            //             <strong>{afterFlag.name}</strong>
+            //         </>
+            //     )
+            // }
+            // if (beforeFlag.active !== afterFlag.active) {
+            //     changes.push(<>{afterFlag.active ? 'activated' : 'deactivated'} targeting flag</>)
+            // }
+            if (JSON.stringify(beforeFlag.filters) !== JSON.stringify(afterFlag.filters)) {
                 changes.push(
                     <>
-                        changed targeting flag name from <strong>{beforeFlag.name}</strong> to{' '}
-                        <strong>{afterFlag.name}</strong>
+                        changed targeting conditions from:
+                        <pre>{JSON.stringify(beforeFlag.filters, null, 2)}</pre>
+                        to:
+                        <pre>{JSON.stringify(afterFlag.filters, null, 2)}</pre>
                     </>
                 )
-            }
-            if (beforeFlag.active !== afterFlag.active) {
-                changes.push(<>{afterFlag.active ? 'activated' : 'deactivated'} targeting flag</>)
-            }
-            if (JSON.stringify(beforeFlag.filters) !== JSON.stringify(afterFlag.filters)) {
-                changes.push(<>modified targeting flag filters</>)
             }
         }
 
