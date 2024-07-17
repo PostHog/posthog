@@ -21,10 +21,17 @@ class Integration(models.Model):
         SLACK = "slack"
         SALESFORCE = "salesforce"
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "kind", "integration_id"], name="integration_kind_id_unique")
+        ]
+
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
     kind: models.CharField = models.CharField(max_length=10, choices=IntegrationKind.choices)
+    # The ID of the integration in the external system
+    integration_id: models.TextField = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
     config: models.JSONField = models.JSONField(default=dict)
     # Any sensitive config that SHOULD NOT be passed to the frontend
@@ -43,6 +50,7 @@ class OauthConfig:
     token_url: str
     client_id: str
     client_secret: str
+    scope: str
 
 
 class OauthIntegration:
@@ -74,6 +82,7 @@ class OauthIntegration:
                 token_url="https://slack.com/api/oauth.v2.access",
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
+                scope="channels:read,groups:read,chat:write",
             )
         elif kind == "salesforce":
             if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
@@ -84,6 +93,7 @@ class OauthIntegration:
                 token_url="https://login.salesforce.com/services/oauth2/token",
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="full",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -92,41 +102,32 @@ class OauthIntegration:
     def integration_from_oauth_response(
         cls, kind: str, team_id: str, created_by: User, params: dict[str, str]
     ) -> Integration:
-        config = cls.oauth_config_for_kind(kind)
+        oauth_config = cls.oauth_config_for_kind(kind)
 
         redirect_uri = params["redirect_uri"]
         code = params["code"]
 
         res = requests.post(
-            config.token_url,
+            oauth_config.token_url,
             data={
-                "client_id": config.client_id,
-                "client_secret": config.client_secret,
+                "client_id": oauth_config.client_id,
+                "client_secret": oauth_config.client_secret,
                 "code": code,
                 "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
             },
         )
 
-        if res.status_code != 200:
+        config: dict = res.json()
+
+        if res.status_code != 200 or not config.get("access_token"):
             raise Exception("Oauth error")
 
-        config = {}
-        sensitive_config = {}
-
-        raise NotImplementedError("wat")
-
-        # config = {
-        #     "app_id": res.get("app_id"),  # Like  "A03KWE2FJJ2",
-        #     "authed_user": res.get("authed_user"),  # Like {"id": "U03DCBD92JX"},
-        #     "scope": res.get("scope"),  # Like "incoming-webhook,channels:read,chat:write",
-        #     "token_type": res.get("token_type"),  # Like "bot",
-        #     "bot_user_id": res.get("bot_user_id"),  # Like "U03LFNLTARX",
-        #     "team": res.get("team"),  # Like {"id": "TSS5W8YQZ", "name": "PostHog"},
-        #     "enterprise": res.get("enterprise"),
-        #     "is_enterprise_install": res.get("is_enterprise_install"),
-        # }
-
-        # sensitive_config = {"access_token": res.get("access_token")}
+        sensitive_config: dict = {
+            "access_token": config.pop("access_token"),
+            "refresh_token": config.pop("refresh_token", None),
+            "id_token": config.pop("id_token", None),
+        }
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,

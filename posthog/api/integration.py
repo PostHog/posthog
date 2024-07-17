@@ -33,9 +33,12 @@ class IntegrationSerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
 
         if validated_data["kind"] in OauthIntegration.supported_kinds:
-            instance = OauthIntegration.integration_from_oauth_response(
-                validated_data["kind"], team_id, request.user, validated_data["config"]
-            )
+            try:
+                instance = OauthIntegration.integration_from_oauth_response(
+                    validated_data["kind"], team_id, request.user, validated_data["config"]
+                )
+            except NotImplementedError:
+                raise ValidationError("Kind not configured")
             return instance
 
         raise ValidationError("Kind not supported")

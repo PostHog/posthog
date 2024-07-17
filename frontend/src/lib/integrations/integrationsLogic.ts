@@ -13,7 +13,7 @@ import type { integrationsLogicType } from './integrationsLogicType'
 // NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
 // Just means we have to change it back to http once redirected.
 const getOauthRedirectURI = (kind: string, next: string = ''): string =>
-    `${window.location.origin.replace('http://', 'https://')}/integrations/${kind}/callback${
+    `${window.location.origin.replace('http://', 'http://')}/integrations/${kind}/callback${
         next ? '?next=' + encodeURIComponent(next) : ''
     }`
 
@@ -41,36 +41,27 @@ export const integrationsLogic = kea<integrationsLogicType>([
     })),
     listeners(({ actions }) => ({
         handleOauthCallback: async ({ kind, searchParams }) => {
-            switch (kind) {
-                case 'slack': {
-                    const { state, code, error, next } = searchParams
+            const { state, code, error, next } = searchParams
 
-                    const replaceUrl = next || urls.settings('project')
+            const replaceUrl = next || urls.settings('project')
 
-                    if (error) {
-                        lemonToast.error(`Failed due to "${error}"`)
-                        router.actions.replace(replaceUrl)
-                        return
-                    }
+            if (error) {
+                lemonToast.error(`Failed due to "${error}"`)
+                router.actions.replace(replaceUrl)
+                return
+            }
 
-                    try {
-                        await api.integrations.create({
-                            kind: 'slack',
-                            config: { state, code, redirect_uri: getOauthRedirectURI('slack', next) },
-                        })
+            try {
+                await api.integrations.create({
+                    kind,
+                    config: { state, code, redirect_uri: getOauthRedirectURI(kind, next) },
+                })
 
-                        actions.loadIntegrations()
-                        lemonToast.success(`Integration successful.`)
-                    } catch (e) {
-                        lemonToast.error(`Something went wrong. Please try again.`)
-                    } finally {
-                        router.actions.replace(replaceUrl)
-                    }
-
-                    return
-                }
-                default:
-                    lemonToast.error(`Something went wrong.`)
+                actions.loadIntegrations()
+                lemonToast.success(`Integration successful.`)
+                router.actions.replace(replaceUrl)
+            } catch (e) {
+                lemonToast.error(`Something went wrong. Please try again.`)
             }
         },
 
