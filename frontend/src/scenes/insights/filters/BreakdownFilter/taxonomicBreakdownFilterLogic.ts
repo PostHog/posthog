@@ -139,7 +139,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
-        addBreakdownDisabled: [
+        isAddBreakdownDisabled: [
             (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.isDataWarehouseSeries],
             ({ breakdown, breakdowns, breakdown_type }, isMultipleBreakdownsEnabled, isDataWarehouseSeries) => {
                 // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.

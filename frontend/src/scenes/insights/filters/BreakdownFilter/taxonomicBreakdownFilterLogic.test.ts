@@ -1,4 +1,4 @@
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { initKeaTests } from '~/test/init'
@@ -130,6 +130,24 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown: '$lib_version',
                 breakdown_group_type_index: 0,
             })
+        })
+    })
+
+    describe('isAddBreakdownDisabled', () => {
+        it('no breakdowns', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {},
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues(
+                partial({
+                    isAddBreakdownDisabled: false,
+                })
+            )
         })
     })
 
