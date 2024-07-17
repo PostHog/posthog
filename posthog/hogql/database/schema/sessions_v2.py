@@ -104,6 +104,7 @@ class RawSessionsTableV2(Table):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
+            "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
             # our clickhouse driver can't return aggregate states
             "distinct_id",
             "entry_url",
