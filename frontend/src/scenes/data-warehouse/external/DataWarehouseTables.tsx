@@ -225,7 +225,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     return (
         <div
             className={clsx(
-                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto max-h-screen`,
+                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : 'flex-0'
             )}
         >
@@ -234,7 +234,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             ) : (
                 <>
                     <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth>
-                        <span className="uppercase text-muted-alt tracking-wider">Schemas</span>
+                        <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>

@@ -56,14 +56,16 @@ export function DataWarehouseExternalScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
-                        <InsightSaveButton
-                            saveAs={saveAs}
-                            saveInsight={saveInsight}
-                            isSaved={hasDashboardItemId}
-                            addingToDashboard={false}
-                            insightSaving={insightSaving}
-                            insightChanged={insightChanged}
-                        />
+                        {currentTab === DataWarehouseTab.Explore && (
+                            <InsightSaveButton
+                                saveAs={saveAs}
+                                saveInsight={saveInsight}
+                                isSaved={hasDashboardItemId}
+                                addingToDashboard={false}
+                                insightSaving={insightSaving}
+                                insightChanged={insightChanged}
+                            />
+                        )}
 
                         <LemonButton
                             type="primary"
