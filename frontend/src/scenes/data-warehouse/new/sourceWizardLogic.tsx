@@ -336,6 +336,7 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
     'cloudflare-r2': 'Cloudflare R2',
+    azure: 'Azure',
 }
 
 export interface SourceWizardLogicProps {

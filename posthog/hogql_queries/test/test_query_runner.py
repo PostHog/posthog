@@ -47,10 +47,13 @@ class TestQueryRunner(BaseTest):
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
 
-            def _is_stale(self, cached_result_package, lazy: bool = False, *args, **kwargs) -> bool:
+            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
+                if not last_refresh:
+                    raise ValueError("Cached results require a last_refresh")
+
                 if lazy:
-                    return cached_result_package.last_refresh + timedelta(days=1) <= datetime.now(tz=ZoneInfo("UTC"))
-                return cached_result_package.last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
+                    return last_refresh + timedelta(days=1) <= datetime.now(tz=ZoneInfo("UTC"))
+                return last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
 
         TestQueryRunner.__abstractmethods__ = frozenset()
 

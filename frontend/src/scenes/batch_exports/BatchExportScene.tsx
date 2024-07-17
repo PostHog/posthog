@@ -53,7 +53,7 @@ export function RunsTab(): JSX.Element {
         runsDateRange,
         batchExportConfigLoading,
     } = useValues(batchExportLogic)
-    const { loadNextBatchExportRuns, openBackfillModal, setRunsDateRange, retryRun } = useActions(batchExportLogic)
+    const { loadNextBatchExportRuns, setRunsDateRange, retryRun } = useActions(batchExportLogic)
 
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
@@ -99,13 +99,13 @@ export function RunsTab(): JSX.Element {
                             </Popover>
                         </div>
                         <BatchExportRunsGrouped
+                            id={batchExportConfig.id}
                             groupedRuns={groupedRuns}
                             loading={batchExportRunsResponseLoading}
                             retryRun={retryRun}
                             hasMoreRunsToLoad={!!batchExportRunsResponse?.next}
                             loadOlderRuns={loadNextBatchExportRuns}
                             interval={batchExportConfig.interval}
-                            openBackfillModal={openBackfillModal}
                         />
                     </div>
                 </div>

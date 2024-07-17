@@ -9,6 +9,7 @@ import {
     HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
     HogFunctionLogEntryLevel,
     HogFunctionType,
@@ -221,12 +222,12 @@ export class HogExecutor {
         const { vmState } = invocation.asyncFunctionRequest ?? {}
         const { asyncFunctionResponse } = invocation
 
-        if (!vmState || !asyncFunctionResponse.vmResponse || asyncFunctionResponse.error) {
+        if (!vmState || !asyncFunctionResponse.response || asyncFunctionResponse.error) {
             return errorRes(invocation.error ?? 'No VM state provided for async response')
         }
 
         // Add the response to the stack to continue execution
-        vmState.stack.push(convertJSToHog(asyncFunctionResponse.vmResponse ?? null))
+        vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
 
         return this.execute(hogFunction, baseInvocation, vmState)
     }
@@ -248,6 +249,7 @@ export class HogExecutor {
             ...invocation,
             asyncFunctionRequest: undefined,
             finished: false,
+            capturedPostHogEvents: [],
         }
 
         if (!state) {
@@ -264,7 +266,7 @@ export class HogExecutor {
 
         try {
             const start = performance.now()
-            let globals: Record<string, any> | undefined = undefined
+            let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
 
             try {
@@ -302,6 +304,39 @@ export class HogExecutor {
                             }
 
                             addLog(result, 'info', sanitizeLogMessage(args, sensitiveValues))
+                        },
+                        postHogCapture: (event) => {
+                            if (typeof event.event !== 'string') {
+                                throw new Error("[HogFunction] - postHogCapture call missing 'event' property")
+                            }
+
+                            if (result.capturedPostHogEvents!.length > 0) {
+                                throw new Error(
+                                    'postHogCapture was called more than once. Only one call is allowed per function'
+                                )
+                            }
+                            const executionCount = globals.event.properties?.$hog_function_execution_count ?? 0
+
+                            if (executionCount > 0) {
+                                addLog(
+                                    result,
+                                    'warn',
+                                    `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
+                                )
+                                return
+                            }
+
+                            result.capturedPostHogEvents!.push({
+                                team_id: invocation.teamId,
+                                timestamp: DateTime.utc().toISO(),
+                                distinct_id: event.distinct_id || invocation.globals.event.distinct_id,
+                                event: event.event,
+                                properties: {
+                                    ...event.properties,
+                                    // Increment the execution count so that we can check it in the future
+                                    $hog_function_execution_count: executionCount + 1,
+                                },
+                            })
                         },
                     },
                 })
@@ -350,7 +385,10 @@ export class HogExecutor {
         return result
     }
 
-    buildHogFunctionGlobals(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): Record<string, any> {
+    buildHogFunctionGlobals(
+        hogFunction: HogFunctionType,
+        invocation: HogFunctionInvocation
+    ): HogFunctionInvocationGlobalsWithInputs {
         const builtInputs: Record<string, any> = {}
 
         Object.entries(hogFunction.inputs ?? {}).forEach(([key, item]) => {
