@@ -56,7 +56,7 @@ function HogFunctionIntegrationChoice({
                         kind,
                         next: window.location.pathname,
                     }),
-                    label: 'Add to different Slack workspace',
+                    label: `Connect to a different ${kind} integration`,
                 },
             ]}
         >
