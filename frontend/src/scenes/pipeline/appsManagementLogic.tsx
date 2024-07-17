@@ -173,8 +173,24 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
     }),
     selectors({
         canInstallPlugins: [(s) => [s.user], (user) => canInstallPlugins(user?.organization)],
-        globalPlugins: [(s) => [s.plugins], (plugins) => Object.values(plugins).filter((plugin) => plugin.is_global)],
-        localPlugins: [(s) => [s.plugins], (plugins) => Object.values(plugins).filter((plugin) => !plugin.is_global)],
+        inlinePlugins: [
+            (s) => [s.plugins],
+            (plugins) =>
+                Object.values(plugins).filter((plugin) => plugin.plugin_type === PluginInstallationType.Inline),
+        ],
+        appPlugins: [
+            (s) => [s.plugins],
+            (plugins) =>
+                Object.values(plugins).filter((plugin) => plugin.plugin_type !== PluginInstallationType.Inline),
+        ],
+        globalPlugins: [
+            (s) => [s.appPlugins],
+            (plugins) => Object.values(plugins).filter((plugin) => plugin.is_global),
+        ],
+        localPlugins: [
+            (s) => [s.appPlugins],
+            (plugins) => Object.values(plugins).filter((plugin) => !plugin.is_global),
+        ],
         missingGlobalPlugins: [
             (s) => [s.plugins],
             (plugins) => {

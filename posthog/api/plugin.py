@@ -253,7 +253,6 @@ class PluginsAccessLevelPermission(BasePermission):
 
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
-    organization_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Plugin
@@ -268,8 +267,6 @@ class PluginSerializer(serializers.ModelSerializer):
             "tag",
             "latest_tag",
             "is_global",
-            "organization_id",
-            "organization_name",
             "capabilities",
             "metrics",
             "public_jobs",
@@ -289,27 +286,20 @@ class PluginSerializer(serializers.ModelSerializer):
 
         return None
 
-    def get_organization_name(self, plugin: Plugin) -> str:
-        return plugin.organization.name
-
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:
+        context_organization = self.context["get_organization"]()
+        if not can_globally_manage_plugins(context_organization):
+            raise PermissionDenied("This organization can't manage plugins!")
+
         validated_data["url"] = self.initial_data.get("url", None)
-        validated_data["organization_id"] = self.context["organization_id"]
         validated_data["updated_at"] = now()
-        if validated_data.get("is_global") and not can_globally_manage_plugins(validated_data["organization_id"]):
-            raise PermissionDenied("This organization can't manage global plugins!")
-
         plugin = Plugin.objects.install(**validated_data)
-
         return plugin
 
     def update(self, plugin: Plugin, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         context_organization = self.context["get_organization"]()
-        if (
-            "is_global" in validated_data
-            and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
-        ):
-            raise PermissionDenied("This organization can't manage global plugins!")
+        if not can_globally_manage_plugins(context_organization):
+            raise PermissionDenied("This organization can't manage plugins!")
         validated_data["updated_at"] = now()
         return super().update(plugin, validated_data)
 
@@ -342,17 +332,16 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.CONFIG):
             return queryset.none()
 
-        queryset = queryset.filter(
-            Q(organization_id=self.organization_id)
-            | Q(is_global=True)
-            | Q(
-                id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
-                    team__organization_id=self.organization_id, deleted=False
-                ).values_list("plugin_id", flat=True)
+        if not can_globally_manage_plugins(self.organization_id):
+            queryset = queryset.filter(
+                Q(organization_id=self.organization_id)
+                | Q(is_global=True)
+                | Q(
+                    id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
+                        team__organization_id=self.organization_id, deleted=False
+                    ).values_list("plugin_id", flat=True)
+                )
             )
-        )
-
-        queryset = queryset.select_related("organization")
 
         return queryset
 

@@ -33,7 +33,7 @@ export const INLINE_PLUGIN_MAP: Map<string, RegisteredInlinePlugin> = new Map([
                 url: 'inline://noop',
                 config_schema: {},
                 tag: 'noop',
-                capabilities: {},
+                capabilities: { methods: ['processEvent'] },
                 is_stateless: true,
                 log_level: PluginLogLevel.Info,
             },
