@@ -603,7 +603,12 @@ class TestExternalDataSource(APIBaseTest):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
         job = ExternalDataJob.objects.create(
-            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=100
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=100,
+            workflow_run_id="test_run_id",
         )
 
         response = self.client.get(
@@ -618,3 +623,4 @@ class TestExternalDataSource(APIBaseTest):
         assert data[0]["status"] == "Completed"
         assert data[0]["rows_synced"] == 100
         assert data[0]["schema"]["id"] == str(schema.pk)
+        assert data[0]["workflow_run_id"] is not None

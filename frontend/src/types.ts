@@ -3884,6 +3884,7 @@ export interface ExternalDataJob {
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string
+    workflow_run_id?: string
 }
 
 export interface SimpleDataWarehouseTable {

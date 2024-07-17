@@ -1064,9 +1064,17 @@ export type QueryStatus = {
     team_id: integer
     insight_id?: integer
     dashboard_id?: integer
-    /**  @default false */
+    /**
+     * If the query failed, this will be set to true.
+     * More information can be found in the error_message field.
+     * @default false
+     */
     error: boolean
-    /**  @default false */
+    /**
+     * Whether the query is still running. Will be true if the query is complete, even if it errored.
+     * Either result or error will be set.
+     * @default false
+     */
     complete: boolean
     /**  @default null */
     error_message: string | null

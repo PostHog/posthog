@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0441_alter_datawarehousetable_format"),
+        ("posthog", "0443_externaldatajob_workflow_run_id"),
     ]
 
     operations = [
