@@ -580,6 +580,29 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+        # the customer also provided us with a list of urls that weren't attributing correctly, and we changed the
+        # algorithm to give utm_medium priority over referring domain. This tests a few specific examples:
+        self.assertEqual(
+            "Email",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "substack",
+                    "utm_medium": "email",
+                    "$referring_domain": "bing.com",
+                }
+            ),
+        )
+        self.assertEqual(
+            "Affiliate",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Foo",
+                    "utm_medium": "affiliate",
+                    "$referring_domain": "bing.com",
+                }
+            ),
+        )
+
     def test_hacker_news(self):
         # news.ycombinator.com is interesting because we don't have an entry for ycombinator.com, only the subdomain
 
