@@ -26,7 +26,7 @@ from posthog.client import sync_execute
 from posthog.models import Action
 from posthog.constants import AvailableFeature
 from posthog.exceptions import generate_exception_response
-from posthog.models.activity_logging.activity_log import changes_between, load_activity, log_activity, Detail
+from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity, log_activity, Detail
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
@@ -317,9 +317,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
-        targeting_flag_before_update = instance.targeting_flag if instance.targeting_flag else None
+        changes = []
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
+                # Manually delete the flag and log the change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(type="Survey", field="targeting_flag", action="deleted", before=instance.targeting_flag)
+                )
                 instance.targeting_flag.delete()
                 validated_data["targeting_flag_id"] = None
             validated_data.pop("remove_targeting_flag")
@@ -365,11 +371,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         team = Team.objects.get(id=self.context["team_id"])
-        changes = changes_between(
-            "Survey",
-            previous=before_update,
-            current=instance,
-            previous_targeting_flag=targeting_flag_before_update,
+        changes.extend(
+            changes_between(
+                "Survey",
+                previous=before_update,
+                current=instance,
+            )
         )
         log_activity(
             organization_id=team.organization_id,

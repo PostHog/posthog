@@ -90,6 +90,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "key": obj.key,
                 "name": obj.name,
+                "filters": obj.filters,
                 # Add any other fields you want to include
             }
 
@@ -214,9 +215,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "property_type_format",
     ],
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
-    # TODO: Don't try and track changes to survey targeting, we will support
-    # this with https://github.com/PostHog/posthog/issues/23725
-    # "Survey": ["internal_targeting_flag"],
 }
 
 
@@ -248,10 +246,10 @@ def changes_between(
     model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
-    previous_targeting_flag: Optional[models.Model] = None,
 ) -> list[Change]:
     """
     Identifies changes between two models by comparing fields
+    # TODO add docstring for this additional_changes param
     """
     changes: list[Change] = []
 
@@ -263,12 +261,6 @@ def changes_between(
         fields = current._meta.get_fields() if current is not None else []
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
         filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
-
-        # Special handling for deleted targeting_flag
-        if previous_targeting_flag:
-            changes.append(
-                Change(type=model_type, field="targeting_flag", action="deleted", before=previous_targeting_flag)
-            )
 
         for field in filtered_fields:
             try:

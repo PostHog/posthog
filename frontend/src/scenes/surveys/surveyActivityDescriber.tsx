@@ -11,7 +11,7 @@ import {
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { Survey, SurveyAppearance } from '~/types'
+import { FeatureFlagBasicType, Survey, SurveyAppearance } from '~/types'
 
 const isEmptyOrUndefined = (value: any): boolean => value === undefined || value === null || value === ''
 
@@ -304,6 +304,46 @@ const surveyActionsMapping: Record<
             ],
         }
     },
+    targeting_flag: function onTargetingFlag(change) {
+        const beforeFlag = change?.before as FeatureFlagBasicType | null
+        const afterFlag = change?.after as FeatureFlagBasicType | null
+        const changes: JSX.Element[] = []
+
+        if (!beforeFlag && afterFlag) {
+            changes.push(<>added targeting flag</>)
+        } else if (beforeFlag && !afterFlag) {
+            changes.push(<>removed targeting flag</>)
+        } else if (beforeFlag && afterFlag) {
+            if (beforeFlag.key !== afterFlag.key) {
+                changes.push(
+                    <>
+                        changed targeting flag key from <strong>{beforeFlag.key}</strong> to{' '}
+                        <strong>{afterFlag.key}</strong>
+                    </>
+                )
+            }
+            if (beforeFlag.name !== afterFlag.name) {
+                changes.push(
+                    <>
+                        changed targeting flag name from <strong>{beforeFlag.name}</strong> to{' '}
+                        <strong>{afterFlag.name}</strong>
+                    </>
+                )
+            }
+            if (beforeFlag.active !== afterFlag.active) {
+                changes.push(<>{afterFlag.active ? 'activated' : 'deactivated'} targeting flag</>)
+            }
+            if (JSON.stringify(beforeFlag.filters) !== JSON.stringify(afterFlag.filters)) {
+                changes.push(<>modified targeting flag filters</>)
+            }
+        }
+
+        return changes.length > 0
+            ? {
+                  description: changes,
+              }
+            : null
+    },
 }
 
 export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -326,6 +366,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'deleted') {
+        // console.log('logItem', logItem)
         return {
             description: (
                 <>
@@ -336,6 +377,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'updated') {
+        // console.log('logItem', logItem)
         const changes: { field: string; description: Description }[] = []
 
         for (const change of logItem.detail.changes || []) {
