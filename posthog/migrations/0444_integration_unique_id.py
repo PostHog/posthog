@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
                 migrations.RunSQL(
                     """
                     ALTER TABLE "posthog_integration" ADD COLUMN "integration_id" text NULL;
-                    ALTER TABLE "posthog_integration" ADD CONSTRAINT "posthog_integration_kind_id_unique" UNIQUE ("team_id", "kind", "integration_id") DEFERRABLE INITIALLY DEFERRED NOT VALID; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_integration" ADD CONSTRAINT "posthog_integration_kind_id_unique" UNIQUE ("team_id", "kind", "integration_id"); -- existing-table-constraint-ignore
                     """,
                     reverse_sql="""
                         ALTER TABLE "posthog_integration" DROP COLUMN IF EXISTS "integration_id";
