@@ -409,6 +409,78 @@ describe('filtersToQueryNode', () => {
             }
             expect(result).toEqual(query)
         })
+
+        it('converts multiple breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'event',
+                        value: '$current_url',
+                    },
+                    {
+                        type: 'event',
+                        value: '$current_url',
+                    },
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'event',
+                            value: '$current_url',
+                        },
+                        {
+                            type: 'event',
+                            value: '$current_url',
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('converts legacy breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'event',
+                        property: '$current_url',
+                    },
+                    {
+                        type: 'event',
+                        property: '$current_url',
+                    },
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'event',
+                            value: '$current_url',
+                        },
+                        {
+                            type: 'event',
+                            value: '$current_url',
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
     })
 
     describe('funnels filter', () => {

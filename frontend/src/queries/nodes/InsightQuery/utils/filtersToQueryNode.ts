@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/react'
 import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -47,6 +46,7 @@ import {
 import {
     ActionFilter,
     BaseMathType,
+    Breakdown,
     DataWarehouseFilter,
     FilterType,
     FunnelExclusionLegacy,
@@ -248,13 +248,6 @@ const strToBool = (value: any): boolean | undefined => {
 }
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
-    const captureException = (message: string): void => {
-        Sentry.captureException(new Error(message), {
-            tags: { DataExploration: true },
-            extra: { filters },
-        })
-    }
-
     if (!filters.insight) {
         throw new Error('filtersToQueryNode expects "insight"')
     }
@@ -296,22 +289,22 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // breakdown
     if (isInsightQueryWithBreakdown(query)) {
-        /* handle multi-breakdowns */
+        const isLegacyMultipleBreakdown = filters.breakdowns?.find((b) => 'property' in b)
+
+        /* handle legacy multi-breakdowns */
         // not undefined or null
-        if (filters.breakdowns != null) {
-            if (filters.breakdowns.length === 1) {
-                filters.breakdown_type = filters.breakdowns[0].type
-                filters.breakdown = filters.breakdowns[0].property as string
-            } else {
-                captureException(
-                    'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
-                )
-            }
+        if (filters.breakdowns != null && isLegacyMultipleBreakdown) {
+            filters.breakdowns = filters.breakdowns
+                .map((b) => ({
+                    type: b.type || filters.breakdown_type || 'event',
+                    value: b.property,
+                }))
+                .filter((b) => typeof b.value === 'string') as Breakdown[]
         }
 
         /* handle missing breakdown_type */
         // check for undefined and null values
-        if (filters.breakdown != null && filters.breakdown_type == null) {
+        if (filters.breakdown != null && filters.breakdown_type == null && !filters.breakdowns) {
             filters.breakdown_type = 'event'
         }
 
