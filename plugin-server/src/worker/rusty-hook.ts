@@ -2,6 +2,7 @@ import { Webhook } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import fetch from 'node-fetch'
 
+import { HogFunctionInvocationResult } from '../cdp/types'
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { isProdEnv } from '../utils/env-utils'
@@ -29,7 +30,11 @@ export class RustyHook {
     constructor(
         private serverConfig: Pick<
             PluginsServerConfig,
-            'RUSTY_HOOK_URL' | 'RUSTY_HOOK_FOR_TEAMS' | 'RUSTY_HOOK_ROLLOUT_PERCENTAGE' | 'EXTERNAL_REQUEST_TIMEOUT_MS'
+            | 'RUSTY_HOOK_URL'
+            | 'HOG_HOOK_URL'
+            | 'RUSTY_HOOK_FOR_TEAMS'
+            | 'RUSTY_HOOK_ROLLOUT_PERCENTAGE'
+            | 'EXTERNAL_REQUEST_TIMEOUT_MS'
         >
     ) {
         this.enabledForTeams = buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true)
@@ -114,6 +119,51 @@ export class RustyHook {
                 }
                 status.error('🔴', 'Webhook enqueue to rusty-hook failed', { error, redactedWebhook, attempt })
                 Sentry.captureException(error, { extra: { redactedWebhook } })
+            }
+
+            const delayMs = Math.min(2 ** (attempt - 1) * RUSTY_HOOK_BASE_DELAY_MS, MAX_RUSTY_HOOK_DELAY_MS)
+            await sleep(delayMs)
+        }
+
+        return true
+    }
+
+    public async enqueueForHog(payload: HogFunctionInvocationResult): Promise<boolean> {
+        // This is a temporary copy of `enqueueIfEnabledForTeam` above for Hog fetches because the
+        // API differs. It will likely be replaced with a Kafka topic soon.
+
+        const body = JSON.stringify(payload)
+
+        // We attempt to enqueue into the rusty-hook service until we succeed. This is deliberatly
+        // designed to block up the consumer if rusty-hook is down or if we deploy code that
+        // sends malformed requests. The entire purpose of rusty-hook is to reliably deliver webhooks,
+        // so we'd rather leave items in the Kafka topic until we manage to get them into rusty-hook.
+        let attempt = 0
+        while (true) {
+            try {
+                attempt += 1
+                const response = await fetch(this.serverConfig.HOG_HOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body,
+
+                    // Sure, it's not an external request, but we should have a timeout and this is as
+                    // good as any.
+                    timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
+                })
+
+                if (response.ok) {
+                    // Success, exit the loop.
+                    break
+                }
+
+                // Throw to unify error handling below.
+                throw new Error(
+                    `rusty-hook for Hog returned ${response.status} ${response.statusText}: ${await response.text()}`
+                )
+            } catch (error) {
+                status.error('🔴', 'Webhook enqueue to rusty-hook for Hog failed', { error, attempt })
+                Sentry.captureException(error)
             }
 
             const delayMs = Math.min(2 ** (attempt - 1) * RUSTY_HOOK_BASE_DELAY_MS, MAX_RUSTY_HOOK_DELAY_MS)

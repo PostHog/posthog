@@ -118,6 +118,7 @@
     'Warning: operationId "notebooks_activity_retrieve" has collisions [(\'/api/projects/{project_id}/notebooks/{short_id}/activity/\', \'get\'), (\'/api/projects/{project_id}/notebooks/activity/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "persons_activity_retrieve" has collisions [(\'/api/projects/{project_id}/persons/{id}/activity/\', \'get\'), (\'/api/projects/{project_id}/persons/activity/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "property_definitions_retrieve" has collisions [(\'/api/projects/{project_id}/property_definitions/\', \'get\'), (\'/api/projects/{project_id}/property_definitions/{id}/\', \'get\')]. resolving with numeral suffixes.',
+    'Warning: operationId "surveys_activity_retrieve" has collisions [(\'/api/projects/{project_id}/surveys/{id}/activity/\', \'get\'), (\'/api/projects/{project_id}/surveys/activity/\', \'get\')]. resolving with numeral suffixes.',
     '',
   ])
 # ---
