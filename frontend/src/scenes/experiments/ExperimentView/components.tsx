@@ -211,9 +211,9 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // Validation errors return 400 and are rendered as a checklist
     if (experimentResultCalculationError?.statusCode === 400) {
-        let parsedDetail = {}
+        let parsedDetail: Record<ErrorCode, boolean>
         try {
-            parsedDetail = JSON.parse(experimentResultCalculationError.detail) as Record<ErrorCode, boolean>
+            parsedDetail = JSON.parse(experimentResultCalculationError.detail)
         } catch (error) {
             return (
                 <div className="border rounded bg-bg-light p-4">
@@ -227,9 +227,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
         const checklistItems = []
         for (const [errorCode, value] of Object.entries(parsedDetail)) {
-            checklistItems.push(
-                <ChecklistItem key={errorCode} errorCode={errorCode as ErrorCode} value={value as boolean} />
-            )
+            checklistItems.push(<ChecklistItem key={errorCode} errorCode={errorCode as ErrorCode} value={value} />)
         }
 
         return (
