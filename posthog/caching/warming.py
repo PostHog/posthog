@@ -4,7 +4,7 @@ from typing import Optional
 
 import structlog
 from celery import shared_task
-from celery.canvas import chain
+from celery.canvas import group
 from django.db.models import Q
 from prometheus_client import Counter
 from sentry_sdk import capture_exception
@@ -80,25 +80,22 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
     yield from dashboard_tiles
 
 
-@shared_task(ignore_result=True, expires=60 * 60)
+@shared_task(ignore_result=True, expires=60 * 15)
 def schedule_warming_for_teams_task():
-    team_ids = largest_teams(limit=3)
+    team_ids = largest_teams(limit=10)
 
     teams = Team.objects.filter(Q(pk__in=team_ids) | Q(extra_settings__insights_cache_warming=True))
 
     logger.info("Warming insight cache: teams", team_ids=[team.pk for team in teams])
 
-    # TODO: Needs additional thoughts about concurrency and rate limiting if we launch chains for a lot of teams at once
-
     for team in teams:
         insight_tuples = priority_insights(team)
 
-        task_groups = chain(*(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples))
-        task_groups.apply_async()
+        group(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples)()
 
 
 @shared_task(
-    queue=CeleryQueue.LONG_RUNNING.value,
+    queue=CeleryQueue.ANALYTICS_LIMITED.value,  # Important! Prevents Clickhouse from being overwhelmed
     ignore_result=True,
     expires=60 * 60,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
