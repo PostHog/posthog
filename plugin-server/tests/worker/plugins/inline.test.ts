@@ -148,12 +148,22 @@ describe('Inline plugin', () => {
 
         for (const { versionString, expected } of versionExamples) {
             test_event.properties.version = versionString
+            test_event.properties.version2 = versionString
             const flattened = await method(test_event)
-            expect(flattened.properties.version__major).toEqual(expected.major)
-            expect(flattened.properties.version__minor).toEqual(expected.minor)
-            expect(flattened.properties.version__patch).toEqual(expected.patch)
-            expect(flattened.properties.version__preRelease).toEqual(expected.preRelease)
-            expect(flattened.properties.version__build).toEqual(expected.build)
+
+            test(versionString, () => {
+                expect(flattened.properties.version__major).toEqual(expected.major)
+                expect(flattened.properties.version__minor).toEqual(expected.minor)
+                expect(flattened.properties.version__patch).toEqual(expected.patch)
+                expect(flattened.properties.version__preRelease).toEqual(expected.preRelease)
+                expect(flattened.properties.version__build).toEqual(expected.build)
+
+                expect(flattened.properties.version2__major).toEqual(expected.major)
+                expect(flattened.properties.version2__minor).toEqual(expected.minor)
+                expect(flattened.properties.version2__patch).toEqual(expected.patch)
+                expect(flattened.properties.version2__preRelease).toEqual(expected.preRelease)
+                expect(flattened.properties.version2__build).toEqual(expected.build)
+            })
         }
     })
 })

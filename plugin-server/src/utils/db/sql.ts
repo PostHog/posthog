@@ -1,6 +1,5 @@
-import { InlinePluginDescription } from 'worker/vm/inline/inline'
-
 import { Hub, Plugin, PluginAttachmentDB, PluginCapabilities, PluginConfig, PluginConfigId } from '../../types'
+import { InlinePluginDescription } from '../../worker/vm/inline/inline'
 import { PostgresUse } from './postgres'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
