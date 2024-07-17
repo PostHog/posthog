@@ -69,16 +69,15 @@ class TestExports(APIBaseTest):
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
 
-    @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
-    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task, mock_export_to_png) -> None:
+    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
         # add filter to dashboard
         self.dashboard.filters = {"properties": [{"key": "$browser_version", "value": "1.0"}]}
         self.dashboard.save()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "dashboard": self.dashboard.id, "insight": self.insight.id},
+            {"export_format": "image/png", "dashboard": self.dashboard.id},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
@@ -89,7 +88,7 @@ class TestExports(APIBaseTest):
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
-            "insight": self.insight.id,
+            "insight": None,
             "export_context": None,
             # without an expiry being set at creation, the default is 6 months
             "expires_after": (now() + timedelta(weeks=26))
@@ -99,22 +98,6 @@ class TestExports(APIBaseTest):
         }
 
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
-
-        # look at the page the screenshot will be taken of
-        exported_asset = ExportedAsset.objects.get(pk=data["id"])
-
-        with patch("posthog.tasks.exports.image_exporter.process_query_dict") as mock_process_query_dict:
-            # Request does not calculate the result and cache is not warmed up
-            context = {"is_shared": True}
-            InsightSerializer(self.insight, many=False, context=context)
-
-            mock_process_query_dict.assert_not_called()
-
-            # Should warm up the cache
-            export_image(exported_asset)
-            mock_export_to_png.assert_called_once_with(exported_asset)
-
-            mock_process_query_dict.assert_called_once()
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
@@ -166,9 +149,10 @@ class TestExports(APIBaseTest):
         data = response.json()
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
+    @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_can_create_new_valid_export_insight(self, mock_exporter_task) -> None:
+    def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "insight": self.insight.id},
@@ -225,6 +209,22 @@ class TestExports(APIBaseTest):
         )
 
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+
+        # look at the page the screenshot will be taken of
+        exported_asset = ExportedAsset.objects.get(pk=data["id"])
+
+        with patch("posthog.tasks.exports.image_exporter.process_query_dict") as mock_process_query_dict:
+            # Request does not calculate the result and cache is not warmed up
+            context = {"is_shared": True}
+            InsightSerializer(self.insight, many=False, context=context)
+
+            mock_process_query_dict.assert_not_called()
+
+            # Should warm up the cache
+            export_image(exported_asset)
+            mock_export_to_png.assert_called_once_with(exported_asset)
+
+            mock_process_query_dict.assert_called_once()
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
