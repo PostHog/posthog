@@ -3525,9 +3525,13 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
+export type IntegrationKind = 'slack' | 'salesforce'
+
 export interface IntegrationType {
     id: number
-    kind: 'slack'
+    kind: IntegrationKind
+    name: string
+    icon_url: str
     config: any
     created_by?: UserBasicType | null
     created_at: string

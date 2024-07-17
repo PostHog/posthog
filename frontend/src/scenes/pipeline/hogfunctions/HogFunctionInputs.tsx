@@ -382,7 +382,10 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                     <LemonSelect
                         value={value.integration}
                         onChange={(integration) => _onChange({ integration })}
-                        options={[{ label: 'Slack', value: 'slack' }]}
+                        options={[
+                            { label: 'Slack', value: 'slack' },
+                            { label: 'Salesforce', value: 'salesforce' },
+                        ]}
                         placeholder="Choose kind"
                     />
                 </LemonField.Pure>

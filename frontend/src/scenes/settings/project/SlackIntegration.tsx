@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { SlackIntegrationView } from 'lib/integrations/SlackIntegrationHelpers'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -86,7 +86,7 @@ export function SlackIntegration(): JSX.Element {
 
             <div className="space-y-2">
                 {slackIntegrations?.map((integration) => (
-                    <SlackIntegrationView
+                    <IntegrationView
                         key={integration.id}
                         integration={integration}
                         suffix={

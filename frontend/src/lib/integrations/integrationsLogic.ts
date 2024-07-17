@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { IntegrationType } from '~/types'
+import { IntegrationKind, IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 
@@ -17,7 +17,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
     }),
 
     actions({
-        handleOauthCallback: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
         deleteIntegration: (id: number) => ({ id }),
     }),
 
@@ -27,7 +27,22 @@ export const integrationsLogic = kea<integrationsLogicType>([
             {
                 loadIntegrations: async () => {
                     const res = await api.integrations.list()
-                    return res.results
+
+                    // Simple modifier here to add icons and names - we can move this to the backend at some point
+
+                    return res.results.map((integration) => {
+                        return {
+                            ...integration,
+                            name:
+                                integration.kind === 'slack'
+                                    ? integration.config.team.name
+                                    : integration.kind === 'salesforce'
+                                    ? integration.config.instance_url
+                                    : 'Unknown',
+                            // TODO: Make the icons endpoint independent of hog functions
+                            icon_url: `/api/projects/@current/hog_functions/icon/?id=${integration.kind}.com`,
+                        }
+                    })
                 },
             },
         ],
@@ -69,7 +84,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
     urlToAction(({ actions }) => ({
         '/integrations/:kind/callback': ({ kind = '' }, searchParams) => {
-            actions.handleOauthCallback(kind, searchParams)
+            actions.handleOauthCallback(kind as IntegrationKind, searchParams)
         },
     })),
     selectors({
@@ -84,7 +99,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.preflight],
             (preflight) => {
                 // TODO: Change this to be based on preflight or something
-                return preflight.slack_service.available
+                return preflight?.slack_service?.available
             },
         ],
     }),
