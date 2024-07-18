@@ -7,11 +7,19 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
-import { AnnotationScope, DatedAnnotationType, InsightLogicProps, InsightModel, IntervalType } from '~/types'
+import {
+    AnnotationScope,
+    DashboardType,
+    DatedAnnotationType,
+    InsightLogicProps,
+    InsightModel,
+    IntervalType,
+} from '~/types'
 
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 
-export interface AnnotationsOverlayLogicProps extends InsightLogicProps {
+export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'dashboardId'> {
+    dashboardId: DashboardType['id'] | undefined
     insightNumericId: InsightModel['id'] | 'new'
     dates: string[]
     ticks: Tick[]
