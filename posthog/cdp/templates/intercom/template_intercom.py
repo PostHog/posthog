@@ -6,7 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-Intercom",
     name="Send data to Intercom",
     description="Send events and contact information to Intercom",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=intercom.com",
+    icon_url="/static/services/intercom.png",
     hog="""
 let accessToken := inputs.access_token
 let host := inputs.host
