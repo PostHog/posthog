@@ -17,7 +17,7 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 
 
-def dot_get(d: dict, path: str, default: Any = None) -> Any:
+def dot_get(d: Any, path: str, default: Any = None) -> Any:
     for key in path.split("."):
         if not isinstance(d, dict):
             return default
