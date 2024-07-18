@@ -385,7 +385,7 @@ def get_hogql_autocomplete(
             query_to_try = query.query[: query.endPosition] + extra_characters + query.query[query.endPosition :]
             query_start = query.startPosition
             query_end = query.endPosition + length_to_add
-            select_ast: Optional[ast.SelectQuery] = None
+            select_ast: Optional[ast.AST] = None
 
             if query.language == HogLanguage.HOG_QL:
                 with timings.measure("parse_select"):
@@ -466,7 +466,9 @@ def get_hogql_autocomplete(
 
             if query.filters:
                 try:
-                    select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
+                    select_ast = cast(
+                        ast.SelectQuery, replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team)
+                    )
                 except Exception:
                     pass
 
