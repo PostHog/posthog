@@ -4,7 +4,9 @@ import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/T
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps } from '~/types'
 
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import * as breakdownLogic from './taxonomicBreakdownFilterLogic'
+
+const { taxonomicBreakdownFilterLogic } = breakdownLogic
 
 const taxonomicGroupFor = (
     type: TaxonomicFilterGroupType,
@@ -171,6 +173,203 @@ describe('taxonomicBreakdownFilterLogic', () => {
 
             expect(updateBreakdownFilter).toHaveBeenCalledWith({
                 breakdown_hide_other_aggregation: true,
+            })
+        })
+    })
+
+    describe('isAddBreakdownDisabled', () => {
+        function mockFeatureFlag(): void {
+            jest.spyOn(breakdownLogic, 'multipleBreakdownsEnabled').mockReturnValue(true)
+        }
+
+        it('no breakdowns', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {},
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: false,
+            })
+        })
+
+        it('breakdown is selected', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdown: 'prop',
+                    breakdown_type: 'event',
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: true,
+            })
+        })
+
+        it('multiple breakdowns', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: false,
+            })
+        })
+
+        it('multiple breakdowns can be added', async () => {
+            mockFeatureFlag()
+
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            value: 'prop1',
+                            type: 'event',
+                        },
+                    ],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: false,
+            })
+
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            value: 'prop1',
+                            type: 'event',
+                        },
+                        {
+                            value: 'prop2',
+                            type: 'event',
+                        },
+                    ],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: false,
+            })
+        })
+
+        it('multiple breakdowns allows max three elements', async () => {
+            mockFeatureFlag()
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            value: 'prop1',
+                            type: 'event',
+                        },
+                        {
+                            value: 'prop2',
+                            type: 'event',
+                        },
+                        {
+                            value: 'prop3',
+                            type: 'event',
+                        },
+                    ],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: true,
+            })
+        })
+
+        it('only one data warehouse breakdown is allowed', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdown_type: 'data_warehouse_person_property',
+                    breakdown: 'prop',
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: true,
+            })
+
+            mockFeatureFlag()
+
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdown_type: 'data_warehouse',
+                    breakdown: 'prop',
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: true,
+            })
+        })
+
+        it('no restrictions on cohorts', async () => {
+            mockFeatureFlag()
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdown_type: 'cohort',
+                    breakdown: [1],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: false,
+            })
+
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdown_type: 'cohort',
+                    breakdown: [1, 2],
+                },
+                isTrends: true,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                isAddBreakdownDisabled: false,
             })
         })
     })

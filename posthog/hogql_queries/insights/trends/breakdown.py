@@ -274,6 +274,9 @@ class Breakdown:
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
+        if lookup_value == BREAKDOWN_OTHER_STRING_LABEL:
+            return None
+
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
         if breakdown_type == "hogql":

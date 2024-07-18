@@ -2123,6 +2123,9 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
+        authorizeUrl(params: { kind: string; next?: string }): string {
+            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
+        },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
         },
