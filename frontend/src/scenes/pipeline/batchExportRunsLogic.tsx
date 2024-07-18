@@ -6,7 +6,6 @@ import api, { PaginatedResponse } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
 
@@ -63,7 +62,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                     if (!nextUrl) {
                         return values.runsPaginatedResponse
                     }
-                    const res = await api.get<PaginatedResponse<BatchExportRun>>(nextUrl)
+                    const res = await api.get<PaginatedResponse<RawBatchExportRun>>(nextUrl)
                     res.results = [...(values.runsPaginatedResponse?.results ?? []), ...res.results]
 
                     return res
@@ -137,7 +136,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         latestRuns: [
             // These aren't grouped because they might not include all runs for a time interval
             (s) => [s.runsPaginatedResponse],
-            (runsPaginatedResponse): BatchExportRun[] => runsPaginatedResponse?.results ?? [],
+            (runsPaginatedResponse): RawBatchExportRun[] => runsPaginatedResponse?.results ?? [],
         ],
         groupedRuns: [
             (s) => [s.runsPaginatedResponse, s.usingLatestRuns],
