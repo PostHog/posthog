@@ -144,13 +144,15 @@ export function AnnotationModal({
                                             ? annotationModal.dashboardId != existingModalAnnotation.dashboard_id &&
                                               `To select this scope, open this annotation on the ${existingModalAnnotation?.dashboard_name} dashboard`
                                             : undefined),
-                                    sideIcon: existingModalAnnotation?.dashboard_id ? (
-                                        <Link
-                                            to={urls.dashboard(existingModalAnnotation?.dashboard_id)}
-                                            target="_blank"
-                                            targetBlankIcon
-                                        />
-                                    ) : null,
+                                    sideIcon:
+                                        existingModalAnnotation?.dashboard_id &&
+                                        existingModalAnnotation.dashboard_id !== annotationModal.dashboardId ? (
+                                            <Link
+                                                to={urls.dashboard(existingModalAnnotation?.dashboard_id)}
+                                                target="_blank"
+                                                targetBlankIcon
+                                            />
+                                        ) : null,
                                 },
                                 {
                                     value: AnnotationScope.Project,
