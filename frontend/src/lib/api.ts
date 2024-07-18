@@ -71,6 +71,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
+    RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
     RoleType,
@@ -1877,7 +1878,7 @@ const api = {
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
-        ): Promise<PaginatedResponse<BatchExportRun>> {
+        ): Promise<PaginatedResponse<RawBatchExportRun>> {
             return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
         },
         async createBackfill(
