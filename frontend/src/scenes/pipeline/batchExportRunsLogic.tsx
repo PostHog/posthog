@@ -1,10 +1,13 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { BatchExportRun, GroupedBatchExportRuns } from '~/types'
+import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
 
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
 import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
@@ -34,16 +37,19 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         switchLatestRuns: (enabled: boolean) => ({ enabled }),
         loadRuns: true,
         retryRun: (run: BatchExportRun) => ({ run }),
+        openBackfillModal: true,
+        closeBackfillModal: true,
     }),
     loaders(({ props, values }) => ({
         runsPaginatedResponse: [
-            null as PaginatedResponse<BatchExportRun> | null,
+            null as PaginatedResponse<RawBatchExportRun> | null,
             {
                 loadRuns: async () => {
                     // TODO: loading and combining the data could be more efficient
                     if (values.usingLatestRuns) {
                         return await api.batchExports.listRuns(props.id, {})
                     }
+
                     return await api.batchExports.listRuns(props.id, {
                         start: values.dateRange.from,
                         end: values.dateRange.to, // TODO: maybe add 1 day
@@ -56,7 +62,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                     if (!nextUrl) {
                         return values.runsPaginatedResponse
                     }
-                    const res = await api.get<PaginatedResponse<BatchExportRun>>(nextUrl)
+                    const res = await api.get<PaginatedResponse<RawBatchExportRun>>(nextUrl)
                     res.results = [...(values.runsPaginatedResponse?.results ?? []), ...res.results]
 
                     return res
@@ -77,7 +83,50 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 switchLatestRuns: (_, { enabled }) => enabled,
             },
         ],
+        isBackfillModalOpen: [
+            false,
+            {
+                openBackfillModal: () => true,
+                closeBackfillModal: () => false,
+            },
+        ],
     }),
+    forms(({ props, actions }) => ({
+        backfillForm: {
+            defaults: { end_at: dayjs() } as {
+                start_at?: Dayjs
+                end_at?: Dayjs
+            },
+            errors: ({ start_at, end_at }) => ({
+                start_at: !start_at ? 'Start date is required' : undefined,
+                end_at: !end_at ? 'End date is required' : undefined,
+            }),
+            submit: async ({ start_at, end_at }) => {
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+                await api.batchExports
+                    .createBackfill(props.id, {
+                        start_at: start_at?.toISOString() ?? null,
+                        end_at: end_at?.toISOString() ?? null,
+                    })
+                    .catch((e) => {
+                        if (e.detail) {
+                            actions.setBackfillFormManualErrors({
+                                [e.attr ?? 'start_at']: e.detail,
+                            })
+                        } else {
+                            lemonToast.error('Unknown error occurred')
+                        }
+
+                        throw e
+                    })
+
+                actions.closeBackfillModal()
+                actions.loadRuns()
+
+                return
+            },
+        },
+    })),
     selectors({
         hasMoreRunsToLoad: [(s) => [s.runsPaginatedResponse], (runsPaginatedResponse) => !!runsPaginatedResponse?.next],
         loading: [
@@ -87,7 +136,20 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         latestRuns: [
             // These aren't grouped because they might not include all runs for a time interval
             (s) => [s.runsPaginatedResponse],
-            (runsPaginatedResponse): BatchExportRun[] => runsPaginatedResponse?.results ?? [],
+            (runsPaginatedResponse): BatchExportRun[] => {
+                const runs = runsPaginatedResponse?.results ?? []
+                return runs.map((run) => {
+                    return {
+                        ...run,
+                        created_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
+                        data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
+                        data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
+                        last_updated_at: run.last_updated_at
+                            ? dayjsUtcToTimezone(run.last_updated_at, teamLogic.values.timezone)
+                            : undefined,
+                    }
+                })
+            },
         ],
         groupedRuns: [
             (s) => [s.runsPaginatedResponse, s.usingLatestRuns],
@@ -96,6 +158,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                     return []
                 }
                 const runs = runsPaginatedResponse?.results ?? []
+
                 // Runs are grouped by the date range they cover
                 const groupedRuns: Record<string, GroupedBatchExportRuns> = {}
 
@@ -103,14 +166,22 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                     const key = `${run.data_interval_start}-${run.data_interval_end}`
                     if (!groupedRuns[key]) {
                         groupedRuns[key] = {
-                            data_interval_start: run.data_interval_start,
-                            data_interval_end: run.data_interval_end,
+                            data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
+                            data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
                             runs: [],
-                            last_run_at: run.created_at,
+                            last_run_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
                         }
                     }
 
-                    groupedRuns[key].runs.push(run)
+                    groupedRuns[key].runs.push({
+                        ...run,
+                        created_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
+                        data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
+                        data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
+                        last_updated_at: run.last_updated_at
+                            ? dayjsUtcToTimezone(run.last_updated_at, teamLogic.values.timezone)
+                            : undefined,
+                    })
                     groupedRuns[key].runs.sort((a, b) => b.created_at.diff(a.created_at))
                     groupedRuns[key].last_run_at = groupedRuns[key].runs[0].created_at
                 })

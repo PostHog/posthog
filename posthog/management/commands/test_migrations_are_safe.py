@@ -74,7 +74,11 @@ def validate_migration_sql(sql) -> bool:
             )  # Ignore for brand-new tables
         ):
             print(
-                f"\n\n\033[91mFound a CONSTRAINT command without NOT VALID. This locks tables which causes downtime. Please add this constraint using `AddConstraintNotValid()` of `django.contrib.postgres.operations` instead. See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a CONSTRAINT command without NOT VALID. This locks tables which causes downtime. "
+                "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
+                "If adding the constraint by itself, please use `AddConstraintNotValid()` of `django.contrib.postgres.operations` instead. "
+                "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation.\n"
+                "Source: `{operation_sql}`"
             )
             return True
         if (
@@ -83,7 +87,11 @@ def validate_migration_sql(sql) -> bool:
             and _get_table(" ON", operation_sql) not in new_tables
         ):
             print(
-                f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. Please add this index using `AddIndexConcurrently()` of `django.contrib.postgres.operations` instead. See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#concurrent-index-operations.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. "
+                "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
+                "If adding the index by itself, please use `AddIndexConcurrently()` of `django.contrib.postgres.operations` instead. "
+                "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#concurrent-index-operations.\n"
+                "Source: `{operation_sql}`"
             )
             return True
 

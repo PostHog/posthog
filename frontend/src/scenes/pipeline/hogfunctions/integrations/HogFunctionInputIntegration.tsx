@@ -1,12 +1,15 @@
+import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { SlackIntegrationView } from 'lib/integrations/SlackIntegrationHelpers'
-import { IconSlack } from 'lib/lemon-ui/icons'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
-export type HogFunctionInputIntegrationConfigureProps = {
+type HogFunctionInputIntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
 }
@@ -16,23 +19,22 @@ export type HogFunctionInputIntegrationProps = HogFunctionInputIntegrationConfig
 }
 
 export function HogFunctionInputIntegration({ schema, ...props }: HogFunctionInputIntegrationProps): JSX.Element {
-    if (schema.integration === 'slack') {
-        return <HogFunctionIntegrationSlackConnection {...props} />
-    }
-    return (
-        <div className="text-danger">
-            <p>Unsupported integration type: {schema.integration}</p>
-        </div>
-    )
+    return <HogFunctionIntegrationChoice {...props} schema={schema} />
 }
 
-export function HogFunctionIntegrationSlackConnection({
+function HogFunctionIntegrationChoice({
     onChange,
     value,
-}: HogFunctionInputIntegrationConfigureProps): JSX.Element {
-    const { integrationsLoading, slackIntegrations, addToSlackButtonUrl } = useValues(integrationsLogic)
+    schema,
+}: HogFunctionInputIntegrationProps): JSX.Element | null {
+    const { integrationsLoading, integrations } = useValues(integrationsLogic)
+    const kind = schema.integration
+    const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
+    const integration = integrationsOfKind?.find((integration) => integration.id === value)
 
-    const integration = slackIntegrations?.find((integration) => integration.id === value)
+    if (!kind) {
+        return null
+    }
 
     if (integrationsLoading) {
         return <LemonSkeleton className="h-10" />
@@ -41,24 +43,57 @@ export function HogFunctionIntegrationSlackConnection({
     const button = (
         <LemonMenu
             items={[
-                ...(slackIntegrations?.map((integration) => ({
-                    icon: <IconSlack />,
-                    onClick: () => onChange?.(integration.id),
-                    label: integration.config.team.name,
-                })) || []),
+                integrationsOfKind?.length
+                    ? {
+                          items: [
+                              ...(integrationsOfKind?.map((integration) => ({
+                                  icon: <img src={integration.icon_url} className="w-6 h-6 rounded" />,
+                                  onClick: () => onChange?.(integration.id),
+                                  active: integration.id === value,
+                                  label: integration.name,
+                              })) || []),
+                          ],
+                      }
+                    : null,
                 {
-                    to: addToSlackButtonUrl(window.location.pathname + '?target_type=slack') || '',
-                    label: 'Add to different Slack workspace',
+                    items: [
+                        {
+                            to: api.integrations.authorizeUrl({
+                                kind,
+                                next: `${window.location.pathname}?integration_target=${schema.key}`,
+                            }),
+                            disableClientSideRouting: true,
+                            label: integrationsOfKind?.length
+                                ? `Connect to a different ${kind} integration`
+                                : `Connect to ${kind}`,
+                        },
+                    ],
+                },
+                {
+                    items: [
+                        {
+                            to: urls.settings('project-integrations'),
+                            label: 'Manage integrations',
+                            sideIcon: <IconExternal />,
+                        },
+                        value
+                            ? {
+                                  onClick: () => onChange?.(null),
+                                  label: 'Clear',
+                                  sideIcon: <IconX />,
+                              }
+                            : null,
+                    ],
                 },
             ]}
         >
             {integration ? (
                 <LemonButton type="secondary">Change</LemonButton>
             ) : (
-                <LemonButton type="secondary"> Choose Slack connection</LemonButton>
+                <LemonButton type="secondary">Choose {capitalizeFirstLetter(kind)} connection</LemonButton>
             )}
         </LemonMenu>
     )
 
-    return <>{integration ? <SlackIntegrationView integration={integration} suffix={button} /> : button}</>
+    return <>{integration ? <IntegrationView integration={integration} suffix={button} /> : button}</>
 }

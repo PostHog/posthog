@@ -940,6 +940,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqHLL12If": HogQLFunctionMeta("uniqHLL12If", 2, None, aggregate=True),
     "uniqTheta": HogQLFunctionMeta("uniqTheta", 1, None, aggregate=True),
     "uniqThetaIf": HogQLFunctionMeta("uniqThetaIf", 2, None, aggregate=True),
+    "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, None, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
     "medianIf": HogQLFunctionMeta("medianIf", 2, 2, aggregate=True),
     "medianExact": HogQLFunctionMeta("medianExact", 1, 1, aggregate=True),
@@ -1013,10 +1014,8 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
-    "hogql_lookupPaidDomainType": HogQLFunctionMeta("hogql_lookupPaidDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
     "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
-    "hogql_lookupOrganicDomainType": HogQLFunctionMeta("hogql_lookupOrganicDomainType", 1, 1),
     "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
 }

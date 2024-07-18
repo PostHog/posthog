@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -120,7 +120,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
         return id ?? templateId ?? 'new'
     }),
+    connect({
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+    }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
+    connect({
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+    }),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
@@ -281,7 +287,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, teamLogic.selectors.currentTeam, groupsModel.selectors.groupTypes],
+            (s) => [s.configuration, s.currentTeam, s.groupTypes],
             (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
                 const globals: HogFunctionInvocationGlobals = {
                     event: {
@@ -379,10 +385,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         resetForm: () => {
-            actions.resetConfiguration({
+            const config = {
                 ...values.defaultFormState,
                 ...(cache.configFromUrl || {}),
-            })
+            }
+
+            const paramsFromUrl = cache.paramsFromUrl ?? {}
+            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                config.inputs[paramsFromUrl.integration_target] = {
+                    value: paramsFromUrl.integration_id,
+                }
+            }
+
+            actions.resetConfiguration(config)
         },
 
         duplicate: async () => {
@@ -467,16 +482,30 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     afterMount(({ props, actions, cache }) => {
+        cache.paramsFromUrl = {
+            integration_id: router.values.searchParams.integration_id,
+            integration_target: router.values.searchParams.integration_target,
+        }
+
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
             actions.loadTemplate() // comes with plugin info
         } else if (props.id) {
             actions.loadHogFunction()
         }
+
+        if (router.values.searchParams.integration_target) {
+            // Clear query params so we don't keep trying to set the integration
+            router.actions.replace(router.values.location.pathname, undefined, router.values.hashParams)
+        }
     }),
 
     subscriptions(({ props, cache }) => ({
         configuration: (configuration) => {
+            if (!Object.keys(configuration).length) {
+                return
+            }
+
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true

@@ -9,7 +9,7 @@ describe('Feature Flags', () => {
         cy.intercept('/api/projects/*/property_definitions?type=person*', {
             fixture: 'api/feature-flags/property_definition',
         })
-        cy.intercept('/api/person/values/*', {
+        cy.intercept('/api/person/values?*', {
             fixture: 'api/feature-flags/property_values',
         })
         name = 'feature-flag-' + Math.floor(Math.random() * 10000000)

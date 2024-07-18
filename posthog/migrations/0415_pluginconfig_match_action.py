@@ -7,7 +7,7 @@ import django.db.models.deletion
 # Got this by running
 # DEBUG=1 python manage.py makemigrations
 # then
-# DEBUG=1 python manage.py sqlmigrate posthog 0412_pluginconfig_match_action
+# DEBUG=1 python manage.py sqlmigrate posthog 0415_pluginconfig_match_action
 # which output:
 ### BEGIN;
 ### --

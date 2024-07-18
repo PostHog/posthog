@@ -10,6 +10,8 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.insight import InsightSerializer
+from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
@@ -22,15 +24,17 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
+from posthog.tasks.exports.image_exporter import export_image
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 TEST_ROOT_BUCKET = "test_exports"
 
 
 class TestExports(APIBaseTest):
-    exported_asset: ExportedAsset = None
-    dashboard: Dashboard = None
-    insight: Insight = None
+    exported_asset: ExportedAsset
+    dashboard: Dashboard
+    insight: Insight
+    tile: DashboardTile
 
     def teardown_method(self, method) -> None:
         s3 = resource(
@@ -60,12 +64,17 @@ class TestExports(APIBaseTest):
             created_by=cls.user,
             name="example insight",
         )
+        cls.tile = DashboardTile.objects.create(dashboard=cls.dashboard, insight=cls.insight)
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
+        # add filter to dashboard
+        self.dashboard.filters = {"properties": [{"key": "$browser_version", "value": "1.0"}]}
+        self.dashboard.save()
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "dashboard": self.dashboard.id},
@@ -140,9 +149,10 @@ class TestExports(APIBaseTest):
         data = response.json()
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
+    @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_can_create_new_valid_export_insight(self, mock_exporter_task) -> None:
+    def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "insight": self.insight.id},
@@ -199,6 +209,22 @@ class TestExports(APIBaseTest):
         )
 
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+
+        # look at the page the screenshot will be taken of
+        exported_asset = ExportedAsset.objects.get(pk=data["id"])
+
+        with patch("posthog.tasks.exports.image_exporter.process_query_dict") as mock_process_query_dict:
+            # Request does not calculate the result and cache is not warmed up
+            context = {"is_shared": True}
+            InsightSerializer(self.insight, many=False, context=context)
+
+            mock_process_query_dict.assert_not_called()
+
+            # Should warm up the cache
+            export_image(exported_asset)
+            mock_export_to_png.assert_called_once_with(exported_asset)
+
+            mock_process_query_dict.assert_called_once()
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})

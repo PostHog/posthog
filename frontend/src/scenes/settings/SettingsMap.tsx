@@ -22,6 +22,7 @@ import { HeatmapsSettings } from './project/HeatmapsSettings'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { ManagedReverseProxy } from './project/ManagedReverseProxy'
+import { OtherIntegrations } from './project/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
 import { ProjectAccessControl } from './project/ProjectAccessControl'
@@ -259,6 +260,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'integration-slack',
                 title: 'Slack integration',
                 component: <SlackIntegration />,
+            },
+            {
+                id: 'integration-other',
+                title: 'Other integrations',
+                component: <OtherIntegrations />,
             },
             {
                 id: 'integration-ip-allowlist',

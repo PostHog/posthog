@@ -220,6 +220,19 @@ KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
 
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
+KAFKA_PRODUCER_SETTINGS = {
+    key: value
+    for key, value in {
+        "metadata_max_age_ms": os.getenv("KAFKA_PRODUCER_METADATA_MAX_AGE_MS"),
+        "batch_size": os.getenv("KAFKA_PRODUCER_BATCH_SIZE"),
+        "max_request_size": os.getenv("KAFKA_PRODUCER_MAX_REQUEST_SIZE"),
+        "linger_ms": os.getenv("KAFKA_PRODUCER_LINGER_MS"),
+        "partitioner": os.getenv("KAFKA_PRODUCER_PARTITIONER"),
+        "max_in_flight_requests_per_connection": os.getenv("KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION"),
+    }.items()
+    if value is not None
+}
+
 SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
     "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
     1024 * 1024,  # 1MB

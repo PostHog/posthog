@@ -71,6 +71,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
+    RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
     RoleType,
@@ -647,6 +648,13 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
 
+    public surveyActivity(id: Survey['id'] | undefined, teamId?: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.survey(id, teamId).addPathComponent('activity')
+        }
+        return this.surveys(teamId).addPathComponent('activity')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -727,7 +735,7 @@ class ApiRequest {
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
-            return apiRequest.withQueryString('showProgress=true')
+            return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
     }
@@ -881,12 +889,6 @@ const api = {
                 )
                 .get()
         },
-        async create(data: any): Promise<InsightModel> {
-            return await new ApiRequest().insights().create({ data })
-        },
-        async update(id: number, data: any): Promise<InsightModel> {
-            return await new ApiRequest().insight(id).update({ data })
-        },
     },
 
     featureFlags: {
@@ -1018,6 +1020,9 @@ const api = {
                 },
                 [ActivityScope.TEAM]: () => {
                     return new ApiRequest().projectsDetail().withAction('activity')
+                },
+                [ActivityScope.SURVEY]: (props) => {
+                    return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
             }
 
@@ -1873,7 +1878,7 @@ const api = {
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
-        ): Promise<PaginatedResponse<BatchExportRun>> {
+        ): Promise<PaginatedResponse<RawBatchExportRun>> {
             return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
         },
         async createBackfill(
@@ -2040,6 +2045,16 @@ const api = {
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
         },
+        async logs(
+            schemaId: ExternalDataSourceSchema['id'],
+            params: LogEntryRequestParams = {}
+        ): Promise<PaginatedResponse<LogEntry>> {
+            return await new ApiRequest()
+                .externalDataSourceSchema(schemaId)
+                .withAction('logs')
+                .withQueryString(params)
+                .get()
+        },
     },
 
     dataWarehouseViewLinks: {
@@ -2108,6 +2123,9 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
+        },
+        authorizeUrl(params: { kind: string; next?: string }): string {
+            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()

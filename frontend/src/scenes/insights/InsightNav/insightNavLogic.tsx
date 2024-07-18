@@ -181,14 +181,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         dataAttr: 'insight-lifecycle-tab',
                     },
                     {
-                        label: (
-                            <>
-                                SQL
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        ),
+                        label: 'SQL',
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
