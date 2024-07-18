@@ -1,9 +1,9 @@
 import { LemonCollapse } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 
-import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentResult } from './ExperimentResult'
+import { LoadingState } from './ExperimentView/components'
 
 export function SecondaryMetricsResult(): JSX.Element {
     // TODO: Use secondaryMetricsLogic here to add edit functionality
