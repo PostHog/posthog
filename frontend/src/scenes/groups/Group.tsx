@@ -186,21 +186,6 @@ export function Group(): JSX.Element {
                                                     ],
                                                 },
                                             }}
-                                            advancedFilters={{
-                                                events: [
-                                                    {
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: 'All events',
-                                                        properties: [
-                                                            {
-                                                                key: `$group_${groupTypeIndex} = '${groupKey}'`,
-                                                                type: 'hogql',
-                                                            },
-                                                        ],
-                                                    },
-                                                ],
-                                            }}
                                             onFiltersChange={(filters) => {
                                                 const eventFilters =
                                                     filtersFromUniversalFilterGroups(filters).filter(isEventFilter)
