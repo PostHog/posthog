@@ -165,14 +165,14 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
     if isinstance(base_entity, EventsNode):
         return FunnelExclusionEventsNode(
             **base_entity.model_dump(),
-            funnelFromStep=entity.get("funnel_from_step"),
-            funnelToStep=entity.get("funnel_to_step"),
+            funnel_from_step=entity.get("funnel_from_step"),
+            funnel_to_step=entity.get("funnel_to_step"),
         )
     else:
         return FunnelExclusionActionsNode(
             **base_entity.model_dump(),
-            funnelFromStep=entity.get("funnel_from_step"),
-            funnelToStep=entity.get("funnel_to_step"),
+            funnel_from_step=entity.get("funnel_from_step"),
+            funnel_to_step=entity.get("funnel_to_step"),
         )
 
 
@@ -203,13 +203,13 @@ def _date_range(filter: dict):
     date_range = InsightDateRange(
         date_from=filter.get("date_from"),
         date_to=filter.get("date_to"),
-        explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
+        explicit_date=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
     )
 
     if len(date_range.model_dump(exclude_defaults=True)) == 0:
         return {}
 
-    return {"dateRange": date_range}
+    return {"date_range": date_range}
 
 
 def _interval(filter: dict):
@@ -294,7 +294,7 @@ def _properties(filter: dict):
 
 
 def _filter_test_accounts(filter: dict):
-    return {"filterTestAccounts": filter.get("filter_test_accounts")}
+    return {"filter_test_accounts": filter.get("filter_test_accounts")}
 
 
 def _breakdown_filter(_filter: dict):
@@ -305,7 +305,7 @@ def _breakdown_filter(_filter: dict):
     if _filter.get("breakdown_type") == "undefined" and not isinstance(_filter.get("breakdown"), str):
         return {}
 
-    breakdownFilter = {
+    breakdown_filter = {
         "breakdown_type": _filter.get("breakdown_type"),
         "breakdown": _filter.get("breakdown"),
         "breakdown_normalize_url": _filter.get("breakdown_normalize_url"),
@@ -318,8 +318,8 @@ def _breakdown_filter(_filter: dict):
     }
 
     # fix breakdown typo
-    if breakdownFilter["breakdown_type"] == "events":
-        breakdownFilter["breakdown_type"] = "event"
+    if breakdown_filter["breakdown_type"] == "events":
+        breakdown_filter["breakdown_type"] = "event"
 
     if _filter.get("breakdowns") is not None and isinstance(_filter["breakdowns"], list):
         breakdowns = []
@@ -336,33 +336,33 @@ def _breakdown_filter(_filter: dict):
                 )
 
         if len(breakdowns) > 0:
-            breakdownFilter["breakdowns"] = breakdowns[:3]
+            breakdown_filter["breakdowns"] = breakdowns[:3]
 
-    if breakdownFilter["breakdown"] is not None and breakdownFilter["breakdown_type"] is None:
-        breakdownFilter["breakdown_type"] = "event"
+    if breakdown_filter["breakdown"] is not None and breakdown_filter["breakdown_type"] is None:
+        breakdown_filter["breakdown_type"] = "event"
 
-    if isinstance(breakdownFilter["breakdown"], list):
-        breakdownFilter["breakdown"] = list(filter(lambda x: x is not None, breakdownFilter["breakdown"]))
+    if isinstance(breakdown_filter["breakdown"], list):
+        breakdown_filter["breakdown"] = list(filter(lambda x: x is not None, breakdown_filter["breakdown"]))
 
-    if len(BreakdownFilter(**breakdownFilter).model_dump(exclude_defaults=True)) == 0:
+    if len(BreakdownFilter(**breakdown_filter).model_dump(exclude_defaults=True)) == 0:
         return {}
 
-    return {"breakdownFilter": BreakdownFilter(**breakdownFilter)}
+    return {"breakdown_filter": BreakdownFilter(**breakdown_filter)}
 
 
 def _compare_filter(_filter: dict):
     if _insight_type(_filter) != "TRENDS" and _insight_type(_filter) != "STICKINESS":
         return {}
 
-    compareFilter = {
+    compare_filter = {
         "compare": _filter.get("compare"),
         "compare_to": _filter.get("compare_to"),
     }
 
-    if len(CompareFilter(**compareFilter).model_dump(exclude_defaults=True)) == 0:
+    if len(CompareFilter(**compare_filter).model_dump(exclude_defaults=True)) == 0:
         return {}
 
-    return {"compareFilter": CompareFilter(**compareFilter)}
+    return {"compare_filter": CompareFilter(**compare_filter)}
 
 
 def _group_aggregation_filter(filter: dict):
@@ -374,20 +374,20 @@ def _group_aggregation_filter(filter: dict):
 def _insight_filter(filter: dict):
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
-            "trendsFilter": TrendsFilter(
-                smoothingIntervals=filter.get("smoothing_intervals"),
-                showLegend=filter.get("show_legend"),
-                hiddenLegendIndexes=hidden_legend_keys_to_indexes(filter.get("hidden_legend_keys")),
-                aggregationAxisFormat=filter.get("aggregation_axis_format"),
-                aggregationAxisPrefix=filter.get("aggregation_axis_prefix"),
-                aggregationAxisPostfix=filter.get("aggregation_axis_postfix"),
-                decimalPlaces=filter.get("decimal_places"),
+            "trends_filter": TrendsFilter(
+                smoothing_intervals=filter.get("smoothing_intervals"),
+                show_legend=filter.get("show_legend"),
+                hidden_legend_indexes=hidden_legend_keys_to_indexes(filter.get("hidden_legend_keys")),
+                aggregation_axis_format=filter.get("aggregation_axis_format"),
+                aggregation_axis_prefix=filter.get("aggregation_axis_prefix"),
+                aggregation_axis_postfix=filter.get("aggregation_axis_postfix"),
+                decimal_places=filter.get("decimal_places"),
                 formula=filter.get("formula"),
                 display=clean_display(filter.get("display")),
-                showValuesOnSeries=filter.get("show_values_on_series"),
-                showPercentStackView=filter.get("show_percent_stack_view"),
-                showLabelsOnSeries=filter.get("show_label_on_series"),
-                yAxisScaleType=filter.get("y_axis_scale_type"),
+                show_values_on_series=filter.get("show_values_on_series"),
+                show_percent_stack_view=filter.get("show_percent_stack_view"),
+                show_labels_on_series=filter.get("show_label_on_series"),
+                y_axis_scale_type=filter.get("y_axis_scale_type"),
             )
         }
     elif _insight_type(filter) == "FUNNELS":
@@ -398,75 +398,75 @@ def _insight_filter(filter: dict):
             funnel_viz_type = FunnelVizType.TRENDS
 
         insight_filter = {
-            "funnelsFilter": FunnelsFilter(
-                funnelVizType=funnel_viz_type,
-                funnelOrderType=filter.get("funnel_order_type"),
-                funnelFromStep=filter.get("funnel_from_step"),
-                funnelToStep=filter.get("funnel_to_step"),
-                funnelWindowIntervalUnit=filter.get("funnel_window_interval_unit"),
-                funnelWindowInterval=filter.get("funnel_window_interval"),
-                funnelStepReference=filter.get("funnel_step_reference"),
-                breakdownAttributionType=filter.get("breakdown_attribution_type"),
-                breakdownAttributionValue=filter.get("breakdown_attribution_value"),
-                binCount=filter.get("bin_count"),
+            "funnels_filter": FunnelsFilter(
+                funnel_viz_type=funnel_viz_type,
+                funnel_order_type=filter.get("funnel_order_type"),
+                funnel_from_step=filter.get("funnel_from_step"),
+                funnel_to_step=filter.get("funnel_to_step"),
+                funnel_window_interval_unit=filter.get("funnel_window_interval_unit"),
+                funnel_window_interval=filter.get("funnel_window_interval"),
+                funnel_step_reference=filter.get("funnel_step_reference"),
+                breakdown_attribution_type=filter.get("breakdown_attribution_type"),
+                breakdown_attribution_value=filter.get("breakdown_attribution_value"),
+                bin_count=filter.get("bin_count"),
                 exclusions=[exlusion_entity_to_node(entity) for entity in filter.get("exclusions", [])],
                 layout=filter.get("layout"),
-                hiddenLegendBreakdowns=hidden_legend_keys_to_breakdowns(filter.get("hidden_legend_keys")),
-                funnelAggregateByHogQL=filter.get("funnel_aggregate_by_hogql"),
+                hidden_legend_breakdowns=hidden_legend_keys_to_breakdowns(filter.get("hidden_legend_keys")),
+                funnel_aggregate_by_hog_q_l=filter.get("funnel_aggregate_by_hogql"),
             ),
         }
     elif _insight_type(filter) == "RETENTION":
         insight_filter = {
-            "retentionFilter": RetentionFilter(
-                retentionType=filter.get("retention_type"),
-                retentionReference=filter.get("retention_reference"),
-                totalIntervals=filter.get("total_intervals"),
-                returningEntity=(
+            "retention_filter": RetentionFilter(
+                retention_type=filter.get("retention_type"),
+                retention_reference=filter.get("retention_reference"),
+                total_intervals=filter.get("total_intervals"),
+                returning_entity=(
                     to_base_entity_dict(filter.get("returning_entity"))
                     if filter.get("returning_entity") is not None
                     else None
                 ),
-                targetEntity=(
+                target_entity=(
                     to_base_entity_dict(filter.get("target_entity"))
                     if filter.get("target_entity") is not None
                     else None
                 ),
                 period=filter.get("period"),
-                showMean=filter.get("show_mean"),
+                show_mean=filter.get("show_mean"),
             )
         }
     elif _insight_type(filter) == "PATHS":
         insight_filter = {
-            "pathsFilter": PathsFilter(
-                pathsHogQLExpression=filter.get("paths_hogql_expression"),
-                includeEventTypes=filter.get("include_event_types"),
-                startPoint=filter.get("start_point"),
-                endPoint=filter.get("end_point"),
-                pathGroupings=filter.get("path_groupings"),
-                excludeEvents=filter.get("exclude_events"),
-                stepLimit=filter.get("step_limit"),
-                pathReplacements=filter.get("path_replacements"),
-                localPathCleaningFilters=filter.get("local_path_cleaning_filters"),
-                edgeLimit=filter.get("edge_limit"),
-                minEdgeWeight=filter.get("min_edge_weight"),
-                maxEdgeWeight=filter.get("max_edge_weight"),
+            "paths_filter": PathsFilter(
+                paths_hog_q_l_expression=filter.get("paths_hogql_expression"),
+                include_event_types=filter.get("include_event_types"),
+                start_point=filter.get("start_point"),
+                end_point=filter.get("end_point"),
+                path_groupings=filter.get("path_groupings"),
+                exclude_events=filter.get("exclude_events"),
+                step_limit=filter.get("step_limit"),
+                path_replacements=filter.get("path_replacements"),
+                local_path_cleaning_filters=filter.get("local_path_cleaning_filters"),
+                edge_limit=filter.get("edge_limit"),
+                min_edge_weight=filter.get("min_edge_weight"),
+                max_edge_weight=filter.get("max_edge_weight"),
             ),
-            "funnelPathsFilter": filters_to_funnel_paths_query(filter),  # type: ignore
+            "funnel_paths_filter": filters_to_funnel_paths_query(filter),  # type: ignore
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
-            "lifecycleFilter": LifecycleFilter(
-                toggledLifecycles=filter.get("toggledLifecycles"),
-                showLegend=filter.get("show_legend"),
-                showValuesOnSeries=filter.get("show_values_on_series"),
+            "lifecycle_filter": LifecycleFilter(
+                toggled_lifecycles=filter.get("toggled_lifecycles"),
+                show_legend=filter.get("show_legend"),
+                show_values_on_series=filter.get("show_values_on_series"),
             )
         }
     elif _insight_type(filter) == "STICKINESS":
         insight_filter = {
-            "stickinessFilter": StickinessFilter(
-                showLegend=filter.get("show_legend"),
-                hiddenLegendIndexes=hidden_legend_keys_to_indexes(filter.get("hidden_legend_keys")),
-                showValuesOnSeries=filter.get("show_values_on_series"),
+            "stickiness_filter": StickinessFilter(
+                show_legend=filter.get("show_legend"),
+                hidden_legend_indexes=hidden_legend_keys_to_indexes(filter.get("hidden_legend_keys")),
+                show_values_on_series=filter.get("show_values_on_series"),
             )
         }
     else:
@@ -489,9 +489,9 @@ def filters_to_funnel_paths_query(filter: dict[str, Any]) -> FunnelPathsFilter |
     assert isinstance(funnel_query, FunnelsQuery)
 
     return FunnelPathsFilter(
-        funnelPathType=funnel_paths,
-        funnelSource=funnel_query,
-        funnelStep=funnel_filter["funnel_step"],
+        funnel_path_type=funnel_paths,
+        funnel_source=funnel_query,
+        funnel_step=funnel_filter["funnel_step"],
     )
 
 

@@ -521,7 +521,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['timestamp'])}"
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&order_by={json.dumps(['timestamp'])}"
         ).json()
         self.assertEqual(len(response["results"]), 10)
         self.assertLess(
@@ -557,7 +557,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['-timestamp'])}"
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&order_by={json.dumps(['-timestamp'])}"
         ).json()
         self.assertEqual(len(response["results"]), 10)
         self.assertGreater(

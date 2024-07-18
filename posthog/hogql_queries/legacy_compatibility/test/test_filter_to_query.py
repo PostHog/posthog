@@ -1657,7 +1657,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
-            query.breakdownFilter,
+            query.breakdown_filter,
             BreakdownFilter(
                 breakdowns=[
                     Breakdown(type=BreakdownType.EVENT, value="$url", normalize_url=True),
@@ -1679,7 +1679,7 @@ class TestFilterToQuery(BaseTest):
 
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
-            query.breakdownFilter,
+            query.breakdown_filter,
             BreakdownFilter(
                 breakdowns=[
                     Breakdown(type=BreakdownType.EVENT, value="$url"),

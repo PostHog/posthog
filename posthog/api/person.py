@@ -253,7 +253,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = get_pk_or_uuid(queryset, person_id)
         except ValueError:
             raise ValidationError(
-                f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
+                f"The ID provided does not look like a personID. If you are using a distinct_id, please use /persons?distinct_id={person_id} instead."
             )
 
         return get_object_or_404(queryset)
