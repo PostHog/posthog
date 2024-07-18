@@ -225,7 +225,7 @@ export const urls = {
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
-    integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
+    integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     shared: (token: string, exportOptions: ExportOptions = {}): string =>
         combineUrl(
             `/shared/${token}`,

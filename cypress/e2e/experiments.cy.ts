@@ -60,8 +60,8 @@ describe('Experiments', () => {
         cy.get('[data-attr="create-annotation-submit"]').click()
         cy.contains(secondaryMetricName).should('exist')
 
-        // Edit minimum acceptable improvement
-        cy.get('input[data-attr="min-acceptable-improvement"]').type('{selectall}20').should('have.value', '20')
+        // Edit minimum detectable effect
+        cy.get('input[data-attr="min-detectable-effect"]').type('{selectall}20').should('have.value', '20')
 
         // Save experiment
         cy.get('[data-attr="save-experiment"]').first().click()

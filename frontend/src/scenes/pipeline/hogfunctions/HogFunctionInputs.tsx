@@ -1,7 +1,6 @@
 import { closestCenter, DndContext } from '@dnd-kit/core'
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Monaco } from '@monaco-editor/react'
 import { IconGear, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonButton,
@@ -20,10 +19,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { languages } from 'monaco-editor'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInputSchemaType, HogFunctionInputType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
@@ -43,115 +40,16 @@ export type HogFunctionInputWithSchemaProps = {
 
 const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration'] as const
 
-function useAutocompleteOptions(): languages.CompletionItem[] {
-    const { groupTypes } = useValues(groupsModel)
-
-    return useMemo(() => {
-        const options = [
-            ['event', 'The entire event payload as a JSON object'],
-            ['event.name', 'The name of the event e.g. $pageview'],
-            ['event.distinct_id', 'The distinct_id of the event'],
-            ['event.timestamp', 'The timestamp of the event'],
-            ['event.url', 'URL to the event in PostHog'],
-            ['event.properties', 'Properties of the event'],
-            ['event.properties.<key>', 'The individual property of the event'],
-            ['person', 'The entire person payload as a JSON object'],
-            ['project.uuid', 'The UUID of the Person in PostHog'],
-            ['person.url', 'URL to the person in PostHog'],
-            ['person.properties', 'Properties of the person'],
-            ['person.properties.<key>', 'The individual property of the person'],
-            ['project.id', 'ID of the project in PostHog'],
-            ['project.name', 'Name of the project'],
-            ['project.url', 'URL to the project in PostHog'],
-            ['source.name', 'Name of the source of this message'],
-            ['source.url', 'URL to the source of this message in PostHog'],
-        ]
-
-        groupTypes.forEach((groupType) => {
-            options.push([`groups.${groupType.group_type}`, `The entire group payload as a JSON object`])
-            options.push([`groups.${groupType.group_type}.id`, `The ID or 'key' of the group`])
-            options.push([`groups.${groupType.group_type}.url`, `URL to the group in PostHog`])
-            options.push([`groups.${groupType.group_type}.properties`, `Properties of the group`])
-            options.push([`groups.${groupType.group_type}.properties.<key>`, `The individual property of the group`])
-            options.push([`groups.${groupType.group_type}.index`, `Index of the group`])
-        })
-
-        const items: languages.CompletionItem[] = options.map(([key, value]) => {
-            return {
-                label: key,
-                kind: languages.CompletionItemKind.Variable,
-                detail: value,
-                insertText: key,
-                range: {
-                    startLineNumber: 1,
-                    endLineNumber: 1,
-                    startColumn: 0,
-                    endColumn: 0,
-                },
-            }
-        })
-
-        return items
-    }, [groupTypes])
-}
-
 function JsonConfigField(props: {
     onChange?: (value: string) => void
     className?: string
     autoFocus?: boolean
     value?: string
 }): JSX.Element {
-    const suggestions = useAutocompleteOptions()
-    const [monaco, setMonaco] = useState<Monaco>()
-
-    useEffect(() => {
-        if (!monaco) {
-            return
-        }
-        monaco.languages.setLanguageConfiguration('json', {
-            wordPattern: /[a-zA-Z0-9_\-.]+/,
-        })
-
-        const provider = monaco.languages.registerCompletionItemProvider('json', {
-            triggerCharacters: ['{', '{{'],
-            provideCompletionItems: async (model, position) => {
-                const word = model.getWordUntilPosition(position)
-
-                const wordWithTrigger = model.getValueInRange({
-                    startLineNumber: position.lineNumber,
-                    startColumn: 0,
-                    endLineNumber: position.lineNumber,
-                    endColumn: position.column,
-                })
-
-                if (wordWithTrigger.indexOf('{') === -1) {
-                    return { suggestions: [] }
-                }
-
-                const localSuggestions = suggestions.map((x) => ({
-                    ...x,
-                    insertText: x.insertText,
-                    range: {
-                        startLineNumber: position.lineNumber,
-                        endLineNumber: position.lineNumber,
-                        startColumn: word.startColumn,
-                        endColumn: word.endColumn,
-                    },
-                }))
-
-                return {
-                    suggestions: localSuggestions,
-                    incomplete: false,
-                }
-            },
-        })
-
-        return () => provider.dispose()
-    }, [suggestions, monaco])
-
+    const { exampleInvocationGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
     return (
         <CodeEditorResizeable
-            language="json"
+            language="hogJson"
             value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
             onChange={(v) => props.onChange?.(v ?? '')}
             options={{
@@ -159,23 +57,12 @@ function JsonConfigField(props: {
                 minimap: {
                     enabled: false,
                 },
-                quickSuggestions: {
-                    other: true,
-                    strings: true,
-                },
-                suggest: {
-                    showWords: false,
-                    showFields: false,
-                    showKeywords: false,
-                },
                 scrollbar: {
                     vertical: 'hidden',
                     verticalScrollbarSize: 0,
                 },
             }}
-            onMount={(_editor, monaco) => {
-                setMonaco(monaco)
-            }}
+            globals={exampleInvocationGlobalsWithInputs}
         />
     )
 }
@@ -383,7 +270,10 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                     <LemonSelect
                         value={value.integration}
                         onChange={(integration) => _onChange({ integration })}
-                        options={[{ label: 'Slack', value: 'slack' }]}
+                        options={[
+                            { label: 'Slack', value: 'slack' },
+                            { label: 'Salesforce', value: 'salesforce' },
+                        ]}
                         placeholder="Choose kind"
                     />
                 </LemonField.Pure>

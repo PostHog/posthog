@@ -408,6 +408,14 @@ def get_hogql_autocomplete(
                     node_ast = parse_program(query_to_try, timings=timings)
                     select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
                     root_node = node_ast
+            elif query.language == HogLanguage.HOG_JSON:
+                query_to_try, query_start, query_end = extract_json_row(query_to_try, query_start, query_end)
+                if query_to_try == "":
+                    break
+                node_ast = parse_string_template(query_to_try, timings=timings)
+                select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
+                select_ast.select = [node_ast]
+                root_node = node_ast
             else:
                 raise ValueError(f"Unsupported autocomplete language: {query.language}")
 
@@ -616,6 +624,31 @@ def get_hogql_autocomplete(
 
     response.timings = timings.to_list()
     return response
+
+
+def extract_json_row(query_to_try, query_start, query_end):
+    query_row = ""
+    for row in query_to_try.split("\n"):
+        if query_start - len(row) <= 0:
+            query_row = row
+            break
+        query_start -= len(row) + 1
+        query_end -= len(row) + 1
+    query_to_try = query_row
+
+    count = query_to_try[:query_start].count('"')
+    if count % 2 == 0:  # not in a string
+        return "", 0, 0
+
+    start_pos = query_to_try.rfind('"', 0, query_start)
+    end_pos = query_to_try.find('"', query_start)
+    if end_pos == -1:
+        query_to_try = query_to_try[(start_pos + 1) :]
+    else:
+        query_to_try = query_to_try[(start_pos + 1) : end_pos]
+    query_start -= start_pos + 1
+    query_end -= start_pos + 1
+    return query_to_try, query_start, query_end
 
 
 def add_globals_to_suggestions(globalVars: dict, response: HogQLAutocompleteResponse):

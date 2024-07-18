@@ -169,10 +169,19 @@ export function ResultsHeader(): JSX.Element {
 }
 
 export function NoResultsEmptyState(): JSX.Element {
+    type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant'
+
     const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
 
-    function ChecklistItem({ failureReason, checked }: { failureReason: string; checked: boolean }): JSX.Element {
-        const failureReasonToText = {
+    function ChecklistItem({ errorCode, value }: { errorCode: ErrorCode; value: boolean }): JSX.Element {
+        const failureText = {
+            'no-events': 'Experiment events not received',
+            'no-flag-info': 'Feature flag information not present on the events',
+            'no-control-variant': 'Events with the control variant not received',
+            'no-test-variant': 'Events with at least one test variant not received',
+        }
+
+        const successText = {
             'no-events': 'Experiment events have been received',
             'no-flag-info': 'Feature flag information is present on the events',
             'no-control-variant': 'Events with the control variant received',
@@ -181,12 +190,17 @@ export function NoResultsEmptyState(): JSX.Element {
 
         return (
             <div className="flex items-center space-x-2">
-                {checked ? (
-                    <IconCheck className="text-success" fontSize={16} />
+                {value === false ? (
+                    <>
+                        <IconCheck className="text-success" fontSize={16} />
+                        <span className="text-muted">{successText[errorCode]}</span>
+                    </>
                 ) : (
-                    <IconX className="text-danger" fontSize={16} />
+                    <>
+                        <IconX className="text-danger" fontSize={16} />
+                        <span>{failureText[errorCode]}</span>
+                    </>
                 )}
-                <span className={checked ? 'text-muted' : ''}>{failureReasonToText[failureReason]}</span>
             </div>
         )
     }
@@ -197,7 +211,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // Validation errors return 400 and are rendered as a checklist
     if (experimentResultCalculationError?.statusCode === 400) {
-        let parsedDetail = {}
+        let parsedDetail: Record<ErrorCode, boolean>
         try {
             parsedDetail = JSON.parse(experimentResultCalculationError.detail)
         } catch (error) {
@@ -212,8 +226,8 @@ export function NoResultsEmptyState(): JSX.Element {
         }
 
         const checklistItems = []
-        for (const [failureReason, value] of Object.entries(parsedDetail)) {
-            checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
+        for (const [errorCode, value] of Object.entries(parsedDetail)) {
+            checklistItems.push(<ChecklistItem key={errorCode} errorCode={errorCode as ErrorCode} value={value} />)
         }
 
         return (
