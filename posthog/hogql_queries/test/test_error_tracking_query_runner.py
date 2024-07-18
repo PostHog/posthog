@@ -76,21 +76,35 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _calculate(self, runner: ErrorTrackingQueryRunner):
         return runner.calculate().model_dump()
 
-    # @snapshot_clickhouse_queries
-    # def test_column_names(self):
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             select=[],
-    #             fingerprint=None,
-    #             dateRange=DateRange(),
-    #             filterTestAccounts=True,
-    #         ),
-    #     )
+    @snapshot_clickhouse_queries
+    def test_column_names(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=[],
+                fingerprint=None,
+                dateRange=DateRange(),
+                filterTestAccounts=True,
+            ),
+        )
 
-    #     columns = self._calculate(runner)["columns"]
-    #     self.assertEqual(columns, ["fingerprint", "context.columns.error", "occurrences"])
+        columns = self._calculate(runner)["columns"]
+        self.assertEqual(columns, ["occurrences", "sessions", "last_seen", "first_seen", "error", "fingerprint"])
+
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=[],
+                fingerprint="SyntaxError",
+                dateRange=DateRange(),
+                filterTestAccounts=True,
+            ),
+        )
+
+        columns = self._calculate(runner)["columns"]
+        self.assertEqual(columns, ["occurrences", "sessions", "last_seen", "first_seen", "error", "events"])
 
     @snapshot_clickhouse_queries
     def test_fingerprints(self):
@@ -108,7 +122,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # returns a single group with multiple errors
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["fingerprint"], "SyntaxError")
-        self.assertEqual(results[0]["occurrences"], 3)
+        self.assertEqual(results[0]["occurrences"], 2)
 
     # def test_only_returns_exception_events(self):
     #     with freeze_time("2020-01-10 12:11:00"):

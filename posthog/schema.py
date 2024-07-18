@@ -354,7 +354,6 @@ class ErrorTrackingGroup(BaseModel):
     occurrences: float
     sessions: float
     status: Status
-    users: float
     volume: Optional[Any] = None
 
 

@@ -42,9 +42,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Alias(
                 alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
             ),
-            ast.Alias(
-                alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
-            ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="error", expr=ast.Call(name="any", args=[ast.Field(chain=["properties"])])),
@@ -173,7 +170,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
             group = self.group_or_default(fingerprint)
             events: list = []
             if "events" in result_dict:
-                events = [{"uuid": str(e[0]), "properties": e[1], "timestamp": e[2]} for e in result_dict.get("events")]
+                events = [
+                    {"uuid": str(e[0]), "properties": e[1], "timestamp": e[2]} for e in result_dict.get("events", [])
+                ]
             results.append(group | result_dict | {"events": events})
         return results
 

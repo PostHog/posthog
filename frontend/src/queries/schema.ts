@@ -1292,7 +1292,6 @@ export interface ErrorTrackingGroup {
     merged_fingerprints: string[]
     occurrences: number
     sessions: number
-    users: number
     error: string
     /**  @format date-time */
     first_seen: string

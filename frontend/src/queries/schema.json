@@ -3316,9 +3316,6 @@
                     "enum": ["archived", "active", "resolved", "pending_release"],
                     "type": "string"
                 },
-                "users": {
-                    "type": "number"
-                },
                 "volume": {}
             },
             "required": [
@@ -3326,7 +3323,6 @@
                 "merged_fingerprints",
                 "occurrences",
                 "sessions",
-                "users",
                 "error",
                 "first_seen",
                 "last_seen",
