@@ -52,7 +52,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error } = searchParams
             const { next } = fromParamsGivenUrl(state)
-            let replaceUrl: string = next || urls.settings('project')
+            let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
                 lemonToast.error(`Failed due to "${error}"`)
