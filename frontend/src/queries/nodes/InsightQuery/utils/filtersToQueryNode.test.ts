@@ -481,6 +481,35 @@ describe('filtersToQueryNode', () => {
             }
             expect(result).toEqual(query)
         })
+
+        it('does not add breakdown_type for multiple breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'person',
+                        property: '$browser',
+                    },
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'person',
+                            value: '$browser',
+                        },
+                    ],
+                    breakdown_type: undefined,
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
     })
 
     describe('funnels filter', () => {
