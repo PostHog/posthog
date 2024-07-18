@@ -120,8 +120,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 }
 
                 // scroll to top if the page changed, except if changed via back/forward
+                const currentScene = sceneLogic.findMounted()?.values
                 if (
-                    router.values.location.pathname === urls.savedInsights() &&
+                    currentScene?.activeScene === Scene.SavedInsights &&
                     router.values.lastMethod !== 'POP' &&
                     values.insights.filters?.page !== filters.page
                 ) {
