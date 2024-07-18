@@ -38,7 +38,7 @@ fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.p
         {
             "key": "path",
             "type": "string",
-            "label": "Salesforce account",
+            "label": "Object path",
             "description": "The path to the object you want to create.",
             "default": "Contact",
             "secret": False,
@@ -82,9 +82,9 @@ fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.p
         {
             "key": "path",
             "type": "string",
-            "label": "Salesforce account",
+            "label": "Object path",
             "description": "The path to the object you want to create or update. This can be a standard object like 'Contact' for creating records or `Lead/Email/{person.properties.email}` for updating a lead by email. See https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/dome_upsert.htm for more information.",
-            "default": "Contact",
+            "default": "Leads/Email/{person.properties.email}",
             "secret": False,
             "required": True,
         },
