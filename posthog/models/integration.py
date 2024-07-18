@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import time
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 from django.db import models
@@ -17,10 +17,19 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 
 
+def dot_get(d: dict, path: str, default: Any = None) -> Any:
+    for key in path.split("."):
+        if not isinstance(d, dict):
+            return default
+        d = d.get(key, default)
+    return d
+
+
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
         SALESFORCE = "salesforce"
+        HUBSPOT = "hubspot"
 
     class Meta:
         constraints = [
@@ -46,6 +55,14 @@ class Integration(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
+    @property
+    def display_name(self) -> str:
+        if self.kind in OauthIntegration.supported_kinds:
+            oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
+            return dot_get(self.config, oauth_config.name_path, self.integration_id)
+
+        return f"ID: {self.integration_id}"
+
 
 @dataclass
 class OauthConfig:
@@ -55,10 +72,13 @@ class OauthConfig:
     client_secret: str
     scope: str
     id_path: str
+    name_path: str
+    token_info_url: Optional[str] = None
+    token_info_config_fields: Optional[list[str]] = None
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce"]
+    supported_kinds = ["slack", "salesforce", "hubspot"]
     integration: Integration
     kind: str
 
@@ -88,6 +108,7 @@ class OauthIntegration:
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
                 scope="channels:read,groups:read,chat:write,chat:write.customize",
                 id_path="team.id",
+                name_path="team.name",
             )
         elif kind == "salesforce":
             if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
@@ -100,6 +121,22 @@ class OauthIntegration:
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full",
                 id_path="instance_url",
+                name_path="instance_url",
+            )
+        elif kind == "hubspot":
+            if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Hubspot app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.hubspot.com/oauth/authorize",
+                token_url="https://api.hubapi.com/oauth/v1/token",
+                token_info_url="https://api.hubapi.com/oauth/v1/access-tokens/:access_token",
+                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id"],
+                client_id=settings.HUBSPOT_APP_CLIENT_ID,
+                client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
+                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read",
+                id_path="hub_id",
+                name_path="hub_domain",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -145,10 +182,23 @@ class OauthIntegration:
         if res.status_code != 200 or not config.get("access_token"):
             raise Exception("Oauth error")
 
-        integration_id: Any = config
+        if oauth_config.token_info_url:
+            # If token info url is given we call it and check the integration id from there
+            token_info_res = requests.get(
+                oauth_config.token_info_url.replace(":access_token", config["access_token"]),
+                headers={"Authorization": f"Bearer {config['access_token']}"},
+            )
 
-        for key in oauth_config.id_path.split("."):
-            integration_id = integration_id.get(key)
+            if token_info_res.status_code == 200:
+                data = token_info_res.json()
+                if oauth_config.token_info_config_fields:
+                    for field in oauth_config.token_info_config_fields:
+                        config[field] = dot_get(data, field)
+
+        integration_id = dot_get(config, oauth_config.id_path)
+
+        if isinstance(integration_id, int):
+            integration_id = str(integration_id)
 
         if not isinstance(integration_id, str):
             raise Exception("Oauth error")

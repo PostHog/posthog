@@ -15,7 +15,7 @@ export function IntegrationView({
                 <img src={integration.icon_url} className="h-10 w-10 rounded" />
                 <div>
                     <div>
-                        Connected to <strong>{integration.name}</strong>
+                        Connected to <strong>{integration.display_name}</strong>
                     </div>
                     {integration.created_by ? (
                         <UserActivityIndicator

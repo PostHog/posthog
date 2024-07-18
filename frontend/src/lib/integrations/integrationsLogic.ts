@@ -34,12 +34,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     return res.results.map((integration) => {
                         return {
                             ...integration,
-                            name:
-                                integration.kind === 'slack'
-                                    ? integration.config.team.name
-                                    : integration.kind === 'salesforce'
-                                    ? integration.config.instance_url
-                                    : 'Unknown',
                             // TODO: Make the icons endpoint independent of hog functions
                             icon_url: `/api/projects/@current/hog_functions/icon/?id=${integration.kind}.com`,
                         }
