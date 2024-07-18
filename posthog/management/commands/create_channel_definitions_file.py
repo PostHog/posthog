@@ -341,11 +341,11 @@ class Command(BaseCommand):
 
         for app in (
             # apple
-            "com.apple.mobilemail"
+            "com.apple.mobilemail",
             # gmail
             "com.google.android.gm",
             "com.google.android.gm.lite",
-            "com.google.Gmail"
+            "com.google.Gmail",
             # superhuman
             "com.superhuman.mail",
             "com.superhuman.Superhuman",
@@ -371,9 +371,9 @@ class Command(BaseCommand):
             "com.aol.mobile.aolapp",
             # mail.ru
             "ru.mail.mailapp",
-            "ru.mail.mail"
+            "ru.mail.mail",
             # yandex
-            "ru.yandex.mail"
+            "ru.yandex.mail",
             # spike
             "com.pingapp.app",
             "com.readdle.smartemail",
