@@ -136,7 +136,20 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         latestRuns: [
             // These aren't grouped because they might not include all runs for a time interval
             (s) => [s.runsPaginatedResponse],
-            (runsPaginatedResponse): RawBatchExportRun[] => runsPaginatedResponse?.results ?? [],
+            (runsPaginatedResponse): BatchExportRun[] => {
+                const runs = runsPaginatedResponse?.results ?? []
+                return runs.map((run) => {
+                    return {
+                        ...run,
+                        created_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
+                        data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
+                        data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
+                        last_updated_at: run.last_updated_at
+                            ? dayjsUtcToTimezone(run.last_updated_at, teamLogic.values.timezone)
+                            : undefined,
+                    }
+                })
+            },
         ],
         groupedRuns: [
             (s) => [s.runsPaginatedResponse, s.usingLatestRuns],
