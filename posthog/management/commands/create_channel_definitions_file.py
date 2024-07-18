@@ -8,11 +8,13 @@ from enum import StrEnum
 from typing import Optional
 
 import aiohttp
+import structlog
 from django.core.management.base import BaseCommand
 
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 
 VALID_ENTRY_RE = re.compile(r"^[ a-z0-9.+_-]+$")
+logger = structlog.get_logger(__name__)
 
 # when we search for apps we use .well-known files, but companies usually include their dev apps in that list, so use this list to try to filter them out
 DEV_APP_STRINGS = [
@@ -337,6 +339,47 @@ class Command(BaseCommand):
                 "Search", "Paid Search", "Organic Search", is_reverse_dns=True
             )
 
+        for app in (
+            # apple
+            "com.apple.mobilemail"
+            # gmail
+            "com.google.android.gm",
+            "com.google.android.gm.lite",
+            "com.google.Gmail"
+            # superhuman
+            "com.superhuman.mail",
+            "com.superhuman.Superhuman",
+            # outlook
+            "com.microsoft.office.outlook",
+            "com.microsoft.outlooklite",
+            "com.microsoft.Office.Outlook",
+            # yahoo
+            "com.yahoo.mobile.client.android.mail",
+            "com.yahoo.Aerogram",
+            # samsung
+            "com.samsung.android.email.provider",
+            # edison
+            "com.easilydo.mail",
+            # protonmail
+            "ch.protonmail.android",
+            "ch.protonmail.protonmail",
+            # bluemail
+            "me.bluemail.mail",
+            # aqua
+            "org.kman.AquaMail",
+            # aol
+            "com.aol.mobile.aolapp",
+            # mail.ru
+            "ru.mail.mailapp",
+            "ru.mail.mail"
+            # yandex
+            "ru.yandex.mail"
+            # spike
+            "com.pingapp.app",
+            "com.readdle.smartemail",
+        ):
+            entries[app.lower(), EntryKind.source] = SourceEntry("Email", None, "Email", is_reverse_dns=True)
+
         # add without www. for all entries
         without_www = {
             (hostname[4:], kind): entry for ((hostname, kind), entry) in entries.items() if hostname.startswith("www.")
@@ -389,16 +432,23 @@ async def parallel_lookup_up_apple_apps(url_entries):
         except:
             # If we get an error, ignore it. The domain might not have an applinks file, and may not even exist at all,
             # it just means that we won't be able to get any bundle ids from it.
-            pass
+            return
         app_ids = []
         if not isinstance(body, dict):
             return
         for app in body.get("applinks", {}).get("details", []):
+            if not isinstance(app, dict):
+                logger.info("Unexpected shape for app, expected dict", app)
+                continue
             app_id = app.get("appID")
-            if app_id:
-                bundle_id = app_id.split(".", 1)[1].lower()
-                if VALID_ENTRY_RE.match(bundle_id):
-                    app_ids.append(bundle_id)
+            try:
+                if app_id:
+                    bundle_id = app_id.split(".", 1)[1].lower()
+                    if VALID_ENTRY_RE.match(bundle_id):
+                        app_ids.append(bundle_id)
+            except IndexError:
+                logger.info("Failed to parse applinks appID", app_id)
+                pass
         return app_ids, entry
 
     async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
