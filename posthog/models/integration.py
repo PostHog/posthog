@@ -4,6 +4,7 @@ import hmac
 import time
 from datetime import timedelta
 from typing import Any, Literal
+from urllib.parse import urlencode
 
 from django.db import models
 import requests
@@ -104,15 +105,23 @@ class OauthIntegration:
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
     @classmethod
-    def redirect_uri(cls, kind: str, next: str = "") -> str:
+    def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback?next={next}"
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, next: str = "") -> str:
+    def authorize_url(cls, kind: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        return f"{oauth_config.authorize_url}?client_id={oauth_config.client_id}&scope={oauth_config.scope}&redirect_uri={cls.redirect_uri(kind, next)}"
+        query_params = {
+            "client_id": oauth_config.client_id,
+            "scope": oauth_config.scope,
+            "redirect_uri": cls.redirect_uri(kind),
+            "response_type": "code",
+            "state": urlencode({"next": next}),
+        }
+
+        return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
 
     @classmethod
     def integration_from_oauth_response(
@@ -120,16 +129,13 @@ class OauthIntegration:
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        next = params["next"]
-        code = params["code"]
-
         res = requests.post(
             oauth_config.token_url,
             data={
                 "client_id": oauth_config.client_id,
                 "client_secret": oauth_config.client_secret,
-                "code": code,
-                "redirect_uri": OauthIntegration.redirect_uri(kind, next=next),
+                "code": params["code"],
+                "redirect_uri": OauthIntegration.redirect_uri(kind),
                 "grant_type": "authorization_code",
             },
         )
