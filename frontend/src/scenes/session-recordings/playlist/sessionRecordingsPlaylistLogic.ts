@@ -77,12 +77,21 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
-export const DEFAULT_RECORDING_UNIVERSAL_FILTERS: RecordingUniversalFilters = {
+export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
     date_to: null,
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
+}
+
+const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
+    ...DEFAULT_RECORDING_FILTERS,
+    date_from: '-30d',
+}
+
+export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
+    return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
 }
 
 const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
@@ -193,15 +202,15 @@ export function convertLegacyFiltersToUniversalFilters(
         : []
 
     return {
-        date_from: filters.date_from || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_from'],
-        date_to: filters.date_to || DEFAULT_RECORDING_UNIVERSAL_FILTERS['date_to'],
+        date_from: filters.date_from || DEFAULT_RECORDING_FILTERS['date_from'],
+        date_to: filters.date_to || DEFAULT_RECORDING_FILTERS['date_to'],
         filter_test_accounts:
             filters.filter_test_accounts == undefined
-                ? DEFAULT_RECORDING_UNIVERSAL_FILTERS['filter_test_accounts']
+                ? DEFAULT_RECORDING_FILTERS['filter_test_accounts']
                 : filters.filter_test_accounts,
         duration: filters.session_recording_duration
             ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'duration' }]
-            : DEFAULT_RECORDING_UNIVERSAL_FILTERS['duration'],
+            : DEFAULT_RECORDING_FILTERS['duration'],
         filter_group: {
             type: FilterLogicalOperator.And,
             values: [
@@ -432,7 +441,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
         filters: [
-            props.filters ?? DEFAULT_RECORDING_UNIVERSAL_FILTERS,
+            props.filters ?? getDefaultFilters(props.personUUID),
             {
                 setFilters: (state, { filters }) => {
                     return {
@@ -440,7 +449,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         ...filters,
                     }
                 },
-                resetFilters: () => DEFAULT_RECORDING_UNIVERSAL_FILTERS,
+                resetFilters: () => getDefaultFilters(props.personUUID),
             },
         ],
         showFilters: [
@@ -658,7 +667,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 return (
                     groupFilters.length +
-                    (equal(filters.duration[0], defaultFilters.session_recording_duration) ? 0 : 1) +
+                    (equal(filters.duration[0], defaultFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
                         : 1)
@@ -731,7 +740,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setSelectedRecordingId: () => buildURL(false),
-            setUniversalFilters: () => buildURL(true),
+            setFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
         }
     }),

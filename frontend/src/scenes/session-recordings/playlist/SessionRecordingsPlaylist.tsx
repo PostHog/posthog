@@ -16,7 +16,7 @@ import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilter
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import {
-    DEFAULT_RECORDING_UNIVERSAL_FILTERS,
+    DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -39,8 +39,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         activeSessionRecordingId,
         hasNext,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId, setUniversalFilters } =
-        useActions(logic)
+    const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId, setFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -109,7 +108,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
                 {!notebookNode && (
-                    <RecordingsUniversalFilters filters={filters} setFilters={setUniversalFilters} className="border" />
+                    <RecordingsUniversalFilters filters={filters} setFilters={setFilters} className="border" />
                 )}
                 <Playlist
                     data-attr="session-recordings-playlist"
@@ -168,7 +167,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
 const ListEmptyState = (): JSX.Element => {
     const { filters, sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
-    const { setUniversalFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-muted-alt">
@@ -178,13 +177,13 @@ const ListEmptyState = (): JSX.Element => {
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
                 <div className="flex flex-col items-center space-y-2">
-                    {filters.date_from === DEFAULT_RECORDING_UNIVERSAL_FILTERS.date_from ? (
+                    {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
                         <>
                             <span>No matching recordings found</span>
                             <LemonButton
                                 type="secondary"
                                 data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                                onClick={() => setUniversalFilters({ date_from: '-30d' })}
+                                onClick={() => setFilters({ date_from: '-30d' })}
                             >
                                 Search over the last 30 days
                             </LemonButton>

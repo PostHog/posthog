@@ -1,5 +1,5 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingFilters, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { FilterType, NotebookNodeType, RecordingUniversalFilters, ReplayTabs } from '~/types'
 import {
     SessionRecordingPlaylistLogicProps,
     convertLegacyFiltersToUniversalFilters,
@@ -112,15 +112,15 @@ export const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { universalFilters } = attributes
+    const { universalFilters: filters } = attributes
 
-    const setUniversalFilters = (filters: Partial<RecordingUniversalFilters>): void => {
-        updateAttributes({ universalFilters: { ...universalFilters, ...filters } })
+    const setFilters = (newFilters: Partial<RecordingUniversalFilters>): void => {
+        updateAttributes({ universalFilters: { ...filters, ...newFilters } })
     }
 
     return (
         <ErrorBoundary>
-            <RecordingsUniversalFilters filters={universalFilters} setFilters={setUniversalFilters} />
+            <RecordingsUniversalFilters filters={filters} setFilters={setFilters} />
         </ErrorBoundary>
     )
 }
@@ -128,9 +128,6 @@ export const Settings = ({
 export type NotebookNodePlaylistAttributes = {
     universalFilters: RecordingUniversalFilters
     pinned?: string[]
-    // TODO: these filters are now deprecated and will be removed once we rollout universal filters to everyone
-    filters: RecordingFilters
-    simpleFilters?: RecordingFilters
 }
 
 export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
@@ -140,17 +137,11 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
     heightEstimate: 'calc(100vh - 20rem)',
     href: (attrs) => {
         // TODO: Fix parsing of attrs
-        return urls.replay(undefined, attrs.filters)
+        return urls.replay(undefined, attrs.universalFilters)
     },
     resizeable: true,
     expandable: false,
     attributes: {
-        filters: {
-            default: undefined,
-        },
-        simpleFilters: {
-            default: {},
-        },
         universalFilters: {
             default: undefined,
         },
