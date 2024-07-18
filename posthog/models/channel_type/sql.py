@@ -54,7 +54,7 @@ CHANNEL_DEFINITION_DATA_SQL = f"""
 INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if_organic) VALUES
 {
 ''',
-'''.join(f'({" ,".join(map(format_value, x))})' for x in CHANNEL_DEFINITIONS)},
+'''.join(f'({" ,".join(map(format_value, x[:5]))})' for x in CHANNEL_DEFINITIONS)},
 ;
 """
 
