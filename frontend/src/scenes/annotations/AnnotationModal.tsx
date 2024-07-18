@@ -140,6 +140,8 @@ export function AnnotationModal({
                                     disabledReason:
                                         (!annotationModal.dashboardId &&
                                             'To select this scope, open this annotation on the target dashboard') ||
+                                        (existingModalAnnotation?.scope === AnnotationScope.Dashboard &&
+                                            'Dashboard scope already selected') ||
                                         (existingModalAnnotation && existingModalAnnotation?.dashboard_name
                                             ? annotationModal.dashboardId != existingModalAnnotation.dashboard_id &&
                                               `To select this scope, open this annotation on the ${existingModalAnnotation?.dashboard_name} dashboard`
