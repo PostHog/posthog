@@ -562,6 +562,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         person_on_event_table = cast(LazyJoin, db.events.fields["person"])
-        assert "some_field" in person_on_event_table.join_table.fields.keys()
+        assert "some_field" in person_on_event_table.join_table.fields.keys()  # type: ignore
 
         print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")

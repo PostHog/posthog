@@ -443,7 +443,7 @@ def create_hogql_database(
                             join_function=join.join_function(),
                         )
                 elif isinstance(person_field, ast.LazyJoin):
-                    person_field.join_table.fields[join.field_name] = LazyJoin(
+                    person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
                         from_field=from_field,
                         to_field=to_field,
                         join_table=joining_table,
