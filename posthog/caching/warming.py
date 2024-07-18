@@ -17,7 +17,6 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
-from posthog.schema import GenericCachedQueryResponse
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -82,6 +81,7 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
 
 @shared_task(ignore_result=True, expires=60 * 15)
 def schedule_warming_for_teams_task():
+    skew_seconds = 3
     team_ids = largest_teams(limit=10)
 
     teams = Team.objects.filter(Q(pk__in=team_ids) | Q(extra_settings__insights_cache_warming=True))
@@ -91,7 +91,8 @@ def schedule_warming_for_teams_task():
     for team in teams:
         insight_tuples = priority_insights(team)
 
-        group(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples)()
+        # We skew the task execution to reduce queries *for a single team* running at the same time
+        group(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples).skew(step=skew_seconds)()
 
 
 @shared_task(
@@ -129,7 +130,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: int):
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,
                 dashboard=dashboard_id is not None,
-                is_cached=results.is_cached if isinstance(results, GenericCachedQueryResponse) else False,
+                is_cached=getattr(results, "is_cached", False),
             ).inc()
         except Exception as e:
             capture_exception(e)
