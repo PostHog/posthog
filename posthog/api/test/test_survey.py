@@ -1171,8 +1171,6 @@ class TestSurvey(APIBaseTest):
 
     @freeze_time("2023-05-01 12:00:00")
     def test_update_survey_targeting_flag_filters_records_activity(self):
-        self.maxDiff = None
-
         linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
         targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
         internal_targeting_flag = FeatureFlag.objects.create(
@@ -1269,7 +1267,6 @@ class TestSurvey(APIBaseTest):
 
     @freeze_time("2023-05-01 12:00:00")
     def test_update_survey_records_activity(self):
-        self.maxDiff = None
         survey = Survey.objects.create(
             team=self.team,
             name="Original Survey",

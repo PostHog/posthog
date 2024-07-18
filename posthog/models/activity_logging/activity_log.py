@@ -91,7 +91,6 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "key": obj.key,
                 "name": obj.name,
                 "filters": obj.filters,
-                # Add any other fields you want to include
             }
 
         return json.JSONEncoder.default(self, obj)
@@ -242,19 +241,34 @@ def _read_through_relation(relation: models.Manager) -> list[Union[dict, str]]:
     return described_models
 
 
+def safely_get_field_value(instance: models.Model, field: str):
+    """Helper function to get the value of a field, handling related objects and exceptions."""
+    try:
+        value = getattr(instance, field, None)
+        if isinstance(value, models.Manager):
+            value = _read_through_relation(value)
+    # If the field is a related field and the related object has been deleted, this will raise an ObjectDoesNotExist
+    # exception. We catch this exception and return None, since the related object has been deleted, and we
+    # don't need any additional information about it other than the fact that it was deleted.
+    except models.ObjectDoesNotExist:
+        value = None
+    return value
+
+
 def changes_between(
     model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> list[Change]:
     """
-    Identifies changes between two models by comparing fields
-    # TODO add docstring for this additional_changes param
+    Identifies changes between two models by comparing fields.
+    Note that this method only really works for models that have a single instance
+    and not for models that have a many-to-many relationship with another model.
     """
     changes: list[Change] = []
 
     if previous is None and current is None:
-        # there are no changes between two things that don't exist
+        # There are no changes between two things that don't exist.
         return changes
 
     if previous is not None:
@@ -263,29 +277,18 @@ def changes_between(
         filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
 
         for field in filtered_fields:
-            try:
-                left = getattr(previous, field, None)
-                if isinstance(left, models.Manager):
-                    left = _read_through_relation(left)
-            except models.ObjectDoesNotExist:
-                left = None
-
-            try:
-                right = getattr(current, field, None)
-                if isinstance(right, models.Manager):
-                    right = _read_through_relation(right)
-            except models.ObjectDoesNotExist:
-                right = None
+            left = safely_get_field_value(previous, field)
+            right = safely_get_field_value(current, field)
 
             if field == "tagged_items":
-                field = "tags"  # or the UI needs to be coupled to this internal backend naming
+                field = "tags"  # Or the UI needs to be coupled to this internal backend naming.
 
             if field == "dashboards" and "dashboard_tiles" in filtered_fields:
-                # only process dashboard_tiles when it is present. It supersedes dashboards
+                # Only process dashboard_tiles when it is present. It supersedes dashboards.
                 continue
 
             if model_type == "Insight" and field == "dashboard_tiles":
-                # the api exposes this as dashboards and that's what the activity describers expect
+                # The API exposes this as dashboards and that's what the activity describers expect.
                 field = "dashboards"
 
             if left is None and right is not None:
