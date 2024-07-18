@@ -43,7 +43,7 @@ export const INLINE_PLUGIN_MAP: Map<string, RegisteredInlinePlugin> = new Map([
 
 // Inline plugins are uniquely identified by their /url/, not their ID, and do
 // not have most of the standard plugin properties. This reduced interface is
-// the "canonical" description of an inline plugin, but can be mapepd to a region
+// the "canonical" description of an inline plugin, but can be mapped to a region
 // specific Plugin object by url.
 export interface InlinePluginDescription {
     name: string
