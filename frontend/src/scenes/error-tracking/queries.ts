@@ -2,14 +2,7 @@ import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/Universal
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import {
-    DataTableNode,
-    DateRange,
-    ErrorTrackingGroupQuery,
-    ErrorTrackingQuery,
-    InsightVizNode,
-    NodeKind,
-} from '~/queries/schema'
+import { DataTableNode, DateRange, ErrorTrackingQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter } from '~/types'
 
 export type SparklineConfig = {
@@ -132,9 +125,9 @@ export const errorTrackingGroupQuery = ({
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-}): ErrorTrackingGroupQuery => {
+}): ErrorTrackingQuery => {
     return {
-        kind: NodeKind.ErrorTrackingGroupQuery,
+        kind: NodeKind.ErrorTrackingQuery,
         select: ['uuid', 'properties', 'timestamp', 'person'],
         fingerprint: fingerprint,
         dateRange: dateRange,

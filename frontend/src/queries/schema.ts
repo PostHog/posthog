@@ -65,7 +65,6 @@ export enum NodeKind {
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
-    ErrorTrackingGroupQuery = 'ErrorTrackingGroupQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -110,7 +109,6 @@ export type AnyDataNode =
     | WebTopClicksQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ErrorTrackingGroupQuery
 
 /**
  * @discriminator kind
@@ -135,7 +133,6 @@ export type QuerySchema =
     | WebTopClicksQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ErrorTrackingGroupQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -523,7 +520,6 @@ export interface DataTableNode
                     | WebTopClicksQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
-                    | ErrorTrackingGroupQuery
                 )['response']
             >
         >,
@@ -541,7 +537,6 @@ export interface DataTableNode
         | WebTopClicksQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-        | ErrorTrackingGroupQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1280,7 +1275,9 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
 
-interface BaseErrorTrackingQuery<T extends Record<string, any>> extends DataNode<T> {
+export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
+    kind: NodeKind.ErrorTrackingQuery
+    fingerprint?: string
     select: HogQLExpression[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
@@ -1288,14 +1285,6 @@ interface BaseErrorTrackingQuery<T extends Record<string, any>> extends DataNode
     filterTestAccounts?: boolean
     limit?: integer
     offset?: integer
-}
-
-export interface ErrorTrackingQuery extends BaseErrorTrackingQuery<ErrorTrackingQueryResponse> {
-    kind: NodeKind.ErrorTrackingQuery
-}
-export interface ErrorTrackingGroupQuery extends BaseErrorTrackingQuery<ErrorTrackingGroupQueryResponse> {
-    kind: NodeKind.ErrorTrackingGroupQuery
-    fingerprint: string
 }
 
 export interface ErrorTrackingGroup {
@@ -1313,20 +1302,23 @@ export interface ErrorTrackingGroup {
     volume?: any
     assignee: string | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
+    events?: ErrorTrackingGroupEvent[]
 }
 
-interface BaseErrorTrackingQueryResponse<T> extends AnalyticsQueryResponseBase<T> {
+type ErrorTrackingGroupEvent = {
+    uuid: string
+    properties: string
+    /**  @format date-time */
+    timestamp: string
+}
+
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
     columns?: string[]
 }
-
-export interface ErrorTrackingQueryResponse extends BaseErrorTrackingQueryResponse<ErrorTrackingGroup[]> {}
-export interface ErrorTrackingGroupQueryResponse extends BaseErrorTrackingQueryResponse<ErrorTrackingGroup> {}
-
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
-export type CachedErrorTrackingGroupQueryResponse = CachedQueryResponse<ErrorTrackingGroupQueryResponse>
 
 export type InsightQueryNode =
     | TrendsQuery

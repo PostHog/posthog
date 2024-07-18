@@ -323,12 +323,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconWarning,
         inMenu: false,
     },
-    [NodeKind.ErrorTrackingGroupQuery]: {
-        name: 'Error Tracking Group',
-        description: 'An individual error tracking group',
-        icon: IconWarning,
-        inMenu: false,
-    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
