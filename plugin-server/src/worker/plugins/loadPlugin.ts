@@ -22,6 +22,12 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
         return false
     }
 
+    // Inline plugins don't need "loading", and have no source files.
+    if (plugin.plugin_type === 'inline') {
+        await pluginConfig.instance?.initialize!('', pluginDigest(plugin))
+        return true
+    }
+
     try {
         // load config json
         const configJson = isLocalPlugin
