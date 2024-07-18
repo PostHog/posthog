@@ -4,7 +4,7 @@ from typing import Optional
 
 import structlog
 from celery import shared_task
-from celery.canvas import group
+from celery.canvas import chain
 from django.db.models import Q
 from prometheus_client import Counter
 from sentry_sdk import capture_exception
@@ -81,7 +81,6 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
 
 @shared_task(ignore_result=True, expires=60 * 15)
 def schedule_warming_for_teams_task():
-    skew_seconds = 3
     team_ids = largest_teams(limit=10)
 
     teams = Team.objects.filter(Q(pk__in=team_ids) | Q(extra_settings__insights_cache_warming=True))
@@ -91,8 +90,8 @@ def schedule_warming_for_teams_task():
     for team in teams:
         insight_tuples = priority_insights(team)
 
-        # We skew the task execution to reduce queries *for a single team* running at the same time
-        group(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples).skew(step=skew_seconds)()
+        # We chain the task execution to prevent queries *for a single team* running at the same time
+        chain(*(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples))()
 
 
 @shared_task(
