@@ -1,10 +1,11 @@
-import { IconX } from '@posthog/icons'
+import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
@@ -42,16 +43,18 @@ function HogFunctionIntegrationChoice({
     const button = (
         <LemonMenu
             items={[
-                {
-                    items: [
-                        ...(integrationsOfKind?.map((integration) => ({
-                            icon: <img src={integration.icon_url} className="w-6 h-6 rounded" />,
-                            onClick: () => onChange?.(integration.id),
-                            active: integration.id === value,
-                            label: integration.name,
-                        })) || []),
-                    ],
-                },
+                integrationsOfKind?.length
+                    ? {
+                          items: [
+                              ...(integrationsOfKind?.map((integration) => ({
+                                  icon: <img src={integration.icon_url} className="w-6 h-6 rounded" />,
+                                  onClick: () => onChange?.(integration.id),
+                                  active: integration.id === value,
+                                  label: integration.name,
+                              })) || []),
+                          ],
+                      }
+                    : null,
                 {
                     items: [
                         {
@@ -64,11 +67,22 @@ function HogFunctionIntegrationChoice({
                                 ? `Connect to a different ${kind} integration`
                                 : `Connect to ${kind}`,
                         },
+                    ],
+                },
+                {
+                    items: [
                         {
-                            onClick: () => onChange?.(null),
-                            label: 'Clear',
-                            sideIcon: <IconX />,
+                            to: urls.settings('project-integrations'),
+                            label: 'Manage integrations',
+                            sideIcon: <IconExternal />,
                         },
+                        value
+                            ? {
+                                  onClick: () => onChange?.(null),
+                                  label: 'Clear',
+                                  sideIcon: <IconX />,
+                              }
+                            : null,
                     ],
                 },
             ]}
