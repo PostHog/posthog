@@ -34,10 +34,6 @@ asn1crypto==1.5.1
     # via snowflake-connector-python
 astunparse==1.6.3
     # via dlt
-async-generator==1.10
-    # via
-    #   trio
-    #   trio-websocket
 async-timeout==4.0.2
     # via
     #   aiokafka
@@ -46,9 +42,7 @@ attrs==23.2.0
     # via
     #   aiohttp
     #   jsonschema
-    #   outcome
     #   referencing
-    #   trio
 backoff==2.2.1
     # via posthoganalytics
 bcrypt==4.1.3
@@ -82,7 +76,6 @@ certifi==2019.11.28
     #   requests
     #   sentry-sdk
     #   snowflake-connector-python
-    #   urllib3
 cffi==1.16.0
     # via
     #   cryptography
@@ -120,7 +113,6 @@ cryptography==39.0.2
     #   pyopenssl
     #   snowflake-connector-python
     #   social-auth-core
-    #   urllib3
 cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
@@ -260,8 +252,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.0.3
-    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -272,9 +262,7 @@ grpcio-status==1.57.0
 gunicorn==20.1.0
     # via -r requirements.in
 h11==0.13.0
-    # via
-    #   httpcore
-    #   wsproto
+    # via httpcore
 hexbytes==1.0.0
     # via dlt
 hogql-parser==1.0.29
@@ -291,8 +279,6 @@ idna==2.8
     #   httpx
     #   requests
     #   snowflake-connector-python
-    #   trio
-    #   urllib3
     #   yarl
 infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
     # via -r requirements.in
@@ -371,8 +357,6 @@ orjson==3.9.10
     # via
     #   -r requirements.in
     #   dlt
-outcome==1.1.0
-    # via trio
 packaging==23.1
     # via
     #   aiokafka
@@ -451,13 +435,9 @@ pyjwt==2.4.0
 pynacl==1.5.0
     # via paramiko
 pyopenssl==23.0.0
-    # via
-    #   snowflake-connector-python
-    #   urllib3
+    # via snowflake-connector-python
 pypng==0.20220715.0
     # via qrcode
-pysocks==1.7.1
-    # via urllib3
 python-dateutil==2.8.2
     # via
     #   -r requirements.in
@@ -539,8 +519,6 @@ scikit-learn==1.5.0
     # via -r requirements.in
 scipy==1.12.0
     # via scikit-learn
-selenium==4.1.5
-    # via -r requirements.in
 semantic-version==2.8.5
     # via -r requirements.in
 semver==3.0.2
@@ -571,7 +549,6 @@ sniffio==1.2.0
     #   anyio
     #   httpx
     #   openai
-    #   trio
 snowflake-connector-python==3.6.0
     # via
     #   -r requirements.in
@@ -585,9 +562,7 @@ social-auth-core==4.3.0
     #   -r requirements.in
     #   social-auth-app-django
 sortedcontainers==2.4.0
-    # via
-    #   snowflake-connector-python
-    #   trio
+    # via snowflake-connector-python
 sqlalchemy==1.4.52
     # via
     #   -r requirements.in
@@ -600,7 +575,7 @@ sshtunnel==0.4.0
     # via -r requirements.in
 statshog==1.0.6
     # via -r requirements.in
-stripe==7.4.0
+stripe==10.3.0
     # via -r requirements.in
 structlog==23.2.0
     # via
@@ -628,12 +603,6 @@ toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
     # via openai
-trio==0.21.0
-    # via
-    #   selenium
-    #   trio-websocket
-trio-websocket==0.9.2
-    # via selenium
 types-protobuf==4.22.0.0
     # via temporalio
 types-setuptools==69.0.0.0
@@ -667,10 +636,7 @@ urllib3==1.26.18
     #   geoip2
     #   google-auth
     #   requests
-    #   selenium
     #   sentry-sdk
-urllib3-secure-extra==0.1.0
-    # via urllib3
 vine==5.0.0
     # via
     #   amqp
@@ -686,8 +652,6 @@ whitenoise==6.5.0
     # via -r requirements.in
 wrapt==1.15.0
     # via aiobotocore
-wsproto==1.1.0
-    # via trio-websocket
 xmlsec==1.3.13
     # via
     #   -r requirements.in
