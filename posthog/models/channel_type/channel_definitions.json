@@ -15,6 +15,7 @@
     ["mobile", "medium", null, null, "Push", false],
     ["notification", "medium", null, null, "Push", false],
     ["partnership", "medium", null, null, "Affiliate", false],
+    ["partnerships", "medium", null, null, "Affiliate", false],
     ["push", "medium", null, null, "Push", false],
     ["referral", "medium", null, null, "Referral", false],
     ["sm", "medium", null, "Paid Social", "Organic Social", false],
