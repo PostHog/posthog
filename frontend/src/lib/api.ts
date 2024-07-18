@@ -71,6 +71,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
+    RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
     RoleType,
@@ -1877,7 +1878,7 @@ const api = {
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
-        ): Promise<PaginatedResponse<BatchExportRun>> {
+        ): Promise<PaginatedResponse<RawBatchExportRun>> {
             return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
         },
         async createBackfill(
@@ -2122,6 +2123,9 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
+        },
+        authorizeUrl(params: { kind: string; next?: string }): string {
+            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()

@@ -4501,7 +4501,7 @@
             ]
         },
         "HogLanguage": {
-            "enum": ["hog", "hogQL", "hogQLExpr", "hogTemplate"],
+            "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
             "type": "string"
         },
         "HogQLAutocomplete": {

@@ -6,12 +6,12 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
-import HTTPIcon from 'public/hedgehog/running-hog.png'
-import BigQueryIcon from 'public/pipeline/BigQuery.png'
-import PostgresIcon from 'public/pipeline/Postgres.png'
-import RedshiftIcon from 'public/pipeline/Redshift.svg'
-import S3Icon from 'public/pipeline/S3.png'
-import SnowflakeIcon from 'public/pipeline/Snowflake.png'
+import IconHTTP from 'public/hedgehog/running-hog.png'
+import IconS3 from 'public/services/aws-s3.png'
+import IconBigQuery from 'public/services/bigquery.png'
+import IconPostgres from 'public/services/postgres.png'
+import IconRedshift from 'public/services/redshift.png'
+import IconSnowflake from 'public/services/snowflake.png'
 import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
@@ -160,12 +160,12 @@ export function RenderBatchExportIcon({
     size?: 'small' | 'medium'
 }): JSX.Element {
     const icon = {
-        BigQuery: BigQueryIcon,
-        Postgres: PostgresIcon,
-        Redshift: RedshiftIcon,
-        S3: S3Icon,
-        Snowflake: SnowflakeIcon,
-        HTTP: HTTPIcon,
+        BigQuery: IconBigQuery,
+        Postgres: IconPostgres,
+        Redshift: IconRedshift,
+        S3: IconS3,
+        Snowflake: IconSnowflake,
+        HTTP: IconHTTP,
     }[type]
 
     const sizePx = size === 'small' ? 30 : 60

@@ -106,10 +106,10 @@ class TestBytecodeExecute:
         chain: list[str] = ["properties", "bla"]
         assert get_nested_value(my_dict, chain) == "hello"
 
-        chain = ["properties", "list", 1]
+        chain = ["properties", "list", 2]
         assert get_nested_value(my_dict, chain) == "item2"
 
-        chain = ["properties", "tuple", 2]
+        chain = ["properties", "tuple", 3]
         assert get_nested_value(my_dict, chain) == "item3"
 
     def test_errors(self):
@@ -634,11 +634,18 @@ class TestBytecodeExecute:
         assert self._run_program("return [1, [2, 3], 4];") == [1, [2, 3], 4]
         assert self._run_program("return [1, [2, [3, 4]], 5];") == [1, [2, [3, 4]], 5]
 
-        assert self._run_program("let a := [1, 2, 3]; return a[1];") == 2
-        assert self._run_program("return [1, 2, 3][1];") == 2
-        assert self._run_program("return [1, [2, [3, 4]], 5][1][1][1];") == 4
-        assert self._run_program("return [1, [2, [3, 4]], 5][1][1][1] + 1;") == 5
-        assert self._run_program("return [1, [2, [3, 4]], 5].1.1.1;") == 4
+        assert self._run_program("let a := [1, 2, 3]; return a[2];") == 2
+        assert self._run_program("return [1, 2, 3][2];") == 2
+        assert self._run_program("return [1, [2, [3, 4]], 5][2][2][2];") == 4
+        assert self._run_program("return [1, [2, [3, 4]], 5][2][2][2] + 1;") == 5
+        assert self._run_program("return [1, [2, [3, 4]], 5].2.2.2;") == 4
+
+        try:
+            self._run_program("return [1, 2, 3][0]")
+        except Exception as e:
+            assert str(e) == "Hog arrays start from index 1"
+        else:
+            raise AssertionError("Expected Exception not raised")
 
     def test_bytecode_tuples(self):
         # assert self._run_program("return (,);"), ()
@@ -646,24 +653,24 @@ class TestBytecodeExecute:
         assert self._run_program("return (1, '2', 3);") == (1, "2", 3)
         assert self._run_program("return (1, (2, 3), 4);") == (1, (2, 3), 4)
         assert self._run_program("return (1, (2, (3, 4)), 5);") == (1, (2, (3, 4)), 5)
-        assert self._run_program("let a := (1, 2, 3); return a[1];") == 2
-        assert self._run_program("return (1, (2, (3, 4)), 5)[1][1][1];") == 4
-        assert self._run_program("return (1, (2, (3, 4)), 5).1.1.1;") == 4
-        assert self._run_program("return (1, (2, (3, 4)), 5)[1][1][1] + 1;") == 5
+        assert self._run_program("let a := (1, 2, 3); return a[2];") == 2
+        assert self._run_program("return (1, (2, (3, 4)), 5)[2][2][2];") == 4
+        assert self._run_program("return (1, (2, (3, 4)), 5).2.2.2;") == 4
+        assert self._run_program("return (1, (2, (3, 4)), 5)[2][2][2] + 1;") == 5
 
     def test_bytecode_nested(self):
-        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;") == 3
-        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];") == 42
-        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];") == 6
-        assert self._run_program("let r := {'d': (1, 3, 42, 6)}; return r.d.1;") == 3
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3.d.2;") == 3
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[3].d[3];") == 42
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3['d'][4];") == 6
+        assert self._run_program("let r := {'d': (1, 3, 42, 6)}; return r.d.2;") == 3
 
     def test_bytecode_nested_modify(self):
         assert (
             self._run_program(
                 """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r.2.d.2 := 3;
-                return r.2.d.2;
+                r.3.d.3 := 3;
+                return r.3.d.3;
                 """
             )
             == 3
@@ -673,8 +680,8 @@ class TestBytecodeExecute:
             self._run_program(
                 """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r[2].d[2] := 3;
-                return r[2].d[2];
+                r[3].d[3] := 3;
+                return r[3].d[3];
                 """
             )
             == 3
@@ -683,16 +690,16 @@ class TestBytecodeExecute:
         assert self._run_program(
             """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r[2].c := [666];
-                return r[2];
+                r[3].c := [666];
+                return r[3];
                 """
         ) == {"d": [1, 3, 42, 3], "c": [666]}
 
         assert self._run_program(
             """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r[2].d[2] := 3;
-                return r[2].d;
+                r[3].d[3] := 3;
+                return r[3].d;
                 """
         ) == [1, 3, 3, 3]
 
@@ -700,8 +707,8 @@ class TestBytecodeExecute:
             self._run_program(
                 """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r.2['d'] := ['a', 'b', 'c', 'd'];
-                return r[2].d[2];
+                r.3['d'] := ['a', 'b', 'c', 'd'];
+                return r[3].d[3];
                 """
             )
             == "c"
@@ -712,8 +719,8 @@ class TestBytecodeExecute:
                 """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
                 let g := 'd';
-                r.2[g] := ['a', 'b', 'c', 'd'];
-                return r[2].d[2];
+                r.3[g] := ['a', 'b', 'c', 'd'];
+                return r[3].d[3];
                 """
             )
             == "c"

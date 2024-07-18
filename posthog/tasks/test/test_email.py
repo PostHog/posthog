@@ -1,8 +1,6 @@
 import datetime as dt
 from unittest.mock import MagicMock, patch
 
-import pytest
-from asgiref.sync import sync_to_async
 from freezegun import freeze_time
 
 from posthog.api.authentication import password_reset_token_generator
@@ -153,59 +151,57 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
 
-    @pytest.mark.asyncio
-    async def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
+    def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        _, user = await sync_to_async(create_org_team_and_user)("2022-01-02 00:00:00", "admin@posthog.com")
-        batch_export_destination = await sync_to_async(BatchExportDestination.objects.create)(
+        _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        batch_export_destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
         )
-        batch_export = await sync_to_async(BatchExport.objects.create)(
+        batch_export = BatchExport.objects.create(  # type: ignore
             team=user.team, name="A batch export", destination=batch_export_destination
         )
         now = dt.datetime.now()
-        batch_export_run = await sync_to_async(BatchExportRun.objects.create)(
+        batch_export_run = BatchExportRun.objects.create(
             batch_export=batch_export,
             status=BatchExportRun.Status.FAILED,
             data_interval_start=now - dt.timedelta(hours=1),
             data_interval_end=now,
         )
 
-        await send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run.id)
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
-    @pytest.mark.asyncio
-    async def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
+    def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = await sync_to_async(BatchExportDestination.objects.create)(
+        batch_export_destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
         )
-        batch_export = await sync_to_async(BatchExport.objects.create)(
+        batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination
         )
         now = dt.datetime.now()
-        batch_export_run = await sync_to_async(BatchExportRun.objects.create)(
+        batch_export_run = BatchExportRun.objects.create(
             batch_export=batch_export,
             status=BatchExportRun.Status.FAILED,
             data_interval_start=now - dt.timedelta(hours=1),
             data_interval_end=now,
         )
 
-        await sync_to_async(self._create_user)("test2@posthog.com")
+        self._create_user("test2@posthog.com")
         self.user.partial_notification_settings = {"batch_export_run_failure": False}
-        await sync_to_async(self.user.save)()
+        self.user.save()
 
-        await send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run.id)
         # Should only be sent to user2
         assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
 
         self.user.partial_notification_settings = {"batch_export_run_failure": True}
-        await sync_to_async(self.user.save)()
+        self.user.save()
 
-        await send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run.id)
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
 

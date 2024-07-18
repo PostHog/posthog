@@ -3535,9 +3535,13 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
+export type IntegrationKind = 'slack' | 'salesforce'
+
 export interface IntegrationType {
     id: number
-    kind: 'slack'
+    kind: IntegrationKind
+    name: string
+    icon_url: string
     config: any
     created_by?: UserBasicType | null
     created_at: string
@@ -4023,6 +4027,24 @@ export type BatchExportConfiguration = {
     paused: boolean
     model: string
     latest_runs?: BatchExportRun[]
+}
+
+export type RawBatchExportRun = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at: string
+    data_interval_start: string
+    data_interval_end: string
+    last_updated_at?: string
 }
 
 export type BatchExportRun = {

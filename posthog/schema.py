@@ -489,6 +489,7 @@ class GoalLine(BaseModel):
 
 class HogLanguage(StrEnum):
     HOG = "hog"
+    HOG_JSON = "hogJson"
     HOG_QL = "hogQL"
     HOG_QL_EXPR = "hogQLExpr"
     HOG_TEMPLATE = "hogTemplate"

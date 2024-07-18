@@ -17,7 +17,6 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, Insight, DashboardTile
-from posthog.schema import GenericCachedQueryResponse
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -80,25 +79,23 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
     yield from dashboard_tiles
 
 
-@shared_task(ignore_result=True, expires=60 * 60)
+@shared_task(ignore_result=True, expires=60 * 15)
 def schedule_warming_for_teams_task():
-    team_ids = largest_teams(limit=3)
+    team_ids = largest_teams(limit=10)
 
     teams = Team.objects.filter(Q(pk__in=team_ids) | Q(extra_settings__insights_cache_warming=True))
 
     logger.info("Warming insight cache: teams", team_ids=[team.pk for team in teams])
 
-    # TODO: Needs additional thoughts about concurrency and rate limiting if we launch chains for a lot of teams at once
-
     for team in teams:
         insight_tuples = priority_insights(team)
 
-        task_groups = chain(*(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples))
-        task_groups.apply_async()
+        # We chain the task execution to prevent queries *for a single team* running at the same time
+        chain(*(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples))()
 
 
 @shared_task(
-    queue=CeleryQueue.LONG_RUNNING.value,
+    queue=CeleryQueue.ANALYTICS_LIMITED.value,  # Important! Prevents Clickhouse from being overwhelmed
     ignore_result=True,
     expires=60 * 60,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
@@ -132,7 +129,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: int):
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,
                 dashboard=dashboard_id is not None,
-                is_cached=results.is_cached if isinstance(results, GenericCachedQueryResponse) else False,
+                is_cached=getattr(results, "is_cached", False),
             ).inc()
         except CHQueryErrorTooManySimultaneousQueries:
             raise
