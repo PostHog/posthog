@@ -139,11 +139,16 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         ],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
-        maxBreakdownsSelected: [
+        isAddBreakdownDisabled: [
             (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.isDataWarehouseSeries],
-            ({ breakdown, breakdowns }, isMultipleBreakdownsEnabled, isDataWarehouseSeries) => {
-                if (isMultipleBreakdownsEnabled && !isDataWarehouseSeries) {
-                    return Array.isArray(breakdowns) && breakdowns.length >= 3
+            ({ breakdown, breakdowns, breakdown_type }, isMultipleBreakdownsEnabled, isDataWarehouseSeries) => {
+                // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.
+                if (
+                    isMultipleBreakdownsEnabled &&
+                    !isDataWarehouseSeries &&
+                    (!breakdown_type || isMultipleBreakdownType(breakdown_type))
+                ) {
+                    return breakdowns && breakdowns.length >= 3
                 }
 
                 return !Array.isArray(breakdown) && breakdown != null
@@ -519,7 +524,7 @@ function checkBreakdownExists(
     )
 }
 
-export function multipleBreakdownsEnabled(flags: FeatureFlagsSet): boolean {
+export const multipleBreakdownsEnabled = (flags: FeatureFlagsSet): boolean => {
     return !!flags[FEATURE_FLAGS.MULTIPLE_BREAKDOWNS]
 }
 
