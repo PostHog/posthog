@@ -2180,10 +2180,10 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-      , elements_chain_mat_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
-      , elements_chain_mat_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
-      , elements_chain_mat_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")id="(.*?)"'))
-      , elements_chain_mat_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
+      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
+      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
+      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
   
       
   , _timestamp DateTime
@@ -3274,10 +3274,10 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-      , elements_chain_mat_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
-      , elements_chain_mat_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
-      , elements_chain_mat_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")id="(.*?)"'))
-      , elements_chain_mat_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
+      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
+      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
+      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
   
       
   , _timestamp DateTime

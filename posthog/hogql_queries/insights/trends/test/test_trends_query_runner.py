@@ -2623,10 +2623,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownItem(label="Safari", value="Safari"),
         ]
         assert response.breakdowns[1].values == [
-            BreakdownItem(label="10", value="10"),
-            BreakdownItem(label="20", value="20"),
-            BreakdownItem(label="30", value="30"),
-            BreakdownItem(label="40", value="40"),
+            BreakdownItem(label="[10,25]", value="[10,25]"),
+            BreakdownItem(label="[25,40.01]", value="[25,40.01]"),
+            BreakdownItem(label='["",""]', value='["",""]'),
         ]
         assert response.breakdowns[2].values == [
             BreakdownItem(label="true", value="true"),
@@ -3889,10 +3888,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 4
         assert breakdown_labels == [
-            ["Chrome", "10", "true"],
-            ["Firefox", "20", "false"],
-            ["Edge", "30", "true"],
-            ["Safari", "40", "false"],
+            ["Chrome", "[10,25]", "true"],
+            ["Firefox", "[10,25]", "false"],
+            ["Edge", "[25,40.01]", "true"],
+            ["Safari", "[25,40.01]", "false"],
         ]
 
     def test_to_actors_query_options_orders_options_with_histogram_breakdowns(self):
@@ -4005,3 +4004,52 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 3
         assert breakdown_labels == [["Chrome"], ["Firefox"], [BREAKDOWN_OTHER_STRING_LABEL]]
+
+    def test_trends_table_uses_breakdown_bins(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        for display in [
+            ChartDisplayType.ACTIONS_PIE,
+            ChartDisplayType.ACTIONS_BAR_VALUE,
+            ChartDisplayType.ACTIONS_TABLE,
+        ]:
+            response = self._run_trends_query(
+                "2020-01-09",
+                "2020-01-20",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=display),
+                BreakdownFilter(
+                    breakdown="prop",
+                    breakdown_type=MultipleBreakdownType.EVENT,
+                    breakdown_histogram_bin_count=2,
+                    breakdown_limit=10,
+                    breakdown_hide_other_aggregation=True,
+                ),
+            )
+
+            breakdown_labels = [result["breakdown_value"] for result in response.results]
+            assert len(response.results) == 2
+            assert breakdown_labels == ["[10,25]", "[25,40.01]"]
+            assert response.results[0]["aggregated_value"] == 8
+            assert response.results[1]["aggregated_value"] == 2
+
+            response = self._run_trends_query(
+                "2020-01-09",
+                "2020-01-20",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(display=display),
+                BreakdownFilter(
+                    breakdowns=[Breakdown(value="prop", type=MultipleBreakdownType.EVENT, histogram_bin_count=2)],
+                    breakdown_limit=10,
+                    breakdown_hide_other_aggregation=True,
+                ),
+            )
+
+            breakdown_labels = [result["breakdown_value"] for result in response.results]
+            assert len(response.results) == 2
+            assert breakdown_labels == [["[10,25]"], ["[25,40.01]"]]
+            assert response.results[0]["aggregated_value"] == 8
+            assert response.results[1]["aggregated_value"] == 2

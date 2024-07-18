@@ -26,6 +26,7 @@ export interface TooltipProps {
     title: string | React.ReactNode | (() => string)
     children: JSX.Element
     delayMs?: number
+    closeDelayMs?: number
     offset?: number
     arrowOffset?: number
     placement?: Placement
@@ -41,6 +42,7 @@ export function Tooltip({
     offset = 8,
     arrowOffset,
     delayMs = 500,
+    closeDelayMs = 0, // Set this to some delay to ensure the content stays open when hovered
     visible: controlledOpen,
 }: TooltipProps): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
@@ -66,7 +68,7 @@ export function Tooltip({
         move: false,
         delay: {
             open: delayMs,
-            close: 0,
+            close: closeDelayMs,
         },
     })
     const focus = useFocus(context)
