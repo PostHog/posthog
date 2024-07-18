@@ -338,14 +338,33 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             new_filters = validated_data["targeting_flag_filters"]
             if instance.targeting_flag:
                 existing_targeting_flag = instance.targeting_flag
+                existing_targeting_flag_filters = existing_targeting_flag.filters
                 serialized_data_filters = {
-                    **existing_targeting_flag.filters,
+                    **existing_targeting_flag_filters,
                     **new_filters,
                 }
+                # Log the existing filter change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(
+                        type="Survey",
+                        field="targeting_flag_filters",
+                        action="updated",
+                        before=existing_targeting_flag_filters,
+                        after=new_filters,
+                    )
+                )
                 self._create_or_update_targeting_flag(instance.targeting_flag, serialized_data_filters)
             else:
                 new_flag = self._create_or_update_targeting_flag(
                     None, new_filters, instance.name, bool(instance.start_date)
+                )
+                # Log the new filter change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(type="Survey", field="targeting_flag_filters", action="created", after=new_filters)
                 )
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
@@ -371,13 +390,14 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         team = Team.objects.get(id=self.context["team_id"])
-        changes.extend(
-            changes_between(
-                "Survey",
-                previous=before_update,
-                current=instance,
-            )
+        # `changes_between` will not catch changes to the ForeignKey relationships
+        # so it's useful for any changes to the Survey model itself, but not for the related models
+        non_foreign_table_relation_changes = changes_between(
+            "Survey",
+            previous=before_update,
+            current=instance,
         )
+        changes.extend(non_foreign_table_relation_changes)
         log_activity(
             organization_id=team.organization_id,
             team_id=self.context["team_id"],

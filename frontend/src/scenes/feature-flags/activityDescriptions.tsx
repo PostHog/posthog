@@ -260,6 +260,8 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return { description: null }
     }
 
+    // TODO:Dylan add event for creation
+
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let changeSuffix: Description = (

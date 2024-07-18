@@ -343,6 +343,9 @@ dependencies:
   tailwindcss:
     specifier: ^3.4.0
     version: 3.4.0(ts-node@10.9.1)
+  ts-pattern:
+    specifier: ^5.2.0
+    version: 5.2.0
   use-debounce:
     specifier: ^9.0.3
     version: 9.0.3(react@18.2.0)
@@ -20997,6 +21000,10 @@ packages:
       typescript: 4.9.5
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
+
+  /ts-pattern@5.2.0:
+    resolution: {integrity: sha512-aGaSpOlDcns7ZoeG/OMftWyQG1KqPVhgplhJxNCvyIXqWrumM5uIoOSarw/hmmi/T1PnuQ/uD8NaFHvLpHicDg==}
+    dev: false
 
   /tsconfig-paths@3.14.2:
     resolution: {integrity: sha512-o/9iXgCYc5L/JxCHPe3Hvh8Q/2xm5Z+p18PESBU6Ff33695QnCHBEjcytY2q19ua7Mbl/DavtBOLq+oG0RCL+g==}

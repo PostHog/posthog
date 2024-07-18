@@ -1170,6 +1170,72 @@ class TestSurvey(APIBaseTest):
         assert self.team.surveys_opt_in is False
 
     @freeze_time("2023-05-01 12:00:00")
+    def test_update_survey_targeting_flag_filters_records_activity(self):
+        self.maxDiff = None
+
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
+        targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
+        internal_targeting_flag = FeatureFlag.objects.create(
+            team=self.team, key="custom-targeting-flag", created_by=self.user
+        )
+
+        survey_with_flags = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            linked_flag=linked_flag,
+            targeting_flag=targeting_flag,
+            internal_targeting_flag=internal_targeting_flag,
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+        )
+
+        new_filters = {
+            "targeting_flag_filters": {
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 69},
+                    {"variant": None, "properties": [], "rollout_percentage": 75},
+                ],
+                "payloads": {},
+                "multivariate": None,
+            }
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_flags.id}/",
+            data={"targeting_flag_filters": new_filters},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_activity_log = [
+            {
+                "user": {"first_name": self.user.first_name, "email": self.user.email},
+                "activity": "updated",
+                "scope": "Survey",
+                "item_id": str(survey_with_flags.id),
+                "detail": {
+                    "changes": [
+                        {
+                            "type": "Survey",
+                            "action": "updated",
+                            "field": "targeting_flag_filters",
+                            "before": {},
+                            "after": new_filters,
+                        },
+                    ],
+                    "trigger": None,
+                    "name": "Survey 2",
+                    "short_id": None,
+                    "type": None,
+                },
+                "created_at": "2023-05-01T12:00:00Z",
+            }
+        ]
+
+        self._assert_survey_activity(expected_activity_log)
+
+    @freeze_time("2023-05-01 12:00:00")
     def test_create_survey_records_activity(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
