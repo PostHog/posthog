@@ -454,7 +454,7 @@ export function describeQuestionChanges(before: SurveyQuestion, after: SurveyQue
               ]
             : []
 
-    const specificChanges = match([before, after] as const)
+    const specificChanges = match([before, after])
         .with([{ type: SurveyQuestionType.Link }, { type: SurveyQuestionType.Link }], describeLinkChanges)
         .with([{ type: SurveyQuestionType.Rating }, { type: SurveyQuestionType.Rating }], describeRatingChanges)
         .with(

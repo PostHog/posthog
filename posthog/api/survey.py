@@ -350,7 +350,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     Change(
                         type="Survey",
                         field="targeting_flag_filters",
-                        action="updated",
+                        action="changed",
                         before=existing_targeting_flag_filters,
                         after=new_filters,
                     )

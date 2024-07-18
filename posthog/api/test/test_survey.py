@@ -1,10 +1,12 @@
 import re
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import ANY
 
 import pytest
 from django.core.cache import cache
 from django.test.client import Client
+
 from freezegun.api import freeze_time
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.models.cohort.cohort import Cohort
@@ -1188,7 +1190,7 @@ class TestSurvey(APIBaseTest):
             questions=[{"type": "open", "question": "What's a hedgehog?"}],
         )
 
-        new_filters = {
+        new_filters: dict[str, Any] = {
             "targeting_flag_filters": {
                 "groups": [
                     {"variant": None, "properties": [], "rollout_percentage": 69},
