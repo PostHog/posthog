@@ -2,10 +2,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginCapabilities, PluginConfig, PluginLogLevel } from '../../../types'
 import { upsertInlinePlugin } from '../../../utils/db/sql'
-<<<<<<< HEAD
 import { status } from '../../../utils/status'
-=======
->>>>>>> 1d81f1af72 (inline plugin database support)
 import { PluginInstance } from '../lazy'
 import { NoopInlinePlugin } from './noop'
 import { SEMVER_FLATTENER_CONFIG_SCHEMA, SemverFlattener } from './semver-flattener'
@@ -71,11 +68,7 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
 
 // Inline plugins are uniquely identified by their /url/, not their ID, and do
 // not have most of the standard plugin properties. This reduced interface is
-<<<<<<< HEAD
 // the "canonical" description of an inline plugin, but can be mapped to a region
-=======
-// the "canonical" description of an inline plugin, but can be mapepd to a region
->>>>>>> 1d81f1af72 (inline plugin database support)
 // specific Plugin object by url.
 export interface InlinePluginDescription {
     name: string
