@@ -170,7 +170,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return props.cachedResults
                     }
 
-                    if (props.cachedResults && !refresh && !props.cachedResults.query_status?.complete) {
+                    if (props.cachedResults && !refresh && !(props.cachedResults.query_status?.complete === false)) {
                         if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
                         }
