@@ -21,6 +21,7 @@ export const Syncs = (): JSX.Element => {
         <LemonTable
             dataSource={jobs}
             loading={jobsLoading}
+            disableTableWhileLoading={false}
             columns={[
                 {
                     title: 'Schema',
