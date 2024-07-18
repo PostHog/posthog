@@ -6,7 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-hubspot",
     name="Create Hubspot contact",
     description="Creates a new contact in Hubspot whenever an event is triggered.",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=hubspot.com",
+    icon_url="/static/services/hubspot.png",
     hog="""
 let properties := inputs.properties
 properties.email := inputs.email

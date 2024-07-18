@@ -6,7 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-webhook",
     name="HTTP Webhook",
     description="Sends a webhook templated by the incoming event data",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=posthog.com&temp=true",
+    icon_url="/static/posthog-icon.svg?temp=true",
     hog="""
 fetch(inputs.url, {
   'headers': inputs.headers,
