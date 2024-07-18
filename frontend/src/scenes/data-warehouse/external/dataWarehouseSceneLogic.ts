@@ -10,7 +10,6 @@ import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind 
 import { DataWarehouseTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { DataWarehouseSceneTab } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -29,7 +28,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     actions(({ values }) => ({
         selectRow: (row: DatabaseSchemaTable | null) => ({ row }),
-        setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
+        setSceneTab: (tab: DataWarehouseTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
         toggleEditSchemaMode: (inEditSchemaMode?: boolean) => ({ inEditSchemaMode }),
         updateSelectedSchema: (columnKey: string, columnType: DatabaseSerializedFieldType) => ({
@@ -269,7 +268,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         },
         '/data-warehouse/:tab': ({ tab }) => {
             if (tab !== values.currentTab) {
-                actions.setSceneTab(tab as DataWarehouseSceneTab)
+                actions.setSceneTab(tab as DataWarehouseTab)
             }
         },
     })),
