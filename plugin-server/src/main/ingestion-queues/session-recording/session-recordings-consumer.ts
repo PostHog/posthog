@@ -776,6 +776,7 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
+                blockingSessions = blockingSessions.filter((s) => s.partition === partition)
 
                 const tp = {
                     topic: this.topic,
@@ -791,15 +792,13 @@ export class SessionRecordingIngester {
 
                 let activeSessionsOnThisPartition = 0
                 for (const sessionManager of blockingSessions) {
-                    if (sessionManager.partition === partition) {
-                        const lowestOffset = sessionManager.getLowestOffset()
-                        activeSessionsOnThisPartition++
-                        if (
-                            lowestOffset !== null &&
-                            lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
-                        ) {
-                            potentiallyBlockingSession = sessionManager
-                        }
+                    const lowestOffset = sessionManager.getLowestOffset()
+                    activeSessionsOnThisPartition++
+                    if (
+                        lowestOffset !== null &&
+                        lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
+                    ) {
+                        potentiallyBlockingSession = sessionManager
                     }
                 }
 
