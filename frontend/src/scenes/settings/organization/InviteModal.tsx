@@ -167,7 +167,8 @@ export function InviteTeamMatesComponent(): JSX.Element {
                     <b className="flex-2">Email address</b>
                     {preflight?.email_service_available && <b className="flex-1">Name (optional)</b>}
                     {allowedLevelsOptions.length > 1 && <b className="flex-1">Level</b>}
-                    {!preflight?.email_service_available && <b className="flex-1">Invite link</b>}
+                    {!preflight?.email_service_available && <b className="flex-1" />}
+                    {areInvitesDeletable && <b className="w-12" />}
                 </div>
 
                 {invitesToSend.map((_, index) => (
