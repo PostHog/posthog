@@ -157,7 +157,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             entry_id = str(formal_session_id or informal_session_id)
             if entry_id not in timeline_entries_map:
                 timeline_entries_map[entry_id] = TimelineEntry(
-                    session_id=formal_session_id or None, events=[], recording_duration_s=recording_duration_s or None
+                    sessionId=formal_session_id or None, events=[], recording_duration_s=recording_duration_s or None
                 )
             timeline_entries_map[entry_id].events.append(
                 EventType(
@@ -176,7 +176,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
 
         return SessionsTimelineQueryResponse(
             results=timeline_entries,
-            has_more=len(query_result.results) > self.EVENT_LIMIT,
+            hasMore=len(query_result.results) > self.EVENT_LIMIT,
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
         )

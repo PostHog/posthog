@@ -123,7 +123,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 select_from=ast.JoinExpr(table=ast.Field(chain=[self.name])),
             )
 
-            execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(s3_table_use_invalid_columns=True))
+            execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(s3TableUseInvalidColumns=True))
             return True
         except:
             return False

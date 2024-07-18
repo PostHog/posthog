@@ -78,8 +78,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             filters=HogQLFilters(
-                date_range=self.query.date_range,
-                filter_test_accounts=self.query.filter_test_accounts,
+                dateRange=self.query.date_range,
+                filterTestAccounts=self.query.filter_test_accounts,
                 properties=properties,
             ),
         )

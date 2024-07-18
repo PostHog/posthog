@@ -139,10 +139,10 @@ FROM (
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ],
-            sampling_rate=self._sample_rate,
+            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
-            date_from=self.query_date_range.date_from_str,
-            date_to=self.query_date_range.date_to_str,
+            dateFrom=self.query_date_range.date_from_str,
+            dateTo=self.query_date_range.date_to_str,
         )
 
     @cached_property
@@ -187,10 +187,10 @@ def to_data(
     return {
         "key": key,
         "kind": kind,
-        "is_increase_bad": is_increase_bad,
+        "isIncreaseBad": is_increase_bad,
         "value": value,
         "previous": previous,
-        "change_from_previous_pct": round(100 * (value - previous) / previous)
+        "changeFromPreviousPct": round(100 * (value - previous) / previous)
         if value is not None and previous is not None and previous != 0
         else None,
     }

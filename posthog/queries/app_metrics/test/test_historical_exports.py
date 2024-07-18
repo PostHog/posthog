@@ -20,7 +20,7 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 
-SAMPLE_PAYLOAD = {"date_range": ["2021-06-10", "2022-06-12"], "parallelism": 1}
+SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 
 
 @freeze_time("2021-08-25T13:00:00Z")

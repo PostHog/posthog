@@ -99,7 +99,7 @@ def process_query_model(
                 result = HogQueryResponse(
                     results=hog_result.result,
                     bytecode=hog_result.bytecode,
-                    colored_bytecode=color_bytecode(hog_result.bytecode),
+                    coloredBytecode=color_bytecode(hog_result.bytecode),
                     stdout="\n".join(hog_result.stdout),
                 )
             except Exception as e:

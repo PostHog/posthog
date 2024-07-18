@@ -329,7 +329,7 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
                 """,
             ),
             self.team,
-            modifiers=HogQLQueryModifiers(optimize_joined_filters=False),
+            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
         )
 
         assert response.results == [
@@ -348,7 +348,7 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
                 """,
             ),
             self.team,
-            modifiers=HogQLQueryModifiers(optimize_joined_filters=True),
+            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
         )
 
         assert response.results == [

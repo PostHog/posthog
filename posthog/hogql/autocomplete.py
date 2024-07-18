@@ -298,7 +298,7 @@ def extend_responses(
     suggestions.extend(
         [
             AutocompleteCompletionItem(
-                insert_text=insert_text(key) if insert_text is not None else key,
+                insertText=insert_text(key) if insert_text is not None else key,
                 label=key,
                 kind=kind,
                 detail=details[index] if details is not None else None,

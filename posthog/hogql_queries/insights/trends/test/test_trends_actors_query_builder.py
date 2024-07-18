@@ -23,7 +23,7 @@ from posthog.schema import (
 )
 from posthog.test.base import BaseTest
 
-default_query = TrendsQuery(series=[EventsNode(event="$pageview")], date_range=InsightDateRange(date_from="-7d"))
+default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=InsightDateRange(date_from="-7d"))
 
 
 class TestTrendsActorsQueryBuilder(BaseTest):
@@ -112,7 +112,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
 
     def test_date_range_compare_previous(self):
         self.team.timezone = "Europe/Berlin"
-        trends_query = default_query.model_copy(update={"compare_filter": CompareFilter(compare=True)}, deep=True)
+        trends_query = default_query.model_copy(update={"compareFilter": CompareFilter(compare=True)}, deep=True)
 
         self.assertEqual(
             self._get_date_where_sql(trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.CURRENT),
@@ -128,7 +128,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_compare_previous_hourly(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"compare_filter": CompareFilter(compare=True), "interval": IntervalType.HOUR}, deep=True
+            update={"compareFilter": CompareFilter(compare=True), "interval": IntervalType.HOUR}, deep=True
         )
         self.assertEqual(
             self._get_date_where_sql(
@@ -146,7 +146,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_compare_to(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"compare_filter": CompareFilter(compare=True, compare_to="-3d")}, deep=True
+            update={"compareFilter": CompareFilter(compare=True, compare_to="-3d")}, deep=True
         )
 
         self.assertEqual(
@@ -163,7 +163,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_compare_to_hours(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"compare_filter": CompareFilter(compare=True, compare_to="-3h")}, deep=True
+            update={"compareFilter": CompareFilter(compare=True, compare_to="-3h")}, deep=True
         )
 
         self.assertEqual(
@@ -180,7 +180,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_total_value(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"trends_filter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER)}, deep=True
+            update={"trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER)}, deep=True
         )
 
         with freeze_time("2022-06-15T12:00:00.000Z"):
@@ -193,8 +193,8 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "trends_filter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
-                "compare_filter": CompareFilter(compare=True),
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                "compareFilter": CompareFilter(compare=True),
             },
             deep=True,
         )
@@ -213,8 +213,8 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
-                "trends_filter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
-                "compare_filter": CompareFilter(compare=True, compare_to="-3d"),
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                "compareFilter": CompareFilter(compare=True, compare_to="-3d"),
             },
             deep=True,
         )
@@ -246,7 +246,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
-                "compare_filter": CompareFilter(compare=True),
+                "compareFilter": CompareFilter(compare=True),
             },
             deep=True,
         )
@@ -270,7 +270,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
-                "compare_filter": CompareFilter(compare=True, compare_to="-3d"),
+                "compareFilter": CompareFilter(compare=True, compare_to="-3d"),
             },
             deep=True,
         )
@@ -294,7 +294,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
-                "trends_filter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
             },
             deep=True,
         )
@@ -310,8 +310,8 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
-                "trends_filter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
-                "compare_filter": CompareFilter(compare=True),
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                "compareFilter": CompareFilter(compare=True),
             },
             deep=True,
         )
@@ -339,9 +339,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
 
         trends_query = default_query.model_copy(
             update={
-                "date_range": InsightDateRange(
-                    date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicit_date=True
-                )
+                "dateRange": InsightDateRange(date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicitDate=True)
             },
             deep=True,
         )
@@ -354,8 +352,8 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_explicit_date_to(self):
         trends_query = default_query.model_copy(
             update={
-                "date_range": InsightDateRange(
-                    date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicit_date=True
+                "dateRange": InsightDateRange(
+                    date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 )
             },
             deep=True,
@@ -371,8 +369,8 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
-                "date_range": InsightDateRange(
-                    date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicit_date=True
+                "dateRange": InsightDateRange(
+                    date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 ),
             },
             deep=True,

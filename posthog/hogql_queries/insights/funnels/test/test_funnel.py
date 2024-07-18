@@ -92,10 +92,10 @@ class TestFunnelConversionTime(
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
     class TestGetFunnel(ClickhouseTestMixin, APIBaseTest):
-        def _get_actor_ids_at_step(self, filters, funnel_step, funnel_step_breakdown=None):
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
             funnels_query = cast(FunnelsQuery, filter_to_query(filters))
             funnel_actors_query = FunnelsActorsQuery(
-                source=funnels_query, funnel_step=funnel_step, funnel_step_breakdown=funnel_step_breakdown
+                source=funnels_query, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown
             )
             actors_query = ActorsQuery(source=funnel_actors_query)
             response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
@@ -3662,11 +3662,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
-                date_range=InsightDateRange(
+                dateRange=InsightDateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
-                breakdown_filter=BreakdownFilter(breakdown="utm_medium"),
+                breakdownFilter=BreakdownFilter(breakdown="utm_medium"),
             )
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
@@ -3695,7 +3695,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="test'1"), EventsNode()],
-                date_range=InsightDateRange(
+                dateRange=InsightDateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
@@ -3753,15 +3753,15 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = FunnelsQuery(
                 series=[EventsNode(event="a"), EventsNode(event="b")],
-                date_range=InsightDateRange(
+                dateRange=InsightDateRange(
                     date_from="2024-03-22",
                     date_to="2024-03-22",
                 ),
-                breakdown_filter=BreakdownFilter(breakdown="userRoles", breakdown_type=BreakdownType.PERSON),
-                funnels_filter=FunnelsFilter(
-                    funnel_viz_type=FunnelVizType.TIME_TO_CONVERT,
-                    funnel_window_interval=10,
-                    funnel_window_interval_unit=FunnelConversionWindowTimeUnit.MINUTE,
+                breakdownFilter=BreakdownFilter(breakdown="userRoles", breakdown_type=BreakdownType.PERSON),
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                    funnelWindowInterval=10,
+                    funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MINUTE,
                 ),
             )
             result = FunnelsQueryRunner(query=query, team=self.team).calculate().results

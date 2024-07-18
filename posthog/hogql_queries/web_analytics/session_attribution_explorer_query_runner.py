@@ -102,7 +102,7 @@ ORDER BY "context.columns.count" DESC
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
-            filters=HogQLFilters(date_range=self.query.filters.date_range, properties=self.query.filters.properties)
+            filters=HogQLFilters(dateRange=self.query.filters.date_range, properties=self.query.filters.properties)
             if self.query.filters
             else None,
         )

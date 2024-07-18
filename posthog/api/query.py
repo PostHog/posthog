@@ -116,7 +116,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
-        return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
+        return JsonResponse(query_status_response.model_dump(by_alias=True), safe=False, status=http_code)
 
     @extend_schema(
         description="(Experimental)",

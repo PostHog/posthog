@@ -89,13 +89,13 @@ class TestQueryRunner(BaseTest):
             cache_payload,
             {
                 "hogql_modifiers": {
-                    "in_cohort_via": "auto",
-                    "materialization_mode": "legacy_null_as_null",
-                    "persons_arg_max_version": "auto",
-                    "optimize_joined_filters": False,
-                    "persons_on_events_mode": "disabled",
-                    "bounce_rate_page_view_mode": "count_pageviews",
-                    "session_table_version": "auto",
+                    "inCohortVia": "auto",
+                    "materializationMode": "legacy_null_as_null",
+                    "personsArgMaxVersion": "auto",
+                    "optimizeJoinedFilters": False,
+                    "personsOnEventsMode": "disabled",
+                    "bounceRatePageViewMode": "count_pageviews",
+                    "sessionTableVersion": "auto",
                 },
                 "limit_context": "query",
                 "query": {"kind": "TestQuery", "some_attr": "bla"},
@@ -219,7 +219,7 @@ class TestQueryRunner(BaseTest):
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),
             team=self.team,
-            modifiers=HogQLQueryModifiers(materialization_mode=MaterializationMode.LEGACY_NULL_AS_STRING),
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING),
         )
         response = runner.calculate()
         assert response.clickhouse is not None
@@ -228,7 +228,7 @@ class TestQueryRunner(BaseTest):
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),
             team=self.team,
-            modifiers=HogQLQueryModifiers(materialization_mode=MaterializationMode.DISABLED),
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
         )
         response = runner.calculate()
         assert response.clickhouse is not None

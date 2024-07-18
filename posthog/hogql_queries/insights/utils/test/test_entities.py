@@ -84,10 +84,10 @@ testdata_equals = [
     # different fixed properties
     (
         EventsNode(
-            fixed_properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
+            fixedProperties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         EventsNode(
-            fixed_properties=[EventPropertyFilter(key="other_key", value="some_value", operator=PropertyOperator.EXACT)]
+            fixedProperties=[EventPropertyFilter(key="other_key", value="some_value", operator=PropertyOperator.EXACT)]
         ),
         False,
     ),

@@ -20,17 +20,17 @@ from posthog.schema import (
 
 class FunnelQueryContext(QueryContext):
     query: FunnelsQuery
-    funnels_filter: FunnelsFilter
-    breakdown_filter: BreakdownFilter
+    funnelsFilter: FunnelsFilter
+    breakdownFilter: BreakdownFilter
 
     interval: IntervalType
 
     breakdown: list[Union[str, int]] | str | int | None
     breakdownType: BreakdownType
-    breakdown_attribution_type: BreakdownAttributionType
+    breakdownAttributionType: BreakdownAttributionType
 
-    funnel_window_interval: int
-    funnel_window_interval_unit: FunnelConversionWindowTimeUnit
+    funnelWindowInterval: int
+    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
 
     actorsQuery: FunnelsActorsQuery | None
 

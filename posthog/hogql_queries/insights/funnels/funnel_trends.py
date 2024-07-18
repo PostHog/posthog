@@ -320,12 +320,12 @@ class FunnelTrends(FunnelBase):
         return ast.SelectQuery(select=select, select_from=select_from, where=where, group_by=group_by)
 
     def get_steps_reached_conditions(self) -> tuple[str, str, str]:
-        funnels_filter, max_steps = self.context.funnels_filter, self.context.max_steps
+        funnelsFilter, max_steps = self.context.funnels_filter, self.context.max_steps
 
         # How many steps must have been done to count for the denominator of a funnel trends data point
-        from_step = funnels_filter.funnel_from_step or 0
+        from_step = funnelsFilter.funnel_from_step or 0
         # How many steps must have been done to count for the numerator of a funnel trends data point
-        to_step = funnels_filter.funnel_to_step or max_steps - 1
+        to_step = funnelsFilter.funnel_to_step or max_steps - 1
 
         # Those who converted OR dropped off
         reached_from_step_count_condition = f"steps_completed >= {from_step + 1}"

@@ -73,12 +73,12 @@ class ReplaceFilters(CloningVisitor):
 
             timestamp_field = ast.Field(chain=["timestamp"]) if found_events else ast.Field(chain=["$start_timestamp"])
 
-            date_to = self.filters.date_range.date_to if self.filters.date_range else None
-            if date_to is not None:
+            dateTo = self.filters.date_range.date_to if self.filters.date_range else None
+            if dateTo is not None:
                 try:
-                    parsed_date = isoparse(date_to).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
                 except ValueError:
-                    parsed_date = relative_date_parse(date_to, self.team.timezone_info)
+                    parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Lt,
@@ -88,12 +88,12 @@ class ReplaceFilters(CloningVisitor):
                 )
 
             # limit to the last 30d by default
-            date_from = self.filters.date_range.date_from if self.filters.date_range else None
-            if date_from is not None and date_from != "all":
+            dateFrom = self.filters.date_range.date_from if self.filters.date_range else None
+            if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(date_from).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
                 except ValueError:
-                    parsed_date = relative_date_parse(date_from, self.team.timezone_info)
+                    parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,

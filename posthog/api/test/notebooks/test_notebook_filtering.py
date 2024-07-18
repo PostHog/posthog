@@ -46,7 +46,7 @@ QUERY_CONTENT = lambda id: {
     "attrs": {
         "query": {
             "kind": "SavedInsightNode",
-            "short_id": id or "insight_short_id",
+            "shortId": id or "insight_short_id",
         }
     },
 }

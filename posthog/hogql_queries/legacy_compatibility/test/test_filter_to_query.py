@@ -926,8 +926,8 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         self.assertEqual(
-            query.model_dump(exclude_defaults=True, by_alias=True),
-            {"breakdown_filter": {}, "date_range": {}, "series": [], "trends_filter": {}},
+            query.model_dump(exclude_defaults=True),
+            {"breakdownFilter": {}, "dateRange": {}, "series": [], "trendsFilter": {}},
         )
 
     def test_base_funnel(self):
@@ -1397,15 +1397,15 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.trends_filter,
             TrendsFilter(
-                smoothing_intervals=2,
-                aggregation_axis_format=AggregationAxisFormat.DURATION_MS,
-                aggregation_axis_prefix="pre",
-                aggregation_axis_postfix="post",
+                smoothingIntervals=2,
+                aggregationAxisFormat=AggregationAxisFormat.DURATION_MS,
+                aggregationAxisPrefix="pre",
+                aggregationAxisPostfix="post",
                 formula="A + B",
                 display=ChartDisplayType.ACTIONS_AREA_GRAPH,
-                decimal_places=5,
-                show_legend=True,
-                show_percent_stack_view=True,
+                decimalPlaces=5,
+                showLegend=True,
+                showPercentStackView=True,
             ),
         )
 
@@ -1462,30 +1462,30 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.funnels_filter,
             FunnelsFilter(
-                funnel_viz_type=FunnelVizType.STEPS,
-                funnel_from_step=1,
-                funnel_to_step=2,
-                funnel_window_interval_unit=FunnelConversionWindowTimeUnit.HOUR,
-                funnel_window_interval=13,
-                breakdown_attribution_type=BreakdownAttributionType.STEP,
-                breakdown_attribution_value=2,
-                funnel_order_type=StepOrderValue.STRICT,
+                funnelVizType=FunnelVizType.STEPS,
+                funnelFromStep=1,
+                funnelToStep=2,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.HOUR,
+                funnelWindowInterval=13,
+                breakdownAttributionType=BreakdownAttributionType.STEP,
+                breakdownAttributionValue=2,
+                funnelOrderType=StepOrderValue.STRICT,
                 exclusions=[
                     FunnelExclusionEventsNode(
                         event="$pageview",
                         name="$pageview",
-                        funnel_from_step=1,
-                        funnel_to_step=2,
+                        funnelFromStep=1,
+                        funnelToStep=2,
                     ),
                     FunnelExclusionActionsNode(
                         id=3,
                         name="Some action",
-                        funnel_from_step=1,
-                        funnel_to_step=2,
+                        funnelFromStep=1,
+                        funnelToStep=2,
                     ),
                 ],
-                bin_count=15,
-                funnel_aggregate_by_hog_q_l="person_id",
+                binCount=15,
+                funnelAggregateByHogQL="person_id",
                 # funnel_step_reference=FunnelStepReference.previous,
             ),
         )
@@ -1512,24 +1512,24 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.retention_filter,
             RetentionFilter(
-                retention_type=RetentionType.RETENTION_FIRST_TIME,
-                total_intervals=12,
+                retentionType=RetentionType.RETENTION_FIRST_TIME,
+                totalIntervals=12,
                 period=RetentionPeriod.WEEK,
-                returning_entity={
+                returningEntity={
                     "id": "$pageview",
                     "name": "$pageview",
                     "type": "events",
                     "custom_name": None,
                     "order": None,
                 },
-                target_entity={
+                targetEntity={
                     "id": "$pageview",
                     "name": "$pageview",
                     "type": "events",
                     "custom_name": None,
                     "order": None,
                 },
-                show_mean=True,
+                showMean=True,
             ),
         )
 
@@ -1574,37 +1574,37 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.paths_filter,
             PathsFilter(
-                include_event_types=[PathType.FIELD_PAGEVIEW, PathType.HOGQL],
-                paths_hog_q_l_expression="event",
-                start_point="http://localhost:8000/events",
-                end_point="http://localhost:8000/home",
-                edge_limit=50,
-                min_edge_weight=10,
-                max_edge_weight=20,
-                local_path_cleaning_filters=[
+                includeEventTypes=[PathType.FIELD_PAGEVIEW, PathType.HOGQL],
+                pathsHogQLExpression="event",
+                startPoint="http://localhost:8000/events",
+                endPoint="http://localhost:8000/home",
+                edgeLimit=50,
+                minEdgeWeight=10,
+                maxEdgeWeight=20,
+                localPathCleaningFilters=[
                     PathCleaningFilter(alias="merchant", regex="\\/merchant\\/\\d+\\/dashboard$")
                 ],
-                path_replacements=True,
-                exclude_events=["http://localhost:8000/events"],
-                step_limit=5,
-                path_groupings=["/merchant/*/payment"],
+                pathReplacements=True,
+                excludeEvents=["http://localhost:8000/events"],
+                stepLimit=5,
+                pathGroupings=["/merchant/*/payment"],
             ),
         )
         self.assertEqual(
             query.funnel_paths_filter,
             FunnelPathsFilter(
-                funnel_path_type=FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS,
-                funnel_source=FunnelsQuery(
+                funnelPathType=FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS,
+                funnelSource=FunnelsQuery(
                     series=[
                         EventsNode(event="$pageview", name="$pageview"),
                         EventsNode(event=None, name="All events"),
                     ],
-                    filter_test_accounts=True,
-                    funnels_filter=FunnelsFilter(funnel_viz_type=FunnelVizType.STEPS, exclusions=[]),
-                    breakdown_filter=BreakdownFilter(),
-                    date_range=InsightDateRange(),
+                    filterTestAccounts=True,
+                    funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.STEPS, exclusions=[]),
+                    breakdownFilter=BreakdownFilter(),
+                    dateRange=InsightDateRange(),
                 ),
-                funnel_step=2,
+                funnelStep=2,
             ),
         )
 
@@ -1621,7 +1621,7 @@ class TestFilterToQuery(BaseTest):
         assert isinstance(query, StickinessQuery)
         self.assertEqual(
             query.stickiness_filter,
-            StickinessFilter(show_legend=True, show_values_on_series=True),
+            StickinessFilter(showLegend=True, showValuesOnSeries=True),
         )
 
     def test_lifecycle_filter(self):
@@ -1629,7 +1629,7 @@ class TestFilterToQuery(BaseTest):
             "insight": "LIFECYCLE",
             "shown_as": "Lifecycle",
             "show_values_on_series": True,
-            "toggled_lifecycles": ["new", "dormant"],
+            "toggledLifecycles": ["new", "dormant"],
         }
 
         query = filter_to_query(filter)
@@ -1638,8 +1638,8 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.lifecycle_filter,
             LifecycleFilter(
-                show_values_on_series=True,
-                toggled_lifecycles=[LifecycleToggle.NEW, LifecycleToggle.DORMANT],
+                showValuesOnSeries=True,
+                toggledLifecycles=[LifecycleToggle.NEW, LifecycleToggle.DORMANT],
             ),
         )
 

@@ -21,4 +21,4 @@ def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> d
         capture_exception()
         return query
     query_runner.apply_dashboard_filters(DashboardFilter(**filters))
-    return query_runner.query.model_dump()
+    return query_runner.query.model_dump(by_alias=True)

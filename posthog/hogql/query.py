@@ -180,7 +180,9 @@ def execute_hogql_query(
                 has_joins="JOIN" in clickhouse_sql,
                 has_json_operations="JSONExtract" in clickhouse_sql or "JSONHas" in clickhouse_sql,
                 timings=timings_dict,
-                modifiers={k: v for k, v in modifiers.model_dump().items() if v is not None} if modifiers else {},
+                modifiers={k: v for k, v in modifiers.model_dump(by_alias=True).items() if v is not None}
+                if modifiers
+                else {},
             )
 
             try:

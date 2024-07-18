@@ -218,7 +218,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             hogql=hogql,
             columns=response.columns,
             types=response.types,
-            has_more=response.has_more,
+            hasMore=response.has_more,
             limit=response.limit,
             offset=response.offset,
             modifiers=self.modifiers,

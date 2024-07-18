@@ -60,7 +60,7 @@ class Command(BaseCommand):
                 continue
             try:
                 query = filter_to_query(insight.filters)
-                modifiers = HogQLQueryModifiers(materialization_mode=MaterializationMode.LEGACY_NULL_AS_STRING)
+                modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
                 query_runner = get_query_runner(query, insight.team, modifiers=modifiers)
                 hogql_results = cast(HogQLQueryResponse, query_runner.calculate()).results or []
             except Exception as e:

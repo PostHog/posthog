@@ -73,7 +73,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def test_column_names(self):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            date_range=InsightDateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview", math=BaseMathType.TOTAL)],
         )
 
@@ -85,9 +85,9 @@ class TestTrendsQueryBuilder(BaseTest):
     def assert_column_names_with_display_type(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            date_range=InsightDateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
-            trends_filter=TrendsFilter(display=display_type),
+            trendsFilter=TrendsFilter(display=display_type),
         )
 
         response = self.get_response(trends_query)
@@ -98,10 +98,10 @@ class TestTrendsQueryBuilder(BaseTest):
     def assert_column_names_with_display_type_and_breakdowns(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            date_range=InsightDateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
-            trends_filter=TrendsFilter(display=display_type),
-            breakdown_filter=BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.EVENT),
+            trendsFilter=TrendsFilter(display=display_type),
+            breakdownFilter=BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.EVENT),
         )
 
         response = self.get_response(trends_query)

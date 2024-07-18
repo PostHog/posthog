@@ -15,7 +15,7 @@ from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 from posthog.temporal.common.client import sync_connect
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-SAMPLE_PAYLOAD = {"date_range": ["2021-06-10", "2022-06-12"], "parallelism": 1}
+SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 
 
 @freeze_time("2021-12-05T13:23:00Z")

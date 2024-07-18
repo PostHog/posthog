@@ -74,21 +74,21 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
 
 class TestRetention(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query):
-        if not query.get("retention_filter"):
-            query["retention_filter"] = {}
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
         runner = RetentionQueryRunner(team=self.team, query=query)
-        return runner.calculate().model_dump()["results"]
+        return runner.calculate().model_dump(by_alias=True)["results"]
 
     def run_actors_query(self, interval, query, select=None, search=None):
         query["kind"] = "RetentionQuery"
-        if not query.get("retention_filter"):
-            query["retention_filter"] = {}
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
         runner = ActorsQueryRunner(
             team=self.team,
             query={
                 "search": search,
                 "select": ["person", "appearances", *(select or [])],
-                "order_by": ["length(appearances) DESC", "actor_id"],
+                "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
                     "kind": "InsightActorsQuery",
                     "interval": interval,
@@ -96,7 +96,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        return runner.calculate().model_dump()["results"]
+        return runner.calculate().model_dump(by_alias=True)["results"]
 
     def test_retention_default(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -157,7 +157,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.run_query(query={"date_range": {"date_to": _date(10, hour=6)}})
+        result = self.run_query(query={"dateRange": {"date_to": _date(10, hour=6)}})
         self.assertEqual(len(result), 11)
         self.assertEqual(
             pluck(result, "label"),
@@ -226,10 +226,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(15, month=5, hour=0)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(15, month=5, hour=0)},
+                "retentionFilter": {
                     "period": "Month",
-                    "total_intervals": 11,
+                    "totalIntervals": 11,
                 },
             }
         )
@@ -400,10 +400,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(0, month=5, hour=0)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(0, month=5, hour=0)},
+                "retentionFilter": {
                     "period": "Month",
-                    "total_intervals": 11,
+                    "totalIntervals": 11,
                 },
             }
         )
@@ -493,10 +493,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # Starting with Sunday
         query = {
-            "date_range": {"date_to": _date(10, month=1, hour=0)},
-            "retention_filter": {
+            "dateRange": {"date_to": _date(10, month=1, hour=0)},
+            "retentionFilter": {
                 "period": "Week",
-                "total_intervals": 7,
+                "totalIntervals": 7,
             },
         }
         result_sunday = self.run_query(query=query)
@@ -601,10 +601,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(0, hour=16, minute=13)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(0, hour=16, minute=13)},
+                "retentionFilter": {
                     "period": "Hour",
-                    "total_intervals": 11,
+                    "totalIntervals": 11,
                 },
             }
         )
@@ -693,10 +693,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(14, month=1, hour=0)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(14, month=1, hour=0)},
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
+                    "totalIntervals": 7,
                 },
             }
         )
@@ -754,10 +754,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
-                "retention_filter": {
-                    "target_entity": {"id": None, "name": "All events"},
-                    "returning_entity": {"id": "$pageview", "type": "events"},
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": None, "name": "All events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
                 },
             }
         )
@@ -789,10 +789,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
-                "retention_filter": {
-                    "target_entity": {"id": action.id, "type": TREND_FILTER_TYPE_ACTIONS},
-                    "returning_entity": {"id": "$pageview", "type": "events"},
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": action.id, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
                 },
             }
         )
@@ -837,7 +837,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result = self.run_actors_query(
             interval=0,
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
+                "dateRange": {"date_to": _date(10, hour=6)},
             },
         )
         self.assertEqual(len(result), 1, result)
@@ -847,7 +847,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result_2 = self.run_actors_query(
             interval=0,
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
+                "dateRange": {"date_to": _date(10, hour=6)},
             },
             select=["day_0", "day_1", "day_2", "day_3", "day_4"],
         )
@@ -865,11 +865,11 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result = self.run_actors_query(
             interval=0,
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
-                "retention_filter": {
-                    "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
-                    "returning_entity": {"id": "$pageview", "type": "events"},
-                    "retention_type": RETENTION_FIRST_TIME,
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "retentionType": RETENTION_FIRST_TIME,
                 },
             },
         )
@@ -880,11 +880,11 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result = self.run_actors_query(
             interval=0,
             query={
-                "date_range": {"date_to": _date(14, hour=6)},
-                "retention_filter": {
-                    "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
-                    "returning_entity": {"id": "$pageview", "type": "events"},
-                    "retention_type": RETENTION_FIRST_TIME,
+                "dateRange": {"date_to": _date(14, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "retentionType": RETENTION_FIRST_TIME,
                 },
             },
         )
@@ -950,7 +950,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result = self.run_actors_query(
             interval=2,
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
+                "dateRange": {"date_to": _date(10, hour=6)},
             },
         )
 
@@ -993,7 +993,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result = self.run_actors_query(
             interval=2,
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
+                "dateRange": {"date_to": _date(10, hour=6)},
             },
             search="test",
         )
@@ -1005,11 +1005,11 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result = self.run_actors_query(
             interval=0,
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
-                "retention_filter": {
-                    "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
-                    "returning_entity": {"id": "$pageview", "type": "events"},
-                    "retention_type": RETENTION_FIRST_TIME,
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "retentionType": RETENTION_FIRST_TIME,
                 },
             },
         )
@@ -1048,12 +1048,12 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(6, hour=6)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(6, hour=6)},
+                "retentionFilter": {
                     "period": "Day",
-                    "total_intervals": 7,
-                    "target_entity": {"id": first_event, "name": first_event, "type": TREND_FILTER_TYPE_EVENTS},
-                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": first_event, "name": first_event, "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
                 },
             }
         )
@@ -1106,12 +1106,12 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(6, hour=6)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(6, hour=6)},
+                "retentionFilter": {
                     "period": "Day",
-                    "total_intervals": 7,
-                    "target_entity": {"id": None, "type": "events"},
-                    "returning_entity": {"id": None, "type": "events"},
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": None, "type": "events"},
+                    "returningEntity": {"id": None, "type": "events"},
                 },
             }
         )
@@ -1158,15 +1158,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(6, hour=0)},
-                "retention_filter": {
-                    "total_intervals": 7,
-                    "target_entity": {
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {
                         "id": action.pk,
                         "name": action.name,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
-                    "returning_entity": {
+                    "returningEntity": {
                         "id": some_event,
                         "name": some_event,
                         "type": TREND_FILTER_TYPE_EVENTS,
@@ -1200,17 +1200,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(5, hour=6)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
                     "period": "Day",
-                    "total_intervals": 7,
-                    "retention_type": RETENTION_FIRST_TIME,
-                    "target_entity": {
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_TIME,
+                    "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
                         "type": TREND_FILTER_TYPE_EVENTS,
                     },
-                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
                 },
             }
         )
@@ -1239,17 +1239,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(5, hour=6)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
-                    "retention_type": RETENTION_FIRST_TIME,
-                    "target_entity": {
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_TIME,
+                    "targetEntity": {
                         "id": "$user_signed_up",
                         "name": "$user_signed_up",
                         "type": TREND_FILTER_TYPE_EVENTS,
                     },
-                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
                 },
             }
         )
@@ -1291,7 +1291,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, hour=0)},
+                "dateRange": {"date_to": _date(10, hour=0)},
                 "properties": {
                     "type": "AND",
                     "values": [
@@ -1375,7 +1375,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(6, hour=0)},
+                "dateRange": {"date_to": _date(6, hour=0)},
                 "properties": {
                     "type": "AND",
                     "values": [
@@ -1392,8 +1392,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-                "retention_filter": {
-                    "total_intervals": 7,
+                "retentionFilter": {
+                    "totalIntervals": 7,
                 },
             }
         )
@@ -1459,11 +1459,11 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(6, hour=0)},
-                "retention_filter": {
-                    "total_intervals": 7,
-                    "target_entity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
-                    "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
                 },
             }
         )
@@ -1509,12 +1509,12 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(6, hour=0)},
-                "retention_filter": {
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
                     "period": "Day",
-                    "total_intervals": 7,
-                    "target_entity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
-                    "returning_entity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": action.pk, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS},
                 },
             }
         )
@@ -1565,8 +1565,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
-                "filter_test_accounts": True,
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "filterTestAccounts": True,
             }
         )
         self.assertEqual(len(result), 11)
@@ -1680,12 +1680,12 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        result = self.run_query(query={"date_range": {"date_to": _date(10, hour=6)}})
+        result = self.run_query(query={"dateRange": {"date_to": _date(10, hour=6)}})
 
         self.team.timezone = "US/Pacific"
         self.team.save()
 
-        result_pacific = self.run_query(query={"date_range": {"date_to": _date(10, hour=6)}})
+        result_pacific = self.run_query(query={"dateRange": {"date_to": _date(10, hour=6)}})
 
         self.assertEqual(
             pluck(result_pacific, "label"),
@@ -1768,8 +1768,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, hour=6)},
-                "sampling_factor": 1,
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "samplingFactor": 1,
             }
         )
         self.assertEqual(len(result), 11)
@@ -1811,20 +1811,20 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
-        if not query.get("retention_filter"):
-            query["retention_filter"] = {}
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
         runner = RetentionQueryRunner(team=self.team, query=query, limit_context=limit_context)
-        return runner.calculate().model_dump()["results"]
+        return runner.calculate().model_dump(by_alias=True)["results"]
 
     def run_actors_query(self, interval, query, select=None, actor="person"):
         query["kind"] = "RetentionQuery"
-        if not query.get("retention_filter"):
-            query["retention_filter"] = {}
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
         runner = ActorsQueryRunner(
             team=self.team,
             query={
                 "select": [actor, "appearances", *(select or [])],
-                "order_by": ["length(appearances) DESC", "actor_id"],
+                "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
                     "kind": "InsightActorsQuery",
                     "interval": interval,
@@ -1832,7 +1832,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                 },
             },
         )
-        return runner.calculate().model_dump()["results"]
+        return runner.calculate().model_dump(by_alias=True)["results"]
 
     def _create_groups_and_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -1901,11 +1901,11 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, month=1, hour=0)},
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
                 "aggregation_group_type_index": 0,
-                "retention_filter": {
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
+                    "totalIntervals": 7,
                 },
             }
         )
@@ -1925,11 +1925,11 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         actor_result = self.run_actors_query(
             interval=0,
             query={
-                "date_range": {"date_to": _date(10, month=1, hour=0)},
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
                 "aggregation_group_type_index": 0,
-                "retention_filter": {
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
+                    "totalIntervals": 7,
                 },
             },
             actor="group",
@@ -1938,11 +1938,11 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, month=1, hour=0)},
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
                 "aggregation_group_type_index": 1,
-                "retention_filter": {
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
+                    "totalIntervals": 7,
                 },
             }
         )
@@ -1965,11 +1965,11 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         actor_result = self.run_actors_query(
             interval=0,
             query={
-                "date_range": {"date_to": _date(10, month=1, hour=0)},
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
                 "aggregation_group_type_index": 0,
-                "retention_filter": {
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
+                    "totalIntervals": 7,
                 },
             },
             actor="group",
@@ -1987,11 +1987,11 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, month=1, hour=0)},
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
                 "aggregation_group_type_index": 0,
-                "retention_filter": {
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
+                    "totalIntervals": 7,
                 },
             }
         )
@@ -2011,11 +2011,11 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         actor_result = self.run_actors_query(
             interval=0,
             query={
-                "date_range": {"date_to": _date(10, month=1, hour=0)},
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
                 "aggregation_group_type_index": 0,
-                "retention_filter": {
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
+                    "totalIntervals": 7,
                 },
             },
             actor="group",
@@ -2025,11 +2025,11 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "date_range": {"date_to": _date(10, month=1, hour=0)},
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
                 "aggregation_group_type_index": 1,
-                "retention_filter": {
+                "retentionFilter": {
                     "period": "Week",
-                    "total_intervals": 7,
+                    "totalIntervals": 7,
                 },
             }
         )

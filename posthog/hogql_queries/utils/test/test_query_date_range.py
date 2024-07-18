@@ -97,7 +97,7 @@ class TestQueryDateRange(APIBaseTest):
     def test_date_to_explicit(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
         date_range = InsightDateRange(
-            date_from="2021-02-25T12:25:23.000Z", date_to="2021-04-25T10:59:23.000Z", explicit_date=True
+            date_from="2021-02-25T12:25:23.000Z", date_to="2021-04-25T10:59:23.000Z", explicitDate=True
         )
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
 
@@ -106,7 +106,7 @@ class TestQueryDateRange(APIBaseTest):
 
     def test_yesterday(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = InsightDateRange(date_from="-1dStart", date_to="-1dEnd", explicit_date=False)
+        date_range = InsightDateRange(date_from="-1dStart", date_to="-1dEnd", explicitDate=False)
 
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.HOUR, now=now)
 

@@ -872,7 +872,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             )
             return response
 
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
+        result["timings"] = [val.model_dump(by_alias=True) for val in timings.to_list()]
 
         return Response({**result, "next": next})
 
@@ -924,7 +924,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             raise ValidationError(str(e))
 
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
-        funnel["timings"] = [val.model_dump() for val in timings.to_list()]
+        funnel["timings"] = [val.model_dump(by_alias=True) for val in timings.to_list()]
 
         return Response(funnel)
 
@@ -965,7 +965,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
 
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
+        result["timings"] = [val.model_dump(by_alias=True) for val in timings.to_list()]
         return Response(result)
 
     @cached_by_filters
@@ -995,7 +995,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         except ExposedHogQLError as e:
             raise ValidationError(str(e))
 
-        result["timings"] = [val.model_dump() for val in timings.to_list()]
+        result["timings"] = [val.model_dump(by_alias=True) for val in timings.to_list()]
         return Response(result)
 
     @cached_by_filters

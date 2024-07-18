@@ -149,7 +149,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
-                    "paths_filter": {},  # Not actually possible in frontend?!?
+                    "pathsFilter": {},  # Not actually possible in frontend?!?
                 },
                 team=self.team,
             ).run()
@@ -177,10 +177,10 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
-                    "date_range": {
+                    "dateRange": {
                         "date_from": date_from.strftime("%Y-%m-%d"),
                     },
-                    "paths_filter": {},
+                    "pathsFilter": {},
                 },
                 team=self.team,
             ).run()
@@ -192,10 +192,10 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
-                    "date_range": {
+                    "dateRange": {
                         "date_to": date_to.strftime("%Y-%m-%d"),
                     },
-                    "paths_filter": {},
+                    "pathsFilter": {},
                 },
                 team=self.team,
             ).run()
@@ -207,10 +207,10 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
-                    "date_range": {
+                    "dateRange": {
                         "date_from": date_from.strftime("%Y-%m-%d"),
                     },
-                    "paths_filter": {},
+                    "pathsFilter": {},
                 },
                 team=self.team,
             ).run()
@@ -222,10 +222,10 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
-                    "date_range": {
+                    "dateRange": {
                         "date_to": date_to.strftime("%Y-%m-%d"),
                     },
-                    "paths_filter": {},
+                    "pathsFilter": {},
                 },
                 team=self.team,
             ).run()
@@ -239,11 +239,11 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
-                    "date_range": {
+                    "dateRange": {
                         "date_from": date_from.strftime("%Y-%m-%d"),
                         "date_to": date_to.strftime("%Y-%m-%d"),
                     },
-                    "paths_filter": {},
+                    "pathsFilter": {},
                 },
                 team=self.team,
             ).run()
@@ -254,12 +254,12 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
-                    "date_range": {
+                    "dateRange": {
                         "date_from": date_from.strftime("%Y-%m-%d"),
                         "date_to": date_to.strftime("%Y-%m-%d"),
                     },
-                    "filter_test_accounts": True,
-                    "paths_filter": {},
+                    "filterTestAccounts": True,
+                    "pathsFilter": {},
                 },
                 team=self.team,
             ).run()
@@ -272,11 +272,11 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
-                    "date_range": {
+                    "dateRange": {
                         "date_from": date_from.strftime("%Y-%m-%d"),
                         "date_to": date_to.strftime("%Y-%m-%d"),
                     },
-                    "paths_filter": {},
+                    "pathsFilter": {},
                 },
                 team=self.team,
             ).run()
@@ -374,8 +374,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         r = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "paths_filter": {
-                    "include_event_types": ["custom_event"],
+                "pathsFilter": {
+                    "includeEventTypes": ["custom_event"],
                 },
             },
             team=self.team,
@@ -489,9 +489,9 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         r = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "paths_filter": {
-                    "include_event_types": ["hogql"],
-                    "paths_hog_q_l_expression": "event || properties.a",
+                "pathsFilter": {
+                    "includeEventTypes": ["hogql"],
+                    "pathsHogQLExpression": "event || properties.a",
                 },
             },
             team=self.team,
@@ -597,8 +597,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         r = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "paths_filter": {
-                    "include_event_types": ["$screen"],
+                "pathsFilter": {
+                    "includeEventTypes": ["$screen"],
                 },
             },
             team=self.team,
@@ -704,7 +704,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         r = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "paths_filter": {},
+                "pathsFilter": {},
                 "properties": {
                     "type": "AND",
                     "values": [
@@ -862,8 +862,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         r = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "paths_filter": {
-                    "start_point": "/pricing",
+                "pathsFilter": {
+                    "startPoint": "/pricing",
                 },
             },
             team=self.team,
@@ -883,8 +883,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         result = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "paths_filter": {
-                    "start_point": "/pricing/",
+                "pathsFilter": {
+                    "startPoint": "/pricing/",
                 },
             },
             team=self.team,
@@ -904,8 +904,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         result = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "paths_filter": {
-                    "start_point": "/",
+                "pathsFilter": {
+                    "startPoint": "/",
                 },
             },
             team=self.team,
@@ -964,10 +964,10 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         result = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "date_range": {
+                "dateRange": {
                     "date_from": date_from,
                 },
-                "paths_filter": {},
+                "pathsFilter": {},
             },
             team=self.team,
         ).run()

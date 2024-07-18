@@ -75,7 +75,7 @@ class HogQLHasMorePaginator:
 
     def response_params(self):
         return {
-            "has_more": self.has_more(),
+            "hasMore": self.has_more(),
             "limit": self.limit,
             "offset": self.offset,
         }

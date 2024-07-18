@@ -51,9 +51,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         compare: bool = True,
         limit_context: Optional[LimitContext] = None,
     ):
-        modifiers = HogQLQueryModifiers(session_table_version=session_table_version)
+        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebOverviewQuery(
-            date_range=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
             compare=compare,
             modifiers=modifiers,

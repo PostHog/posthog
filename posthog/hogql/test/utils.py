@@ -38,7 +38,7 @@ def pretty_dataclasses(obj, seen=None, indent=0):
     next_indent = " " * (indent + 2)
 
     if isinstance(obj, BaseModel):
-        obj = obj.model_dump()
+        obj = obj.model_dump(by_alias=True)
 
     if dataclasses.is_dataclass(obj):
         obj_id = id(obj)

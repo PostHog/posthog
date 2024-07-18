@@ -834,7 +834,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         assert (
             response["detail"]
-            == "The ID provided does not look like a personID. If you are using a distinct_id, please use /persons?distinct_id=NOT_A_UUID instead."
+            == "The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id=NOT_A_UUID instead."
         )
 
     @patch("posthog.api.person.PersonsThrottle.rate", new="6/minute")

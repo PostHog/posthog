@@ -55,23 +55,23 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     def _get_events_for_filters(
         self,
         filters,
-        funnel_correlation_type=FunnelCorrelationResultsType.EVENTS,
-        funnel_correlation_names=None,
-        funnel_correlation_exclude_names=None,
-        funnel_correlation_exclude_event_names=None,
-        funnel_correlation_event_names=None,
-        funnel_correlation_event_exclude_property_names=None,
+        funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
+        funnelCorrelationNames=None,
+        funnelCorrelationExcludeNames=None,
+        funnelCorrelationExcludeEventNames=None,
+        funnelCorrelationEventNames=None,
+        funnelCorrelationEventExcludePropertyNames=None,
     ):
         funnels_query = cast(FunnelsQuery, filter_to_query(filters))
         actors_query = FunnelsActorsQuery(source=funnels_query)
         correlation_query = FunnelCorrelationQuery(
             source=actors_query,
-            funnel_correlation_type=funnel_correlation_type,
-            funnel_correlation_names=funnel_correlation_names,
-            funnel_correlation_exclude_names=funnel_correlation_exclude_names,
-            funnel_correlation_exclude_event_names=funnel_correlation_exclude_event_names,
-            funnel_correlation_event_names=funnel_correlation_event_names,
-            funnel_correlation_event_exclude_property_names=funnel_correlation_event_exclude_property_names,
+            funnelCorrelationType=funnelCorrelationType,
+            funnelCorrelationNames=funnelCorrelationNames,
+            funnelCorrelationExcludeNames=funnelCorrelationExcludeNames,
+            funnelCorrelationExcludeEventNames=funnelCorrelationExcludeEventNames,
+            funnelCorrelationEventNames=funnelCorrelationEventNames,
+            funnelCorrelationEventExcludePropertyNames=funnelCorrelationEventExcludePropertyNames,
         )
         result, skewed_totals, _, _ = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate()
         return result, skewed_totals
@@ -80,15 +80,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnel_correlation_person_converted=success,
-            funnel_correlation_person_entity=EventsNode(event=event_name, properties=properties),
+            funnelCorrelationPersonConverted=success,
+            funnelCorrelationPersonEntity=EventsNode(event=event_name, properties=properties),
         )
         return [str(row[0]) for row in serialized_actors]
 
     def _get_actors_for_property(
-        self, filters: dict[str, Any], property_values: list, success=True, funnel_correlation_names=None
+        self, filters: dict[str, Any], property_values: list, success=True, funnelCorrelationNames=None
     ):
-        funnel_correlation_property_values = [
+        funnelCorrelationPropertyValues = [
             (
                 PersonPropertyFilter(key=prop, value=value, operator=PropertyOperator.EXACT)
                 if type == "person"
@@ -102,10 +102,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         serialized_actors = get_actors(
             filters,
             self.team,
-            funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
-            funnel_correlation_names=funnel_correlation_names,
-            funnel_correlation_person_converted=success,
-            funnel_correlation_property_values=funnel_correlation_property_values,
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+            funnelCorrelationNames=funnelCorrelationNames,
+            funnelCorrelationPersonConverted=success,
+            funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
         )
         return [str(row[0]) for row in serialized_actors]
 
@@ -158,7 +158,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
-        result, _ = self._get_events_for_filters(filters, funnel_correlation_type=FunnelCorrelationResultsType.EVENTS)
+        result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [11, 1 / 11]
@@ -200,8 +200,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # Now exclude positively_related
         result, _ = self._get_events_for_filters(
             filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.EVENTS,
-            funnel_correlation_exclude_event_names=["positively_related"],
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
+            funnelCorrelationExcludeEventNames=["positively_related"],
         )
 
         odds_ratio = result[0].pop("odds_ratio")
@@ -417,7 +417,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "aggregation_group_type_index": 0,
         }
 
-        result, _ = self._get_events_for_filters(filters, funnel_correlation_type=FunnelCorrelationResultsType.EVENTS)
+        result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [12 / 7, 1 / 11]
@@ -585,9 +585,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         result, _ = self._get_events_for_filters(
-            filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
-            funnel_correlation_names=["$browser"],
+            filters, funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES, funnelCorrelationNames=["$browser"]
         )
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
@@ -634,7 +632,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             len(
                 self._get_actors_for_property(
-                    filters, [("$browser", "Positive", "person", None)], funnel_correlation_names=["$browser"]
+                    filters, [("$browser", "Positive", "person", None)], funnelCorrelationNames=["$browser"]
                 )
             ),
             10,
@@ -642,7 +640,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             len(
                 self._get_actors_for_property(
-                    filters, [("$browser", "Positive", "person", None)], False, funnel_correlation_names=["$browser"]
+                    filters, [("$browser", "Positive", "person", None)], False, funnelCorrelationNames=["$browser"]
                 )
             ),
             1,
@@ -650,7 +648,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             len(
                 self._get_actors_for_property(
-                    filters, [("$browser", "Negative", "person", None)], funnel_correlation_names=["$browser"]
+                    filters, [("$browser", "Negative", "person", None)], funnelCorrelationNames=["$browser"]
                 )
             ),
             1,
@@ -658,7 +656,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             len(
                 self._get_actors_for_property(
-                    filters, [("$browser", "Negative", "person", None)], False, funnel_correlation_names=["$browser"]
+                    filters, [("$browser", "Negative", "person", None)], False, funnelCorrelationNames=["$browser"]
                 )
             ),
             10,
@@ -786,9 +784,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         result, _ = self._get_events_for_filters(
-            filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
-            funnel_correlation_names=["industry"],
+            filters, funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES, funnelCorrelationNames=["industry"]
         )
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
@@ -835,7 +831,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             len(
                 self._get_actors_for_property(
-                    filters, [("industry", "positive", "group", 0)], funnel_correlation_names=["industry"]
+                    filters, [("industry", "positive", "group", 0)], funnelCorrelationNames=["industry"]
                 )
             ),
             10,
@@ -856,7 +852,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # test with `$all` as property
         # _run property correlation with filter on all properties
         new_result, _ = self._get_events_for_filters(
-            filters, funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES, funnel_correlation_names=["$all"]
+            filters, funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES, funnelCorrelationNames=["$all"]
         )
 
         odds_ratios = [item.pop("odds_ratio") for item in new_result]
@@ -992,8 +988,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             result, _ = self._get_events_for_filters(
                 filters,
-                funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
-                funnel_correlation_names=["industry"],
+                funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+                funnelCorrelationNames=["industry"],
             )
 
             odds_ratios = [item.pop("odds_ratio") for item in result]
@@ -1058,8 +1054,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             # _run property correlation with filter on all properties
             new_result, _ = self._get_events_for_filters(
                 filters,
-                funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
-                funnel_correlation_names=["$all"],
+                funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+                funnelCorrelationNames=["$all"],
             )
 
             odds_ratios = [item.pop("odds_ratio") for item in new_result]
@@ -1196,15 +1192,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValidationError):
             self._get_events_for_filters(
                 filters,
-                funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
-                # funnel_correlation_names=["$browser"] -- missing
+                funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+                # funnelCorrelationNames=["$browser"] -- missing
             )
 
         with self.assertRaises(ValidationError):
             self._get_events_for_filters(
                 filters,
-                funnel_correlation_type=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
-                # "funnel_correlation_event_names": ["rick"] -- missing
+                funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+                # "funnelCorrelationEventNames": ["rick"] -- missing
             )
 
     @also_test_with_materialized_columns(
@@ -1309,8 +1305,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters(
             filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
-            funnel_correlation_names=["$browser", "$nice"],
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+            funnelCorrelationNames=["$browser", "$nice"],
         )
 
         # Success Total = 5 + 10 + 1 = 16
@@ -1380,7 +1376,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # _run property correlation with filter on all properties
         new_result, _ = self._get_events_for_filters(
-            filters, funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES, funnel_correlation_names=["$all"]
+            filters, funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES, funnelCorrelationNames=["$all"]
         )
 
         odds_ratios = [item.pop("odds_ratio") for item in new_result]
@@ -1399,9 +1395,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # search for $all but exclude $browser
         new_result, _ = self._get_events_for_filters(
             filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.PROPERTIES,
-            funnel_correlation_names=["$all"],
-            funnel_correlation_exclude_names=["$browser"],
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+            funnelCorrelationNames=["$all"],
+            funnelCorrelationExcludeNames=["$browser"],
         )
 
         odds_ratios = [item.pop("odds_ratio") for item in new_result]
@@ -1417,7 +1413,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             len(
                 self._get_actors_for_property(
-                    filters, [("$nice", "not", "person", None)], funnel_correlation_names=["$browser", "$nice"]
+                    filters, [("$nice", "not", "person", None)], funnelCorrelationNames=["$browser", "$nice"]
                 )
             ),
             10,
@@ -1425,7 +1421,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # self.assertEqual(
         #     len(
         #         self._get_actors_for_property(
-        #             filters, [("$nice", "", "person", None)], False, funnel_correlation_names=["$browser", "$nice"]
+        #             filters, [("$nice", "", "person", None)], False, funnelCorrelationNames=["$browser", "$nice"]
         #         )
         #     ),
         #     1,
@@ -1433,7 +1429,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             len(
                 self._get_actors_for_property(
-                    filters, [("$nice", "very", "person", None)], funnel_correlation_names=["$browser", "$nice"]
+                    filters, [("$nice", "very", "person", None)], funnelCorrelationNames=["$browser", "$nice"]
                 )
             ),
             5,
@@ -1509,7 +1505,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # Discard both due to %
         FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.11
         FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 25
-        result, _ = self._get_events_for_filters(filters, funnel_correlation_type=FunnelCorrelationResultsType.EVENTS)
+        result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
         self.assertEqual(len(result), 2)
 
@@ -1560,7 +1556,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T14:15:00Z",  # event happened outside conversion window
         )
 
-        result, _ = self._get_events_for_filters(filters, funnel_correlation_type=FunnelCorrelationResultsType.EVENTS)
+        result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [4]
@@ -1640,8 +1636,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters(
             filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
-            funnel_correlation_event_names=[
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+            funnelCorrelationEventNames=[
                 "positively_related",
                 "negatively_related",
             ],
@@ -1806,8 +1802,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters(
             filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
-            funnel_correlation_event_names=[
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+            funnelCorrelationEventNames=[
                 "positively_related",
                 "negatively_related",
             ],
@@ -1891,9 +1887,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters(
             filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
-            funnel_correlation_event_names=["positively_related"],
-            funnel_correlation_event_exclude_property_names=["signup_source"],
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+            funnelCorrelationEventNames=["positively_related"],
+            funnelCorrelationEventExcludePropertyNames=["signup_source"],
         )
 
         self.assertEqual(
@@ -1999,8 +1995,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters(
             filters,
-            funnel_correlation_type=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
-            funnel_correlation_event_names=["$autocapture"],
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+            funnelCorrelationEventNames=["$autocapture"],
         )
 
         # $autocapture results only return elements chain

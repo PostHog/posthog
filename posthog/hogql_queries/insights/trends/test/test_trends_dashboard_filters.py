@@ -40,14 +40,14 @@ class TestTrendsDashboardFilters(BaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            date_range=InsightDateRange(date_from=date_from, date_to=date_to, explicit_date=explicit_date),
+            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
             series=query_series,
-            trends_filter=trends_filters,
-            breakdown_filter=breakdown,
-            filter_test_accounts=filter_test_accounts,
+            trendsFilter=trends_filters,
+            breakdownFilter=breakdown,
+            filterTestAccounts=filter_test_accounts,
             properties=properties,
-            compare_filter=compare_filters,
+            compareFilter=compare_filters,
         )
         return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
 

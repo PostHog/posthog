@@ -650,7 +650,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""
-        if not hasattr(self.query, "properties") or not hasattr(self.query, "date_range"):
+        if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
             capture_exception(
                 NotImplementedError(
                     f"{self.query.__class__.__name__} does not support dashboard filters out of the box"
@@ -659,7 +659,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return
 
         # The default logic below applies to all insights and a lot of other queries
-        # Notable exception: `HogQLQuery`, which has `properties` and `date_range` within `HogQLFilters`
+        # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if dashboard_filter.properties:
             if self.query.properties:
                 try:
@@ -710,10 +710,10 @@ class QueryResponse(BaseModel, Generic[DataT]):
     columns: Optional[list[str]] = None
     error: Optional[str] = None
     hogql: Optional[str] = None
-    has_more: Optional[bool] = None
+    hasMore: Optional[bool] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
-    sampling_rate: Optional[SamplingRate] = None
+    samplingRate: Optional[SamplingRate] = None
     modifiers: Optional[HogQLQueryModifiers] = None
 
 

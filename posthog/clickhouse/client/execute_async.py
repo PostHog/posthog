@@ -58,7 +58,7 @@ class QueryStatusManager:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
 
     def store_query_status(self, query_status: QueryStatus):
-        value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
+        value = SafeJSONRenderer().render(query_status.model_dump(by_alias=True, exclude={"clickhouse_query_progress"}))
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
             seconds=self.STATUS_TTL_SECONDS
         )

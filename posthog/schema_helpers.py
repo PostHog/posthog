@@ -59,22 +59,22 @@ def to_dict(query: BaseModel) -> dict:
                             for key, value in dumped[insightFilterKey].items()
                             if key
                             not in [
-                                "show_legend",
-                                "show_percent_stack_view",
-                                "show_values_on_series",
-                                "aggregation_axis_format",
-                                "aggregation_axis_prefix",
-                                "aggregation_axis_postfix",
-                                "decimal_places",
+                                "showLegend",
+                                "showPercentStackView",
+                                "showValuesOnSeries",
+                                "aggregationAxisFormat",
+                                "aggregationAxisPrefix",
+                                "aggregationAxisPostfix",
+                                "decimalPlaces",
                                 "layout",
-                                "toggled_lifecycles",
-                                "show_labels_on_series",
-                                "show_mean",
-                                "y_axis_scale_type",
+                                "toggledLifecycles",
+                                "showLabelsOnSeries",
+                                "showMean",
+                                "yAxisScaleType",
                             ]
                         }
 
-                        for key in ("target_entity", "returning_entity"):
+                        for key in ("targetEntity", "returningEntity"):
                             if key in dumped[insightFilterKey] and "uuid" in dumped[insightFilterKey][key]:
                                 del dumped[insightFilterKey][key]["uuid"]
 
@@ -88,7 +88,7 @@ def to_dict(query: BaseModel) -> dict:
 
                     ###
                     # Remove empty nested models, so that empty and not existing models serialize to the same json.
-                    filterKeys = [insightFilterKey, "breakdown_filter", "date_range"]
+                    filterKeys = [insightFilterKey, "breakdownFilter", "dateRange"]
                     if name in filterKeys and len(dumped[name]) == 0:
                         del dumped[name]
 
@@ -113,17 +113,17 @@ def to_json(obj: dict) -> bytes:
 
 def filter_key_for_query(node: InsightQueryNode) -> str:
     if isinstance(node, TrendsQuery):
-        return "trends_filter"
+        return "trendsFilter"
     elif isinstance(node, FunnelsQuery):
-        return "funnels_filter"
+        return "funnelsFilter"
     elif isinstance(node, RetentionQuery):
-        return "retention_filter"
+        return "retentionFilter"
     elif isinstance(node, PathsQuery):
-        return "paths_filter"
+        return "pathsFilter"
     elif isinstance(node, StickinessQuery):
-        return "stickiness_filter"
+        return "stickinessFilter"
     elif isinstance(node, LifecycleQuery):
-        return "lifecycle_filter"
+        return "lifecycleFilter"
     else:
         raise ValidationError(f"Expected an insight node, got {node.__name__}")
 

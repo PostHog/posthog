@@ -82,8 +82,8 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         path_dropoff=None,
     ):
         paths_query = paths_query.copy()
-        if "paths_filter" in paths_query:
-            paths_filter = paths_query.pop("paths_filter")
+        if "pathsFilter" in paths_query:
+            paths_filter = paths_query.pop("pathsFilter")
         else:
             paths_filter = paths_query
             paths_query = {}
@@ -91,23 +91,23 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query={
                 "select": ["person"],
-                "order_by": ["id"],
+                "orderBy": ["id"],
                 "source": {
                     "kind": "InsightActorsQuery",
                     "source": {
                         "kind": "PathsQuery",
                         **paths_query,
-                        "paths_filter": {
+                        "pathsFilter": {
                             **paths_filter,
-                            "path_start_key": path_start,
-                            "path_end_key": path_end,
-                            "path_dropoff_key": path_dropoff,
+                            "pathStartKey": path_start,
+                            "pathEndKey": path_end,
+                            "pathDropoffKey": path_dropoff,
                         },
                     },
                 },
             },
         )
-        return [row[0]["id"] for row in runner.calculate().model_dump()["results"]]
+        return [row[0]["id"] for row in runner.calculate().model_dump(by_alias=True)["results"]]
 
     @snapshot_clickhouse_queries
     def test_step_limit(self):
@@ -151,8 +151,8 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
-            filter = {"step_limit": 2}
-            result = PathsQueryRunner(query={"kind": "PathsQuery", "paths_filter": filter}, team=self.team).run()
+            filter = {"stepLimit": 2}
+            result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedPathsQueryResponse)
             response = result.results
 
@@ -171,8 +171,8 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual([], self._get_people_at_path(filter, "2_/2", "3_/3"))
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
-            filter = {"step_limit": 3}
-            result = PathsQueryRunner(query={"kind": "PathsQuery", "paths_filter": filter}, team=self.team).run()
+            filter = {"stepLimit": 3}
+            result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedPathsQueryResponse)
             response = result.results
 
@@ -196,8 +196,8 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual([p1.uuid], self._get_people_at_path(filter, "2_/2", "3_/3"))
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
-            filter = {"step_limit": 4}
-            result = PathsQueryRunner(query={"kind": "PathsQuery", "paths_filter": filter}, team=self.team).run()
+            filter = {"stepLimit": 4}
+            result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedPathsQueryResponse)
             response = result.results
 
@@ -300,14 +300,14 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        filter = {"step_limit": 4, "include_event_types": ["$pageview"]}
+        filter = {"stepLimit": 4, "includeEventTypes": ["$pageview"]}
         result = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": filter,
+                "pathsFilter": filter,
             },
             team=self.team,
         ).run()
@@ -384,12 +384,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         result = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
-                "date_range": {
+                "dateRange": {
                     "date_from": "2021-05-01",
                     "date_to": "2021-05-03",
                 },
-                "paths_filter": {
-                    "include_event_types": ["custom_event"],
+                "pathsFilter": {
+                    "includeEventTypes": ["custom_event"],
                 },
             },
             team=self.team,
@@ -1838,12 +1838,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2021-05-01 00:00:00",
                     "date_to": "2021-05-07 00:00:00",
                 },
-                "paths_filter": {
-                    "end_point": "/about",
+                "pathsFilter": {
+                    "endPoint": "/about",
                 },
             },
             team=self.team,
@@ -1903,12 +1903,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         # ensure trailing slashes don't change results
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2021-05-01 00:00:00",
                     "date_to": "2021-05-07 00:00:00",
                 },
-                "paths_filter": {
-                    "end_point": "/about/",
+                "pathsFilter": {
+                    "endPoint": "/about/",
                 },
             },
             team=self.team,
@@ -2047,12 +2047,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 4,
-                    "include_event_types": ["$pageview"],
+                "pathsFilter": {
+                    "stepLimit": 4,
+                    "includeEventTypes": ["$pageview"],
                 },
             },
             team=self.team,
@@ -2081,12 +2081,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 4,
-                    "include_event_types": ["$screen"],
+                "pathsFilter": {
+                    "stepLimit": 4,
+                    "includeEventTypes": ["$screen"],
                 },
             },
             team=self.team,
@@ -2115,12 +2115,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 4,
-                    "include_event_types": ["custom_event"],
+                "pathsFilter": {
+                    "stepLimit": 4,
+                    "includeEventTypes": ["custom_event"],
                 },
             },
             team=self.team,
@@ -2149,13 +2149,13 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 4,
-                    "include_event_types": ["$pageview", "$screen", "custom_event"],
-                    "exclude_events": ["/custom1", "/1", "/2", "/3"],
+                "pathsFilter": {
+                    "stepLimit": 4,
+                    "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                    "excludeEvents": ["/custom1", "/1", "/2", "/3"],
                 },
             },
             team=self.team,
@@ -2273,14 +2273,14 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 4,
-                    "include_event_types": ["$pageview"],
-                    "exclude_events": ["/bar/*/foo"],
-                    "path_groupings": ["/bar/*/foo"],
+                "pathsFilter": {
+                    "stepLimit": 4,
+                    "includeEventTypes": ["$pageview"],
+                    "excludeEvents": ["/bar/*/foo"],
+                    "pathGroupings": ["/bar/*/foo"],
                 },
             },
             team=self.team,
@@ -2303,14 +2303,14 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 4,
-                    "include_event_types": ["$pageview"],
-                    "exclude_events": ["/bar/*/foo"],
-                    "path_groupings": ["/xxx/invalid/*"],
+                "pathsFilter": {
+                    "stepLimit": 4,
+                    "includeEventTypes": ["$pageview"],
+                    "excludeEvents": ["/bar/*/foo"],
+                    "pathGroupings": ["/xxx/invalid/*"],
                 },
             },
             team=self.team,
@@ -2407,10 +2407,10 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         # include everything, exclude nothing
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {"step_limit": 10},
+                "pathsFilter": {"stepLimit": 10},
             },
             team=self.team,
         ).run()
@@ -2474,12 +2474,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 10,
-                    "include_event_types": ["$pageview", "$screen"],
+                "pathsFilter": {
+                    "stepLimit": 10,
+                    "includeEventTypes": ["$pageview", "$screen"],
                 },
             },
             team=self.team,
@@ -2526,13 +2526,13 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 10,
-                    "include_event_types": ["$pageview", "custom_event"],
-                    "exclude_events": ["/custom1", "/custom3"],
+                "pathsFilter": {
+                    "stepLimit": 10,
+                    "includeEventTypes": ["$pageview", "custom_event"],
+                    "excludeEvents": ["/custom1", "/custom3"],
                 },
             },
             team=self.team,
@@ -2627,10 +2627,10 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {},
+                "pathsFilter": {},
             },
             team=self.team,
         ).run()
@@ -2737,10 +2737,10 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {},
+                "pathsFilter": {},
             },
             team=self.team,
         ).run()
@@ -2896,14 +2896,14 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         paths_query: dict[str, Any] = {
-            "date_range": {
+            "dateRange": {
                 "date_from": "2012-05-01 00:00:00",
                 "date_to": "2021-05-07 00:00:00",
             },
-            "paths_filter": {
-                "include_event_types": ["$pageview"],
-                "start_point": "/5",
-                "end_point": "/about",
+            "pathsFilter": {
+                "includeEventTypes": ["$pageview"],
+                "startPoint": "/5",
+                "endPoint": "/about",
             },
         }
         result = PathsQueryRunner(
@@ -2928,8 +2928,8 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(self._get_people_at_path(paths_query.copy(), "1_/5", "2_/about"), [p1.uuid, p2.uuid])
 
         # test aggregation for long paths
-        paths_query["paths_filter"]["start_point"] = "/2"
-        paths_query["paths_filter"]["step_limit"] = 4
+        paths_query["pathsFilter"]["startPoint"] = "/2"
+        paths_query["pathsFilter"]["stepLimit"] = 4
         result = PathsQueryRunner(
             query=paths_query,
             team=self.team,
@@ -2973,24 +2973,24 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
     def test_properties_queried_using_path_filter(self):
         test_cases = {
             "empty_filter": ({}, (True, True)),
-            "include_pageview": ({"include_event_types": ["$pageview"]}, (True, False)),
-            "include_screen": ({"include_event_types": ["$screen"]}, (False, True)),
+            "include_pageview": ({"includeEventTypes": ["$pageview"]}, (True, False)),
+            "include_screen": ({"includeEventTypes": ["$screen"]}, (False, True)),
             "include_custom_events": (
                 {
-                    "include_event_types": ["$pageview", "$screen", "custom_event"],
+                    "includeEventTypes": ["$pageview", "$screen", "custom_event"],
                 },
                 (True, True),
             ),
             "exclude_custom1": (
                 {
-                    "include_event_types": ["$pageview", "$screen", "custom_event"],
-                    "exclude_events": ["/custom1"],
+                    "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                    "excludeEvents": ["/custom1"],
                 },
                 (True, True),
             ),
             "exclude_pageview": (
                 {
-                    "exclude_events": ["$pageview"],
+                    "excludeEvents": ["$pageview"],
                 },
                 (False, True),
             ),
@@ -3000,7 +3000,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             with self.subTest(test_name):
                 q = {
                     "kind": "PathsQuery",
-                    "paths_filter": filter,
+                    "pathsFilter": filter,
                 }
                 path_query_runner = PathsQueryRunner(query=q, team=self.team)
                 result = (
@@ -3107,13 +3107,13 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "step_limit": 4,
-                    "include_event_types": ["$pageview"],
-                    "path_groupings": ["/bar/*/foo"],
+                "pathsFilter": {
+                    "stepLimit": 4,
+                    "includeEventTypes": ["$pageview"],
+                    "pathGroupings": ["/bar/*/foo"],
                 },
             },
             team=self.team,
@@ -3208,12 +3208,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                 },
-                "paths_filter": {
-                    "include_event_types": ["$pageview"],
-                    "path_groupings": [
+                "pathsFilter": {
+                    "includeEventTypes": ["$pageview"],
+                    "pathGroupings": [
                         "(a+)+",
                         "[aaa|aaaa]+",
                         "1.*",
@@ -3342,10 +3342,10 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             events.extend(four_step)
 
         filter = {
-            "paths_filter": {
-                "include_event_types": ["custom_event"],
+            "pathsFilter": {
+                "includeEventTypes": ["custom_event"],
             },
-            "date_range": {
+            "dateRange": {
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 00:00:00",
             },
@@ -3498,13 +3498,13 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2021-05-01 00:00:00",
                     "date_to": "2021-05-07 00:00:00",
                 },
-                "paths_filter": {
-                    "start_point": "/2",
-                    "edge_limit": 6,
+                "pathsFilter": {
+                    "startPoint": "/2",
+                    "edgeLimit": 6,
                 },
             },
             team=self.team,
@@ -3717,7 +3717,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                     "date_to": "2012-02-01",
                 },
@@ -3738,9 +3738,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-                "paths_filter": {
-                    "include_event_types": ["$pageview", "$screen", "custom_event"],
-                    "step_limit": 4,
+                "pathsFilter": {
+                    "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                    "stepLimit": 4,
                 },
             },
             team=self.team,
@@ -3769,7 +3769,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                     "date_to": "2012-02-01",
                 },
@@ -3790,9 +3790,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-                "paths_filter": {
-                    "include_event_types": ["$pageview", "$screen", "custom_event"],
-                    "step_limit": 4,
+                "pathsFilter": {
+                    "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                    "stepLimit": 4,
                 },
             },
             team=self.team,
@@ -3821,7 +3821,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                     "date_to": "2012-02-01",
                 },
@@ -3842,9 +3842,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-                "paths_filter": {
-                    "include_event_types": ["$pageview", "$screen", "custom_event"],
-                    "step_limit": 4,
+                "pathsFilter": {
+                    "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                    "stepLimit": 4,
                 },
             },
             team=self.team,
@@ -3956,7 +3956,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                     "date_to": "2012-02-01",
                 },
@@ -3977,9 +3977,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-                "paths_filter": {
-                    "include_event_types": ["$pageview", "$screen", "custom_event"],
-                    "step_limit": 4,
+                "pathsFilter": {
+                    "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                    "stepLimit": 4,
                 },
             },
             team=self.team,
@@ -4009,7 +4009,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
             result = PathsQueryRunner(
                 query={
-                    "date_range": {
+                    "dateRange": {
                         "date_from": "2012-01-01",
                         "date_to": "2012-02-01",
                     },
@@ -4030,9 +4030,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                     },
-                    "paths_filter": {
-                        "include_event_types": ["$pageview", "$screen", "custom_event"],
-                        "step_limit": 4,
+                    "pathsFilter": {
+                        "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                        "stepLimit": 4,
                     },
                 },
                 team=self.team,
@@ -4060,7 +4060,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
             result = PathsQueryRunner(
                 query={
-                    "date_range": {
+                    "dateRange": {
                         "date_from": "2012-01-01",
                         "date_to": "2012-02-01",
                     },
@@ -4081,9 +4081,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                     },
-                    "paths_filter": {
-                        "include_event_types": ["$pageview", "$screen", "custom_event"],
-                        "step_limit": 4,
+                    "pathsFilter": {
+                        "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                        "stepLimit": 4,
                     },
                 },
                 team=self.team,
@@ -4179,13 +4179,13 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         result = PathsQueryRunner(
             query={
-                "date_range": {
+                "dateRange": {
                     "date_from": "2012-01-01",
                     "date_to": "2012-02-01",
                 },
-                "paths_filter": {
-                    "include_event_types": ["$pageview", "$screen", "custom_event"],
-                    "step_limit": 4,
+                "pathsFilter": {
+                    "includeEventTypes": ["$pageview", "$screen", "custom_event"],
+                    "stepLimit": 4,
                 },
             },
             team=self.team,
@@ -4318,19 +4318,19 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         results = (
             ActorsQueryRunner(
                 query={
-                    "order_by": ["id"],
+                    "orderBy": ["id"],
                     "select": ["person", "created_at", "event_count", "matched_recordings"],
                     "source": {
                         "kind": "InsightActorsQuery",
                         "source": {
-                            "date_range": {
+                            "dateRange": {
                                 "date_from": "2012-01-01 00:00:00",
                                 "date_to": "2012-01-02 00:00:00",
                             },
                             "kind": "PathsQuery",
-                            "paths_filter": {
-                                "include_event_types": ["$pageview"],
-                                "path_end_key": "2_/2",
+                            "pathsFilter": {
+                                "includeEventTypes": ["$pageview"],
+                                "pathEndKey": "2_/2",
                             },
                         },
                     },
@@ -4338,7 +4338,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
             .calculate()
-            .model_dump()["results"]
+            .model_dump(by_alias=True)["results"]
         )
 
         self.assertCountEqual([p1.uuid, p2.uuid], [row[0]["id"] for row in results])
@@ -4400,19 +4400,19 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         results = (
             ActorsQueryRunner(
                 query={
-                    "order_by": ["id"],
+                    "orderBy": ["id"],
                     "select": ["person", "created_at", "event_count", "matched_recordings"],
                     "source": {
                         "kind": "InsightActorsQuery",
                         "source": {
-                            "date_range": {
+                            "dateRange": {
                                 "date_from": "2012-01-01 00:00:00",
                                 "date_to": "2012-01-02 00:00:00",
                             },
                             "kind": "PathsQuery",
-                            "paths_filter": {
-                                "include_event_types": ["$pageview"],
-                                "path_end_key": "2_/2",
+                            "pathsFilter": {
+                                "includeEventTypes": ["$pageview"],
+                                "pathEndKey": "2_/2",
                             },
                         },
                     },
@@ -4420,7 +4420,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
             .calculate()
-            .model_dump()["results"]
+            .model_dump(by_alias=True)["results"]
         )
 
         self.assertEqual([p1.uuid], [row[0]["id"] for row in results])
@@ -4486,21 +4486,21 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         results = (
             ActorsQueryRunner(
                 query={
-                    "order_by": ["id"],
+                    "orderBy": ["id"],
                     "select": ["person", "created_at", "event_count", "matched_recordings"],
                     "source": {
                         "kind": "InsightActorsQuery",
                         "source": {
-                            "date_range": {
+                            "dateRange": {
                                 "date_from": "2012-01-01 00:00:00",
                                 "date_to": "2012-01-02 00:00:00",
                             },
                             "kind": "PathsQuery",
-                            "paths_filter": {
-                                "include_event_types": ["$pageview"],
-                                "start_point": "/1",
-                                "end_point": "/3",
-                                "path_end_key": "2_/2",
+                            "pathsFilter": {
+                                "includeEventTypes": ["$pageview"],
+                                "startPoint": "/1",
+                                "endPoint": "/3",
+                                "pathEndKey": "2_/2",
                             },
                         },
                     },
@@ -4508,7 +4508,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
             .calculate()
-            .model_dump()["results"]
+            .model_dump(by_alias=True)["results"]
         )
 
         self.assertEqual([p1.uuid], [row[0]["id"] for row in results])
@@ -4591,19 +4591,19 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         results = (
             ActorsQueryRunner(
                 query={
-                    "order_by": ["id"],
+                    "orderBy": ["id"],
                     "select": ["person", "created_at", "event_count", "matched_recordings"],
                     "source": {
                         "kind": "InsightActorsQuery",
                         "source": {
-                            "date_range": {
+                            "dateRange": {
                                 "date_from": "2012-01-01 00:00:00",
                                 "date_to": "2012-01-02 00:00:00",
                             },
                             "kind": "PathsQuery",
-                            "paths_filter": {
-                                "include_event_types": ["$pageview"],
-                                "path_dropoff_key": "2_/2",
+                            "pathsFilter": {
+                                "includeEventTypes": ["$pageview"],
+                                "pathDropoffKey": "2_/2",
                             },
                         },
                     },
@@ -4611,7 +4611,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
             .calculate()
-            .model_dump()["results"]
+            .model_dump(by_alias=True)["results"]
         )
 
         self.assertEqual([], results)
@@ -4620,19 +4620,19 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         results = (
             ActorsQueryRunner(
                 query={
-                    "order_by": ["id"],
+                    "orderBy": ["id"],
                     "select": ["person", "created_at", "event_count", "matched_recordings"],
                     "source": {
                         "kind": "InsightActorsQuery",
                         "source": {
-                            "date_range": {
+                            "dateRange": {
                                 "date_from": "2012-01-01 00:00:00",
                                 "date_to": "2012-01-02 00:00:00",
                             },
                             "kind": "PathsQuery",
-                            "paths_filter": {
-                                "include_event_types": ["$pageview"],
-                                "path_dropoff_key": "3_/3",
+                            "pathsFilter": {
+                                "includeEventTypes": ["$pageview"],
+                                "pathDropoffKey": "3_/3",
                             },
                         },
                     },
@@ -4640,7 +4640,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
             .calculate()
-            .model_dump()["results"]
+            .model_dump(by_alias=True)["results"]
         )
 
         self.assertEqual([p1.uuid], [row[0]["id"] for row in results])
@@ -4728,21 +4728,21 @@ class TestClickhousePathsEdgeValidation(TestCase):
     def test_basic_forest(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2
 
-        results = PathsQueryRunner(query={"paths_filter": {}}, team=MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
 
     def test_basic_forest_with_dangling_edges(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_xxx", "3_yyy")]
 
-        results = PathsQueryRunner(query={"paths_filter": {}}, team=MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
 
     def test_basic_forest_with_dangling_and_cross_edges(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_y", "3_c")]
 
-        results = PathsQueryRunner(query={"paths_filter": {}}, team=MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2 + [("2_y", "3_c")])
 
@@ -4751,6 +4751,6 @@ class TestClickhousePathsEdgeValidation(TestCase):
         edges.remove(("1_a", "2_b"))  # remove first start point
         edges = list(edges)  # type: ignore
 
-        results = PathsQueryRunner(query={"paths_filter": {}}, team=MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH_2)

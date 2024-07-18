@@ -1233,7 +1233,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 )
             ],
             properties=properties_filter,
-        ).model_dump()
+        ).model_dump(by_alias=True)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.post(
@@ -1472,7 +1472,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 )
             ],
             properties=properties_filter,
-        ).model_dump()
+        ).model_dump(by_alias=True)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query_dict}).json()
@@ -1549,7 +1549,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 )
             ],
             properties=properties_filter,
-        ).model_dump()
+        ).model_dump(by_alias=True)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.post(
@@ -1605,7 +1605,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ),
             ],
             properties=properties_filter,
-        ).model_dump()
+        ).model_dump(by_alias=True)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
@@ -1628,9 +1628,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         query = DataTableNode(
             source=HogQLQuery(
-                query="SELECT count(1) FROM events", filters=HogQLFilters(date_range=DateRange(date_from="-3d"))
+                query="SELECT count(1) FROM events", filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
             ),
-        ).model_dump()
+        ).model_dump(by_alias=True)
         insight_id, _ = self.dashboard_api.create_insight(
             {"query": query, "name": "insight", "dashboards": [dashboard_id]}
         )
@@ -1645,7 +1645,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["query"]["source"]["filters"]["date_range"]["date_from"], "-180d")
+        self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
 
     def test_dashboard_filters_applied_to_data_visualization_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -1653,9 +1653,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         query = DataVisualizationNode(
             source=HogQLQuery(
-                query="SELECT count(1) FROM events", filters=HogQLFilters(date_range=DateRange(date_from="-3d"))
+                query="SELECT count(1) FROM events", filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
             ),
-        ).model_dump()
+        ).model_dump(by_alias=True)
         insight_id, _ = self.dashboard_api.create_insight(
             {"query": query, "name": "insight", "dashboards": [dashboard_id]}
         )
@@ -1670,15 +1670,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["query"]["source"]["filters"]["date_range"]["date_from"], "-180d")
+        self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
 
     def test_dashboard_filters_applied_to_events_query_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
             {"name": "the dashboard", "filters": {"date_from": "-180d"}}
         )
         query = DataTableNode(
-            source=EventsQuery(select=["uuid", "event", "timestamp"], after="-3d").model_dump(),
-        ).model_dump()
+            source=EventsQuery(select=["uuid", "event", "timestamp"], after="-3d").model_dump(by_alias=True),
+        ).model_dump(by_alias=True)
         insight_id, _ = self.dashboard_api.create_insight(
             {"query": query, "name": "insight", "dashboards": [dashboard_id]}
         )
@@ -3454,7 +3454,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             query={
                 "kind": NodeKind.INSIGHT_VIZ_NODE.value,
                 "source": {
-                    "filter_test_accounts": False,
+                    "filterTestAccounts": False,
                     "kind": InsightNodeKind.TRENDS_QUERY.value,
                     "series": [
                         {

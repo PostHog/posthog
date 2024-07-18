@@ -16,7 +16,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 kind="HogQLMetadata",
                 language="hogQLExpr",
                 query=query,
-                source_query=HogQLQuery(query=f"select * from {table}"),
+                sourceQuery=HogQLQuery(query=f"select * from {table}"),
                 response=None,
                 debug=debug,
             ),
@@ -47,7 +47,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": False,
+                "isValid": False,
                 "query": "select 1",
                 "errors": [
                     {
@@ -65,7 +65,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
+                "isValid": True,
                 "query": "select 1",
                 "errors": [],
             },
@@ -76,7 +76,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
+                "isValid": True,
                 "query": "timestamp",
                 "errors": [],
             },
@@ -87,7 +87,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": False,
+                "isValid": False,
                 "query": "timestamp",
                 "errors": [
                     {
@@ -106,7 +106,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": False,
+                "isValid": False,
                 "query": "1 as true",
                 "errors": [
                     {
@@ -125,7 +125,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": False,
+                "isValid": False,
                 "query": "1 + no_field",
                 "errors": [
                     {
@@ -159,10 +159,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
         metadata = self._select(query)
         self.assertEqual(
-            metadata.model_dump(),
-            metadata.model_dump()
+            metadata.model_dump(by_alias=True),
+            metadata.model_dump(by_alias=True)
             | {
-                "is_valid": True,
+                "isValid": True,
                 "query": query,
                 "notices": [
                     {
@@ -215,7 +215,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
+                "isValid": True,
                 "query": "properties.string || properties.number",
                 "notices": [
                     {
@@ -250,7 +250,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
+                "isValid": True,
                 "query": "properties.string || properties.number",
                 "notices": [
                     {
@@ -275,8 +275,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
-                "is_valid_view": True,
+                "isValid": True,
+                "isValidView": True,
                 "query": "select event AS event FROM events",
                 "errors": [],
             },
@@ -301,8 +301,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
-                "is_valid_view": True,
+                "isValid": True,
+                "isValidView": True,
                 "query": "select event AS event FROM event_view",
                 "errors": [],
             },
@@ -314,7 +314,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
+                "isValid": True,
                 "errors": [],
             },
         )
@@ -325,7 +325,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
+                "isValid": True,
                 "errors": [],
             },
         )
@@ -337,8 +337,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "query": "let i := NONO()",
-                "is_valid": False,
-                "is_valid_view": False,
+                "isValid": False,
+                "isValidView": False,
                 "notices": [],
                 "warnings": [],
                 "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
@@ -352,8 +352,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "query": "print(event, region)",
-                "is_valid": True,
-                "is_valid_view": False,
+                "isValid": True,
+                "isValidView": False,
                 "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
                 "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
                 "errors": [],
@@ -366,7 +366,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": True,
+                "isValid": True,
                 "errors": [],
             },
         )
@@ -377,7 +377,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict(),
             metadata.dict()
             | {
-                "is_valid": False,
+                "isValid": False,
                 "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
             },
         )

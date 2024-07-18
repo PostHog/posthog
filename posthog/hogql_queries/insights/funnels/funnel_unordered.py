@@ -164,16 +164,16 @@ class FunnelUnordered(FunnelBase):
             return [ast.Alias(alias="steps", expr=ast.Constant(value=1))]
 
     def _get_exclusion_condition(self) -> list[ast.Expr]:
-        funnels_filter = self.context.funnels_filter
+        funnelsFilter = self.context.funnels_filter
         windowInterval = self.context.funnel_window_interval
         windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnel_window_interval_unit)
 
-        if not funnels_filter.exclusions:
+        if not funnelsFilter.exclusions:
             return []
 
         conditions: list[ast.Expr] = []
 
-        for exclusion_id, exclusion in enumerate(funnels_filter.exclusions):
+        for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
             from_time = f"latest_{exclusion.funnel_from_step}"
             to_time = f"event_times[{exclusion.funnel_to_step + 1}]"
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"

@@ -133,9 +133,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                     },
-                    "filter_test_accounts": False,
+                    "filterTestAccounts": False,
                     "interval": "day",
-                    "date_range": {"date_from": "-7d"},
+                    "dateRange": {"date_from": "-7d"},
                     "series": [
                         {
                             "kind": "EventsNode",
@@ -145,8 +145,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "limit": 100,
                         }
                     ],
-                    "trends_filter": {"display": "ActionsAreaGraph"},
-                    "breakdown_filter": {
+                    "trendsFilter": {"display": "ActionsAreaGraph"},
+                    "breakdownFilter": {
                         "breakdown": "$geoip_country_code",
                         "breakdown_type": "event",
                     },

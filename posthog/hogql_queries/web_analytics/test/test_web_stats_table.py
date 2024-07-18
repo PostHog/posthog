@@ -106,15 +106,15 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         properties=None,
         session_table_version: SessionTableVersion = SessionTableVersion.V1,
     ):
-        modifiers = HogQLQueryModifiers(session_table_version=session_table_version)
+        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebStatsTableQuery(
-            date_range=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=properties or [],
-            breakdown_by=breakdown_by,
+            breakdownBy=breakdown_by,
             limit=limit,
-            do_path_cleaning=bool(path_cleaning_filters),
-            include_bounce_rate=include_bounce_rate,
-            include_scroll_depth=include_scroll_depth,
+            doPathCleaning=bool(path_cleaning_filters),
+            includeBounceRate=include_bounce_rate,
+            includeScrollDepth=include_scroll_depth,
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
         runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)

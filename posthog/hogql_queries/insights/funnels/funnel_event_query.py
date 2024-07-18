@@ -66,7 +66,7 @@ class FunnelEventQuery:
         return stmt
 
     def _aggregation_target_expr(self) -> ast.Expr:
-        query, funnels_filter = self.context.query, self.context.funnels_filter
+        query, funnelsFilter = self.context.query, self.context.funnels_filter
 
         # Aggregating by Person ID
         aggregation_target: str | ast.Expr = "person_id"
@@ -76,8 +76,8 @@ class FunnelEventQuery:
             aggregation_target = f"$group_{query.aggregation_group_type_index}"
 
         # Aggregating by HogQL
-        elif funnels_filter.funnel_aggregate_by_hog_q_l and funnels_filter.funnel_aggregate_by_hog_q_l != "person_id":
-            aggregation_target = parse_expr(funnels_filter.funnel_aggregate_by_hog_q_l)
+        elif funnelsFilter.funnel_aggregate_by_hog_q_l and funnelsFilter.funnel_aggregate_by_hog_q_l != "person_id":
+            aggregation_target = parse_expr(funnelsFilter.funnel_aggregate_by_hog_q_l)
 
         # TODO: is this still relevant?
         # # Aggregating by Distinct ID
@@ -126,8 +126,8 @@ class FunnelEventQuery:
         )
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
-        team, query, funnels_filter = self.context.team, self.context.query, self.context.funnels_filter
-        exclusions = funnels_filter.exclusions or []
+        team, query, funnelsFilter = self.context.team, self.context.query, self.context.funnels_filter
+        exclusions = funnelsFilter.exclusions or []
 
         if skip_entity_filter is True:
             return None

@@ -24,12 +24,12 @@ def reload_plugins_on_workers():
 
 def reload_action_on_workers(team_id: int, action_id: int):
     logger.info(f"Reloading action {action_id} on workers")
-    publish_message("reload-action", {"teamId": team_id, "action_id": action_id})
+    publish_message("reload-action", {"teamId": team_id, "actionId": action_id})
 
 
 def drop_action_on_workers(team_id: int, action_id: int):
     logger.info(f"Dropping action {action_id} on workers")
-    publish_message("drop-action", {"teamId": team_id, "action_id": action_id})
+    publish_message("drop-action", {"teamId": team_id, "actionId": action_id})
 
 
 def reload_hog_functions_on_workers(team_id: int, hog_function_ids: list[str]):

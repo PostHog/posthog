@@ -21,7 +21,7 @@ from posthog.test.base import (
 
 class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
     def __execute(self, query):
-        modifiers = HogQLQueryModifiers(session_table_version=SessionTableVersion.V1)
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
         return execute_hogql_query(
             query=query,
             team=self.team,
@@ -189,7 +189,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(row2, (p2.uuid, "source2"))
 
     @parameterized.expand([(BounceRatePageViewMode.UNIQ_URLS,), (BounceRatePageViewMode.COUNT_PAGEVIEWS,)])
-    def test_bounce_rate(self, bounce_rate_page_view_mode):
+    def test_bounce_rate(self, bounceRatePageViewMode):
         # person with 2 different sessions
         _create_event(
             event="$pageview",
@@ -271,7 +271,7 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
             modifiers=HogQLQueryModifiers(
-                bounce_rate_page_view_mode=bounce_rate_page_view_mode, session_table_version=SessionTableVersion.V1
+                bounceRatePageViewMode=bounceRatePageViewMode, sessionTableVersion=SessionTableVersion.V1
             ),
         )
         self.assertEqual(

@@ -21,8 +21,8 @@ def get_hogql_metadata(
     team: Team,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
-        is_valid=True,
-        is_valid_view=False,
+        isValid=True,
+        isValidView=False,
         query=query.query,
         errors=[],
         warnings=[],

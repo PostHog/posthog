@@ -50,13 +50,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_web_stats_table_query(self, date_from, date_to, properties, breakdown_by=WebStatsBreakdown.PAGE):
         query = WebStatsTableQuery(
-            date_range=DateRange(date_from=date_from, date_to=date_to), properties=properties, breakdown_by=breakdown_by
+            dateRange=DateRange(date_from=date_from, date_to=date_to), properties=properties, breakdownBy=breakdown_by
         )
         return WebStatsTableQueryRunner(team=self.team, query=query)
 
     def _create__web_overview_query(self, date_from, date_to, properties):
         query = WebOverviewQuery(
-            date_range=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=properties,
         )
         return WebOverviewQueryRunner(team=self.team, query=query)

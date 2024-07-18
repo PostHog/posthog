@@ -144,7 +144,7 @@ def prepare_ast_for_printing(
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
         if isinstance(node, ast.SelectQuery) and node.settings is not None and settings is not None:
-            for key, value in node.settings.model_dump().items():
+            for key, value in node.settings.model_dump(by_alias=True).items():
                 if value is not None:
                     settings.__setattr__(key, value)
             node.settings = None

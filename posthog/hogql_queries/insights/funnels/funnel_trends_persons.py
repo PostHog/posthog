@@ -22,19 +22,17 @@ class FunnelTrendsActors(FunnelTrends):
             raise ValidationError("No actors query present.")
 
         if actorsQuery.funnel_trends_drop_off is None:
-            raise ValidationError(
-                f"Actors parameter `funnel_trends_drop_off` must be provided for funnel trends persons!"
-            )
+            raise ValidationError(f"Actors parameter `funnelTrendsDropOff` must be provided for funnel trends persons!")
 
         if actorsQuery.funnel_trends_entrance_period_start is None:
             raise ValidationError(
-                f"Actors parameter `funnel_trends_entrance_period_start` must be provided funnel trends persons!"
+                f"Actors parameter `funnelTrendsEntrancePeriodStart` must be provided funnel trends persons!"
             )
 
         entrancePeriodStart = relative_date_parse(actorsQuery.funnel_trends_entrance_period_start, team.timezone_info)
         if entrancePeriodStart is None:
             raise ValidationError(
-                f"Actors parameter `funnel_trends_entrance_period_start` must be a valid relative date string!"
+                f"Actors parameter `funnelTrendsEntrancePeriodStart` must be a valid relative date string!"
             )
 
         self.dropOff = actorsQuery.funnel_trends_drop_off

@@ -38,7 +38,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
             assert (
                 json.dumps(
-                    {table_name: table.model_dump() for table_name, table in serialized_database.items()}, indent=4
+                    {table_name: table.model_dump(by_alias=True) for table_name, table in serialized_database.items()},
+                    indent=4,
                 )
                 == self.snapshot
             )
@@ -51,7 +52,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
             assert (
                 json.dumps(
-                    {table_name: table.model_dump() for table_name, table in serialized_database.items()}, indent=4
+                    {table_name: table.model_dump(by_alias=True) for table_name, table in serialized_database.items()},
+                    indent=4,
                 )
                 == self.snapshot
             )
@@ -474,7 +476,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
             # disable PoE
             modifiers=create_default_modifiers_for_team(
-                self.team, HogQLQueryModifiers(persons_on_events_mode=PersonsOnEventsMode.DISABLED)
+                self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
             ),
         )
         sql = "select person.id from events"

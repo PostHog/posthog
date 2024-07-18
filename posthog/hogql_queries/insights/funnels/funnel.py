@@ -148,8 +148,8 @@ class Funnel(FunnelBase):
         level index is already at the minimum ordered timestamps.
         """
         exprs: list[ast.Expr] = []
-        funnels_filter = self.context.funnels_filter
-        exclusions = funnels_filter.exclusions
+        funnelsFilter = self.context.funnels_filter
+        exclusions = funnelsFilter.exclusions
 
         for i in range(0, max_steps):
             exprs.append(ast.Field(chain=[f"step_{i}"]))

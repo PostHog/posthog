@@ -535,9 +535,9 @@ class TestCSVExporter(APIBaseTest):
                         {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
                     ],
                     "interval": "day",
-                    "date_range": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
-                    "funnels_filter": {"funnel_viz_type": "steps"},
-                    "breakdown_filter": {"breakdown": "utm_medium", "breakdown_type": "event"},
+                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "funnelsFilter": {"funnelVizType": "steps"},
+                    "breakdownFilter": {"breakdown": "utm_medium", "breakdown_type": "event"},
                 }
             },
         )
@@ -570,9 +570,9 @@ class TestCSVExporter(APIBaseTest):
                         {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
                     ],
                     "interval": "day",
-                    "date_range": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
-                    "funnels_filter": {"funnel_viz_type": "steps"},
-                    "breakdown_filter": {"breakdown": "utm_medium", "breakdown_type": "event"},
+                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "funnelsFilter": {"funnelVizType": "steps"},
+                    "breakdownFilter": {"breakdown": "utm_medium", "breakdown_type": "event"},
                 }
             },
         )
@@ -625,7 +625,7 @@ class TestCSVExporter(APIBaseTest):
             export_context={
                 "source": {
                     "kind": "TrendsQuery",
-                    "date_range": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
                     "series": [
                         {
                             "kind": "EventsNode",
@@ -641,11 +641,7 @@ class TestCSVExporter(APIBaseTest):
                         },
                     ],
                     "interval": "day",
-                    "trends_filter": {
-                        "show_legend": True,
-                        "aggregation_axis_format": "percentage",
-                        "formula": "(B/A)*100",
-                    },
+                    "trendsFilter": {"showLegend": True, "aggregationAxisFormat": "percentage", "formula": "(B/A)*100"},
                 }
             },
         )

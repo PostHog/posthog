@@ -62,7 +62,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
 
     def test_persons_query_limit(self):
         runner = self._create_runner(
-            ActorsQuery(select=["properties.email"], order_by=["properties.email DESC"], limit=1)
+            ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
@@ -71,7 +71,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(
             ActorsQuery(
                 select=["properties.email"],
-                order_by=["properties.email DESC"],
+                orderBy=["properties.email DESC"],
                 limit=1,
                 offset=2,
             )

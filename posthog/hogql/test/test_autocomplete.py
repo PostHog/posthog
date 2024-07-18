@@ -28,7 +28,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         self, query: str, start: int, end: int, database: Optional[Database] = None
     ) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
-            kind="HogQLAutocomplete", query=query, language=HogLanguage.HOG_QL, start_position=start, end_position=end
+            kind="HogQLAutocomplete", query=query, language=HogLanguage.HOG_QL, startPosition=start, endPosition=end
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
@@ -37,9 +37,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG_QL_EXPR,
-            source_query=HogQLQuery(query="select * from events"),
-            start_position=start,
-            end_position=end,
+            sourceQuery=HogQLQuery(query="select * from events"),
+            startPosition=start,
+            endPosition=end,
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
@@ -50,9 +50,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG_TEMPLATE,
-            source_query=HogQLQuery(query="select * from events"),
-            start_position=start,
-            end_position=end,
+            sourceQuery=HogQLQuery(query="select * from events"),
+            startPosition=start,
+            endPosition=end,
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
@@ -64,8 +64,8 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             query=query,
             language=HogLanguage.HOG,
             globals={"event": "$pageview"},
-            start_position=start,
-            end_position=end,
+            startPosition=start,
+            endPosition=end,
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 

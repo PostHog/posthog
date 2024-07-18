@@ -110,11 +110,11 @@ class FunnelsQueryRunner(QueryRunner):
 
     @cached_property
     def funnel_class(self):
-        funnel_viz_type = self.context.funnels_filter.funnel_viz_type
+        funnelVizType = self.context.funnels_filter.funnel_viz_type
 
-        if funnel_viz_type == FunnelVizType.TRENDS:
+        if funnelVizType == FunnelVizType.TRENDS:
             return FunnelTrends(context=self.context, **self.kwargs)
-        elif funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+        elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvert(context=self.context)
         else:
             return self.funnel_order_class

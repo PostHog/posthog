@@ -25,25 +25,25 @@ class FunnelTimeToConvert(FunnelBase):
         )
 
     def get_query(self) -> ast.SelectQuery:
-        query, funnels_filter = self.context.query, self.context.funnels_filter
+        query, funnelsFilter = self.context.query, self.context.funnels_filter
 
         steps_per_person_query = self.funnel_order.get_step_counts_query()
         # expects 1 person per row, whatever their max step is, and the step conversion times for this person
 
         # Conversion from which step should be calculated
-        from_step = funnels_filter.funnel_from_step or 0
+        from_step = funnelsFilter.funnel_from_step or 0
         # Conversion to which step should be calculated
-        to_step = funnels_filter.funnel_to_step or len(query.series) - 1
+        to_step = funnelsFilter.funnel_to_step or len(query.series) - 1
 
         # Use custom bin_count if provided by user, otherwise infer an automatic one based on the number of samples
-        bin_count = funnels_filter.bin_count
-        if bin_count is not None:
+        binCount = funnelsFilter.bin_count
+        if binCount is not None:
             # Custom count is clamped between 1 and 90
-            if bin_count < 1:
-                bin_count = 1
-            elif bin_count > 90:
-                bin_count = 90
-            bin_count_identifier = str(bin_count)
+            if binCount < 1:
+                binCount = 1
+            elif binCount > 90:
+                binCount = 90
+            bin_count_identifier = str(binCount)
             bin_count_expression = None
         else:
             # Auto count is clamped between 1 and 60
