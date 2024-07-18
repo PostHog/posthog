@@ -45,7 +45,7 @@ export function DataCollection(): JSX.Element {
             <Tooltip
                 title={
                     <div>
-                        <div>{`Based on the Minimum Acceptable Improvement of ${experiment.parameters.minimum_detectable_effect}%.`}</div>
+                        <div>{`Based on the Minimum detectable effect of ${experiment.parameters.minimum_detectable_effect}%.`}</div>
                         {hasHighRunningTime && (
                             <div className="mt-2">
                                 Given the current data, this experiment might take a while to reach statistical
