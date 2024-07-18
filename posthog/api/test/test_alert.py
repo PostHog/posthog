@@ -80,20 +80,22 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     def test_create_and_list_alert(self) -> None:
         creation_request = {
-            "insight": self.insight.id,
+            "insight": self.insight["id"],
             "target_value": "test@posthog.com",
             "name": "alert name",
             "anomaly_condition": {},
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
 
-        list = self.client.get(f"/api/projects/{self.team.id}/alerts?insight={self.insight.id}")
+        list = self.client.get(f"/api/projects/{self.team.id}/alerts?insight={self.insight['id']}")
         assert list.status_code == status.HTTP_200_OK
         results = list.json()["results"]
         assert len(results) == 1
         assert results[0]["id"] == alert["id"]
 
-        list_for_another_insight = self.client.get(f"/api/projects/{self.team.id}/alerts?insight={self.insight.id + 1}")
+        list_for_another_insight = self.client.get(
+            f"/api/projects/{self.team.id}/alerts?insight={self.insight['id'] + 1}"
+        )
         assert list_for_another_insight.status_code == status.HTTP_200_OK
         assert len(list_for_another_insight.json()["results"]) == 0
 
