@@ -7,7 +7,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-customerio",
     name="Update persons in Customer.io",
     description="Updates persons in Customer.io",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=customer.io",
+    icon_url="/static/services/customerio.png",
     hog="""
 fn callCustomerIoApi(method, path, body) {
     // TODO: Base64 encode the site_id and token

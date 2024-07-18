@@ -6,7 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-posthog-replicator",
     name="Replicate data to another PostHog instance",
     description="Send a copy of the incoming data in realtime to another PostHog instance",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=posthog.com",
+    icon_url="/static/posthog-icon.svg",
     hog="""
 let host := inputs.host
 let token := inputs.token

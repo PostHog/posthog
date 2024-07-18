@@ -541,3 +541,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
             with self.assertNumQueries(FuzzyInt(5, 7)):
                 create_hogql_database(team_id=self.team.pk)
+
+    @patch.object(Team, "_person_on_events_person_id_override_properties_joined", True)
+    def test_database_warehouse_joins_persons_poe_old_properties(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="some_field",
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        person_on_event_table = cast(LazyJoin, db.events.fields["person"])
+        assert "some_field" in person_on_event_table.join_table.fields.keys()  # type: ignore
+
+        print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")

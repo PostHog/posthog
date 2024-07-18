@@ -8,7 +8,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-clearbit",
     name="Enrich person with Clearbit",
     description="Loads data from the Clearbit API and tracks an additional event with the enriched data if found. Once enriched, the person will not be enriched again.",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=clearbit.com",
+    icon_url="/static/services/clearbit.png",
     hog="""
 let api_key := inputs.api_key
 let email := inputs.email

@@ -439,7 +439,8 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
-            await send_batch_export_run_failure(inputs.id)
+            logger.info("Sending failure notification email for run %s", inputs.id)
+            await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
         except Exception:
             logger.exception("Failure email notification could not be sent")
 
