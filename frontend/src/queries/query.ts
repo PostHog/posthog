@@ -72,6 +72,7 @@ async function executeQuery<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
+    queryMetadata?: Record<string, any>,
     setPollResponse?: (response: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     const isAsyncQuery =
@@ -81,7 +82,7 @@ async function executeQuery<N extends DataNode>(
 
     const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
 
-    const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
+    const response = await api.query(queryNode, methodOptions, queryId, queryMetadata, refresh, isAsyncQuery)
 
     if (!response.query_status?.query_async) {
         // Executed query synchronously or from cache
@@ -102,6 +103,7 @@ export async function performQuery<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
+    queryMetadata?: Record<string, any>,
     setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
@@ -112,7 +114,7 @@ export async function performQuery<N extends DataNode>(
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
         } else {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId, queryMetadata, setPollResponse)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }

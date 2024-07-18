@@ -4824,6 +4824,12 @@ class QueryRequest(BaseModel):
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
+    client_query_metadata: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Client query metadata. Can be used to add information required when processing and/or debugging the query."
+        ),
+    )
     query: Union[
         EventsNode,
         ActionsNode,

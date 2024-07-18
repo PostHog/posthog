@@ -970,6 +970,8 @@ export type RefreshType =
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
+    /** Client query metadata. Can be used to add information required when processing and/or debugging the query. */
+    client_query_metadata?: Record<string, any>
     /**
      * (Experimental)
      * Whether to run the query asynchronously. Defaults to False.
