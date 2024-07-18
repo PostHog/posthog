@@ -385,34 +385,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         resetForm: () => {
-            actions.resetConfiguration({
+            const config = {
                 ...values.defaultFormState,
                 ...(cache.configFromUrl || {}),
-            })
-
-            if (router.values.searchParams.integration_target) {
-                // `integration_target` is a special query parameter that indicates we should set the value of a specific input to the integration ID if it exists
-                if (router.values.searchParams.integration_id) {
-                    // This indicates that we triggered an integration flow and have an integration ID to set
-                    actions.setConfigurationValues({
-                        inputs: {
-                            [router.values.searchParams.integration_target]: {
-                                value: router.values.searchParams.integration_id,
-                            },
-                        },
-                    })
-                }
-
-                router.actions.replace(
-                    router.values.location.pathname,
-                    {
-                        ...router.values.searchParams,
-                        integration_target: undefined,
-                        integration_id: undefined,
-                    },
-                    router.values.hashParams
-                )
             }
+
+            const paramsFromUrl = cache.paramsFromUrl ?? {}
+            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                config.inputs[paramsFromUrl.integration_target] = {
+                    value: paramsFromUrl.integration_id,
+                }
+            }
+
+            actions.resetConfiguration(config)
         },
 
         duplicate: async () => {
@@ -497,11 +482,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     afterMount(({ props, actions, cache }) => {
+        cache.paramsFromUrl = {
+            integration_id: router.values.searchParams.integration_id,
+            integration_target: router.values.searchParams.integration_target,
+        }
+
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
             actions.loadTemplate() // comes with plugin info
         } else if (props.id) {
             actions.loadHogFunction()
+        }
+
+        if (router.values.searchParams.integration_target) {
+            // Clear query params so we don't keep trying to set the integration
+            router.actions.replace(router.values.location.pathname, undefined, router.values.hashParams)
         }
     }),
 
@@ -514,7 +509,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true
-                router.actions.replace(router.values.location.pathname, router.values.searchParams, {
+                router.actions.replace(router.values.location.pathname, undefined, {
                     configuration,
                 })
             }
