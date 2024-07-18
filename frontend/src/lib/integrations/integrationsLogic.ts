@@ -40,7 +40,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                                     ? integration.config.instance_url
                                     : 'Unknown',
                             // TODO: Make the icons endpoint independent of hog functions
-                            icon_url: `/api/projects/@current/hog_functions/icon/?id=${integration.kind}.com`,
+                            icon_url: `/static/services/${integration.kind}.png`,
                         }
                     })
                 },
