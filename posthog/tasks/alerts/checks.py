@@ -83,7 +83,7 @@ def check_alert_task(alert_id: int) -> None:
 # TODO: make it a task
 def send_notifications(alert: Alert, anomalies_descriptions: list[str]) -> None:
     subject = f"PostHog alert {alert.name} has anomalies"
-    campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().isoformat()}"
+    campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}/alerts/{alert.id}"
     message = EmailMessage(
