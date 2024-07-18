@@ -51,17 +51,13 @@ from django.db.models import Prefetch
 logger = structlog.get_logger(__name__)
 
 def get_generic_sql_error(source_type: ExternalDataSource.Type):
-    if source_type == ExternalDataSource.Type.POSTGRES:
-        name = 'Postgres'
-    else:
+    if source_type == ExternalDataSource.Type.MYSQL:
         name = 'MySQL'
+    else:
+        name = 'Postgres'
 
     return f"Could not connect to {name}. Please check all connection details are valid."
 
-GenericSQLErrors = {
-    f"{ExternalDataSource.Type.POSTGRES}": "Could not connect to Postgres. Please check all connection details are valid.",
-    f"{ExternalDataSource.Type.MYSQL}": "Could not connect to Postgres. Please check all connection details are valid.",
-}
 GenericSnowflakeError = "Could not connect to Snowflake. Please check all connection details are valid."
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -720,12 +716,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": exposed_error or GenericSQLErrors[source_type]},
+                    data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": e.value or GenericSQLErrors[source_type]},
+                    data={"message": e.value or get_generic_sql_error(source_type)},
                 )
             except Exception as e:
                 capture_exception(e)
@@ -733,7 +729,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": GenericSQLErrors[source_type]},
+                    data={"message": get_generic_sql_error(source_type)},
                 )
 
             filtered_results = [

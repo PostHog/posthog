@@ -215,9 +215,6 @@ def get_mysql_schemas(
             user=user,
             password=password,
             connect_timeout=5,
-            # ssl_ca="/tmp/no.txt",
-            # ssl_cert="/tmp/no.txt",
-            # ssl_key="/tmp/no.txt",
         )
 
         with connection.cursor() as cursor:
