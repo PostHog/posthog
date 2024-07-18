@@ -59,6 +59,7 @@ export type SettingId =
     | 'authorized-toolbar-urls'
     | 'integration-webhooks'
     | 'integration-slack'
+    | 'integration-other'
     | 'integration-ip-allowlist'
     | 'project-rbac'
     | 'project-delete'

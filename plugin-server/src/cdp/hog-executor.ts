@@ -410,11 +410,14 @@ export class HogExecutor {
         const values: string[] = []
 
         hogFunction.inputs_schema?.forEach((schema) => {
-            if (schema.secret) {
+            if (schema.secret || schema.type === 'integration') {
                 const value = inputs[schema.key]
                 if (typeof value === 'string') {
                     values.push(value)
-                } else if (schema.type === 'dictionary' && typeof value === 'object') {
+                } else if (
+                    (schema.type === 'dictionary' || schema.type === 'integration') &&
+                    typeof value === 'object'
+                ) {
                     // Assume the values are the sensitive parts
                     Object.values(value).forEach((val: any) => {
                         values.push(val)
