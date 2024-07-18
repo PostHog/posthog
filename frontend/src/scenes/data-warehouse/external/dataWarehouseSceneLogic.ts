@@ -141,7 +141,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
         currentTab: [
-            DataWarehouseTab.Explore,
+            DataWarehouseTab.Explore as DataWarehouseTab,
             {
                 setSceneTab: (_, { tab }) => tab,
             },
