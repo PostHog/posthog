@@ -166,13 +166,13 @@ def send_batch_export_run_failure(
     is_email_available_result = is_email_available(with_absolute_urls=True)
     if not is_email_available_result:
         logger.warning("Email service is not available")
-        return
+        return None
 
     batch_export_run: BatchExportRun = BatchExportRun.objects.select_related("batch_export__team").get(
         id=batch_export_run_id
     )
     team: Team = batch_export_run.batch_export.team
-    logger = logger.bind(team_id=team.id, batch_export_id=batch_export_run.batch_export.id)  # type: ignore
+    logger = logger.bind(team_id=team.id, batch_export_id=batch_export_run.batch_export.id)
 
     logger.info("Preparing notification email for batch export run %s", batch_export_run_id)
 
@@ -198,7 +198,7 @@ def send_batch_export_run_failure(
 
     memberships_to_email = []
     memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
-        organization_id=team.organization_id  # type: ignore
+        organization_id=team.organization_id
     )
 
     for membership in memberships:
