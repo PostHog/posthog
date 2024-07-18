@@ -7,7 +7,7 @@ class TestTemplateWebhook(BaseHogFunctionTemplateTest):
     template = template_webhook
 
     def test_function_works(self):
-        res = self.run_function(
+        self.run_function(
             inputs={
                 "url": "https://posthog.com",
                 "method": "GET",
