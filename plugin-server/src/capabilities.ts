@@ -123,6 +123,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
+                syncInlinePlugins: true,
                 ...sharedCapabilities,
             }
     }
