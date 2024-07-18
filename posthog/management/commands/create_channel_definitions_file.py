@@ -207,7 +207,7 @@ class Command(BaseCommand):
             entries[video_medium, EntryKind.medium] = SourceEntry(None, "Paid Video", "Organic Video")
         for referral_medium in ("referral", "app", "link"):
             entries[referral_medium, EntryKind.medium] = SourceEntry(None, None, "Referral")
-        for affiliate_medium in ("affiliate",):
+        for affiliate_medium in ("affiliate", "partnership"):
             entries[affiliate_medium, EntryKind.medium] = SourceEntry(None, None, "Affiliate")
         for audio_medium in ("audio",):
             entries[audio_medium, EntryKind.medium] = SourceEntry(None, None, "Audio")
