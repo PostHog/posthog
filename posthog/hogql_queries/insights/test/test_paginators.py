@@ -147,7 +147,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         params = paginator.response_params()
         self.assertEqual(params["limit"], 5)
         self.assertEqual(params["offset"], 10)
-        self.assertEqual(params["has_more"], paginator.has_more())
+        self.assertEqual(params["hasMore"], paginator.has_more())
 
     def test_handle_none_response(self):
         """Test handling of None response."""

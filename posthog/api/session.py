@@ -40,7 +40,7 @@ class SessionViewSet(
             raise ValidationError(detail=f"Key not provided")
 
         modifiers = create_default_modifiers_for_team(team)
-        if modifiers.sessionTableVersion == SessionTableVersion.V2:
+        if modifiers.session_table_version == SessionTableVersion.V2:
             result = get_lazy_session_table_values_v2(key, search_term=search_term, team=team)
         else:
             result = get_lazy_session_table_values_v1(key, search_term=search_term, team=team)
@@ -61,7 +61,7 @@ class SessionViewSet(
         # unlike e.g. event properties, there's a very limited number of session properties,
         # so we can just return them all
         modifiers = create_default_modifiers_for_team(self.team)
-        if modifiers.sessionTableVersion == SessionTableVersion.V2:
+        if modifiers.session_table_version == SessionTableVersion.V2:
             results = get_lazy_session_table_properties_v2(search)
         else:
             results = get_lazy_session_table_properties_v1(search)
