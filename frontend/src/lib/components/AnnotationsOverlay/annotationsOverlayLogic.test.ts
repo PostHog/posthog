@@ -43,6 +43,7 @@ const MOCK_ANNOTATION_ORG_SCOPED: RawAnnotationType = {
     dashboard_item: null,
     insight_short_id: null,
     insight_name: null,
+    insight_derived_name: null,
     scope: AnnotationScope.Organization,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -54,6 +55,7 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
     insight_name: 'Clicks',
+    insight_derived_name: null,
     scope: AnnotationScope.Organization,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -65,6 +67,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED: RawAnnotationType = {
     dashboard_item: null,
     insight_short_id: null,
     insight_name: null,
+    insight_derived_name: null,
     scope: AnnotationScope.Project,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -76,6 +79,7 @@ const MOCK_ANNOTATION_INSIGHT_1_SCOPED: RawAnnotationType = {
     dashboard_item: 1,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
     insight_name: 'Pageviews',
+    insight_derived_name: 'Pageview count',
     scope: AnnotationScope.Insight,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -87,6 +91,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
     insight_name: 'Pageviews',
+    insight_derived_name: 'Pageview count',
     scope: AnnotationScope.Project,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -98,6 +103,7 @@ const MOCK_ANNOTATION_INSIGHT_3_SCOPED: RawAnnotationType = {
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
     insight_name: 'Clicks',
+    insight_derived_name: null,
     scope: AnnotationScope.Insight,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -108,7 +114,8 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     date_marker: '2022-08-17T04:00:00.000Z', // A week after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
-    insight_name: 'Pageviews',
+    insight_name: null,
+    insight_derived_name: 'Pageview count',
     scope: AnnotationScope.Organization,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -120,6 +127,7 @@ const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
     dashboard_item: 3,
     insight_short_id: 'xxxxxx' as InsightShortId,
     insight_name: 'Clicks',
+    insight_derived_name: null,
     scope: AnnotationScope.Project,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -132,6 +140,7 @@ const MOCK_ANNOTATION_DASHBOARD_SCOPED: RawAnnotationType = {
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
     insight_short_id: null,
     insight_name: null,
+    insight_derived_name: null,
     scope: AnnotationScope.Dashboard,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -144,6 +153,7 @@ const MOCK_ANNOTATION_DASHBOARD_SCOPED_2: RawAnnotationType = {
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID_2,
     insight_short_id: null,
     insight_name: null,
+    insight_derived_name: null,
     scope: AnnotationScope.Dashboard,
     ...BASE_MOCK_ANNOTATION,
 }
@@ -156,6 +166,7 @@ const MOCK_ANNOTATION_DASHBOARD_SCOPED_3: RawAnnotationType = {
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID_2,
     insight_short_id: null,
     insight_name: null,
+    insight_derived_name: null,
     scope: AnnotationScope.Dashboard,
     ...BASE_MOCK_ANNOTATION,
 }
