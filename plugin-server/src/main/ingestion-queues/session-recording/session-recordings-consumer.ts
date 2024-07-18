@@ -481,11 +481,14 @@ export class SessionRecordingIngester {
         // eachBatchWithContext, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster
         const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
+
+        const autoCommit = this.config.SESSION_RECORDING_USE_OFFSET_STORE ? true : false
+
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: replayClusterConnectionConfig,
             groupId: this.consumerGroupId,
             topic: this.topic,
-            autoCommit: false,
+            autoCommit,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
@@ -828,12 +831,21 @@ export class SessionRecordingIngester {
                     return
                 }
 
-                this.connectedBatchConsumer?.commit({
-                    ...tp,
-                    // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
-                    // for some reason you commit the next offset you expect to read and not the one you actually have
-                    offset: highestOffsetToCommit + 1,
-                })
+                if (this.config.SESSION_RECORDING_USE_OFFSET_STORE) {
+                    this.connectedBatchConsumer?.offsetsStore([
+                        {
+                            ...tp,
+                            offset: highestOffsetToCommit + 1,
+                        },
+                    ])
+                } else {
+                    this.connectedBatchConsumer?.commit({
+                        ...tp,
+                        // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+                        // for some reason you commit the next offset you expect to read and not the one you actually have
+                        offset: highestOffsetToCommit + 1,
+                    })
+                }
 
                 // Store the committed offset to the persistent store to avoid rebalance issues
                 await this.persistentHighWaterMarker.add(tp, this.consumerGroupId, highestOffsetToCommit)
