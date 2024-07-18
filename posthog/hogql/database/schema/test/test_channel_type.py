@@ -602,6 +602,16 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 }
             ),
         )
+        self.assertEqual(
+            "Affiliate",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Foo",
+                    "utm_medium": "partnership",
+                    "$referring_domain": "foo.com",
+                }
+            ),
+        )
 
     def test_hacker_news(self):
         # news.ycombinator.com is interesting because we don't have an entry for ycombinator.com, only the subdomain
