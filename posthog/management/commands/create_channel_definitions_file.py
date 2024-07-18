@@ -225,8 +225,24 @@ class Command(BaseCommand):
             "masto.ai",
             # threads
             "www.threads.net",
+            # telegram
+            "web.telegram.org",
+            "t.me",
+            # discord
+            "discord.com",
+            "discordapp.gg",
         ):
             entries[(social_domain, EntryKind.source)] = SourceEntry("Social", "Paid Social", "Organic Social")
+
+        for email_domain in (
+            "outlook.live.com",
+            "mail.google.com",
+            "mail.yahoo.com",
+            "mail.aol.com",
+            "mail.aol.co.uk",
+            "mail.proton.me",
+        ):
+            entries[(email_domain, EntryKind.source)] = SourceEntry("Email", None, "Email")
 
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
@@ -305,7 +321,7 @@ class Command(BaseCommand):
 
         # add some well-known mobile apps
         # - google play: find package ids with the play store search
-        # - ios: find bundle ids with offcornerdev.com/bundleid.html
+        # - ios: find bundle ids with https://offcornerdev.com/bundleid.html
         for app in (
             # linkedin
             "com.linkedin.android",
@@ -342,6 +358,10 @@ class Command(BaseCommand):
             "com.yahoo.mobile.client.android.flickr",
             "com.flickr.android",
             "com.yahoo.mobile.client.android.fantasyfootball",
+            # telegram
+            "org.telegram.messenger",
+            "org.telegram.messenger.web",
+            "ph.telegra.Telegraph",
         ):
             entries[app.lower(), EntryKind.source] = SourceEntry(
                 "Social", "Paid Social", "Organic Social", is_reverse_dns=True
