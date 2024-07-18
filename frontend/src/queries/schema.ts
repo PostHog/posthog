@@ -1010,6 +1010,8 @@ export interface AnalyticsQueryResponseBase<T> {
     error?: string
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
 }
 
 interface CachedQueryResponseMixin {

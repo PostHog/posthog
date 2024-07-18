@@ -128,7 +128,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (
+        if (props.cachedResults?.query_status?.complete === false) {
+            // If there is an incomplete query, load the data with the same query_id which should return its status
+            // TODO: Check if this also works with editing the insight or changing date range
+            actions.loadData(undefined, props.cachedResults?.query_status.id)
+        } else if (
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
             !queryEqual(props.query, oldProps.query) &&
             (!props.cachedResults ||
@@ -141,7 +145,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
-        loadData: (refresh = false) => ({ refresh, queryId: uuid() }),
+        loadData: (refresh = false, queryId?: string) => ({ refresh, queryId: queryId || uuid() }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
@@ -166,7 +170,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return props.cachedResults
                     }
 
-                    if (props.cachedResults && !refresh) {
+                    if (props.cachedResults && !refresh && !props.cachedResults.query_status?.complete) {
                         if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
                         }
