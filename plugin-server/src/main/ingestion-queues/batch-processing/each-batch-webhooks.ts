@@ -169,8 +169,11 @@ async function addGroupPropertiesToPostIngestionEvent(
 
         for (const [groupType, columnIndex] of Object.entries(groupTypes)) {
             const groupKey = (event.properties[`$groups`] || {})[groupType]
+            if (!groupKey) {
+                continue
+            }
 
-            const queryString = `SELECT properties FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
+            const queryString = `SELECT group_properties FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
 
             const selectResult: QueryResult = await postgres.query(
                 PostgresUse.COMMON_READ,
@@ -178,6 +181,7 @@ async function addGroupPropertiesToPostIngestionEvent(
                 [event.teamId, columnIndex, groupKey],
                 'fetchGroup'
             )
+
             const groupProperties = selectResult.rows.length > 0 ? selectResult.rows[0].group_properties : {}
 
             if (groupKey && groupProperties) {
@@ -185,7 +189,7 @@ async function addGroupPropertiesToPostIngestionEvent(
                     index: columnIndex,
                     key: groupKey,
                     type: groupType,
-                    properties: JSON.parse(groupProperties),
+                    properties: groupProperties,
                 }
             }
         }

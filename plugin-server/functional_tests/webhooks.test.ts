@@ -8,7 +8,6 @@ import {
     createGroup,
     createGroupType,
     createHook,
-    createOrganization,
     createOrganizationRaw,
     createTeam,
     createUser,
@@ -41,7 +40,9 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
 
         const distinctId = new UUIDT().toString()
 
-        const organizationId = await createOrganization()
+        const organizationId = await createOrganizationRaw({
+            available_product_features: `array ['{ "key": "group_analytics", "name": "group_analytics" }'::jsonb]`,
+        })
         const teamId = await createTeam(organizationId, `http://localhost:${server.address()?.port}`)
         const user = await createUser(teamId, new UUIDT().toString())
         await createGroupType(teamId, 0, 'organization')
@@ -90,7 +91,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
                 $current_url: 'http://localhost:8000',
                 $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
                 $set: { email: 't@t.com' },
-                $group_0: 'TestWebhookOrg',
+                $groups: { organization: 'TestWebhookOrg' },
             },
         })
 
