@@ -3,7 +3,6 @@ from celery.canvas import group, chain
 from django.utils import timezone
 import math
 import structlog
-from typing import Any
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -28,7 +27,7 @@ def check_all_alerts() -> None:
     groups = []
     for i in range(0, len(alert_ids), group_size):
         alert_id_group = alert_ids[i : i + group_size]
-        chained_calls = chain([check_alert_task.s(alert_id=alert_id) for alert_id in alert_id_group])
+        chained_calls = chain([check_alert_task.si(alert_id) for alert_id in alert_id_group])
         groups.append(chained_calls)
 
     group(groups).apply_async()
@@ -76,11 +75,9 @@ def check_all_alerts_task() -> None:
     check_all_alerts()
 
 
-# Note, check_alert_task is used in Celery chains. Celery chains pass the previous
-# function call result to the next function as an argument, hence args and kwargs.
 @shared_task(ignore_result=True)
-def check_alert_task(*args: Any, **kwargs: Any) -> None:
-    check_alert(**kwargs)
+def check_alert_task(alert_id: int) -> None:
+    check_alert(alert_id)
 
 
 # TODO: make it a task
