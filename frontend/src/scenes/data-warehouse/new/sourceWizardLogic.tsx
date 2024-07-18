@@ -780,6 +780,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
+
+                if (((e.data?.message as string | undefined) ?? '').indexOf('Invalid credentials') != -1) {
+                    posthog.capture('warehouse credentials invalid', { sourceType: values.selectedConnector.name })
+                }
             }
 
             actions.setIsLoading(false)
