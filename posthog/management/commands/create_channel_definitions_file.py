@@ -186,6 +186,8 @@ class Command(BaseCommand):
             "coccoc.com",
             "so.com",
             "seznam.cz",
+            # this showed up for some customers and after some debugging, rot13(tbbtyf) = googls
+            "tbbtyf",
         ):
             entries[(search_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
