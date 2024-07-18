@@ -113,8 +113,6 @@ class OauthIntegration:
     def authorize_url(cls, kind: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        # Build the url safely with the parameters
-
         query_params = {
             "client_id": oauth_config.client_id,
             "scope": oauth_config.scope,
