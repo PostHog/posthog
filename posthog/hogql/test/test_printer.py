@@ -1443,28 +1443,15 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                "SELECT dictGetOrNull('channel_definition_dict', 'domain_type', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=0"
-            ),
-            printed,
-        )
-
-    def test_lookup_paid_domain_type(self):
-        query = parse_select("select hogql_lookupPaidDomainType('www.google.com') from events")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
-        self.assertEqual(
-            (
-                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=0"
+                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', "
+                "(coalesce(%(hogql_val_0)s, ''), 'source')), "
+                "dictGetOrNull('channel_definition_dict', 'domain_type', "
+                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+                "format_csv_allow_double_quotes=0, max_ast_elements=2000000, "
+                "max_expanded_ast_elements=2000000, max_query_size=1048576, "
+                "max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1479,10 +1466,15 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=0"
+                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', "
+                "(coalesce(%(hogql_val_0)s, ''), 'source')) , "
+                "dictGetOrNull('channel_definition_dict', 'type_if_paid', "
+                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+                "format_csv_allow_double_quotes=0, max_ast_elements=2000000, "
+                "max_expanded_ast_elements=2000000, max_query_size=1048576, "
+                "max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1505,24 +1497,6 @@ class TestPrinter(BaseTest):
             printed,
         )
 
-    def test_lookup_organic_domain_type(self):
-        query = parse_select("select hogql_lookupOrganicDomainType('www.google.com') from events")
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
-            settings=HogQLGlobalSettings(max_execution_time=10),
-        )
-        self.assertEqual(
-            (
-                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
-                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=0"
-            ),
-            printed,
-        )
-
     def test_lookup_organic_source_type(self):
         query = parse_select("select hogql_lookupOrganicSourceType('google') from events")
         printed = print_ast(
@@ -1533,10 +1507,15 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
-                "(coalesce(%(hogql_val_0)s, ''), 'source')) "
-                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=0"
+                "SELECT coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', "
+                "(coalesce(%(hogql_val_0)s, ''), 'source')), "
+                "dictGetOrNull('channel_definition_dict', 'type_if_organic', "
+                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
+                "format_csv_allow_double_quotes=0, max_ast_elements=2000000, "
+                "max_expanded_ast_elements=2000000, max_query_size=1048576, "
+                "max_bytes_before_external_group_by=0"
             ),
             printed,
         )

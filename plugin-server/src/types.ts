@@ -74,6 +74,7 @@ export enum PluginServerMode {
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
+    events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     jobs = 'jobs',
@@ -84,6 +85,7 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_function_overflow = 'cdp-function-overflow',
+    functional_tests = 'functional-tests',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -204,6 +206,7 @@ export interface PluginsServerConfig extends CdpConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
@@ -325,6 +328,7 @@ export interface PluginServerCapabilities {
     ingestion?: boolean
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
+    eventsIngestionPipelines?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
