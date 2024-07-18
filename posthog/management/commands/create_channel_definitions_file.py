@@ -153,7 +153,7 @@ class Command(BaseCommand):
             # from https://en.wikipedia.org/wiki/List_of_search_engines
             "www.ask.com",
             "search.brave.com",
-            # Baidu is included already
+            "www.baidu.com",
             "www.dogpile.com",
             "duckduckgo.com",
             "www.ecosia.org",
@@ -174,10 +174,11 @@ class Command(BaseCommand):
             # Yahoo already included
             # Yandex already included
             "you.com",
-            # some other popular search engines
+            # some other popular search engines and search engines used by our customers' users
             "www.kiddle.co",
             "www.egerin.com",
             "presearch.io",
+            "presearch.com",
             "perplexity.ai",
             "m.search.naver.com",
             "yep.com",
@@ -188,10 +189,44 @@ class Command(BaseCommand):
             "coccoc.com",
             "so.com",
             "seznam.cz",
-            # this showed up for some customers and after some debugging, rot13(tbbtyf) = googls
+            "www.onesearch.com",
+            "www.searchlock.com",
+            "crowdsearch.net",
+            "tusksearch.com",
+            "search.lilo.org",
+            "www.juniorsafesearch.com",
+            "my-web-search.com",
+            "search.xyz",
+            "www.junosearch.net",
+            "search.aol.com",
+            "www.kidzsearch.com",
+            "directsearch.io",
+            "search-results-now.com"
+            # this showed up for some customers and after some head scratching, rot13(tbbtyf) = googls
+            # I also googled this and most of the results were people asking what this was
             "tbbtyf",
         ):
             entries[(search_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
+
+        # add social domains
+        for social_domain in (
+            "bsky.app",
+            # we're never going to include all mastodon instances, but grab a few popular ones and a few tech ones
+            "mastodon.social",
+            "mstdn.jp",
+            "mastodon.cloud",
+            "mastodon.world",
+            "mstdn.social",
+            "mastodon.online",
+            "fosstodon.org",
+            "techhub.social",
+            "infosec.exchange",
+            "hachyderm.io",
+            "masto.ai",
+            # threads
+            "www.threads.net",
+        ):
+            entries[(social_domain, EntryKind.source)] = SourceEntry("Social", "Paid Social", "Organic Social")
 
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
