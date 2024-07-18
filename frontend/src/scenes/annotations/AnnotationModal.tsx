@@ -146,6 +146,7 @@ export function AnnotationModal({
                                             : undefined),
                                     sideIcon:
                                         existingModalAnnotation?.dashboard_id &&
+                                        existingModalAnnotation?.scope !== AnnotationScope.Dashboard &&
                                         existingModalAnnotation.dashboard_id !== annotationModal.dashboardId ? (
                                             <Link
                                                 to={urls.dashboard(existingModalAnnotation?.dashboard_id)}
