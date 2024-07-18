@@ -12,6 +12,8 @@ import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 
+const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
+
 export interface LemonInputSelectOption {
     key: string
     label: string
@@ -75,7 +77,7 @@ export function LemonInputSelect({
 
         // We show the input value if custom values are allowed and it's not in the list
         if (allowCustomValues && inputValue && !values.includes(inputValue)) {
-            customValues.unshift(inputValue)
+            customValues.unshift(inputValue.replace('\\,', ',')) // Transform escaped commas to plain commas
         }
 
         options.forEach((option) => {
@@ -112,11 +114,12 @@ export function LemonInputSelect({
 
     const setInputValue = (newValue: string): void => {
         // Special case for multiple mode with custom values
-        if (separateOnComma && newValue.includes(',')) {
+        if (separateOnComma && newValue.match(NON_ESCAPED_COMMA_REGEX)) {
             const newValues = [...values]
 
-            newValue.split(',').forEach((value) => {
-                const trimmedValue = value.trim()
+            // We split on commas EXCEPT if they're escaped (to allow for commas in values)
+            newValue.split(NON_ESCAPED_COMMA_REGEX).forEach((value) => {
+                const trimmedValue = value.replace('\\,', ',').trim() // Transform escaped commas to plain commas
                 if (trimmedValue && !values.includes(trimmedValue)) {
                     newValues.push(trimmedValue)
                 }
