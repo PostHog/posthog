@@ -442,6 +442,14 @@ def create_hogql_database(
                             join_table=joining_table,
                             join_function=join.join_function(),
                         )
+                elif isinstance(person_field, ast.LazyJoin):
+                    person_field.join_table.fields[join.field_name] = LazyJoin(
+                        from_field=from_field,
+                        to_field=to_field,
+                        join_table=joining_table,
+                        join_function=join.join_function(),
+                    )
+
         except Exception as e:
             capture_exception(e)
 

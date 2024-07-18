@@ -389,7 +389,7 @@ class Team(UUIDClassicModel):
                 send_feature_flag_events=False,
             )
 
-        return False
+        return True
 
     @property
     def strict_caching_enabled(self) -> bool:
