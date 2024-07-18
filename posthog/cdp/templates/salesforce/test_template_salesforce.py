@@ -6,7 +6,7 @@ from posthog.cdp.templates.salesforce.template_salesforce import (
 )
 
 
-class TestTemplateSlack(BaseHogFunctionTemplateTest):
+class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
     template = template_salesforce_create
 
     def _inputs(self, **kwargs):
@@ -24,16 +24,44 @@ class TestTemplateSlack(BaseHogFunctionTemplateTest):
 
     def test_function_works(self):
         self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
-        res = self.run_function(self._inputs())
-
-        assert res.result is None
-
+        self.run_function(self._inputs())
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
                 "https://posthog.my.salesforce.com/services/data/v61.0/sobjects/Contact",
                 {
                     "body": {"foo": "bar"},
                     "method": "POST",
+                    "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
+                },
+            )
+        )
+
+
+class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
+    template = template_salesforce_update
+
+    def _inputs(self, **kwargs):
+        inputs = {
+            "oauth": {
+                "access_token": "oauth-1234",
+            },
+            "path": "Lead/Email/example@posthog.com",
+            "properties": {
+                "foo": "bar",
+            },
+        }
+        inputs.update(kwargs)
+        return inputs
+
+    def test_function_works(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        self.run_function(self._inputs())
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://posthog.my.salesforce.com/services/data/v61.0/sobjects/Lead/Email/example@posthog.com",
+                {
+                    "body": {"foo": "bar"},
+                    "method": "PATCH",
                     "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
                 },
             )
