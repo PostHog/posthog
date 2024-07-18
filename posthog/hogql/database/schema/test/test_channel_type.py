@@ -664,3 +664,14 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 }
             ),
         )
+
+    def test_gmail_app(self):
+        # plus.google.com is interesting because it should be social, but just google.com is search
+        self.assertEqual(
+            "Email",
+            self._get_session_channel_type(
+                {
+                    "$referring_domain": "com.google.android.gm",
+                }
+            ),
+        )
