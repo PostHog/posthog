@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 import subprocess
@@ -6,9 +7,37 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
+import aiohttp
 from django.core.management.base import BaseCommand
 
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
+
+VALID_ENTRY_RE = re.compile(r"^[ a-z0-9.+_-]+$")
+
+# when we search for apps we use .well-known files, but companies usually include their dev apps in that list, so use this list to try to filter them out
+DEV_APP_STRINGS = [
+    "dev",
+    "staging",
+    "stage",
+    "qa",
+    "internal",
+    "feedback",
+    "inhouse",
+    "debug",
+    "beta",
+    "alpha",
+    "gamma",
+    "dogfood",
+    "fishfood",
+    "teamfood",
+    "sample",
+    "canary",
+    "test",
+    "prototype",
+    "preview",
+    "releasecandidate",
+    "nightly",
+]
 
 
 class EntryKind(StrEnum):
@@ -21,6 +50,7 @@ class SourceEntry:
     hostname_type: Optional[str]
     type_if_paid: Optional[str]
     type_if_organic: Optional[str]
+    is_reverse_dns: Optional[bool] = False
 
 
 class Command(BaseCommand):
@@ -36,6 +66,23 @@ class Command(BaseCommand):
         parser.add_argument("ga_sources", type=str, help="GA Sources Input file")
 
     def handle(self, *args, **options):
+        # start with previous channel definitions file:
+        with open(OUTPUT_FILE) as output_file:
+            existing_channel_definitions_json = json.loads(output_file.read())
+
+        entries: OrderedDict[tuple[str, str], SourceEntry] = OrderedDict(
+            (
+                (existing_channel_definition[0], EntryKind(existing_channel_definition[1])),
+                SourceEntry(
+                    hostname_type=existing_channel_definition[2],
+                    type_if_paid=existing_channel_definition[3],
+                    type_if_organic=existing_channel_definition[4],
+                    is_reverse_dns=existing_channel_definition[5],
+                ),
+            )
+            for existing_channel_definition in existing_channel_definitions_json
+        )
+
         input_arg = options.get("ga_sources")
         if not input_arg:
             raise ValueError("No input file specified")
@@ -50,15 +97,13 @@ class Command(BaseCommand):
             "SOURCE_CATEGORY_VIDEO": ("Video", "Paid Video", "Organic Video"),
         }
 
-        def handle_entry(entry):
+        for entry in split_items:
             items = re.findall(r"\S+", entry.strip())
             if len(items) != 2:
                 return None
             domain, raw_type = items
             base_type, type_if_paid, type_if_organic = types[raw_type]
-            return (domain, EntryKind.source), SourceEntry(base_type, type_if_paid, type_if_organic)
-
-        entries: OrderedDict[tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
+            entries[(domain, EntryKind.source)] = SourceEntry(base_type, type_if_paid, type_if_organic)
 
         # add google domains to this, from https://www.google.com/supported_domains
         for google_domain in [
@@ -167,6 +212,129 @@ class Command(BaseCommand):
         for push_medium in ("push", "mobile", "notification"):
             entries[push_medium, EntryKind.medium] = SourceEntry(None, None, "Push")
 
+        # find mobile apps and add their bundle / app ids by looking for .well-known files on those domains
+        potential_app_domains = [
+            (domain, entry)
+            for ((domain, kind), entry) in entries.items()
+            if domain and kind == EntryKind.source and entry.hostname_type and "google" not in domain
+        ]
+        apple_apps = asyncio.run(parallel_lookup_up_apple_apps(potential_app_domains))
+        android_apps = asyncio.run(parallel_lookup_up_android_apps(potential_app_domains))
+
+        for record in apple_apps + android_apps:
+            if not record:
+                continue
+            app_ids, entry = record
+            for app_id in app_ids:
+                # try to filter dev apps, if we exclude something that we want to keep, we can explicitly add it below
+                if any(s in app_id for s in DEV_APP_STRINGS):
+                    continue
+
+                # google apps are a bit tricky so we have some special code to handle them
+                if app_id.startswith("com.google."):
+                    if "youtube" in app_id:
+                        entries[app_id, EntryKind.source] = SourceEntry(
+                            hostname_type="Video",
+                            type_if_organic="Organic Video",
+                            type_if_paid="Paid Video",
+                            is_reverse_dns=True,
+                        )
+                    elif any(x in app_id for x in ("spaces", "photos")):
+                        entries[app_id, EntryKind.source] = SourceEntry(
+                            hostname_type="Social",
+                            type_if_organic="Organic Social",
+                            type_if_paid="Paid Social",
+                            is_reverse_dns=True,
+                        )
+                    else:
+                        continue
+                # facebook have a ton of apps, many are not relevant
+                elif app_id.startswith("com.facebook."):
+                    if any(s in app_id for s in ("appmanager", "admin", "pageadminapp")):
+                        continue
+                elif app_id.startswith("com.microsoft.bing"):
+                    # there's a ton of bing variants, only keep the original
+                    if app_id != "com.microsoft.bing":
+                        continue
+
+                entries[app_id, EntryKind.source] = SourceEntry(
+                    hostname_type=entry.hostname_type,
+                    type_if_organic=entry.type_if_organic,
+                    type_if_paid=entry.type_if_paid,
+                    is_reverse_dns=True,
+                )
+
+        # add some well-known mobile apps
+        # - google play: find package ids with the play store search
+        # - ios: find bundle ids with offcornerdev.com/bundleid.html
+        for app in (
+            # linkedin
+            "com.linkedin.android",
+            "com.linkedin.LinkedIn",
+            # reddit
+            "com.reddit.frontpage",
+            "com.reddit.reddit",
+            # tiktok
+            "com.zhiliaoapp.musically",
+            # facebook
+            "com.facebook.katana",
+            "com.facebook.facebook",
+            "com.facebook.messenger",
+            # instagram
+            "com.instagram.android",
+            "com.burbn.instagram",
+            # snapchat
+            "com.snapchat.android",
+            "com.toyopagroup.picaboo",
+            # bluesky
+            "xyz.blueskyweb.app",
+            # twitter
+            "com.twitter.android",
+            "com.atebits.tweetie2",
+            # mastodon
+            "org.joinmastodon.android",
+            # discord
+            "com.hammerandchisel.discord",
+            "com.discord",
+            # deviant art - contains the "dev" string so excluded by our search above
+            "com.deviantart.android.damobile",
+            "com.deviantart.deviantart",
+            # yahoo
+            "com.yahoo.mobile.client.android.flickr",
+            "com.flickr.android",
+            "com.yahoo.mobile.client.android.fantasyfootball",
+        ):
+            entries[app.lower(), EntryKind.source] = SourceEntry(
+                "Social", "Paid Social", "Organic Social", is_reverse_dns=True
+            )
+        for app in (
+            # twitch
+            "tv.twitch",
+            "tv.twitch.android.app",
+            # youtube
+            "com.google.android.youtube",
+            "com.google.ios.youtube",
+            "com.google.ios.youtubekids",
+            "com.google.android.apps.youtube.kids",
+            "com.google.ios.youtubeunplugged",
+            "com.google.android.youtube.tv",
+        ):
+            entries[app.lower(), EntryKind.source] = SourceEntry(
+                "Video", "Paid Video", "Organic Video", is_reverse_dns=True
+            )
+        for app in (
+            # android search widget
+            "com.google.android.googlequicksearchbox",
+            # yahoo
+            "com.yahoo.apps.yahooapp",
+            "com.yahoo.mobile.client.android.yahoo",
+            "com.yahoo.www.twa",
+            "com.yahoo.frontpage" "com.yahoo.weather",
+        ):
+            entries[app.lower(), EntryKind.source] = SourceEntry(
+                "Search", "Paid Search", "Organic Search", is_reverse_dns=True
+            )
+
         # add without www. for all entries
         without_www = {
             (hostname[4:], kind): entry for ((hostname, kind), entry) in entries.items() if hostname.startswith("www.")
@@ -174,8 +342,16 @@ class Command(BaseCommand):
         entries.update(without_www)
 
         rows = [
-            [hostname, kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
+            (
+                hostname,
+                kind,
+                entry.hostname_type,
+                entry.type_if_paid,
+                entry.type_if_organic,
+                entry.is_reverse_dns,
+            )
             for (hostname, kind), entry in entries.items()
+            if (VALID_ENTRY_RE.match(hostname))
         ]
 
         # sort entries by fld where possible
@@ -185,8 +361,11 @@ class Command(BaseCommand):
         update_tld_names()
 
         def sort_key(row):
-            name, kind, hostname_type, type_if_paid, type_if_organic = row
-            source_fld = get_fld(name, fail_silently=True, fix_protocol=True)
+            name, kind, hostname_type, type_if_paid, type_if_organic, is_reverse_dns = row
+            if name and is_reverse_dns:
+                source_fld = get_fld(str.join(".", reversed(name.split("."))), fail_silently=True, fix_protocol=True)
+            else:
+                source_fld = get_fld(name, fail_silently=True, fix_protocol=True)
             return [kind, source_fld or name, name]
 
         rows = sorted(rows, key=sort_key)
@@ -195,3 +374,56 @@ class Command(BaseCommand):
         with open(OUTPUT_FILE, "w") as output_file:
             output_file.write(json.dumps(rows))
         subprocess.run(["npx", "--no-install", "prettier", "--write", OUTPUT_FILE])
+
+
+async def parallel_lookup_up_apple_apps(url_entries):
+    async def f(domain_entry, session):
+        (domain, entry) = domain_entry
+        url = f"https://{domain}/.well-known/apple-app-site-association"
+        try:
+            async with session.get(url=url) as response:
+                text = await response.read()
+                body = json.loads(text)
+        except:
+            # If we get an error, ignore it. The domain might not have an applinks file, and may not even exist at all,
+            # it just means that we won't be able to get any bundle ids from it.
+            pass
+        app_ids = []
+        if not isinstance(body, dict):
+            return
+        for app in body.get("applinks", {}).get("details", []):
+            app_id = app.get("appID")
+            if app_id:
+                bundle_id = app_id.split(".", 1)[1].lower()
+                if VALID_ENTRY_RE.match(bundle_id):
+                    app_ids.append(bundle_id)
+        return app_ids, entry
+
+    async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
+        return await asyncio.gather(*(f(url_entry, session) for url_entry in url_entries))
+
+
+async def parallel_lookup_up_android_apps(url_entries):
+    async def f(domain_entry, session):
+        (domain, entry) = domain_entry
+        url = f"https://{domain}/.well-known/assetlinks.json"
+        try:
+            async with session.get(url=url) as response:
+                text = await response.read()
+                body = json.loads(text)
+        except:
+            # If we get an error, ignore it. The domain might not have an assetlinks file, and may not even exist at all,
+            # it just means that we won't be able to get any package ids from it.
+            return
+        app_ids = []
+        if not isinstance(body, list):
+            return
+        for app in body:
+            package_name = app.get("target", {}).get("package_name")
+            if package_name and isinstance(package_name, str):
+                package_name = package_name.lower()
+                app_ids.append(package_name)
+        return app_ids, entry
+
+    async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:
+        return await asyncio.gather(*(f(url_entry, session) for url_entry in url_entries))

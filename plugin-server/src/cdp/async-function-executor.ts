@@ -1,4 +1,5 @@
-import { PluginsServerConfig } from '../types'
+import { buildIntegerMatcher } from '../config/config'
+import { PluginsServerConfig, ValueMatcher } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { RustyHook } from '../worker/rusty-hook'
@@ -9,7 +10,11 @@ export type AsyncFunctionExecutorOptions = {
 }
 
 export class AsyncFunctionExecutor {
-    constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {}
+    hogHookEnabledForTeams: ValueMatcher<number>
+
+    constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {
+        this.hogHookEnabledForTeams = buildIntegerMatcher(serverConfig.CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS, true)
+    }
 
     async execute(
         request: HogFunctionInvocationResult,
@@ -74,8 +79,12 @@ export class AsyncFunctionExecutor {
             // Finally overwrite the args with the sanitized ones
             request.asyncFunctionRequest.args = [url, { method, headers, body }]
 
-            if (!options?.sync === false) {
-                // TODO: Add rusty hook support
+            // If the caller hasn't forced it to be synchronous and the team has the rustyhook enabled, enqueue it
+            if (!options?.sync && this.hogHookEnabledForTeams(request.teamId)) {
+                const enqueued = await this.rustyHook.enqueueForHog(request)
+                if (enqueued) {
+                    return
+                }
             }
 
             status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)

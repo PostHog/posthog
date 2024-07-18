@@ -1,8 +1,10 @@
+import re
 from typing import Optional
 
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
@@ -32,6 +34,7 @@ def build_function_call(
 
         return f"{substitute_params(expr, raw_params)})"
 
+    # Delta format
     if format == "Delta":
         escaped_url = add_param(url)
         if structure:
@@ -50,6 +53,36 @@ def build_function_call(
 
         return return_expr(expr)
 
+    # Azure
+    if re.match(r"^https:\/\/.+\.blob\.core\.windows\.net\/", url):
+        regex_result = re.search(r"(https:\/\/.+\.blob\.core\.windows\.net)\/(.+?)\/(.*)", url)
+        if regex_result is None:
+            raise ExposedHogQLError("Can't parse Azure blob storage URL")
+
+        groups = regex_result.groups()
+        if len(groups) < 3:
+            raise ExposedHogQLError("Can't parse Azure blob storage URL")
+
+        storage_account_url = add_param(groups[0])
+        container = add_param(groups[1])
+        blob_path = add_param(groups[2])
+
+        if not access_key or not access_secret:
+            raise ExposedHogQLError("Azure blob storage has no access key or secret")
+
+        escaped_access_key = add_param(access_key)
+        escaped_access_secret = add_param(access_secret)
+        escaped_format = add_param(format, False)
+
+        expr = f"azureBlobStorage({storage_account_url}, {container}, {blob_path}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, 'auto'"
+
+        if structure:
+            escaped_structure = add_param(structure, False)
+            expr += f", {escaped_structure}"
+
+        return return_expr(expr)
+
+    # S3
     escaped_url = add_param(url)
     escaped_format = add_param(format, False)
     if structure:

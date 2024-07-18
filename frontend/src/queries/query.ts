@@ -50,7 +50,7 @@ export async function pollForResults(
         try {
             const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
 
-            if (statusResponse.complete || statusResponse.error) {
+            if (statusResponse.complete) {
                 return statusResponse
             }
             if (callback) {
@@ -87,7 +87,7 @@ async function executeQuery<N extends DataNode>(
         // Executed query synchronously or from cache
         return response
     }
-    if (response.query_status?.complete || response.query_status?.error) {
+    if (response.query_status?.complete) {
         // Async query returned immediately
         return response.results
     }

@@ -90,13 +90,13 @@ multiIf(
     ),
     coalesce(
         hogql_lookupPaidSourceType({source}),
-        hogql_lookupPaidDomainType({referring_domain}),
         if(
             match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
             NULL
         ),
         hogql_lookupPaidMediumType({medium}),
+        hogql_lookupPaidSourceType({referring_domain}),
         multiIf (
             {gad_source} = '1',
             'Paid Search',
@@ -117,13 +117,13 @@ multiIf(
 
     coalesce(
         hogql_lookupOrganicSourceType({source}),
-        hogql_lookupOrganicDomainType({referring_domain}),
         if(
             match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
             NULL
         ),
         hogql_lookupOrganicMediumType({medium}),
+        hogql_lookupOrganicSourceType({referring_domain}),
         multiIf(
             match({campaign}, '^(.*video.*)$'),
             'Organic Video',

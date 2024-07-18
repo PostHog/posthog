@@ -10,6 +10,7 @@ import {
     LemonInputSelect,
     LemonLabel,
     LemonSelect,
+    LemonSwitch,
     LemonTag,
     LemonTextArea,
     Tooltip,
@@ -272,7 +273,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
             return <DictionaryField value={value} onChange={onChange} />
 
         case 'boolean':
-            return <LemonCheckbox checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
+            return <LemonSwitch checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
         case 'integration':
             return <HogFunctionInputIntegration schema={schema} value={value} onChange={onChange} />
         case 'integration_field':
@@ -382,7 +383,10 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                     <LemonSelect
                         value={value.integration}
                         onChange={(integration) => _onChange({ integration })}
-                        options={[{ label: 'Slack', value: 'slack' }]}
+                        options={[
+                            { label: 'Slack', value: 'slack' },
+                            { label: 'Salesforce', value: 'salesforce' },
+                        ]}
                         placeholder="Choose kind"
                     />
                 </LemonField.Pure>
