@@ -149,6 +149,8 @@ class OauthIntegration:
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
+            # NOTE: We don't actually use the refresh and id tokens (typically they aren't even provided for this sort of service auth)
+            # but we ensure they are popped and stored in sensitive config to avoid accidental exposure
             "refresh_token": config.pop("refresh_token", None),
             "id_token": config.pop("id_token", None),
         }
