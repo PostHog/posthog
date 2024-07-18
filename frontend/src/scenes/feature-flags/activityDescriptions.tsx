@@ -22,7 +22,7 @@ const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefine
     return id ? <Link to={urls.featureFlag(id)}>{displayName}</Link> : displayName
 }
 
-export const featureFlagActionsMapping: Record<
+const featureFlagActionsMapping: Record<
     keyof FeatureFlagType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
@@ -260,7 +260,21 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return { description: null }
     }
 
-    // TODO:Dylan add event for creation
+    if (logItem.activity === 'created') {
+        return {
+            description: (
+                <SentenceList
+                    listParts={[<>created a new feature flag:</>]}
+                    prefix={
+                        <>
+                            <strong>{userNameForLogItem(logItem)}</strong>
+                        </>
+                    }
+                    suffix={<> {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>}
+                />
+            ),
+        }
+    }
 
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
