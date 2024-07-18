@@ -1218,7 +1218,7 @@ class TestSurvey(APIBaseTest):
                     "changes": [
                         {
                             "type": "Survey",
-                            "action": "updated",
+                            "action": "changed",
                             "field": "targeting_flag_filters",
                             "before": {},
                             "after": new_filters,

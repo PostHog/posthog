@@ -39,7 +39,7 @@
         "lib": ["dom", "es2019"]
     },
     "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*"],
-    "exclude": ["frontend/dist/**/*"],
+    "exclude": ["frontend/dist/**/*", "node_modules/.pnpm/ts-pattern/**/*"],
     "ts-node": {
         "compilerOptions": {
             "module": "commonjs"
