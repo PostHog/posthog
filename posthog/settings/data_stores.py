@@ -223,12 +223,14 @@ KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bo
 KAFKA_PRODUCER_SETTINGS = {
     key: value
     for key, value in {
-        "metadata_max_age_ms": os.getenv("KAFKA_PRODUCER_METADATA_MAX_AGE_MS"),
-        "batch_size": os.getenv("KAFKA_PRODUCER_BATCH_SIZE"),
-        "max_request_size": os.getenv("KAFKA_PRODUCER_MAX_REQUEST_SIZE"),
-        "linger_ms": os.getenv("KAFKA_PRODUCER_LINGER_MS"),
-        "partitioner": os.getenv("KAFKA_PRODUCER_PARTITIONER"),
-        "max_in_flight_requests_per_connection": os.getenv("KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION"),
+        "metadata_max_age_ms": get_from_env("KAFKA_PRODUCER_METADATA_MAX_AGE_MS", optional=True, type_cast=int),
+        "batch_size": get_from_env("KAFKA_PRODUCER_BATCH_SIZE", optional=True, type_cast=int),
+        "max_request_size": get_from_env("KAFKA_PRODUCER_MAX_REQUEST_SIZE", optional=True, type_cast=int),
+        "linger_ms": get_from_env("KAFKA_PRODUCER_LINGER_MS", optional=True, type_cast=int),
+        "partitioner": get_from_env("KAFKA_PRODUCER_PARTITIONER", optional=True),
+        "max_in_flight_requests_per_connection": get_from_env(
+            "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION", optional=True, type_cast=int
+        ),
     }.items()
     if value is not None
 }
