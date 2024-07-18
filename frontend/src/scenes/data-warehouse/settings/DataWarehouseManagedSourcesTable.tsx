@@ -5,14 +5,6 @@ import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import cloudflareLogo from 'public/cloudflare-logo.svg'
-import googleStorageLogo from 'public/google-cloud-storage-logo.png'
-import hubspotLogo from 'public/hubspot-logo.svg'
-import postgresLogo from 'public/postgres-logo.svg'
-import s3Logo from 'public/s3-logo.png'
-import snowflakeLogo from 'public/snowflake-logo.svg'
-import stripeLogo from 'public/stripe-logo.svg'
-import zendeskLogo from 'public/zendesk-logo.svg'
 import { urls } from 'scenes/urls'
 
 import { manualLinkSources, ProductKey } from '~/types'
@@ -182,15 +174,15 @@ export function RenderDataWarehouseSourceIcon({
     const sizePx = size === 'small' ? 30 : 60
 
     const icon = {
-        Stripe: stripeLogo,
-        Hubspot: hubspotLogo,
-        Zendesk: zendeskLogo,
-        Postgres: postgresLogo,
-        Snowflake: snowflakeLogo,
-        aws: s3Logo,
-        'google-cloud': googleStorageLogo,
-        'cloudflare-r2': cloudflareLogo,
-        azure: '/static/services/azure.png',
+        Stripe: require('public/services/stripe.png'),
+        Hubspot: require('public/services/hubspot.png'),
+        Zendesk: require('public/services/zendesk.png'),
+        Postgres: require('public/services/postgres.png'),
+        Snowflake: require('public/services/snowflake.png'),
+        aws: require('public/services/aws-s3.png'),
+        'google-cloud': require('public/services/google-cloud-storage.png'),
+        'cloudflare-r2': require('public/services/cloudflare.png'),
+        azure: require('public/services/azure.png'),
     }[type]
 
     return (
@@ -205,7 +197,7 @@ export function RenderDataWarehouseSourceIcon({
                 }
             >
                 <Link to={getDataWarehouseSourceUrl(type)}>
-                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} className="rounded" />
                 </Link>
             </Tooltip>
         </div>
