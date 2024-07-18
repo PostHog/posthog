@@ -489,6 +489,7 @@ export class SessionRecordingIngester {
             groupId: this.consumerGroupId,
             topic: this.topic,
             autoCommit,
+            autoOffsetStore: false, // We will use our own offset store logic
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
