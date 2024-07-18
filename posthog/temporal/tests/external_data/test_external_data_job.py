@@ -249,6 +249,8 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         run_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
+        internal_error=None,
+        schema_id=str(schema.pk),
         team_id=team.id,
     )
 
