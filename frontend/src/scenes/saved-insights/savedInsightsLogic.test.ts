@@ -5,6 +5,8 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -12,9 +14,12 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { InsightModel, InsightType } from '~/types'
 
-import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
+import { INSIGHTS_PER_PAGE, InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 
 jest.spyOn(api, 'create')
+
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { [Scene.SavedInsights]: blankScene }
 
 const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
@@ -63,7 +68,8 @@ describe('savedInsightsLogic', () => {
             },
         })
         initKeaTests()
-        router.actions.push(urls.savedInsights())
+        sceneLogic({ scenes }).mount()
+        router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
         logic = savedInsightsLogic()
         logic.mount()
     })
@@ -136,7 +142,7 @@ describe('savedInsightsLogic', () => {
                 insights: {
                     results: [],
                     count: 3,
-                    offset: 30,
+                    offset: INSIGHTS_PER_PAGE,
                     filters: partial({ page: 2, search: '' }),
                 },
             })
@@ -185,7 +191,7 @@ describe('savedInsightsLogic', () => {
         it('new mode with ?insight= and no hash params', async () => {
             router.actions.push(combineUrl('/insights', cleanFilters({ insight: InsightType.FUNNELS })).url)
             await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.insightNew() }),
+                location: partial({ pathname: urls.project(MOCK_TEAM_ID, urls.insightNew()) }),
                 hashParams: { filters: partial({ insight: InsightType.FUNNELS }) },
             })
         })

@@ -25,6 +25,11 @@ import { proxyLogic, ProxyRecord } from './proxyLogic'
 
 const MAX_PROXY_RECORDS = 3
 
+const statusText = {
+    valid: 'live',
+    timed_out: 'timed out',
+}
+
 export function ManagedReverseProxy(): JSX.Element {
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
@@ -58,9 +63,14 @@ export function ManagedReverseProxy(): JSX.Element {
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
-                        <span className="capitalize">{status === 'valid' ? 'live' : status}</span>
+                        <span className="capitalize">{statusText[status] || status}</span>
                         {status === 'waiting' && (
                             <Tooltip title="Waiting for DNS records to be created">
+                                <IconInfo className="cursor-pointer" />
+                            </Tooltip>
+                        )}
+                        {status === 'timed_out' && (
+                            <Tooltip title="Timed out waiting for DNS records to be created. Please delete the record and try again">
                                 <IconInfo className="cursor-pointer" />
                             </Tooltip>
                         )}

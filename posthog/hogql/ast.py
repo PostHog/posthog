@@ -77,6 +77,14 @@ class ForStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class ForInStatement(Statement):
+    keyVar: Optional[str]
+    valueVar: str
+    expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
 class Function(Statement):
     name: str
     params: list[str]

@@ -1,19 +1,22 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { createExampleEvent } from 'scenes/pipeline/hogfunctions/utils/event-conversion'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { groupsModel } from '~/models/groupsModel'
 import {
     FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
+    HogFunctionInvocationGlobals,
     HogFunctionTemplateType,
     HogFunctionType,
     PipelineNodeTab,
@@ -117,7 +120,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
         return id ?? templateId ?? 'new'
     }),
+    connect({
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+    }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
+    connect({
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+    }),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
@@ -277,8 +286,73 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
             },
         ],
-        // TODO: connect to the actual globals
-        globalVars: [(s) => [s.hogFunction], (): Record<string, any> => createExampleEvent()],
+        exampleInvocationGlobals: [
+            (s) => [s.configuration, s.currentTeam, s.groupTypes],
+            (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
+                const globals: HogFunctionInvocationGlobals = {
+                    event: {
+                        uuid: uuid(),
+                        distinct_id: uuid(),
+                        name: '$pageview',
+                        timestamp: dayjs().toISOString(),
+                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
+                        properties: {
+                            $current_url: window.location.href,
+                            $browser: 'Chrome',
+                        },
+                    },
+                    person: {
+                        uuid: uuid(),
+                        name: 'Example person',
+                        url: `${window.location.origin}/person/${uuid()}`,
+                        properties: {
+                            email: 'example@posthog.com',
+                        },
+                    },
+                    groups: {},
+                    project: {
+                        id: currentTeam?.id || 0,
+                        name: currentTeam?.name || '',
+                        url: `${window.location.origin}/project/${currentTeam?.id}`,
+                    },
+                    source: {
+                        name: configuration?.name ?? 'Unnamed',
+                        url: window.location.href,
+                    },
+                }
+
+                groupTypes.forEach((groupType) => {
+                    globals.groups![groupType.group_type] = {
+                        id: uuid(),
+                        type: groupType.group_type,
+                        index: groupType.group_type_index,
+                        url: `${window.location.origin}/groups/${
+                            groupType.group_type_index
+                        }/groups/${encodeURIComponent(groupType.group_type_index)}`,
+                        properties: {},
+                    }
+                })
+
+                return globals
+            },
+        ],
+        exampleInvocationGlobalsWithInputs: [
+            (s) => [s.exampleInvocationGlobals, s.configuration],
+            (
+                exampleInvocationGlobals,
+                configuration
+            ): HogFunctionInvocationGlobals & { inputs?: Record<string, any> } => {
+                const inputs: Record<string, any> = {}
+                for (const input of configuration?.inputs_schema || []) {
+                    inputs[input.key] = input.type
+                }
+
+                return {
+                    ...exampleInvocationGlobals,
+                    inputs,
+                }
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -311,10 +385,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         resetForm: () => {
-            actions.resetConfiguration({
+            const config = {
                 ...values.defaultFormState,
                 ...(cache.configFromUrl || {}),
-            })
+            }
+
+            const paramsFromUrl = cache.paramsFromUrl ?? {}
+            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                config.inputs[paramsFromUrl.integration_target] = {
+                    value: paramsFromUrl.integration_id,
+                }
+            }
+
+            actions.resetConfiguration(config)
         },
 
         duplicate: async () => {
@@ -399,16 +482,30 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     afterMount(({ props, actions, cache }) => {
+        cache.paramsFromUrl = {
+            integration_id: router.values.searchParams.integration_id,
+            integration_target: router.values.searchParams.integration_target,
+        }
+
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
             actions.loadTemplate() // comes with plugin info
         } else if (props.id) {
             actions.loadHogFunction()
         }
+
+        if (router.values.searchParams.integration_target) {
+            // Clear query params so we don't keep trying to set the integration
+            router.actions.replace(router.values.location.pathname, undefined, router.values.hashParams)
+        }
     }),
 
     subscriptions(({ props, cache }) => ({
         configuration: (configuration) => {
+            if (!Object.keys(configuration).length) {
+                return
+            }
+
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true

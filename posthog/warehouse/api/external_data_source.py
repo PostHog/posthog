@@ -19,7 +19,7 @@ from posthog.warehouse.data_load.service import (
     trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
-from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
+from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
@@ -43,6 +43,8 @@ from posthog.utils import get_instance_region
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from sshtunnel import BaseSSHTunnelForwarderError
 from snowflake.connector.errors import ProgrammingError, DatabaseError, ForbiddenError
+from django.db.models import Prefetch
+
 
 logger = structlog.get_logger(__name__)
 
@@ -62,6 +64,38 @@ SnowflakeErrors = {
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
 }
+
+
+class ExternalDataJobSerializers(serializers.ModelSerializer):
+    schema = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ExternalDataJob
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "schema",
+            "rows_synced",
+            "latest_error",
+            "workflow_run_id",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "schema",
+            "rows_synced",
+            "latest_error",
+            "workflow_run_id",
+        ]
+
+    def get_schema(self, instance: ExternalDataJob):
+        return SimpleExternalDataSchemaSerializer(
+            instance.schema, many=False, read_only=True, context=self.context
+        ).data
 
 
 class ExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -84,7 +118,6 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "prefix",
             "last_run_at",
             "schemas",
-            "sync_frequency",
         ]
         read_only_fields = [
             "id",
@@ -98,16 +131,12 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         ]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
-        latest_completed_run = (
-            ExternalDataJob.objects.filter(pipeline_id=instance.pk, status="Completed", team_id=instance.team_id)
-            .order_by("-created_at")
-            .first()
-        )
+        latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
 
         return latest_completed_run.created_at if latest_completed_run else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
         any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
         any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
@@ -129,12 +158,10 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             return instance.status
 
     def get_schemas(self, instance: ExternalDataSource):
-        schemas = instance.schemas.order_by("name").all()
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+        return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         updated_source: ExternalDataSource = super().update(instance, validated_data)
-        updated_source.update_schemas()
 
         return updated_source
 
@@ -167,10 +194,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
+
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.prefetch_related("created_by", "schemas").order_by(self.ordering)
+        return queryset.prefetch_related(
+            "created_by",
+            Prefetch(
+                "jobs",
+                queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
+                to_attr="ordered_jobs",
+            ),
+            Prefetch(
+                "schemas",
+                queryset=ExternalDataSchema.objects.select_related(
+                    "table__credential", "table__external_data_source"
+                ).order_by("name"),
+            ),
+            Prefetch(
+                "schemas",
+                queryset=ExternalDataSchema.objects.filter(should_sync=True).select_related(
+                    "source", "table__credential", "table__external_data_source"
+                ),
+                to_attr="active_schemas",
+            ),
+        ).order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
@@ -769,6 +817,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=True)
+    def jobs(self, request: Request, *arg: Any, **kwargs: Any):
+        instance: ExternalDataSource = self.get_object()
+
+        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at").all()
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data=ExternalDataJobSerializers(
+                jobs, many=True, read_only=True, context=self.get_serializer_context()
+            ).data,
+        )
 
     def _expose_postgres_error(self, error: OperationalError) -> str | None:
         error_msg = " ".join(str(n) for n in error.args)

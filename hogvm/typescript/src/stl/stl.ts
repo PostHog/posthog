@@ -1,3 +1,20 @@
+import { DateTime } from 'luxon'
+import {
+    fromUnixTimestamp,
+    fromUnixTimestampMilli,
+    isHogDate,
+    isHogDateTime,
+    now,
+    toDate,
+    toDateTime,
+    toHogDate,
+    toHogDateTime,
+    toTimeZone,
+    toUnixTimestamp,
+    toUnixTimestampMilli,
+    formatDateTime,
+} from './date'
+import { sha256Hex, sha256HmacChainHex, md5Hex } from './crypto'
 import { printHogStringOutput } from './print'
 
 export const STL: Record<string, (args: any[], name: string, timeout: number) => any> = {
@@ -9,15 +26,37 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
         return regex.test(args[0])
     },
     toString: (args: any[]) => {
+        if (isHogDate(args[0])) {
+            const month = args[0].month
+            const day = args[0].day
+            return `${args[0].year}-${month < 10 ? '0' : ''}${month}-${day < 10 ? '0' : ''}${day}`
+        }
+        if (isHogDateTime(args[0])) {
+            return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
+        }
         return String(args[0])
     },
     toUUID: (args) => {
         return String(args[0])
     },
     toInt: (args) => {
+        if (isHogDateTime(args[0])) {
+            return Math.floor(args[0].dt)
+        } else if (isHogDate(args[0])) {
+            const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
+            const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+            return Math.floor(day.diff(epoch, 'days').days)
+        }
         return !isNaN(parseInt(args[0])) ? parseInt(args[0]) : null
     },
     toFloat: (args) => {
+        if (isHogDateTime(args[0])) {
+            return args[0].dt
+        } else if (isHogDate(args[0])) {
+            const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
+            const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+            return Math.floor(day.diff(epoch, 'days').days)
+        }
         return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
     },
     // ifNull is complied into JUMP instructions. Keeping the function here for backwards compatibility
@@ -35,9 +74,8 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                 return true
             } else if (args[0] instanceof Map) {
                 return args[0].size === 0
-            } else {
-                return Object.keys(args[0]).length === 0
             }
+            return Object.keys(args[0]).length === 0
         }
         return !args[0]
     },
@@ -68,6 +106,13 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             if (Array.isArray(x)) {
                 return x.map(convert)
             } else if (typeof x === 'object' && x !== null) {
+                // Date and DateTime will not be converted to a map
+                if (x.__hogDateTime__) {
+                    return toHogDateTime(x.dt, x.zone)
+                } else if (x.__hogDate__) {
+                    return toHogDate(x.year, x.month, x.day)
+                }
+                // All other objects will
                 const map = new Map()
                 for (const key in x) {
                     map.set(key, convert(x[key]))
@@ -97,10 +142,12 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                         })
                         return obj
                     }
-                    if (typeof x === 'object' && Array.isArray(x)) {
+                    if (Array.isArray(x)) {
                         return x.map((v) => convert(v, marked))
                     }
-
+                    if (isHogDateTime(x) || isHogDate(x)) {
+                        return x
+                    }
                     const obj: Record<string, any> = {}
                     for (const key in x) {
                         obj[key] = convert(x[key], marked)
@@ -142,12 +189,161 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     replaceAll(args) {
         return args[0].replaceAll(args[1], args[2])
     },
+    trim([str, char = ' ']) {
+        if (char.length !== 1) {
+            return ''
+        }
+        let start = 0
+        while (str[start] === char) {
+            start++
+        }
+        let end = str.length
+        while (str[end - 1] === char) {
+            end--
+        }
+        if (start >= end) {
+            return ''
+        }
+        return str.slice(start, end)
+    },
+    trimLeft([str, char = ' ']) {
+        if (char.length !== 1) {
+            return ''
+        }
+        let start = 0
+        while (str[start] === char) {
+            start++
+        }
+        return str.slice(start)
+    },
+    trimRight([str, char = ' ']) {
+        if (char.length !== 1) {
+            return ''
+        }
+        let end = str.length
+        while (str[end - 1] === char) {
+            end--
+        }
+        return str.slice(0, end)
+    },
+    splitByString([separator, str, maxSplits = undefined]) {
+        if (maxSplits === undefined) {
+            return str.split(separator)
+        }
+        return str.split(separator, maxSplits)
+    },
     generateUUIDv4() {
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
             const r = (Math.random() * 16) | 0
             const v = c === 'x' ? r : (r & 0x3) | 0x8
             return v.toString(16)
         })
+    },
+    sha256Hex([str]) {
+        return sha256Hex(str)
+    },
+    md5Hex([str]) {
+        return md5Hex(str)
+    },
+    sha256HmacChainHex([data]) {
+        return sha256HmacChainHex(data)
+    },
+    keys([obj]) {
+        if (typeof obj === 'object') {
+            if (Array.isArray(obj)) {
+                return Array.from(obj.keys())
+            } else if (obj instanceof Map) {
+                return Array.from(obj.keys())
+            }
+            return Object.keys(obj)
+        }
+        return []
+    },
+    values([obj]) {
+        if (typeof obj === 'object') {
+            if (Array.isArray(obj)) {
+                return [...obj]
+            } else if (obj instanceof Map) {
+                return Array.from(obj.values())
+            }
+            return Object.values(obj)
+        }
+        return []
+    },
+    arrayPushBack([arr, item]) {
+        if (!Array.isArray(arr)) {
+            return [item]
+        }
+        return [...arr, item]
+    },
+    arrayPushFront([arr, item]) {
+        if (!Array.isArray(arr)) {
+            return [item]
+        }
+        return [item, ...arr]
+    },
+    arrayPopBack([arr]) {
+        if (!Array.isArray(arr)) {
+            return []
+        }
+        return arr.slice(0, arr.length - 1)
+    },
+    arrayPopFront([arr]) {
+        if (!Array.isArray(arr)) {
+            return []
+        }
+        return arr.slice(1)
+    },
+    arraySort([arr]) {
+        if (!Array.isArray(arr)) {
+            return []
+        }
+        return [...arr].sort()
+    },
+    arrayReverse([arr]) {
+        if (!Array.isArray(arr)) {
+            return []
+        }
+        return [...arr].reverse()
+    },
+    arrayReverseSort([arr]) {
+        if (!Array.isArray(arr)) {
+            return []
+        }
+        return [...arr].sort().reverse()
+    },
+    arrayStringConcat([arr, separator = '']) {
+        if (!Array.isArray(arr)) {
+            return ''
+        }
+        return arr.join(separator)
+    },
+    now() {
+        return now()
+    },
+    toUnixTimestamp(args) {
+        return toUnixTimestamp(args[0], args[1])
+    },
+    fromUnixTimestamp(args) {
+        return fromUnixTimestamp(args[0])
+    },
+    toUnixTimestampMilli(args) {
+        return toUnixTimestampMilli(args[0], args[1])
+    },
+    fromUnixTimestampMilli(args) {
+        return fromUnixTimestampMilli(args[0])
+    },
+    toTimeZone(args) {
+        return toTimeZone(args[0], args[1])
+    },
+    toDate(args) {
+        return toDate(args[0])
+    },
+    toDateTime(args) {
+        return toDateTime(args[0], args[1])
+    },
+    formatDateTime(args) {
+        return formatDateTime(args[0], args[1], args[2])
     },
 }
 

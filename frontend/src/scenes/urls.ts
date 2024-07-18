@@ -160,10 +160,18 @@ export const urls = {
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl('/data-warehouse', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
+    dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
+        combineUrl(
+            `/data-warehouse/view/${id}`,
+            {},
+            query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
+        ).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
         `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
+    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseSettingsTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}/${id}`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
@@ -217,7 +225,7 @@ export const urls = {
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
-    integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
+    integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     shared: (token: string, exportOptions: ExportOptions = {}): string =>
         combineUrl(
             `/shared/${token}`,

@@ -103,4 +103,152 @@ describe('compareFilters', () => {
         expect(result1).toEqual(true)
         expect(result2).toEqual(false)
     })
+
+    it('handles breakdown filters', () => {
+        const a: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdown: '$browser',
+            breakdown_type: 'event',
+        }
+        const b: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdown: '$test',
+            breakdown_type: 'event',
+        }
+
+        expect(compareFilters(a, b, false)).toEqual(false)
+    })
+
+    it('handles a breakdown filter with different types', () => {
+        const a: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdown: '$browser',
+            breakdown_type: 'event',
+        }
+        const b: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdowns: [
+                {
+                    value: '$browser',
+                    type: 'event',
+                },
+            ],
+        }
+
+        expect(compareFilters(a, b, false)).toEqual(false)
+    })
+
+    it('handles multiple breakdowns', () => {
+        const a: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdowns: [
+                {
+                    value: '$browser',
+                    type: 'event',
+                },
+                {
+                    value: '$prop',
+                    type: 'event',
+                },
+            ],
+        }
+        const b: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdowns: [
+                {
+                    value: '$browser',
+                    type: 'event',
+                },
+            ],
+        }
+
+        expect(compareFilters(a, b, false)).toEqual(false)
+    })
+
+    it('handles equal multiple breakdowns', () => {
+        const a: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdowns: [
+                {
+                    value: '$browser',
+                    type: 'event',
+                },
+                {
+                    value: '$prop',
+                    type: 'event',
+                },
+            ],
+        }
+        const b: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdowns: [
+                {
+                    value: '$browser',
+                    type: 'event',
+                },
+                {
+                    value: '$prop',
+                    type: 'event',
+                },
+            ],
+        }
+
+        expect(compareFilters(a, b, false)).toEqual(true)
+    })
+
+    it('handles multiple breakdowns with properties', () => {
+        const a: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdowns: [
+                {
+                    value: '$browser',
+                    type: 'group',
+                    group_type_index: 1,
+                    histogram_bin_count: 10,
+                },
+                {
+                    value: '$prop',
+                    type: 'group',
+                    normalize_url: true,
+                },
+            ],
+        }
+        let b: Partial<AnyFilterType> = {
+            insight: InsightType.TRENDS,
+            breakdowns: [
+                {
+                    value: '$browser',
+                    type: 'group',
+                    group_type_index: 1,
+                    histogram_bin_count: 10,
+                },
+                {
+                    value: '$prop',
+                    type: 'group',
+                    normalize_url: false,
+                },
+            ],
+        }
+
+        expect(compareFilters(a, b, false)).toEqual(false)
+
+        b = {
+            insight: InsightType.TRENDS,
+            breakdowns: [
+                {
+                    value: '$browser',
+                    type: 'group',
+                    group_type_index: 0,
+                    histogram_bin_count: 10,
+                },
+                {
+                    value: '$prop',
+                    type: 'group',
+                    normalize_url: true,
+                },
+            ],
+        }
+
+        expect(compareFilters(a, b, false)).toEqual(false)
+    })
 })

@@ -82,6 +82,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
+from posthog.utils import get_instance_region
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -248,7 +249,9 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
+    if modifiers.sessionTableVersion == SessionTableVersion.V2 or (
+        get_instance_region() == "EU" and modifiers.sessionTableVersion == SessionTableVersion.AUTO
+    ):
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
         sessions = SessionsTableV2()
@@ -369,7 +372,9 @@ def create_hogql_database(
                     warehouse_tables,
                     lambda team, warehouse_modifier: DataWarehouseTable.objects.filter(
                         team_id=team.pk, name=warehouse_modifier.table_name
-                    ).latest("created_at"),
+                    )
+                    .select_related("credential", "external_data_source")
+                    .latest("created_at"),
                 )
 
     database.add_warehouse_tables(**warehouse_tables)
@@ -491,7 +496,7 @@ def serialize_database(
     warehouse_table_names = context.database.get_warehouse_tables()
     warehouse_tables = (
         list(
-            DataWarehouseTable.objects.prefetch_related("external_data_source")
+            DataWarehouseTable.objects.select_related("credential", "external_data_source")
             .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
             .all()
         )

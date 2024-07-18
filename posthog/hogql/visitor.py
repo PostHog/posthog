@@ -299,6 +299,10 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.increment)
         self.visit(node.body)
 
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        self.visit(node.expr)
+        self.visit(node.body)
+
     def visit_expr_statement(self, node: ast.ExprStatement):
         self.visit(node.expr)
 
@@ -646,6 +650,16 @@ class CloningVisitor(Visitor[Any]):
             initializer=self.visit(node.initializer) if node.initializer else None,
             condition=self.visit(node.condition),
             increment=self.visit(node.increment),
+            body=self.visit(node.body),
+        )
+
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        return ast.ForInStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            valueVar=node.valueVar,
+            keyVar=node.keyVar,
+            expr=self.visit(node.expr),
             body=self.visit(node.body),
         )
 

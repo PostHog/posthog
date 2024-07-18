@@ -74,6 +74,7 @@ export enum PluginServerMode {
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
+    events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     jobs = 'jobs',
@@ -81,10 +82,10 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
-    person_overrides = 'person-overrides',
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_function_overflow = 'cdp-function-overflow',
+    functional_tests = 'functional-tests',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -103,6 +104,7 @@ export type CdpConfig = {
     CDP_WATCHER_MIN_OBSERVATIONS: number
     CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
     CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+    CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -204,6 +206,7 @@ export interface PluginsServerConfig extends CdpConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
@@ -216,13 +219,11 @@ export interface PluginsServerConfig extends CdpConfig {
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
-    POE_EMBRACE_JOIN_FOR_TEAMS: string
-    POE_WRITES_ENABLED_MAX_TEAM_ID: number
-    POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
     RUSTY_HOOK_URL: string
+    HOG_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
@@ -248,6 +249,7 @@ export interface PluginsServerConfig extends CdpConfig {
     SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: boolean
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
+    // allows comma separated list of partition numbers or '*' for all
     SESSION_RECORDING_DEBUG_PARTITION: string | undefined
     // overflow detection, updating Redis for capture to move the traffic away
     SESSION_RECORDING_OVERFLOW_ENABLED: boolean
@@ -270,6 +272,9 @@ export interface PluginsServerConfig extends CdpConfig {
 
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
+
+    // Whether to use the offset store approach that we are testing to see if it helps rebalances
+    SESSION_RECORDING_USE_OFFSET_STORE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -316,8 +321,6 @@ export interface Hub extends PluginsServerConfig {
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
-    poeEmbraceJoinForTeams: ValueMatcher<number>
-    poeWritesExcludeTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -328,6 +331,7 @@ export interface PluginServerCapabilities {
     ingestion?: boolean
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
+    eventsIngestionPipelines?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
@@ -337,7 +341,6 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpFunctionCallbacks?: boolean
     cdpFunctionOverflow?: boolean
-    personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean

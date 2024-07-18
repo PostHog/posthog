@@ -75,11 +75,13 @@ export const startBatchConsumer = async ({
     kafkaStatisticIntervalMs = 0,
     fetchMinBytes,
     maxHealthHeartbeatIntervalMs = 60_000,
+    autoOffsetStore = true,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
     topic: string
     autoCommit: boolean
+    autoOffsetStore?: boolean
     sessionTimeout: number
     maxPollIntervalMs: number
     consumerMaxBytesPerPartition: number
@@ -184,7 +186,7 @@ export const startBatchConsumer = async ({
     }
 
     if (debug) {
-        // NOTE: If the key exists with value undefined the consumer will throw which is annoying so we define it here instead
+        // NOTE: If the key exists with value undefined the consumer will throw which is annoying, so we define it here instead
         consumerConfig.debug = debug
     }
 
@@ -311,7 +313,7 @@ export const startBatchConsumer = async ({
                     status.debug('⌛️', logSummary, batchSummary)
                 }
 
-                if (autoCommit) {
+                if (autoCommit && autoOffsetStore) {
                     storeOffsetsForMessages(messages, consumer)
                 }
             }
