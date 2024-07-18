@@ -172,7 +172,7 @@ def send_batch_export_run_failure(
         id=batch_export_run_id
     )
     team: Team = batch_export_run.batch_export.team
-    logger = logger.bind(team_id=team.id, batch_export_id=batch_export_run.batch_export.id)
+    logger = logger.bind(team_id=team.id, batch_export_id=batch_export_run.batch_export.id)  # type: ignore
 
     logger.info("Preparing notification email for batch export run %s", batch_export_run_id)
 
@@ -198,7 +198,7 @@ def send_batch_export_run_failure(
 
     memberships_to_email = []
     memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
-        organization_id=team.organization_id
+        organization_id=team.organization_id  # type: ignore
     )
 
     for membership in memberships:
