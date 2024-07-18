@@ -65,7 +65,7 @@ export interface ItemPerformanceEvent {
     item: PerformanceEvent
     expanded: boolean
     setExpanded: (expanded: boolean) => void
-    finalTimestamp?: Dayjs
+    finalTimestamp: Dayjs | null
 }
 
 function renderTimeBenchmark(milliseconds: number): JSX.Element {

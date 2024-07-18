@@ -119,6 +119,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
@@ -133,6 +134,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_FOR_TEAMS: '',
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
+        HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
@@ -171,6 +173,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
         SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
         SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
+        SESSION_RECORDING_USE_OFFSET_STORE: false,
         // CDP
         CDP_WATCHER_OBSERVATION_PERIOD: 10000,
         CDP_WATCHER_DISABLED_PERIOD: 1000 * 60 * 10,
@@ -180,6 +183,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_MIN_OBSERVATIONS: 3,
         CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: 0.8,
         CDP_WATCHER_DISABLED_RATING_THRESHOLD: 0.5,
+        CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
     }
 }
 

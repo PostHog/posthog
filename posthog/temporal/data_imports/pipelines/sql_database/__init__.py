@@ -138,6 +138,7 @@ def sql_database(
             merge_key=get_primary_key(table),
             write_disposition="merge" if incremental else "replace",
             spec=SqlDatabaseTableConfiguration,
+            table_format="delta",
         )(
             engine=engine,
             table=table,

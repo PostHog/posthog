@@ -1,13 +1,17 @@
+from dataclasses import dataclass
 import hashlib
 import hmac
 import time
 from datetime import timedelta
-from typing import Literal
+from typing import Any, Literal
+from urllib.parse import urlencode
 
 from django.db import models
+import requests
 from rest_framework.request import Request
 from slack_sdk import WebClient
 
+from django.conf import settings
 from posthog.cache_utils import cache_for
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
@@ -16,11 +20,21 @@ from posthog.models.user import User
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
+        SALESFORCE = "salesforce"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
+            )
+        ]
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
     kind: models.CharField = models.CharField(max_length=10, choices=IntegrationKind.choices)
+    # The ID of the integration in the external system
+    integration_id: models.TextField = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
     config: models.JSONField = models.JSONField(default=dict)
     # Any sensitive config that SHOULD NOT be passed to the frontend
@@ -31,6 +45,134 @@ class Integration(models.Model):
     # Meta
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+
+
+@dataclass
+class OauthConfig:
+    authorize_url: str
+    token_url: str
+    client_id: str
+    client_secret: str
+    scope: str
+    id_path: str
+
+
+class OauthIntegration:
+    supported_kinds = ["slack", "salesforce"]
+    integration: Integration
+    kind: str
+
+    def __init__(self, integration: Integration, kind: str) -> None:
+        self.integration = integration
+        self.kind = kind
+
+    @classmethod
+    @cache_for(timedelta(minutes=5))
+    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
+        if kind == "slack":
+            from_settings = get_instance_settings(
+                [
+                    "SLACK_APP_CLIENT_ID",
+                    "SLACK_APP_CLIENT_SECRET",
+                    "SLACK_APP_SIGNING_SECRET",
+                ]
+            )
+
+            if not from_settings["SLACK_APP_CLIENT_ID"] or not from_settings["SLACK_APP_CLIENT_SECRET"]:
+                raise NotImplementedError("Slack app not configured")
+
+            return OauthConfig(
+                authorize_url="https://slack.com/oauth/v2/authorize",
+                token_url="https://slack.com/api/oauth.v2.access",
+                client_id=from_settings["SLACK_APP_CLIENT_ID"],
+                client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
+                scope="channels:read,groups:read,chat:write,chat:write.customize",
+                id_path="team.id",
+            )
+        elif kind == "salesforce":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            return OauthConfig(
+                authorize_url="https://login.salesforce.com/services/oauth2/authorize",
+                token_url="https://login.salesforce.com/services/oauth2/token",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="full",
+                id_path="instance_url",
+            )
+
+        raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
+
+    @classmethod
+    def redirect_uri(cls, kind: str) -> str:
+        # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
+
+    @classmethod
+    def authorize_url(cls, kind: str, next="") -> str:
+        oauth_config = cls.oauth_config_for_kind(kind)
+
+        query_params = {
+            "client_id": oauth_config.client_id,
+            "scope": oauth_config.scope,
+            "redirect_uri": cls.redirect_uri(kind),
+            "response_type": "code",
+            "state": urlencode({"next": next}),
+        }
+
+        return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
+
+    @classmethod
+    def integration_from_oauth_response(
+        cls, kind: str, team_id: str, created_by: User, params: dict[str, str]
+    ) -> Integration:
+        oauth_config = cls.oauth_config_for_kind(kind)
+
+        res = requests.post(
+            oauth_config.token_url,
+            data={
+                "client_id": oauth_config.client_id,
+                "client_secret": oauth_config.client_secret,
+                "code": params["code"],
+                "redirect_uri": OauthIntegration.redirect_uri(kind),
+                "grant_type": "authorization_code",
+            },
+        )
+
+        config: dict = res.json()
+
+        if res.status_code != 200 or not config.get("access_token"):
+            raise Exception("Oauth error")
+
+        integration_id: Any = config
+
+        for key in oauth_config.id_path.split("."):
+            integration_id = integration_id.get(key)
+
+        if not isinstance(integration_id, str):
+            raise Exception("Oauth error")
+
+        sensitive_config: dict = {
+            "access_token": config.pop("access_token"),
+            # NOTE: We don't actually use the refresh and id tokens (typically they aren't even provided for this sort of service auth)
+            # but we ensure they are popped and stored in sensitive config to avoid accidental exposure
+            "refresh_token": config.pop("refresh_token", None),
+            "id_token": config.pop("id_token", None),
+        }
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=kind,
+            integration_id=integration_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        return integration
 
 
 class SlackIntegrationError(Exception):
@@ -74,46 +216,6 @@ class SlackIntegration:
                 break
 
         return channels
-
-    @classmethod
-    def integration_from_slack_response(cls, team_id: str, created_by: User, params: dict[str, str]) -> Integration:
-        client = WebClient()
-        slack_config = cls.slack_config()
-
-        res = client.oauth_v2_access(
-            client_id=slack_config["SLACK_APP_CLIENT_ID"],
-            client_secret=slack_config["SLACK_APP_CLIENT_SECRET"],
-            code=params["code"],
-            redirect_uri=params["redirect_uri"],
-        )
-
-        if not res.get("ok", False):
-            raise Exception("Slack error")
-
-        config = {
-            "app_id": res.get("app_id"),  # Like  "A03KWE2FJJ2",
-            "authed_user": res.get("authed_user"),  # Like {"id": "U03DCBD92JX"},
-            "scope": res.get("scope"),  # Like "incoming-webhook,channels:read,chat:write",
-            "token_type": res.get("token_type"),  # Like "bot",
-            "bot_user_id": res.get("bot_user_id"),  # Like "U03LFNLTARX",
-            "team": res.get("team"),  # Like {"id": "TSS5W8YQZ", "name": "PostHog"},
-            "enterprise": res.get("enterprise"),
-            "is_enterprise_install": res.get("is_enterprise_install"),
-        }
-
-        sensitive_config = {"access_token": res.get("access_token")}
-
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="slack",
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-            },
-        )
-
-        return integration
 
     @classmethod
     def validate_request(cls, request: Request):

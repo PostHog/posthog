@@ -136,6 +136,7 @@ class _KafkaProducer:
                 **{"api_version_auto_timeout_ms": 30000}
                 if settings.DEBUG
                 else {},  # Local development connections could be really slow
+                **settings.KAFKA_PRODUCER_SETTINGS,
                 **_sasl_params(),
             )
 

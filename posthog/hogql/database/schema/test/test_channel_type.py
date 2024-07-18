@@ -63,6 +63,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             "Shopping",
             self._get_initial_referring_domain_type("stripe.com"),
         )
+        self.assertEqual("Shopping", self._get_initial_referring_domain_type("shopping.yahoo.co.jp"))
 
     def test_social(self):
         self.assertEqual(
@@ -72,6 +73,14 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             "Social",
             self._get_initial_referring_domain_type("old.reddit.com"),
+        )
+        self.assertEqual(
+            "Social",
+            self._get_initial_referring_domain_type("plus.google.com"),
+        )
+        self.assertEqual(
+            "Social",
+            self._get_initial_referring_domain_type("news.ycombinator.com"),
         )
 
 
@@ -567,6 +576,81 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                     "referring_domain": "l.facebook.com",
                     "gclid": "",
                     "gad_source": "",
+                }
+            ),
+        )
+
+        # the customer also provided us with a list of urls that weren't attributing correctly, and we changed the
+        # algorithm to give utm_medium priority over referring domain. This tests a few specific examples:
+        self.assertEqual(
+            "Email",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "substack",
+                    "utm_medium": "email",
+                    "$referring_domain": "bing.com",
+                }
+            ),
+        )
+        self.assertEqual(
+            "Affiliate",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Foo",
+                    "utm_medium": "affiliate",
+                    "$referring_domain": "bing.com",
+                }
+            ),
+        )
+
+    def test_hacker_news(self):
+        # news.ycombinator.com is interesting because we don't have an entry for ycombinator.com, only the subdomain
+
+        self.assertEqual(
+            "Organic Social",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "",
+                    "utm_medium": "in-product",
+                    "utm_campaign": "empty-state-docs-link",
+                    "$referring_domain": "news.ycombinator.com",
+                    "gclid": "",
+                    "gad_source": "",
+                }
+            ),
+        )
+
+        self.assertEqual(
+            "Organic Social",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "news.ycombinator.com",
+                    "utm_medium": "in-product",
+                    "utm_campaign": "empty-state-docs-link",
+                    "$referring_domain": "$direct",
+                    "gclid": "",
+                    "gad_source": "",
+                }
+            ),
+        )
+
+    def test_google_plus(self):
+        # plus.google.com is interesting because it should be social, but just google.com is search
+        self.assertEqual(
+            "Organic Social",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "plus.google.com",
+                    "$referring_domain": "$direct",
+                }
+            ),
+        )
+
+        self.assertEqual(
+            "Organic Social",
+            self._get_session_channel_type(
+                {
+                    "$referring_domain": "plus.google.com",
                 }
             ),
         )

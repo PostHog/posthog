@@ -913,8 +913,8 @@ export interface SessionPlayerData {
     bufferedToTime: number | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
     durationMs: number
-    start?: Dayjs
-    end?: Dayjs
+    start: Dayjs | null
+    end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
 }
@@ -954,7 +954,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source'
+    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -2076,10 +2076,20 @@ export enum RetentionPeriod {
 
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
+/**
+ * Legacy multiple breakdowns had `property` and `type` fields.
+ * Mirroring the legacy fields here for backwards compatibility with multiple breakdowns.
+ */
 export interface Breakdown {
-    property: string | number
+    value?: string
+    /**
+     * Legacy breakdown has a `property` field that is `value` now.
+     */
+    property?: string | number
     type: BreakdownType
     normalize_url?: boolean
+    histogram_bin_count?: number
+    group_type_index?: number
 }
 
 export interface FilterType {
@@ -3525,9 +3535,13 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
+export type IntegrationKind = 'slack' | 'salesforce'
+
 export interface IntegrationType {
     id: number
-    kind: 'slack'
+    kind: IntegrationKind
+    name: string
+    icon_url: string
     config: any
     created_by?: UserBasicType | null
     created_at: string
@@ -3817,7 +3831,7 @@ export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2']
+export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
@@ -3880,6 +3894,7 @@ export interface ExternalDataJob {
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string
+    workflow_run_id?: string
 }
 
 export interface SimpleDataWarehouseTable {
@@ -4012,6 +4027,24 @@ export type BatchExportConfiguration = {
     paused: boolean
     model: string
     latest_runs?: BatchExportRun[]
+}
+
+export type RawBatchExportRun = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at: string
+    data_interval_start: string
+    data_interval_end: string
+    last_updated_at?: string
 }
 
 export type BatchExportRun = {

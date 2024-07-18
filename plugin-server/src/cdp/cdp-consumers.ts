@@ -5,6 +5,7 @@ import {
     KAFKA_CDP_FUNCTION_CALLBACKS,
     KAFKA_CDP_FUNCTION_OVERFLOW,
     KAFKA_EVENTS_JSON,
+    KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_LOG_ENTRIES,
 } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
@@ -32,7 +33,7 @@ import {
     HogFunctionOverflowedGlobals,
     HogFunctionType,
 } from './types'
-import { convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
+import { convertToCaptureEvent, convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -176,6 +177,22 @@ abstract class CdpConsumerBase {
                                 key: sanitized.instance_id,
                             })
                         })
+
+                        // PostHog capture events
+                        const capturedEvents = result.capturedPostHogEvents
+                        delete result.capturedPostHogEvents
+
+                        for (const event of capturedEvents ?? []) {
+                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                            if (!team) {
+                                continue
+                            }
+                            this.messagesToProduce.push({
+                                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                                value: convertToCaptureEvent(event, team),
+                                key: `${team!.api_token}:${event.distinct_id}`,
+                            })
+                        }
 
                         if (result.asyncFunctionRequest) {
                             const res = await this.runWithHeartbeat(() => this.asyncFunctionExecutor.execute(result))

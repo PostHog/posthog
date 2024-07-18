@@ -94,14 +94,14 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <LemonTableLink
-            title={properties.$exception_type}
+            title={properties.$exception_fingerprint}
             description={
                 <div className="space-y-1">
                     <div className="line-clamp-1">{properties.$exception_message}</div>
                     <FirstAndLastSeen record={record as any[]} />
                 </div>
             }
-            to={urls.errorTrackingGroup(properties.$exception_type)}
+            to={urls.errorTrackingGroup(properties.$exception_fingerprint)}
         />
     )
 }
