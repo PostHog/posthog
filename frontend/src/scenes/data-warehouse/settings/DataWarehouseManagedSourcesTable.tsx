@@ -6,6 +6,15 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
+import IconStripe from 'public/services/stripe.png'
+import IconHubspot from 'public/services/hubspot.png'
+import IconZendesk from 'public/services/zendesk.png'
+import IconPostgres from 'public/services/postgres.png'
+import IconSnowflake from 'public/services/snowflake.png'
+import IconAwsS3 from 'public/services/aws-s3.png'
+import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
+import IconCloudflare from 'public/services/cloudflare.png'
+import Iconazure from 'public/services/azure.png'
 
 import { manualLinkSources, ProductKey } from '~/types'
 
@@ -174,15 +183,15 @@ export function RenderDataWarehouseSourceIcon({
     const sizePx = size === 'small' ? 30 : 60
 
     const icon = {
-        Stripe: require('public/services/stripe.png'),
-        Hubspot: require('public/services/hubspot.png'),
-        Zendesk: require('public/services/zendesk.png'),
-        Postgres: require('public/services/postgres.png'),
-        Snowflake: require('public/services/snowflake.png'),
-        aws: require('public/services/aws-s3.png'),
-        'google-cloud': require('public/services/google-cloud-storage.png'),
-        'cloudflare-r2': require('public/services/cloudflare.png'),
-        azure: require('public/services/azure.png'),
+        Stripe: IconStripe,
+        Hubspot: IconHubspot,
+        Zendesk: IconZendesk,
+        Postgres: IconPostgres,
+        Snowflake: IconSnowflake,
+        aws: IconAwsS3,
+        'google-cloud': IconGoogleCloudStorage,
+        'cloudflare-r2': IconCloudflare,
+        azure: Iconazure,
     }[type]
 
     return (
