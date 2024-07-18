@@ -112,9 +112,11 @@ export function AnnotationModal({
                                 {
                                     value: AnnotationScope.Insight,
                                     label: annotationScopeToName[AnnotationScope.Insight],
-                                    tooltip: existingModalAnnotation?.insight_name
-                                        ? existingModalAnnotation.insight_name
-                                        : undefined,
+                                    tooltip: existingModalAnnotation?.insight_name ? (
+                                        existingModalAnnotation.insight_name
+                                    ) : existingModalAnnotation?.insight_derived_name ? (
+                                        <i>{existingModalAnnotation.insight_derived_name}</i>
+                                    ) : undefined,
                                     disabledReason:
                                         (!onSavedInsight && 'You need to save the insight first.') ||
                                         // if existing annotation data in db (for backwards compatibility) doesn't have insight id set on it
@@ -134,9 +136,7 @@ export function AnnotationModal({
                                 {
                                     value: AnnotationScope.Dashboard,
                                     label: annotationScopeToName[AnnotationScope.Dashboard],
-                                    tooltip: existingModalAnnotation?.dashboard_name
-                                        ? existingModalAnnotation.dashboard_name
-                                        : undefined,
+                                    tooltip: existingModalAnnotation?.dashboard_name,
                                     disabledReason:
                                         (!annotationModal.dashboardId &&
                                             'To select this scope, open this annotation on the target dashboard') ||

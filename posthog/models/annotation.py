@@ -44,6 +44,10 @@ class Annotation(models.Model):
         return self.dashboard_item.name if self.dashboard_item is not None else None
 
     @property
+    def insight_derived_name(self) -> Optional[str]:
+        return self.dashboard_item.derived_name if self.dashboard_item is not None else None
+
+    @property
     def dashboard_name(self) -> Optional[str]:
         return self.dashboard.name if self.dashboard is not None else None
 
