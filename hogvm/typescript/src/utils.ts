@@ -19,7 +19,10 @@ export function getNestedValue(obj: any, chain: any[], nullish = false): any {
             if (obj instanceof Map) {
                 obj = obj.get(key) ?? null
             } else if (typeof key === 'number') {
-                obj = obj[key] ?? null
+                if (key <= 0) {
+                    throw new Error(`Hog arrays start from index 1`)
+                }
+                obj = obj[key - 1] ?? null
             } else {
                 obj = obj[key] ?? null
             }
@@ -37,7 +40,10 @@ export function setNestedValue(obj: any, chain: any[], value: any): void {
         if (obj instanceof Map) {
             obj = obj.get(key) ?? null
         } else if (Array.isArray(obj) && typeof key === 'number') {
-            obj = obj[key]
+            if (key <= 0) {
+                throw new Error(`Hog arrays start from index 1`)
+            }
+            obj = obj[key - 1]
         } else {
             throw new Error(`Can not get ${chain} on element of type ${typeof obj}`)
         }
@@ -46,7 +52,10 @@ export function setNestedValue(obj: any, chain: any[], value: any): void {
     if (obj instanceof Map) {
         obj.set(lastKey, value)
     } else if (Array.isArray(obj) && typeof lastKey === 'number') {
-        obj[lastKey] = value
+        if (lastKey <= 0) {
+            throw new Error(`Hog arrays start from index 1`)
+        }
+        obj[lastKey - 1] = value
     } else {
         throw new Error(`Can not set ${chain} on element of type ${typeof obj}`)
     }

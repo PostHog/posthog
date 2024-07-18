@@ -1011,8 +1011,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             const dashboardId: number = props.id
 
-            const insightsToRefresh = values
-                .sortTilesByLayout(tiles || values.insightTiles || [])
+            const insightsToRefresh = (tiles || values.insightTiles || [])
                 .filter((t) => {
                     if (t.insight?.query_status) {
                         return true

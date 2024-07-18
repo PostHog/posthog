@@ -8,7 +8,13 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportConfiguration, BatchExportRun, Breadcrumb, GroupedBatchExportRuns } from '~/types'
+import {
+    BatchExportConfiguration,
+    BatchExportRun,
+    Breadcrumb,
+    GroupedBatchExportRuns,
+    RawBatchExportRun,
+} from '~/types'
 
 import type { batchExportLogicType } from './batchExportLogicType'
 
@@ -24,7 +30,7 @@ export enum BatchExportTab {
 // TODO: Fix this
 const RUNS_REFRESH_INTERVAL = 5000
 
-const convert = (run: BatchExportRun): BatchExportRun => {
+const convert = (run: RawBatchExportRun): BatchExportRun => {
     return {
         ...run,
         data_interval_start: dayjs(run.data_interval_start),
@@ -34,7 +40,7 @@ const convert = (run: BatchExportRun): BatchExportRun => {
     }
 }
 
-const mergeRuns = (oldRuns: BatchExportRun[], newRuns: BatchExportRun[]): BatchExportRun[] => {
+const mergeRuns = (oldRuns: BatchExportRun[], newRuns: RawBatchExportRun[]): BatchExportRun[] => {
     const runs = [...oldRuns]
 
     newRuns.forEach((rawRun) => {
@@ -140,9 +146,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
                         before: values.runsDateRange.to.add(1, 'day'),
                     })
 
-                    res.results = mergeRuns(values.batchExportRunsResponse?.results ?? [], res.results)
-
-                    return res
+                    return { ...res, results: mergeRuns(values.batchExportRunsResponse?.results ?? [], res.results) }
                 },
                 loadNextBatchExportRuns: async () => {
                     const nextUrl = values.batchExportRunsResponse?.next
@@ -151,11 +155,9 @@ export const batchExportLogic = kea<batchExportLogicType>([
                         return values.batchExportRunsResponse
                     }
 
-                    const res = await api.get<PaginatedResponse<BatchExportRun>>(nextUrl)
+                    const res = await api.get<PaginatedResponse<RawBatchExportRun>>(nextUrl)
 
-                    res.results = mergeRuns(values.batchExportRunsResponse?.results ?? [], res.results)
-
-                    return res
+                    return { ...res, results: mergeRuns(values.batchExportRunsResponse?.results ?? [], res.results) }
                 },
             },
         ],
@@ -241,7 +243,17 @@ export const batchExportLogic = kea<batchExportLogicType>([
 
         batchExportRuns: [
             (s) => [s.batchExportRunsResponse],
-            (batchExportRunsResponse): BatchExportRun[] => batchExportRunsResponse?.results ?? [],
+            (batchExportRunsResponse): BatchExportRun[] => {
+                const runs = batchExportRunsResponse?.results ?? []
+                const deserializedRuns: BatchExportRun[] = runs.map((run) => ({
+                    ...run,
+                    data_interval_start: dayjs(run.data_interval_start),
+                    data_interval_end: dayjs(run.data_interval_end),
+                    created_at: dayjs(run.created_at),
+                    last_updated_at: run.last_updated_at ? dayjs(run.last_updated_at) : undefined,
+                }))
+                return deserializedRuns
+            },
         ],
 
         defaultTab: [(s) => [s.batchExportConfig], () => BatchExportTab.Runs],

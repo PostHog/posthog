@@ -240,6 +240,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         team_id=team.id,
         external_data_source_id=new_source.pk,
         workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
         external_data_schema_id=schema.id,
     )
 
@@ -248,6 +249,8 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         run_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
+        internal_error=None,
+        schema_id=str(schema.pk),
         team_id=team.id,
     )
 

@@ -71,8 +71,26 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataJob
-        fields = ["id", "created_at", "created_by", "status", "schema", "rows_synced", "latest_error"]
-        read_only_fields = ["id", "created_at", "created_by", "status", "schema", "rows_synced", "latest_error"]
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "schema",
+            "rows_synced",
+            "latest_error",
+            "workflow_run_id",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "schema",
+            "rows_synced",
+            "latest_error",
+            "workflow_run_id",
+        ]
 
     def get_schema(self, instance: ExternalDataJob):
         return SimpleExternalDataSchemaSerializer(
