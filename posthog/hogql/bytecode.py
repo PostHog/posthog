@@ -191,6 +191,12 @@ class BytecodeBuilder(Visitor):
         ]
 
     def visit_array_access(self, node: ast.ArrayAccess):
+        if (
+            isinstance(node.property, ast.Constant)
+            and isinstance(node.property.value, int)
+            and node.property.value == 0
+        ):
+            raise QueryError("Array access starts from 1")
         return [
             *self.visit(node.array),
             *self.visit(node.property),
@@ -305,6 +311,27 @@ class BytecodeBuilder(Visitor):
         else:
             response = [Operation.NULL]
         response.append(Operation.RETURN)
+        return response
+
+    def visit_throw_statement(self, node: ast.ThrowStatement):
+        response = self.visit(node.expr)
+        response.append(Operation.THROW)
+        return response
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        try_stmt = self.visit(node.try_stmt)
+        catch_stmt = self.visit(node.catch_stmt) if node.catch_stmt else []
+        finally_stmt = self.visit(node.finally_stmt) if node.finally_stmt else []
+
+        if len(catch_stmt) == 0 and len(finally_stmt) == 0:
+            raise QueryError("try-catch statement must have either catch or finally block")
+
+        response = []
+        response.extend(try_stmt)
+        if catch_stmt:
+            response.extend([Operation.JUMP, len(catch_stmt) + (2 if finally_stmt else 0)])
+            response.extend(catch_stmt)
+        response.extend(finally_stmt)
         return response
 
     def visit_if_statement(self, node: ast.IfStatement):

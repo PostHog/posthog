@@ -373,6 +373,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(return_stmt_ctx);
     }
 
+    auto throw_stmt_ctx = ctx->throwStmt();
+    if (throw_stmt_ctx) {
+      return visit(throw_stmt_ctx);
+    }
+
+    auto try_catch_stmt_ctx = ctx->tryCatchStmt();
+    if (try_catch_stmt_ctx) {
+      return visit(try_catch_stmt_ctx);
+    }
+
     auto if_stmt_ctx = ctx->ifStmt();
     if (if_stmt_ctx) {
       return visit(if_stmt_ctx);
@@ -418,7 +428,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(empty_stmt_ctx);
     }
 
-    throw ParsingError("Statement must be one of returnStmt, ifStmt, whileStmt, forStmt, forInStmt, funcStmt, "
+    throw ParsingError("Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, funcStmt, "
                        "varAssignment, block, exprStmt, or emptyStmt");
   }
 
@@ -447,6 +457,59 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     PyObject* ret = build_ast_node("ReturnStatement", "{s:N}", "expr", expr);
     if (!ret) {
       Py_DECREF(expr);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(ThrowStmt) {
+    PyObject* expr;
+    try {
+      expr = visitAsPyObjectOrNone(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* ret = build_ast_node("ThrowStatement", "{s:N}", "expr", expr);
+    if (!ret) {
+      Py_DECREF(expr);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(TryCatchStmt) {
+    PyObject* try_stmt;
+    try {
+      try_stmt = visitAsPyObject(ctx->tryStmt);
+    } catch (...) {
+      throw;
+    }
+    PyObject* catch_stmt;
+    try {
+      catch_stmt = visitAsPyObjectOrNone(ctx->catchStmt);
+    } catch (...) {
+      Py_DECREF(try_stmt);
+      throw;
+    }
+    PyObject* finally_stmt;
+    try {
+      finally_stmt = visitAsPyObjectOrNone(ctx->finallyStmt);
+    } catch (...) {
+      Py_DECREF(try_stmt);
+      Py_DECREF(catch_stmt);
+      throw;
+    }
+    PyObject* ret;
+    if (ctx->catchVar) {
+      string catch_var = visitAsString(ctx->catchVar);
+      ret = build_ast_node("TryCatchStatement", "{s:N,s:N,s:s#,s:N}", "try_stmt", try_stmt, "catch_stmt", catch_stmt, "catch_var", catch_var.data(), catch_var.size(), "finally_stmt", finally_stmt);
+    } else {
+      ret = build_ast_node("TryCatchStatement", "{s:N,s:N,s:N}", "try_stmt", try_stmt, "catch_stmt", catch_stmt, "finally_stmt", finally_stmt);
+    }
+    if (!ret) {
+      Py_DECREF(try_stmt);
+      Py_DECREF(catch_stmt);
+      Py_DECREF(finally_stmt);
       throw PyInternalError();
     }
     return ret;

@@ -15,6 +15,8 @@ varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
 identifierList: identifier (COMMA identifier)* COMMA?;
 
 statement      : returnStmt
+               | throwStmt
+               | tryCatchStmt
                | ifStmt
                | whileStmt
                | forInStmt
@@ -27,6 +29,11 @@ statement      : returnStmt
                ;
 
 returnStmt     : RETURN expression? SEMICOLON?;
+throwStmt      : THROW expression? SEMICOLON?;
+tryCatchStmt   : TRY tryStmt=statement
+                 (CATCH (LPAREN catchVar=identifier RPAREN)? catchStmt=statement)?
+                 (FINALLY finallyStmt=statement)?
+                 ;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
 whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
 forStmt        : FOR LPAREN

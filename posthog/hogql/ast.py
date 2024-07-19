@@ -56,6 +56,19 @@ class ReturnStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class ThrowStatement(Statement):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
+class TryCatchStatement(Statement):
+    try_stmt: Statement
+    catch_stmt: Optional[Statement] = None
+    catch_var: Optional[str] = None
+    finally_stmt: Optional[Statement] = None
+
+
+@dataclass(kw_only=True)
 class IfStatement(Statement):
     expr: Expr
     then: Statement

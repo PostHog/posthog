@@ -310,6 +310,15 @@ class TraversingVisitor(Visitor[None]):
         if node.expr:
             self.visit(node.expr)
 
+    def visit_throw_statement(self, node: ast.ThrowStatement):
+        if node.expr:
+            self.visit(node.expr)
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        self.visit(node.try_stmt)
+        self.visit(node.catch_stmt)
+        self.visit(node.finally_stmt)
+
     def visit_function(self, node: ast.Function):
         self.visit(node.body)
 
@@ -675,6 +684,23 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             expr=self.visit(node.expr) if node.expr else None,
+        )
+
+    def visit_throw_statement(self, node: ast.ThrowStatement):
+        return ast.ThrowStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr) if node.expr else None,
+        )
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        return ast.TryCatchStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            try_stmt=self.visit(node.try_stmt),
+            catch_stmt=self.visit(node.catch_stmt),
+            catch_var=node.catch_var,
+            finally_stmt=self.visit(node.finally_stmt),
         )
 
     def visit_function(self, node: ast.Function):

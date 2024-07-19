@@ -245,6 +245,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
 
+    def visitThrowStmt(self, ctx: HogQLParser.ThrowStmtContext):
+        return ast.ThrowStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
+
+    def visitTryCatchStmt(self, ctx: HogQLParser.TryCatchStmtContext):
+        return ast.TryCatchStatement(
+            try_stmt=self.visit(ctx.tryStmt),
+            catch_stmt=self.visit(ctx.catchStmt) if ctx.catchStmt else None,
+            catch_var=ctx.identifier().getText() if ctx.identifier() else None,
+            finally_stmt=self.visit(ctx.finallyStmt) if ctx.finallyStmt else None,
+        )
+
     def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
         return ast.IfStatement(
             expr=self.visit(ctx.expression()),
