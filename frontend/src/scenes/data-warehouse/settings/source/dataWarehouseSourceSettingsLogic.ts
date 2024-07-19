@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import {
     Breadcrumb,
     DataWarehouseSettingsTab,
-    DataWarehouseTab,
     ExternalDataJob,
     ExternalDataSourceSchema,
     ExternalDataStripeSource,
@@ -36,7 +35,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     key(({ id }) => id),
     actions({
         setCurrentTab: (tab: DataWarehouseSourceSettingsTabs) => ({ tab }),
-        setParentSettingsTab: (tab: DataWarehouseTab) => ({ tab }),
+        setParentSettingsTab: (tab: DataWarehouseSettingsTab) => ({ tab }),
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -83,7 +82,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         ],
         parentSettingsTab: [
-            DataWarehouseTab.ManagedSources as DataWarehouseTab,
+            DataWarehouseSettingsTab.Managed as DataWarehouseSettingsTab,
             {
                 setParentSettingsTab: (_, { tab }) => tab,
             },
@@ -107,7 +106,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 {
                     key: Scene.DataWarehouseSettings,
                     name: 'Data Warehouse Settings',
-                    path: urls.dataWarehouse(parentSettingsTab),
+                    path: urls.dataWarehouseSettings(parentSettingsTab),
                 },
                 {
                     key: Scene.dataWarehouseSourceSettings,
@@ -196,7 +195,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             }
 
             if (parentTab !== values.parentSettingsTab) {
-                actions.setParentSettingsTab(parentTab as DataWarehouseTab)
+                actions.setParentSettingsTab(parentTab as DataWarehouseSettingsTab)
             }
         },
     })),
