@@ -524,6 +524,7 @@ export class SessionRecordingIngester {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
+            status.info('🔁', 'blob_ingester_consumer - rebalancing', { err, topicPartitions })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
@@ -833,6 +834,10 @@ export class SessionRecordingIngester {
                 }
 
                 if (this.config.SESSION_RECORDING_USE_OFFSET_STORE) {
+                    status.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
+                        ...tp,
+                        highestOffsetToCommit,
+                    })
                     this.connectedBatchConsumer?.offsetsStore([
                         {
                             ...tp,
