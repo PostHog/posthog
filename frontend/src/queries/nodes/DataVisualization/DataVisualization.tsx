@@ -114,9 +114,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     return (
         <div className="DataVisualization flex flex-1 gap-2">
-            <div className="flex max-sm:hidden">
-                <DatabaseTableTreeWithItems inline />
-            </div>
+            {!readOnly && showEditingUI && (
+                <div className="flex max-sm:hidden">
+                    <DatabaseTableTreeWithItems inline />
+                </div>
+            )}
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
                 {!readOnly && showEditingUI && (
                     <>
