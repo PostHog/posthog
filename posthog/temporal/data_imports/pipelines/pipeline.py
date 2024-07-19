@@ -131,13 +131,14 @@ class DataImportPipeline:
                 counts = Counter(filtered_rows)
                 total_counts = counts + total_counts
 
-                async_to_sync(validate_schema_and_update_table)(
-                    run_id=self.inputs.run_id,
-                    team_id=self.inputs.team_id,
-                    schema_id=self.inputs.schema_id,
-                    table_schema=self.source.schema.tables,
-                    row_count=total_counts.total(),
-                )
+                if total_counts.total() != 0:
+                    async_to_sync(validate_schema_and_update_table)(
+                        run_id=self.inputs.run_id,
+                        team_id=self.inputs.team_id,
+                        schema_id=self.inputs.schema_id,
+                        table_schema=self.source.schema.tables,
+                        row_count=total_counts.total(),
+                    )
 
                 pipeline_runs = pipeline_runs + 1
         else:
@@ -165,13 +166,14 @@ class DataImportPipeline:
             counts = Counter(filtered_rows)
             total_counts = total_counts + counts
 
-            async_to_sync(validate_schema_and_update_table)(
-                run_id=self.inputs.run_id,
-                team_id=self.inputs.team_id,
-                schema_id=self.inputs.schema_id,
-                table_schema=self.source.schema.tables,
-                row_count=total_counts.total(),
-            )
+            if total_counts.total() != 0:
+                async_to_sync(validate_schema_and_update_table)(
+                    run_id=self.inputs.run_id,
+                    team_id=self.inputs.team_id,
+                    schema_id=self.inputs.schema_id,
+                    table_schema=self.source.schema.tables,
+                    row_count=total_counts.total(),
+                )
 
         return dict(total_counts)
 

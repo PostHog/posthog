@@ -150,6 +150,12 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                     </Link>
                                 )
                             }
+
+                            // Synced but no rows
+                            if (schema.status === 'Completed') {
+                                return <div>No rows to query</div>
+                            }
+
                             return <div>Not yet synced</div>
                         },
                     },
@@ -172,7 +178,16 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         title: 'Rows Synced',
                         key: 'rows_synced',
                         render: function Render(_, schema) {
-                            return (schema.table?.row_count ?? 0).toLocaleString()
+                            if (schema.table) {
+                                return schema.table.row_count.toLocaleString()
+                            }
+
+                            // Synced but no rows
+                            if (schema.status === 'Completed') {
+                                return 0
+                            }
+
+                            return ''
                         },
                     },
                     {
