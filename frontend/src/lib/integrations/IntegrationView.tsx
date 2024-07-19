@@ -50,7 +50,7 @@ export function IntegrationView({
                         }}
                     >
                         {errors[0] === 'TOKEN_REFRESH_FAILED'
-                            ? 'There were issues authenticating with the service. Please try re-connecting it'
+                            ? 'Authentication token could not be refreshed. Please reconnect.'
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>
