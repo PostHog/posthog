@@ -60,9 +60,6 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setActiveTab: (tab: Tab) => ({ tab }),
         onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
-        onMouseEnterResult: (index: number) => ({ index }),
-        onMouseLeaveResult: true,
-        setIsAutoScrolling: (scrolling: boolean) => ({ scrolling }),
         openResult: (index: number) => ({ index }),
     }),
     loaders(({ values, actions }) => ({
@@ -203,7 +200,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 search: () => null,
             },
         ],
-        keyboardResultIndex: [
+        activeResultIndex: [
             0,
             {
                 setSearchQuery: () => 0,
@@ -213,24 +210,12 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
             },
         ],
-        hoverResultIndex: [
-            null as number | null,
-            {
-                setSearchQuery: () => null,
-                setActiveTab: () => null,
-                onMouseEnterResult: (_, { index }) => index,
-                onMouseLeaveResult: () => null,
-                onArrowUp: () => null,
-                onArrowDown: () => null,
-            },
-        ],
         activeTab: [
             Tab.All as Tab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        isAutoScrolling: [false, { setIsAutoScrolling: (_, { scrolling }) => scrolling }],
     }),
     selectors({
         combinedSearchResults: [
@@ -415,10 +400,6 @@ export const searchBarLogic = kea<searchBarLogicType>([
         maxIndex: [
             (s) => [s.combinedSearchResults],
             (combinedResults) => (combinedResults ? combinedResults.length - 1 : 0),
-        ],
-        activeResultIndex: [
-            (s) => [s.keyboardResultIndex, s.hoverResultIndex],
-            (keyboardResultIndex: number, hoverResultIndex: number | null) => hoverResultIndex || keyboardResultIndex,
         ],
     }),
     listeners(({ values, actions }) => ({

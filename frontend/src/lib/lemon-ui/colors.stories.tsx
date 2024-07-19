@@ -26,7 +26,7 @@ const colorGroups = {
     'default (primary text)': ['default', 'default-dark'],
     'muted (secondary text)': ['muted', 'muted-dark'],
     'muted-alt ': ['muted-alt'],
-    border: ['border', 'border-light', 'border-bold', 'border-active'],
+    border: ['border', 'border-light', 'border-bold'],
     light: ['white', 'light'],
 }
 
@@ -60,7 +60,6 @@ const preThousand = [
     'border',
     'border-light',
     'border-bold',
-    'border-active',
     'transparent',
     'brand-blue',
     'brand-red',

@@ -112,6 +112,7 @@ export const insightLogic = kea<insightLogicType>([
                 loadInsight: async ({ shortId }, breakpoint) => {
                     await breakpoint(100)
                     const response = await api.insights.loadInsight(shortId)
+
                     if (response?.results?.[0]) {
                         return response.results[0]
                     }
