@@ -124,7 +124,9 @@ describe('describeCommonChanges', () => {
         expect(getTextContent(changes[0])).toBe(
             'changed question text from "What is your favorite color?" to "What is your favorite animal?"'
         )
-        expect(getTextContent(changes[1])).toBe('updated description')
+        expect(getTextContent(changes[1])).toBe(
+            'changed the question description from "Choose a color" to "Choose an animal"'
+        )
         expect(getTextContent(changes[2])).toBe('made question optional')
         expect(getTextContent(changes[3])).toBe('changed button text from "Next" to "Continue"')
     })
@@ -170,7 +172,7 @@ describe('describeRatingChanges', () => {
         expect(changes).toHaveLength(3)
         expect(getTextContent(changes[0])).toBe('changed rating display from emoji to number')
         expect(getTextContent(changes[1])).toBe('changed rating scale from 5 to 10')
-        expect(getTextContent(changes[2])).toBe('updated rating labels from Poor-Excellent to Bad-Good')
+        expect(getTextContent(changes[2])).toBe('updated rating labels from "Poor"-"Excellent" to "Bad"-"Good"')
     })
 })
 

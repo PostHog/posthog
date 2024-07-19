@@ -9,6 +9,7 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
+import { truncate } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { match, P } from 'ts-pattern'
 
@@ -53,16 +54,6 @@ const surveyActionsMapping: Record<
         }
     },
     description: function onDescription(change) {
-        const formatDescription = (value: string | null | undefined): JSX.Element => {
-            if (value === undefined || value === null || value === '') {
-                return <i>unset</i>
-            }
-            if (value.length <= 50) {
-                return <strong>"{value}"</strong>
-            }
-            return <strong>"{value.slice(0, 50)}..."</strong>
-        }
-
         return {
             description: [
                 <>
@@ -479,7 +470,12 @@ export function describeCommonChanges(before: SurveyQuestion, after: SurveyQuest
         )
     }
     if (before.description !== after.description) {
-        changes.push(<>updated description</>)
+        changes.push(
+            <>
+                changed the question description from {formatDescription(before.description)} to{' '}
+                {formatDescription(after.description)}
+            </>
+        )
     }
     if (before.optional !== after.optional) {
         changes.push(<>{after.optional ? 'made question optional' : 'made question required'}</>)
@@ -523,9 +519,9 @@ export function describeRatingChanges([before, after]: [RatingSurveyQuestion, Ra
     if (before.lowerBoundLabel !== after.lowerBoundLabel || before.upperBoundLabel !== after.upperBoundLabel) {
         changes.push(
             <>
-                updated rating labels from <strong>{before.lowerBoundLabel}</strong>-
-                <strong>{before.upperBoundLabel}</strong> to <strong>{after.lowerBoundLabel}</strong>-
-                <strong>{after.upperBoundLabel}</strong>
+                updated rating labels from <strong>"{before.lowerBoundLabel}"</strong>-
+                <strong>"{before.upperBoundLabel}"</strong> to <strong>"{after.lowerBoundLabel}"</strong>-
+                <strong>"{after.upperBoundLabel}"</strong>
             </>
         )
     }
@@ -569,6 +565,13 @@ export function describeBranchingChanges(before: SurveyQuestion, after: SurveyQu
         return [<>updated branching logic</>]
     }
     return []
+}
+
+export const formatDescription = (value: string | null | undefined): JSX.Element => {
+    if (value === undefined || value === null || value === '') {
+        return <i>unset</i>
+    }
+    return <strong>"{truncate(value, 50)}"</strong>
 }
 
 export function describeFieldChange<T>(fieldName: string, before: T, after: T, unit?: string): JSX.Element {
