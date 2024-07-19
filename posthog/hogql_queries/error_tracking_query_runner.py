@@ -169,7 +169,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
-    def results(self, columns, query_results):
+    def results(self, columns: list[str], query_results: list):
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         results = []
         for result_dict in mapped_results:
@@ -177,15 +177,17 @@ class ErrorTrackingQueryRunner(QueryRunner):
             group = self.group_or_default(fingerprint)
 
             if self.query.eventColumns:
-                result_dict["events"] = self.parse_embedded_events_and_persons(result_dict.get("events", []))
+                result_dict["events"] = self.parse_embedded_events_and_persons(
+                    self.query.eventColumns, result_dict.get("events", [])
+                )
 
             results.append(group | result_dict)
 
         return results
 
-    def parse_embedded_events_and_persons(self, events):
+    def parse_embedded_events_and_persons(self, columns: list[str], events: list):
         person_indices: list[int] = []
-        for index, col in enumerate(self.query.eventColumns):
+        for index, col in enumerate(columns):
             if col == "person":
                 person_indices.append(index)
 
@@ -217,7 +219,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                             "distinct_id": distinct_id,
                         }
 
-        return [dict(zip(self.query.eventColumns, value)) for value in events]
+        return [dict(zip(columns, value)) for value in events]
 
     @property
     def order_by(self):
@@ -255,5 +257,5 @@ class ErrorTrackingQueryRunner(QueryRunner):
             if self.query.fingerprint
             else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
         )
-        queryset = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
-        return {item["fingerprint"]: item for item in queryset}
+        groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
+        return {item["fingerprint"]: item for item in groups}

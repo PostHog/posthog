@@ -4,17 +4,37 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { NotFound } from 'lib/components/NotFound'
 import { Playlist } from 'lib/components/Playlist/Playlist'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
+import { ErrorTrackingGroup } from '~/queries/schema'
+
 import { errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
+
+type ErrorTrackingGroupEvent = {
+    uuid: string
+    properties: Record<string, any>
+    timestamp: string
+    person: {
+        distinct_id: string
+        uuid?: string
+        created_at?: string
+        properties?: Record<string, any>
+    }
+}
 
 export const OverviewTab = (): JSX.Element => {
     const { group, groupLoading } = useValues(errorTrackingGroupSceneLogic)
 
+    const groupEvents = (group: ErrorTrackingGroup): ErrorTrackingGroupEvent[] => {
+        const events = group.events || []
+        return events as ErrorTrackingGroupEvent[]
+    }
+
     return groupLoading ? (
         <Spinner className="self-align-center justify-self-center" />
-    ) : (
+    ) : group ? (
         <div className="ErrorTracking__group">
             <div className="h-full space-y-2">
                 <Playlist
@@ -23,11 +43,10 @@ export const OverviewTab = (): JSX.Element => {
                         {
                             key: 'exceptions',
                             title: 'Exceptions',
-                            items: group.events,
+                            items: groupEvents(group).map((e) => ({ ...e, id: e.uuid })),
                             render: ListItemException,
                         },
                     ]}
-                    itemKey="uuid"
                     listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
                     content={({ activeItem: event }) =>
                         event ? (
@@ -45,6 +64,8 @@ export const OverviewTab = (): JSX.Element => {
                 />
             </div>
         </div>
+    ) : (
+        <NotFound object="exception" />
     )
 }
 
@@ -52,7 +73,7 @@ const ListItemException = ({
     item: event,
     isActive,
 }: {
-    item: Record<string, any>
+    item: ErrorTrackingGroupEvent
     isActive: boolean
 }): JSX.Element => {
     const properties = ['$browser', '$device_type', '$os']
