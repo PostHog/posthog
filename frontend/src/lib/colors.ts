@@ -49,17 +49,16 @@ export function getColorVar(variable: string): string {
  * @param index The index of the series color.
  * @param numSeries Number of series in the insight being visualized.
  * @param comparePrevious If true, wrapped colors ()
- * @param asBackgroundHighlight If true, add opacity to color
  */
-export function getSeriesColor(
-    index: number | undefined = 0,
-    comparePrevious: boolean | null = false,
-    asBackgroundHighlight?: boolean
-): string {
+export function getSeriesColor(index: number | undefined = 0, comparePrevious: boolean | null = false): string {
     const adjustedIndex = (comparePrevious ? Math.floor(index / 2) : index) % dataColorVars.length
     const isPreviousPeriodSeries = comparePrevious && index % 2 === 1
     const baseHex = getColorVar(`data-${dataColorVars[adjustedIndex]}`)
-    return isPreviousPeriodSeries ? `${baseHex}80` : asBackgroundHighlight ? `${baseHex}30` : baseHex
+    return isPreviousPeriodSeries ? `${baseHex}80` : baseHex
+}
+
+export function getSeriesBackgroundColor(index: number): string {
+    return `${getSeriesColor(index)}30`
 }
 
 /** Return hexadecimal color value for lifecycle status.
