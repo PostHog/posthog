@@ -153,6 +153,10 @@ class TrendsActorsQueryBuilder:
         return self.entity.math == BaseMathType.MONTHLY_ACTIVE
 
     @cached_property
+    def is_first_time_ever_math(self) -> bool:
+        return self.entity.math == BaseMathType.FIRST_TIME_EVER
+
+    @cached_property
     def is_hourly(self) -> bool:
         return self.trends_date_range.is_hourly
 
@@ -175,6 +179,13 @@ class TrendsActorsQueryBuilder:
             group_by=[ast.Field(chain=["actor_id"])],
         )
 
+    def _table_expr(self) -> ast.JoinExpr:
+        return ast.JoinExpr(
+            table=ast.Field(chain=["events"]),
+            alias="e",
+            sample=self._sample_expr(),
+        )
+
     def _get_events_query(self) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
@@ -184,11 +195,7 @@ class TrendsActorsQueryBuilder:
                 *([ast.Field(chain=["e", "$session_id"])] if self.include_recordings else []),
                 *([ast.Field(chain=["e", "$window_id"])] if self.include_recordings else []),
             ],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-                alias="e",
-                sample=self._sample_expr(),
-            ),
+            select_from=self._table_expr(),
             where=self._events_where_expr(),
         )
         return query
@@ -214,6 +221,7 @@ class TrendsActorsQueryBuilder:
                 *self._date_where_expr(),
                 *(self._breakdown_where_expr() if with_breakdown_expr else []),
                 *self._filter_empty_actors_expr(),
+                *self._first_ever_math_where_expr(),
             ]
         )
 
@@ -223,29 +231,32 @@ class TrendsActorsQueryBuilder:
 
         return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self.trends_query.samplingFactor)))
 
-    def _entity_where_expr(self) -> list[ast.Expr]:
-        conditions: list[ast.Expr] = []
-
+    def _event_or_action_expr(self) -> ast.Expr:
         if isinstance(self.entity, ActionsNode):
             # Actions
             try:
                 action = Action.objects.get(pk=int(self.entity.id), team=self.team)
-                conditions.append(action_to_expr(action))
+                return action_to_expr(action)
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events
-                conditions.append(parse_expr("1 = 2"))
+                return parse_expr("1 = 2")
         elif isinstance(self.entity, EventsNode):
             if self.entity.event is not None:
-                conditions.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=str(self.entity.event)),
-                    )
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=str(self.entity.event)),
                 )
 
         else:
             raise ValueError(f"Invalid entity kind {self.entity.kind}")
+
+    def _entity_where_expr(self) -> list[ast.Expr]:
+        conditions: list[ast.Expr] = []
+
+        event_or_action_expr = self._event_or_action_expr()
+        if event_or_action_expr is not None:
+            conditions.append(event_or_action_expr)
 
         if self.entity.properties is not None and self.entity.properties != []:
             conditions.append(property_to_expr(self.entity.properties, self.team))
@@ -407,4 +418,14 @@ class TrendsActorsQueryBuilder:
                 )
             )
 
+        return conditions
+
+    def _first_ever_math_where_expr(self) -> list[ast.Expr]:
+        conditions: list[ast.Expr] = []
+        if self.is_first_time_ever_math:
+            conditions.append(
+                self.trends_aggregation_operations.get_first_time_ever_filter(
+                    self._table_expr(), self._event_or_action_expr()
+                )
+            )
         return conditions
