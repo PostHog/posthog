@@ -342,6 +342,7 @@ export interface PluginServerCapabilities {
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
+    syncInlinePlugins?: boolean
 }
 
 export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
@@ -392,7 +393,7 @@ export interface JobSpec {
 
 export interface Plugin {
     id: number
-    organization_id: string
+    organization_id: string | undefined
     name: string
     plugin_type: 'local' | 'respository' | 'custom' | 'source' | 'inline'
     description?: string
