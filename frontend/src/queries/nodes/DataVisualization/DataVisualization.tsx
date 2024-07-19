@@ -3,7 +3,6 @@ import { BindLogic, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
-import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -113,10 +112,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     }
 
     return (
-        <div className="DataVisualization flex flex-1 gap-2">
-            <div className="flex max-sm:hidden">
-                <DatabaseTableTreeWithItems inline />
-            </div>
+        <div className="DataVisualization flex flex-1">
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
                 {!readOnly && showEditingUI && (
                     <>
