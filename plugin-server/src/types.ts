@@ -33,7 +33,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
-import { LazyPluginVM } from './worker/vm/lazy'
+import { PluginInstance } from './worker/vm/lazy'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -314,7 +314,7 @@ export interface Hub extends PluginsServerConfig {
     // diagnostics
     lastActivity: number
     lastActivityType: string
-    statelessVms: StatelessVmMap
+    statelessVms: StatelessInstanceMap
     conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
@@ -344,6 +344,7 @@ export interface PluginServerCapabilities {
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
+    syncInlinePlugins?: boolean
 }
 
 export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
@@ -394,7 +395,7 @@ export interface JobSpec {
 
 export interface Plugin {
     id: number
-    organization_id: string
+    organization_id: string | undefined
     name: string
     plugin_type: 'local' | 'respository' | 'custom' | 'source' | 'inline'
     description?: string
@@ -443,7 +444,7 @@ export interface PluginConfig {
     order: number
     config: Record<string, unknown>
     attachments?: Record<string, PluginAttachment>
-    vm?: LazyPluginVM | null
+    instance?: PluginInstance | null
     created_at: string
     updated_at?: string
     // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
@@ -528,7 +529,7 @@ export interface PluginTask {
     __ignoreForAppMetrics?: boolean
 }
 
-export type VMMethods = {
+export type PluginMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
@@ -538,7 +539,7 @@ export type VMMethods = {
 }
 
 // Helper when ensuring that a required method is implemented
-export type VMMethodsConcrete = Required<VMMethods>
+export type PluginMethodsConcrete = Required<PluginMethods>
 
 export enum AlertLevel {
     P0 = 0,
@@ -565,7 +566,7 @@ export interface Alert {
 }
 export interface PluginConfigVMResponse {
     vm: VM
-    methods: VMMethods
+    methods: PluginMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
     usedImports: Set<string>
@@ -1150,7 +1151,7 @@ export enum PropertyUpdateOperation {
     SetOnce = 'set_once',
 }
 
-export type StatelessVmMap = Record<PluginId, LazyPluginVM>
+export type StatelessInstanceMap = Record<PluginId, PluginInstance>
 
 export enum OrganizationPluginsAccessLevel {
     NONE = 0,

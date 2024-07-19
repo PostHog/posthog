@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0448_add_mysql_externaldatasource_source_type"),
+        ("posthog", "0449_alter_plugin_plugin_type"),
     ]
 
     operations = [
