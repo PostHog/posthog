@@ -5,7 +5,10 @@ import { BindLogic } from 'kea'
 import { FilterBasedCardContent } from 'lib/components/Cards/InsightCard/InsightCard'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
+import {
+    DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
+    DISPLAY_TYPES_WITHOUT_LEGEND,
+} from 'lib/components/InsightLegend/utils'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -63,7 +66,7 @@ export function ExportedInsight({
         detailedResults &&
         isInsightVizNode(query) &&
         isTrendsQuery(query.source) &&
-        !DISPLAY_TYPES_WITHOUT_LEGEND.includes(query.source.trendsFilter?.display as ChartDisplayType)
+        !DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(query.source.trendsFilter?.display as ChartDisplayType)
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
