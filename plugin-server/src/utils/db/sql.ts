@@ -1,6 +1,5 @@
-import { InlinePluginDescription } from 'worker/vm/inline/inline'
-
 import { Hub, Plugin, PluginAttachmentDB, PluginCapabilities, PluginConfig, PluginConfigId } from '../../types'
+import { InlinePluginDescription } from '../../worker/vm/inline/inline'
 import { PostgresUse } from './postgres'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
@@ -212,7 +211,7 @@ export async function upsertInlinePlugin(hub: Hub, inline: InlinePluginDescripti
             fullPlugin.log_level,
             fullPlugin.description,
             fullPlugin.is_preinstalled,
-            fullPlugin.config_schema,
+            JSON.stringify(fullPlugin.config_schema),
         ],
         'upsertInlinePlugin'
     )
