@@ -93,6 +93,7 @@ class BaseMathType(StrEnum):
     WEEKLY_ACTIVE = "weekly_active"
     MONTHLY_ACTIVE = "monthly_active"
     UNIQUE_SESSION = "unique_session"
+    FIRST_TIME_EVER = "first_time_ever"
 
 
 class BreakdownAttributionType(StrEnum):

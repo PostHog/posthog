@@ -4053,3 +4053,78 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert breakdown_labels == [["[10,25]"], ["[25,40.01]"]]
             assert response.results[0]["aggregated_value"] == 8
             assert response.results[1]["aggregated_value"] == 2
+
+    def test_trends_math_first_time_ever(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert response.results[0]["data"] == [1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0]
+
+        # must not include the person with the id `p2`
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0]
+
+        # must not include the persons with the ids `p1` and `p2`
+        response = self._run_trends_query(
+            "2020-01-12",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 2
+        assert response.results[0]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0]
+
+        # no such persons
+        response = self._run_trends_query(
+            "2020-01-16",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 0
+        assert response.results[0]["data"] == [0, 0, 0, 0, 0]
+
+    def test_trends_math_first_time_ever_breakdowns(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="$browser"),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert response.results[0]["data"] == [1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0]
+
+        breakdowns = [result["breakdown_value"] for result in response.results]
+        assert breakdowns == ["Chrome", "Safari", "Edge", "Firefox"]
