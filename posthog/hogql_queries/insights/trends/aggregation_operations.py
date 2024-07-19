@@ -443,12 +443,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return QueryOrchestrator()
 
-    def get_first_time_ever_query(
-        self, from_clause: ast.JoinExpr, event_filter: ast.Expr | None = None
-    ) -> ast.JoinExpr:
+    def get_first_time_ever_filter(self, table_expr: ast.JoinExpr, event_filter: ast.Expr | None = None):
         first_occurrence_window = parse_expr(
             """
-            row_number() OVER (PARTITION BY {person_field} ORDER BY timestamp ASC) as row_number
+            any(uuid) OVER (PARTITION BY {person_field} ORDER BY timestamp ASC)
             """,
             placeholders={
                 "person_field": ast.Field(
@@ -456,18 +454,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ),
             },
         )
-
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=["*"]), first_occurrence_window], select_from=from_clause, where=event_filter
-        )
-
-        return ast.JoinExpr(
-            table=query,
-        )
-
-    def get_first_time_ever_filter(self):
+        query = ast.SelectQuery(select=[first_occurrence_window], select_from=table_expr, where=event_filter)
         return ast.CompareOperation(
-            left=ast.Field(chain=["row_number"]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=1),
+            left=ast.Field(chain=["uuid"]),
+            op=ast.CompareOperationOp.In,
+            right=query,
         )

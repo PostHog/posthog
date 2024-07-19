@@ -170,11 +170,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
         if self._aggregation_operation.is_first_time_ever_math():
-            table_expr = self._aggregation_operation.get_first_time_ever_query(table_expr, self._event_name())
             events_filter = ast.And(
                 exprs=[
                     events_filter,
-                    self._aggregation_operation.get_first_time_ever_filter(),
+                    self._aggregation_operation.get_first_time_ever_filter(table_expr, self._event_name()),
                 ]
             )
 
