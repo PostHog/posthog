@@ -33,16 +33,10 @@ class DashboardTile(models.Model):
     # Relations
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey(
-        "posthog.Insight",
-        on_delete=models.CASCADE,
-        related_name="dashboard_tiles",
-        null=True,
+        "posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True, blank=True
     )
     text = models.ForeignKey(
-        "posthog.Text",
-        on_delete=models.CASCADE,
-        related_name="dashboard_tiles",
-        null=True,
+        "posthog.Text", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True, blank=True
     )
 
     # Tile layout and style
