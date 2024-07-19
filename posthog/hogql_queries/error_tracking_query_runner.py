@@ -11,6 +11,9 @@ from posthog.schema import (
 from posthog.hogql.parser import parse_expr
 from posthog.models.error_tracking import ErrorTrackingGroup
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.person.util import get_persons_by_distinct_ids
+from django.db.models import Prefetch
+from posthog.models import Person
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -42,6 +45,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Alias(
                 alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
             ),
+            ast.Alias(
+                alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
+            ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(
@@ -51,7 +57,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
         ]
 
         if self.query.eventColumns:
-            args: list[ast.Expr] = [ast.Field(chain=[field]) for field in self.query.eventColumns]
+            # replace person distinct_id that can be looked up in Postgres later
+            event_columns = ["distinct_id" if el == "person" else el for el in self.query.eventColumns]
+            args: list[ast.Expr] = [ast.Field(chain=[field]) for field in event_columns]
             exprs.append(
                 ast.Alias(
                     alias="events",
@@ -169,8 +177,42 @@ class ErrorTrackingQueryRunner(QueryRunner):
             group = self.group_or_default(fingerprint)
 
             if self.query.eventColumns:
-                events = [dict(zip(self.query.eventColumns, value)) for value in result_dict.get("events", [])]
-                result_dict["events"] = events
+                events = result_dict.get("events", [])
+
+                person_indices: list[int] = []
+                for index, col in enumerate(self.query.eventColumns):
+                    if col == "person":
+                        person_indices.append(index)
+
+                if len(person_indices) > 0 and len(events) > 0:
+                    person_idx = person_indices[0]
+                    distinct_ids = list({event[person_idx] for event in events})
+                    persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
+                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+                    distinct_to_person: dict[str, Person] = {}
+                    for person in persons:
+                        if person:
+                            for person_distinct_id in person.distinct_ids:
+                                distinct_to_person[person_distinct_id] = person
+
+                    for column_index in person_indices:
+                        for index, result in enumerate(events):
+                            distinct_id: str = result[column_index]
+                            events[index] = list(result)
+                            if distinct_to_person.get(distinct_id):
+                                person = distinct_to_person[distinct_id]
+                                events[index][column_index] = {
+                                    "uuid": person.uuid,
+                                    "created_at": person.created_at,
+                                    "properties": person.properties or {},
+                                    "distinct_id": distinct_id,
+                                }
+                            else:
+                                events[index][column_index] = {
+                                    "distinct_id": distinct_id,
+                                }
+
+                result_dict["events"] = [dict(zip(self.query.eventColumns, value)) for value in events]
 
             results.append(group | result_dict)
 
@@ -192,9 +234,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
     @cached_property
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else None
-
-    def where_exprs(self):
-        return []
 
     def group_or_default(self, fingerprint):
         return self.error_tracking_groups.get(

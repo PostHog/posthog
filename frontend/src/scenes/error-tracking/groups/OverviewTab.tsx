@@ -7,12 +7,12 @@ import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { Playlist } from 'lib/components/Playlist/Playlist'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
-import { errorTrackingGroupSceneLogic, ExceptionEventType } from '../errorTrackingGroupSceneLogic'
+import { errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
-    const { events, eventsLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { group, groupLoading } = useValues(errorTrackingGroupSceneLogic)
 
-    return eventsLoading ? (
+    return groupLoading ? (
         <Spinner className="self-align-center justify-self-center" />
     ) : (
         <div className="ErrorTracking__group">
@@ -23,10 +23,11 @@ export const OverviewTab = (): JSX.Element => {
                         {
                             key: 'exceptions',
                             title: 'Exceptions',
-                            items: events,
+                            items: group.events,
                             render: ListItemException,
                         },
                     ]}
+                    itemKey="uuid"
                     listEmptyState={<div className="flex justify-center p-4">No exceptions found</div>}
                     content={({ activeItem: event }) =>
                         event ? (
@@ -47,7 +48,13 @@ export const OverviewTab = (): JSX.Element => {
     )
 }
 
-const ListItemException = ({ item: event, isActive }: { item: ExceptionEventType; isActive: boolean }): JSX.Element => {
+const ListItemException = ({
+    item: event,
+    isActive,
+}: {
+    item: Record<string, any>
+    isActive: boolean
+}): JSX.Element => {
     const properties = ['$browser', '$device_type', '$os']
         .flatMap((property) => {
             let value = event.properties[property]

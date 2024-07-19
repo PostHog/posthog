@@ -47,14 +47,14 @@ export const errorTrackingQuery = ({
 }): DataTableNode => {
     const select: string[] = []
 
-    const columns = ['fingerprint', 'error', 'occurrences', 'sessions', 'users', 'last_seen', 'first_seen']
+    const columns = ['error', 'occurrences', 'sessions', 'users']
 
     if (sparklineSelectedPeriod) {
         const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
         const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
 
-        select.splice(2, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as volume`)
-        columns.splice(2, 0, 'volume')
+        select.splice(1, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as volume`)
+        columns.splice(1, 0, 'volume')
     }
 
     return {
@@ -67,7 +67,6 @@ export const errorTrackingQuery = ({
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
         },
-        hiddenColumns: ['properties.$exception_fingerprint', 'last_seen', 'first_seen'],
         showActions: false,
         showTimings: false,
         columns: columns,

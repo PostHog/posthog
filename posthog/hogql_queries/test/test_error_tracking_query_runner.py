@@ -21,6 +21,7 @@ from posthog.test.base import (
 from posthog.models import ErrorTrackingGroup
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from posthog.models.person import Person
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -101,7 +102,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         columns = self._calculate(runner)["columns"]
-        self.assertEqual(columns, ["occurrences", "sessions", "last_seen", "first_seen", "description", "fingerprint"])
+        self.assertEqual(
+            columns, ["occurrences", "sessions", "users", "last_seen", "first_seen", "description", "fingerprint"]
+        )
 
         runner = ErrorTrackingQueryRunner(
             team=self.team,
@@ -115,7 +118,17 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         columns = self._calculate(runner)["columns"]
-        self.assertEqual(columns, ["occurrences", "sessions", "last_seen", "first_seen", "description"])
+        self.assertEqual(
+            columns,
+            [
+                "occurrences",
+                "sessions",
+                "users",
+                "last_seen",
+                "first_seen",
+                "description",
+            ],
+        )
 
         runner = ErrorTrackingQueryRunner(
             team=self.team,
@@ -123,15 +136,62 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 kind="ErrorTrackingQuery",
                 select=[],
                 fingerprint="SyntaxError",
-                eventColumns=["uuid", "distinct_id"],
+                eventColumns=["uuid", "distinct_id", "person"],
                 dateRange=DateRange(),
                 filterTestAccounts=True,
             ),
         )
 
-        columns = self._calculate(runner)["columns"]
+        result = self._calculate(runner)
+        columns = result["columns"]
         # only adds the events column when fields are specificed in `eventColumns`
-        self.assertEqual(columns, ["occurrences", "sessions", "last_seen", "first_seen", "description", "events"])
+        self.assertEqual(
+            columns, ["occurrences", "sessions", "users", "last_seen", "first_seen", "description", "events"]
+        )
+
+    @snapshot_clickhouse_queries
+    def test_person_colum_expanded(self):
+        distinct_id = "person_id"
+        fingerprint = "PersonError"
+
+        person = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=[distinct_id],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            distinct_id=distinct_id,
+            event="$exception",
+            team=self.team,
+            properties={
+                "$exception_fingerprint": fingerprint,
+            },
+        )
+
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=[],
+                fingerprint=fingerprint,
+                eventColumns=["uuid", "distinct_id", "person"],
+                dateRange=DateRange(),
+                filterTestAccounts=True,
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+
+        self.assertEqual(
+            results[0]["events"][0]["person"],
+            {
+                "uuid": person.uuid,
+                "created_at": person.created_at,
+                "properties": person.properties,
+                "distinct_id": person.distinct_ids[0],
+            },
+        )
 
     @snapshot_clickhouse_queries
     def test_fingerprints(self):
@@ -233,8 +293,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
                     "merged_fingerprints": ["custom_fingerprint"],
                     # count is (2 x SyntaxError) + (1 x custom_fingerprint)
-                    "occurrences": 3.0,
-                    "sessions": 1.0,
+                    "occurrences": 3,
+                    "sessions": 1,
+                    "users": 2,
                     "volume": None,
                     "status": ErrorTrackingGroup.Status.ACTIVE,
                 },
@@ -246,8 +307,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
                     "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
                     "merged_fingerprints": [],
-                    "occurrences": 1.0,
-                    "sessions": 1.0,
+                    "occurrences": 1,
+                    "sessions": 1,
+                    "users": 1,
                     "volume": None,
                     "status": ErrorTrackingGroup.Status.ACTIVE,
                 },

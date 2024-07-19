@@ -36,6 +36,7 @@ export type PlaylistProps<T> = {
     notebooksHref?: string
     embedded?: boolean
     loading?: boolean
+    itemKey?: string
     headerActions?: PlaylistHeaderAction[]
     onScrollListEdge?: (edge: 'top' | 'bottom') => void
     // Optionally select the first item in the list. Only works in controlled mode
@@ -63,14 +64,15 @@ export function Playlist<
     content,
     sections,
     headerActions = [],
+    itemKey = 'id',
     onScrollListEdge,
     listEmptyState,
     selectInitialItem,
     onSelect,
     'data-attr': dataAttr,
 }: PlaylistProps<T>): JSX.Element {
-    const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
-        selectInitialItem ? sections[0].items[0].id : null
+    const [controlledActiveItemId, setControlledActiveItemId] = useState<string | number | null>(
+        selectInitialItem && sections[0].items[0] ? sections[0].items[0][itemKey] : null
     )
     const [listCollapsed, setListCollapsed] = useState<boolean>(false)
     const playlistListRef = useRef<HTMLDivElement>(null)
@@ -80,13 +82,13 @@ export function Playlist<
     })
 
     const onChangeActiveItem = (item: T): void => {
-        setControlledActiveItemId(item.id)
+        setControlledActiveItemId(item[itemKey])
         onSelect?.(item)
     }
 
     const activeItemId = propsActiveItemId === undefined ? controlledActiveItemId : propsActiveItemId
 
-    const activeItem = sections.flatMap((s) => s.items).find((i) => i.id === activeItemId) || null
+    const activeItem = sections.flatMap((s) => s.items).find((i) => i[itemKey] === activeItemId) || null
 
     return (
         <div
@@ -112,6 +114,7 @@ export function Playlist<
                         activeItemId={activeItemId}
                         setActiveItemId={onChangeActiveItem}
                         emptyState={listEmptyState}
+                        itemKey={itemKey}
                     />
                 )}
                 <Resizer
@@ -134,18 +137,14 @@ const CollapsedList = ({ onClickOpen }: { onClickOpen: () => void }): JSX.Elemen
     </div>
 )
 
-function List<
-    T extends {
-        id: string | number
-        [key: string]: any
-    }
->({
+function List<T extends Record<string, any>>({
     title,
     notebooksHref,
     onClickCollapse,
     setActiveItemId,
     headerActions = [],
     sections,
+    itemKey,
     activeItemId,
     onScrollListEdge,
     loading,
@@ -154,7 +153,8 @@ function List<
     title: PlaylistProps<T>['title']
     notebooksHref: PlaylistProps<T>['notebooksHref']
     onClickCollapse: () => void
-    activeItemId: T['id'] | null
+    itemKey: string
+    activeItemId: string | number | null
     setActiveItemId: (item: T) => void
     headerActions: PlaylistProps<T>['headerActions']
     sections: PlaylistProps<T>['sections']
@@ -250,7 +250,12 @@ function List<
                                     key: s.key,
                                     header: s.title,
                                     content: (
-                                        <ListSection {...s} activeItemId={activeItemId} onClick={setActiveItemId} />
+                                        <ListSection
+                                            {...s}
+                                            itemKey={itemKey}
+                                            activeItemId={activeItemId}
+                                            onClick={setActiveItemId}
+                                        />
                                     ),
                                     className: 'p-0',
                                 }))}
@@ -259,7 +264,12 @@ function List<
                                 size="small"
                             />
                         ) : (
-                            <ListSection {...sections[0]} activeItemId={activeItemId} onClick={setActiveItemId} />
+                            <ListSection
+                                {...sections[0]}
+                                itemKey={itemKey}
+                                activeItemId={activeItemId}
+                                onClick={setActiveItemId}
+                            />
                         )}
                     </>
                 ) : loading ? (
@@ -272,27 +282,24 @@ function List<
     )
 }
 
-export function ListSection<
-    T extends {
-        id: string | number
-        [key: string]: any
-    }
->({
+export function ListSection<T extends Record<string, any>>({
     items,
     render,
     footer,
     onClick,
+    itemKey,
     activeItemId,
 }: PlaylistSection<T> & {
     onClick: (item: T) => void
-    activeItemId: T['id'] | null
+    itemKey: string
+    activeItemId: string | number | null
 }): JSX.Element {
     return (
         <>
             {items.length > 0
                 ? items.map((item) => (
-                      <div key={item.id} className="border-b" onClick={() => onClick(item)}>
-                          {render({ item, isActive: item.id === activeItemId })}
+                      <div key={item[itemKey]} className="border-b" onClick={() => onClick(item)}>
+                          {render({ item, isActive: item[itemKey] === activeItemId })}
                       </div>
                   ))
                 : null}

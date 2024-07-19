@@ -338,13 +338,14 @@ class ErrorTrackingGroup(BaseModel):
     assignee: Optional[float] = None
     description: Optional[str] = None
     events: Optional[list[dict[str, Any]]] = None
-    fingerprint: str
+    fingerprint: Optional[str] = None
     first_seen: AwareDatetime
     last_seen: AwareDatetime
     merged_fingerprints: list[str]
     occurrences: float
     sessions: float
     status: Status
+    users: float
     volume: Optional[Any] = None
 
 

@@ -3302,13 +3302,16 @@
                     "enum": ["archived", "active", "resolved", "pending_release"],
                     "type": "string"
                 },
+                "users": {
+                    "type": "number"
+                },
                 "volume": {}
             },
             "required": [
-                "fingerprint",
                 "merged_fingerprints",
                 "occurrences",
                 "sessions",
+                "users",
                 "description",
                 "first_seen",
                 "last_seen",
