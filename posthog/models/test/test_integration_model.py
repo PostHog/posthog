@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from typing import Optional
 from unittest.mock import patch
@@ -167,8 +167,67 @@ class TestOauthIntegrationModel(BaseTest):
         with freeze_time(now):
             integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
 
-        with freeze_time("2024-01-01T00:00:00Z"):
+        with freeze_time(now):
+            # Access token is not expired
             assert not OauthIntegration(integration).access_token_expired()
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=181)):
+            # After the expiry but before the threshold it is not expired
+            assert not OauthIntegration(integration).access_token_expired()
+
+        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=179)):
+            # After the threshold it is expired
             assert OauthIntegration(integration).access_token_expired()
+
+        with freeze_time(now + timedelta(seconds=1000)):
+            # After the threshold it is expired
+            assert OauthIntegration(integration).access_token_expired()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            "expires_in": 1000,
+        }
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        mock_post.assert_called_with(
+            "https://api.hubapi.com/oauth/v1/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": "hubspot-client-id",
+                "client_secret": "hubspot-client-secret",
+                "refresh_token": "REFRESH",
+            },
+        )
+
+        assert integration.config["expires_in"] == 1000
+        assert integration.config["refreshed_at"] == 1704117600
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_handles_errors(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 401
+        mock_post.return_value.json.return_value = {"error": "BROKEN"}
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000, "refreshed_at": 1700000000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        assert integration.config["expires_in"] == 1000
+        assert integration.config["refreshed_at"] == 1700000000
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+
+        mock_reload.assert_not_called()

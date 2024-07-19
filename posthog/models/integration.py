@@ -263,15 +263,13 @@ class OauthIntegration:
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = "TOKEN_REFRESH_FAILED"
-
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
             self.integration.config["expires_in"] = config.get("expires_in")
             self.integration.config["refreshed_at"] = int(time.time())
+            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
         self.integration.save()
-
-        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
 
 class SlackIntegrationError(Exception):
