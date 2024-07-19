@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   node-rdkafka@2.17.0:
-    hash: p4aetcvho53cvjti6c3zi7tfaq
+    hash: bugorwxdhlhl2utknko2c5ibqm
     path: patches/node-rdkafka@2.17.0.patch
 
 dependencies:
@@ -114,7 +114,7 @@ dependencies:
     version: 2.6.9
   node-rdkafka:
     specifier: ^2.17.0
-    version: 2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
+    version: 2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm)
   node-schedule:
     specifier: ^2.1.0
     version: 2.1.1
@@ -8431,7 +8431,7 @@ packages:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
     dev: true
 
-  /node-rdkafka@2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq):
+  /node-rdkafka@2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm):
     resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
     engines: {node: '>=6.0.0'}
     requiresBuild: true
