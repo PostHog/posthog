@@ -3266,25 +3266,11 @@
                 "assignee": {
                     "type": ["number", "null"]
                 },
-                "error": {
-                    "type": "string"
+                "description": {
+                    "type": ["string", "null"]
                 },
                 "events": {
                     "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "properties": {
-                                "type": "string"
-                            },
-                            "timestamp": {
-                                "format": "date-time",
-                                "type": "string"
-                            },
-                            "uuid": {
-                                "type": "string"
-                            }
-                        },
-                        "required": ["uuid", "properties", "timestamp"],
                         "type": "object"
                     },
                     "type": "array"
@@ -3323,7 +3309,7 @@
                 "merged_fingerprints",
                 "occurrences",
                 "sessions",
-                "error",
+                "description",
                 "first_seen",
                 "last_seen",
                 "assignee",
@@ -3336,6 +3322,12 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "eventColumns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
@@ -3374,7 +3366,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateRange", "kind", "select"],
+            "required": ["dateRange", "kind"],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {

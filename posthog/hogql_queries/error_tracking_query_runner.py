@@ -44,13 +44,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="error", expr=ast.Call(name="any", args=[ast.Field(chain=["properties"])])),
+            ast.Alias(
+                alias="description",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
+            ),
         ]
 
-        # "any(properties) as error",
-
-        if self.query.fingerprint:
-            # Include the event data when looking at an individual fingerprint
+        if self.query.eventColumns:
+            args: list[ast.Expr] = [ast.Field(chain=[field]) for field in self.query.eventColumns]
             exprs.append(
                 ast.Alias(
                     alias="events",
@@ -59,20 +60,18 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         args=[
                             ast.Call(
                                 name="tuple",
-                                args=[
-                                    ast.Field(chain=["uuid"]),
-                                    ast.Field(chain=["properties"]),
-                                    ast.Field(chain=["timestamp"]),
-                                ],
+                                args=args,
                             )
                         ],
                     ),
                 )
             )
-        else:
+
+        if not self.query.fingerprint:
             exprs.append(self.fingerprint_grouping_expr)
 
-        exprs.extend([parse_expr(x) for x in self.query.select])
+        if self.query.select:
+            exprs.extend([parse_expr(x) for x in self.query.select])
 
         return exprs
 
@@ -168,12 +167,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
         for result_dict in mapped_results:
             fingerprint = self.query.fingerprint if self.query.fingerprint else result_dict["fingerprint"]
             group = self.group_or_default(fingerprint)
-            events: list = []
-            if "events" in result_dict:
-                events = [
-                    {"uuid": str(e[0]), "properties": e[1], "timestamp": e[2]} for e in result_dict.get("events", [])
-                ]
-            results.append(group | result_dict | {"events": events})
+
+            if self.query.eventColumns:
+                events = [dict(zip(self.query.eventColumns, value)) for value in result_dict.get("events", [])]
+                result_dict["events"] = events
+
+            results.append(group | result_dict)
+
         return results
 
     @property

@@ -1279,7 +1279,8 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     fingerprint?: string
-    select: HogQLExpression[]
+    select?: HogQLExpression[]
+    eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     filterGroup?: PropertyGroupFilter
@@ -1293,7 +1294,7 @@ export interface ErrorTrackingGroup {
     merged_fingerprints: string[]
     occurrences: number
     sessions: number
-    error: string
+    description: string | null
     /**  @format date-time */
     first_seen: string
     /**  @format date-time */
@@ -1302,14 +1303,7 @@ export interface ErrorTrackingGroup {
     volume?: any
     assignee: number | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
-    events?: ErrorTrackingGroupEvent[]
-}
-
-type ErrorTrackingGroupEvent = {
-    uuid: string
-    properties: string
-    /**  @format date-time */
-    timestamp: string
+    events?: Record<string, any>[]
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {

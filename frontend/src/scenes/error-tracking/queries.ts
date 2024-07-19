@@ -45,14 +45,7 @@ export const errorTrackingQuery = ({
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
 }): DataTableNode => {
-    const select = [
-        'any(properties) as error',
-        'count() as occurrences',
-        'count(distinct $session_id) as sessions',
-        'count(distinct distinct_id) as users',
-        'max(timestamp) as last_seen',
-        'min(timestamp) as first_seen',
-    ]
+    const select: string[] = []
 
     const columns = ['fingerprint', 'error', 'occurrences', 'sessions', 'users', 'last_seen', 'first_seen']
 
@@ -128,7 +121,7 @@ export const errorTrackingGroupQuery = ({
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
-        select: ['uuid', 'properties', 'timestamp', 'person'],
+        eventColumns: ['uuid', 'properties', 'timestamp', 'person'],
         fingerprint: fingerprint,
         dateRange: dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,

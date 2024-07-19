@@ -324,15 +324,6 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
-class Event(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    properties: str
-    timestamp: AwareDatetime
-    uuid: str
-
-
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -345,8 +336,8 @@ class ErrorTrackingGroup(BaseModel):
         extra="forbid",
     )
     assignee: Optional[float] = None
-    error: str
-    events: Optional[list[Event]] = None
+    description: Optional[str] = None
+    events: Optional[list[dict[str, Any]]] = None
     fingerprint: str
     first_seen: AwareDatetime
     last_seen: AwareDatetime
@@ -4061,6 +4052,7 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange
+    eventColumns: Optional[list[str]] = None
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
     fingerprint: Optional[str] = None
@@ -4072,7 +4064,7 @@ class ErrorTrackingQuery(BaseModel):
     offset: Optional[int] = None
     order: Optional[Order] = None
     response: Optional[ErrorTrackingQueryResponse] = None
-    select: list[str]
+    select: Optional[list[str]] = None
 
 
 class FunnelsQuery(BaseModel):

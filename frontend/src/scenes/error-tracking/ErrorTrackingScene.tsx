@@ -77,16 +77,14 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { value, record } = props as { value: string; record: ErrorTrackingGroup }
-
-    const properties = JSON.parse(value)
+    const record = props.record as ErrorTrackingGroup
 
     return (
         <LemonTableLink
-            title={properties.$exception_fingerprint}
+            title={record.fingerprint}
             description={
                 <div className="space-y-1">
-                    <div className="line-clamp-1">{properties.$exception_message}</div>
+                    <div className="line-clamp-1">{record.description}</div>
                     <div className="space-x-1">
                         <TZLabel time={record.first_seen} className="border-dotted border-b" />
                         <span>|</span>
@@ -94,7 +92,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 </div>
             }
-            to={urls.errorTrackingGroup(properties.$exception_fingerprint)}
+            to={urls.errorTrackingGroup(record.fingerprint)}
         />
     )
 }
