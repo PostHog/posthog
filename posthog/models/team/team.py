@@ -1,7 +1,7 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import posthoganalytics
@@ -89,17 +89,17 @@ class TeamManager(models.Manager):
 
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
-        team = Team.objects.create(**kwargs)
+        team = cast("Team", self.create(**kwargs))
 
         # Create default dashboards (skipped for demo projects)
         if default_dashboards:
-            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
+            dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
             create_dashboard_from_template("DEFAULT_APP", dashboard)
             team.primary_dashboard = dashboard
             team.save()
         return team
 
-    def create(self, *args, **kwargs) -> "Team":
+    def create(self, **kwargs):
         from ..project import Project
 
         with transaction.atomic(using=self.db):
@@ -116,7 +116,7 @@ class TeamManager(models.Manager):
                 if name := kwargs.get("name"):
                     project_kwargs["name"] = name
                 kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
-            return super().create(*args, **kwargs)
+            return super().create(**kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:
@@ -168,6 +168,15 @@ class Team(UUIDClassicModel):
     class Meta:
         verbose_name = "team (soon to be environment)"
         verbose_name_plural = "teams (soon to be environments)"
+        constraints = [
+            models.CheckConstraint(
+                name="project_id_is_not_null",
+                # We have this as a constraint rather than IS NOT NULL on the field, because setting IS NOT NULL cannot
+                # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
+                # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
+                check=models.Q(project_id__isnull=False),
+            )
+        ]
 
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
@@ -180,6 +189,7 @@ class Team(UUIDClassicModel):
         on_delete=models.CASCADE,
         related_name="teams",
         related_query_name="team",
+        null=True,
     )
     api_token: models.CharField = models.CharField(
         max_length=200,
