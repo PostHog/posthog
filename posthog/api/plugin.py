@@ -17,7 +17,7 @@ from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -34,13 +34,13 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.plugin import (
     PluginSourceFile,
     update_validated_data_from_url,
 )
 from posthog.models.utils import generate_random_token
-from posthog.permissions import APIScopePermission
+from posthog.permissions import get_organization_from_view
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers
@@ -221,6 +221,16 @@ class PlainRenderer(renderers.BaseRenderer):
         return smart_str(data, encoding=self.charset or "utf-8")
 
 
+class APIOrganizationViewPermissions(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        organization = get_organization_from_view(view)
+        return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
+
+    def has_object_permission(self, request, view, object) -> bool:
+        organization = get_organization_from_view(view)
+        return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
+
+
 class PluginsAccessLevelPermission(BasePermission):
     message = "Your organization's plugin access level is insufficient."
 
@@ -238,15 +248,19 @@ class PluginsAccessLevelPermission(BasePermission):
         return view.organization.plugins_access_level >= min_level
 
     def has_object_permission(self, request, view, object) -> bool:
+        if view.organization.plugins_access_level >= Organization.PluginsAccessLevel.ROOT:
+            return True
+        # If not global and config doesn't exist, then the plugin can't be accessed
+        if (not object.is_global) and (
+            not PluginConfig.objects.filter(plugin=object.id, team=view.team, deleted=False).exists()
+        ):
+            return False
+
         if request.method in SAFE_METHODS:
             # We allow viewing the plugin if the organization has the required access level
             return view.organization.plugins_access_level >= Organization.PluginsAccessLevel.CONFIG
 
-        if view.organization != object.organization:
-            self.message = "This plugin installation is managed by another organization"
-            return False
-
-        return True
+        return view.organization.plugins_access_level >= Organization.PluginsAccessLevel.INSTALL
 
 
 class PluginSerializer(serializers.ModelSerializer):
@@ -286,10 +300,12 @@ class PluginSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:
         context_organization = self.context["get_organization"]()
-        if not can_globally_manage_plugins(context_organization):
+        if not can_install_plugins(context_organization):
             raise PermissionDenied("This organization can't manage plugins!")
 
         validated_data["url"] = self.initial_data.get("url", None)
+        # TODO: this can be removed once organization can be null
+        validated_data["organization_id"] = self.context["organization_id"]
         validated_data["updated_at"] = now()
         plugin = Plugin.objects.install(**validated_data)
         return plugin
@@ -309,22 +325,13 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [PluginsAccessLevelPermission]
 
     def dangerously_get_permissions(self):
-        # We have one very specific case to override - if the object we are getting is a global plugin, we need to
-        # allow it to be viewed by anyone with the correct access level.
-        # This is essentially only to avoid the OrganizationMemberPermission from blocking the retrieval of global plugins.
-
-        if self.action == "retrieve":
-            # NOTE: This is inefficient but it is such an edge case that it feels safer this way than
-            # Modifying our underyling permissions system too much.
-            try:
-                lookup_value = self.kwargs.get(self.lookup_field)
-                obj = Plugin.objects.get(pk=lookup_value)
-                if obj.is_global:
-                    return [IsAuthenticated(), APIScopePermission(), PluginsAccessLevelPermission()]
-            except Plugin.DoesNotExist:
-                pass
-
-        raise NotImplementedError()
+        # OrganizationMemberPermission has_object_permissions checks that the object belongs to the organization,
+        # we have organizations in plugins, but we aren't using them anymore, so we need to override this to bypass that check.
+        # Instead of organization in the plugin we use organization.plugins_access_level to determine access.
+        permission_classes = super().get_base_permission_classes()
+        permission_classes.append(PluginsAccessLevelPermission)
+        permission_classes.append(APIOrganizationViewPermissions)
+        return [permission() for permission in permission_classes]
 
     def safely_get_queryset(self, queryset):
         if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.CONFIG):
@@ -492,6 +499,8 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
+        if not can_globally_manage_plugins(self.organization):
+            raise PermissionDenied("This organization can't manage plugins!")
         instance = self.get_object()
         instance_id = instance.id
         if instance.is_global:

@@ -111,6 +111,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         """
         raise NotImplementedError()
 
+    def get_base_permission_classes(self):
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            return [SharingTokenPermission()]
+
+        return [IsAuthenticated, APIScopePermission]
+
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
     def get_permissions(self):
@@ -119,12 +125,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
 
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            return [SharingTokenPermission()]
-
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated, APIScopePermission]
+        permission_classes = self.get_base_permission_classes()
 
         if self.is_team_view:
             permission_classes.append(TeamMemberAccessPermission)
