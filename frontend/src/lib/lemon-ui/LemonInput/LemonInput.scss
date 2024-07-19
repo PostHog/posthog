@@ -17,12 +17,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
 
-    &:hover:not([aria-disabled='true']) {
-        border-color: var(--border-bold);
-    }
-
+    &:hover:not([aria-disabled='true']),
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--border-active);
+        border-color: var(--border-bold);
     }
 
     &.LemonInput--transparent-background {
