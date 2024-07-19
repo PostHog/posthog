@@ -784,10 +784,10 @@ export class SessionRecordingIngester {
                     partition,
                 }
 
-                status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                    ...tp,
-                    partitionBlockingSessions,
-                })
+                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
+                //     ...tp,
+                //     partitionBlockingSessions,
+                // })
 
                 let potentiallyBlockingSession: SessionManager | undefined
 
@@ -833,16 +833,19 @@ export class SessionRecordingIngester {
                 }
 
                 if (this.config.SESSION_RECORDING_USE_OFFSET_STORE) {
-                    status.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
-                        ...tp,
-                        highestOffsetToCommit,
-                    })
-                    this.connectedBatchConsumer?.offsetsStore([
+                    const result = this.connectedBatchConsumer?.offsetsStore([
                         {
                             ...tp,
                             offset: highestOffsetToCommit + 1,
                         },
                     ])
+
+                    status.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
+                        ...tp,
+                        highestOffsetToCommit,
+                        result,
+                        consumerExists: !!this.connectedBatchConsumer,
+                    })
                 } else {
                     this.connectedBatchConsumer?.commit({
                         ...tp,
