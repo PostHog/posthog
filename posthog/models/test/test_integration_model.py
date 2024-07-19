@@ -171,11 +171,11 @@ class TestOauthIntegrationModel(BaseTest):
             # Access token is not expired
             assert not OauthIntegration(integration).access_token_expired()
 
-        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=181)):
+        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=501)):
             # After the expiry but before the threshold it is not expired
             assert not OauthIntegration(integration).access_token_expired()
 
-        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=179)):
+        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=499)):
             # After the threshold it is expired
             assert OauthIntegration(integration).access_token_expired()
 

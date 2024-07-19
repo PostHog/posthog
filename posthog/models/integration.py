@@ -236,8 +236,7 @@ class OauthIntegration:
 
         return integration
 
-    def access_token_expired(self, time_threshold=timedelta(seconds=180)) -> bool:
-        # NOTE: time_threshold should always be higher than our check interval for the job
+    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
 
         refresh_token = self.integration.sensitive_config.get("refresh_token")
@@ -245,6 +244,9 @@ class OauthIntegration:
         refreshed_at = self.integration.config.get("refreshed_at")
         if not refresh_token or not expires_in or not refreshed_at:
             return False
+
+        # To be really safe we refresh if its half way through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
 
         return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
 
