@@ -48,7 +48,6 @@ export const LemonTag: React.FunctionComponent<LemonTagProps & React.RefAttribut
             closable,
             onClose,
             popover,
-            tooltip,
             disabledReason,
             ...props
         },
