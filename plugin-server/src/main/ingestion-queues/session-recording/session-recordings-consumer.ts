@@ -524,6 +524,7 @@ export class SessionRecordingIngester {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
+            status.info('🔁', 'blob_ingester_consumer - rebalancing', { err, topicPartitions })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
@@ -776,30 +777,29 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
+                const partitionBlockingSessions = blockingSessions.filter((s) => s.partition === partition)
 
                 const tp = {
                     topic: this.topic,
                     partition,
                 }
 
-                status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                    ...tp,
-                    blockingSessions,
-                })
+                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
+                //     ...tp,
+                //     partitionBlockingSessions,
+                // })
 
                 let potentiallyBlockingSession: SessionManager | undefined
 
                 let activeSessionsOnThisPartition = 0
-                for (const sessionManager of blockingSessions) {
-                    if (sessionManager.partition === partition) {
-                        const lowestOffset = sessionManager.getLowestOffset()
-                        activeSessionsOnThisPartition++
-                        if (
-                            lowestOffset !== null &&
-                            lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
-                        ) {
-                            potentiallyBlockingSession = sessionManager
-                        }
+                for (const sessionManager of partitionBlockingSessions) {
+                    const lowestOffset = sessionManager.getLowestOffset()
+                    activeSessionsOnThisPartition++
+                    if (
+                        lowestOffset !== null &&
+                        lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
+                    ) {
+                        potentiallyBlockingSession = sessionManager
                     }
                 }
 
@@ -833,12 +833,19 @@ export class SessionRecordingIngester {
                 }
 
                 if (this.config.SESSION_RECORDING_USE_OFFSET_STORE) {
-                    this.connectedBatchConsumer?.offsetsStore([
+                    const result = this.connectedBatchConsumer?.offsetsStore([
                         {
                             ...tp,
                             offset: highestOffsetToCommit + 1,
                         },
                     ])
+
+                    status.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
+                        ...tp,
+                        highestOffsetToCommit,
+                        result,
+                        consumerExists: !!this.connectedBatchConsumer,
+                    })
                 } else {
                     this.connectedBatchConsumer?.commit({
                         ...tp,

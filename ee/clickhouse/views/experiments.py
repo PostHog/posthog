@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
+import posthoganalytics
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import (
     ClickhouseFunnelExperimentResult,
@@ -125,6 +126,20 @@ def _experiment_results_cached(
 
     timestamp = now()
     fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
+
+    # Event to detect experiment significance flip-flopping
+    posthoganalytics.capture(
+        experiment.created_by.email,
+        "experiment result calculated",
+        properties={
+            "experiment_id": experiment.id,
+            "name": experiment.name,
+            "goal_type": experiment.filters.get("insight", "FUNNELS"),
+            "significant": result.get("significant"),
+            "significance_code": result.get("significance_code"),
+            "probability": result.get("probability"),
+        },
+    )
 
     update_cached_state(
         experiment.team.pk,

@@ -121,7 +121,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 }
                 onSelect?.(newValue)
             }),
-        [options, value]
+        [options, value, onChange, onSelect]
     )
 
     const activeLeaf = allLeafOptions.find((o) => o.value === value)
