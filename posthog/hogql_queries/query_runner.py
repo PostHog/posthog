@@ -559,20 +559,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             dashboard_id=dashboard_id,
         )
 
-        # if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
-        #     # We should always kick off async calculation and disregard the cache
-        #     return QueryStatusResponse(
-        #         query_status=self.enqueue_async_calculation(
-        #             refresh_requested=True, cache_manager=cache_manager, user=user
-        #         )
-        #     )
-        # elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-        #     # Let's look in the cache first
-        #     results = self.handle_cache_and_async_logic(
-        #         execution_mode=execution_mode, cache_manager=cache_manager, user=user
-        #     )
-        #     if results is not None:
-        #         return results
+        if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
+            # We should always kick off async calculation and disregard the cache
+            return QueryStatusResponse(
+                query_status=self.enqueue_async_calculation(
+                    refresh_requested=True, cache_manager=cache_manager, user=user
+                )
+            )
+        elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+            # Let's look in the cache first
+            results = self.handle_cache_and_async_logic(
+                execution_mode=execution_mode, cache_manager=cache_manager, user=user
+            )
+            if results is not None:
+                return results
 
         last_refresh = datetime.now(UTC)
         target_age = self.cache_target_age(last_refresh=last_refresh)

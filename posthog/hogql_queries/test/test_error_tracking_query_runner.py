@@ -94,7 +94,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[],
                 fingerprint=None,
                 dateRange=DateRange(),
                 filterTestAccounts=True,
@@ -110,7 +109,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[],
                 fingerprint="SyntaxError",
                 dateRange=DateRange(),
                 filterTestAccounts=True,
@@ -134,7 +132,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[],
                 fingerprint="SyntaxError",
                 eventColumns=["uuid", "distinct_id", "person"],
                 dateRange=DateRange(),
@@ -173,7 +170,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[],
                 fingerprint=fingerprint,
                 eventColumns=["uuid", "distinct_id", "person"],
                 dateRange=DateRange(),
@@ -199,7 +195,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[],
                 fingerprint="SyntaxError",
                 dateRange=DateRange(),
             ),
@@ -227,7 +222,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[],
                 dateRange=DateRange(),
             ),
         )
@@ -241,7 +235,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[],
                 dateRange=DateRange(),
                 filterGroup=PropertyGroupFilter(
                     type=FilterLogicalOperator.AND_,
@@ -274,7 +267,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                select=[],
                 fingerprint=None,
                 dateRange=DateRange(),
             ),

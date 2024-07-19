@@ -177,46 +177,47 @@ class ErrorTrackingQueryRunner(QueryRunner):
             group = self.group_or_default(fingerprint)
 
             if self.query.eventColumns:
-                events = result_dict.get("events", [])
-
-                person_indices: list[int] = []
-                for index, col in enumerate(self.query.eventColumns):
-                    if col == "person":
-                        person_indices.append(index)
-
-                if len(person_indices) > 0 and len(events) > 0:
-                    person_idx = person_indices[0]
-                    distinct_ids = list({event[person_idx] for event in events})
-                    persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
-                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-                    distinct_to_person: dict[str, Person] = {}
-                    for person in persons:
-                        if person:
-                            for person_distinct_id in person.distinct_ids:
-                                distinct_to_person[person_distinct_id] = person
-
-                    for column_index in person_indices:
-                        for index, result in enumerate(events):
-                            distinct_id: str = result[column_index]
-                            events[index] = list(result)
-                            if distinct_to_person.get(distinct_id):
-                                person = distinct_to_person[distinct_id]
-                                events[index][column_index] = {
-                                    "uuid": person.uuid,
-                                    "created_at": person.created_at,
-                                    "properties": person.properties or {},
-                                    "distinct_id": distinct_id,
-                                }
-                            else:
-                                events[index][column_index] = {
-                                    "distinct_id": distinct_id,
-                                }
-
-                result_dict["events"] = [dict(zip(self.query.eventColumns, value)) for value in events]
+                result_dict["events"] = self.parse_embedded_events_and_persons(result_dict.get("events", []))
 
             results.append(group | result_dict)
 
         return results
+
+    def parse_embedded_events_and_persons(self, events):
+        person_indices: list[int] = []
+        for index, col in enumerate(self.query.eventColumns):
+            if col == "person":
+                person_indices.append(index)
+
+        if len(person_indices) > 0 and len(events) > 0:
+            person_idx = person_indices[0]
+            distinct_ids = list({event[person_idx] for event in events})
+            persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
+            persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+            distinct_to_person: dict[str, Person] = {}
+            for person in persons:
+                if person:
+                    for person_distinct_id in person.distinct_ids:
+                        distinct_to_person[person_distinct_id] = person
+
+            for column_index in person_indices:
+                for index, result in enumerate(events):
+                    distinct_id: str = result[column_index]
+                    events[index] = list(result)
+                    if distinct_to_person.get(distinct_id):
+                        person = distinct_to_person[distinct_id]
+                        events[index][column_index] = {
+                            "uuid": person.uuid,
+                            "created_at": person.created_at,
+                            "properties": person.properties or {},
+                            "distinct_id": distinct_id,
+                        }
+                    else:
+                        events[index][column_index] = {
+                            "distinct_id": distinct_id,
+                        }
+
+        return [dict(zip(self.query.eventColumns, value)) for value in events]
 
     @property
     def order_by(self):
@@ -248,9 +249,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     @cached_property
     def error_tracking_groups(self):
-        queryset = ErrorTrackingGroup.objects.prefetch_related("assignee").filter(
-            status__in=[ErrorTrackingGroup.Status.ACTIVE], team=self.team
+        queryset = ErrorTrackingGroup.objects.filter(team=self.team)
+        queryset = (
+            queryset.filter(fingerprint=self.query.fingerprint)
+            if self.query.fingerprint
+            else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
         )
-        queryset = queryset.filter(fingerprint=self.query.fingerprint) if self.query.fingerprint else queryset
         queryset = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
         return {item["fingerprint"]: item for item in queryset}
