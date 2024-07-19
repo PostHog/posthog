@@ -17,7 +17,7 @@ import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseSyncInterval, DataWarehouseTab, ExternalDataSourceSchema } from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
@@ -145,11 +145,17 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             if (schema.table) {
                                 const query = defaultQuery(schema.table.name, schema.table.columns)
                                 return (
-                                    <Link to={urls.dataWarehouse(JSON.stringify(query))}>
+                                    <Link to={urls.dataWarehouse(DataWarehouseTab.Explore, JSON.stringify(query))}>
                                         <code>{schema.table.name}</code>
                                     </Link>
                                 )
                             }
+
+                            // Synced but no rows
+                            if (schema.status === 'Completed') {
+                                return <div>No rows to query</div>
+                            }
+
                             return <div>Not yet synced</div>
                         },
                     },
@@ -172,7 +178,16 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         title: 'Rows Synced',
                         key: 'rows_synced',
                         render: function Render(_, schema) {
-                            return (schema.table?.row_count ?? 0).toLocaleString()
+                            if (schema.table) {
+                                return schema.table.row_count.toLocaleString()
+                            }
+
+                            // Synced but no rows
+                            if (schema.status === 'Completed') {
+                                return 0
+                            }
+
+                            return ''
                         },
                     },
                     {

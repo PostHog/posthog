@@ -113,10 +113,14 @@ def process_expr_on_table(
 
 
 def is_valid_view(select_query: ast.SelectQuery | ast.SelectUnionQuery) -> bool:
-    if not isinstance(select_query, ast.SelectQuery):
-        return False
-    for field in select_query.select:
-        if not isinstance(field, ast.Alias):
-            return False
+    if isinstance(select_query, ast.SelectQuery):
+        for field in select_query.select:
+            if not isinstance(field, ast.Alias):
+                return False
+    elif isinstance(select_query, ast.SelectUnionQuery):
+        for select in select_query.select_queries:
+            for field in select.select:
+                if not isinstance(field, ast.Alias):
+                    return False
 
     return True
