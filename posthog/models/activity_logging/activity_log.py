@@ -93,6 +93,9 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "key": obj.key,
                 "name": obj.name,
                 "filters": obj.filters,
+                "team_id": obj.team_id,
+                "deleted": obj.deleted,
+                "active": obj.active,
             }
 
         return json.JSONEncoder.default(self, obj)
