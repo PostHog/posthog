@@ -133,6 +133,7 @@ def _experiment_results_cached(
         "experiment result calculated",
         properties={
             "experiment_id": experiment.id,
+            "name": experiment.name,
             "goal_type": experiment.filters.get("insight", "FUNNELS"),
             "significant": result.get("significant"),
             "significance_code": result.get("significance_code"),
