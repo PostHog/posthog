@@ -784,10 +784,10 @@ export class SessionRecordingIngester {
                     partition,
                 }
 
-                status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                    ...tp,
-                    partitionBlockingSessions,
-                })
+                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
+                //     ...tp,
+                //     partitionBlockingSessions,
+                // })
 
                 let potentiallyBlockingSession: SessionManager | undefined
 
