@@ -15,6 +15,9 @@ from django.conf import settings
 from posthog.cache_utils import cache_for
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
@@ -208,10 +211,8 @@ class OauthIntegration:
             "refresh_token": config.pop("refresh_token", None),
             "id_token": config.pop("id_token", None),
             "expires_in": config.pop("expires_in", None),
+            "refreshed_at": int(time.time()),
         }
-
-        if sensitive_config.get("expires_in"):
-            sensitive_config["expires_at"] = int(time.time()) + sensitive_config["expires_in"]
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -230,12 +231,13 @@ class OauthIntegration:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
 
         refresh_token = self.integration.sensitive_config.get("refresh_token")
-        expires_at = self.integration.sensitive_config.get("expires_at")
+        expires_in = self.integration.sensitive_config.get("expires_in")
+        refreshed_at = self.integration.sensitive_config.get("refreshed_at")
 
-        if not refresh_token or not expires_at:
+        if not refresh_token or not expires_in or not refreshed_at:
             return False
 
-        return time.time() > expires_at - time_threshold
+        return time.time() > refreshed_at + expires_in - time_threshold
 
     def refresh_access_token(self):
         """
@@ -257,15 +259,15 @@ class OauthIntegration:
         config: dict = res.json()
 
         if res.status_code != 200 or not config.get("access_token"):
+            logger.warning(f"Failed to refresh token for {self}", response=res.text)
             raise Exception("Oauth error")
 
         self.integration.sensitive_config["access_token"] = config["access_token"]
         self.integration.sensitive_config["expires_in"] = config.get("expires_in")
-        if self.integration.sensitive_config.get("expires_in"):
-            self.integration.sensitive_config["expires_at"] = (
-                int(time.time()) + self.integration.sensitive_config["expires_in"]
-            )
+        self.integration.sensitive_config["refreshed_at"] = int(time.time())
         self.integration.save()
+
+        logger.info(f"Refreshed access token for {self}")
 
 
 class SlackIntegrationError(Exception):
