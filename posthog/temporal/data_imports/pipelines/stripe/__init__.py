@@ -216,7 +216,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "limit": 100,
                     # "price": "OPTIONAL_CONFIG",
                     # "starting_after": "OPTIONAL_CONFIG",
-                    # "status": "OPTIONAL_CONFIG",
+                    "status": "all",
                     # "test_clock": "OPTIONAL_CONFIG",
                 },
             },
