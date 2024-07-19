@@ -3308,6 +3308,7 @@
                 "volume": {}
             },
             "required": [
+                "fingerprint",
                 "merged_fingerprints",
                 "occurrences",
                 "sessions",
