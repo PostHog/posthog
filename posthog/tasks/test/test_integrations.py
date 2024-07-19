@@ -32,7 +32,7 @@ class TestIntegrationsTasks(APIBaseTest):
             "slack", config={"refreshed_at": time.time() - 3600 + 170}
         )  # expired with buffer
 
-        with patch("posthog.tasks.integrations.refresh_integration") as refresh_integration_mock:
+        with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
             refresh_integrations()
             # Both 3 and 4 should be refreshed
-            refresh_integration_mock.call_args_list == [((integration_3.id,),), ((integration_4.id,),)]
+            assert refresh_integration_mock.call_args_list == [((integration_3.id,),), ((integration_4.id,),)]

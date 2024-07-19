@@ -48,7 +48,7 @@ class TestOauthIntegrationModel(BaseTest):
         return Integration.objects.create(team=self.team, kind=kind, config=_config, sensitive_config=_sensitive_config)
 
     def test_authorize_url_raises_if_not_configured(self):
-        with pytest.raises(NotImplementedError) as e:
+        with pytest.raises(NotImplementedError):
             OauthIntegration.authorize_url("salesforce", next="/projects/test")
 
     def test_authorize_url(self):
@@ -106,7 +106,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "expires_in": 3600,
             }
 
-            with pytest.raises(Exception) as e:
+            with pytest.raises(Exception):
                 OauthIntegration.integration_from_oauth_response(
                     "salesforce",
                     self.team.id,
