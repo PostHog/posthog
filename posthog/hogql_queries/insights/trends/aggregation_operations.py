@@ -79,7 +79,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
-        elif self.series.math == "total":
+        elif self.series.math == "total" or self.series.math == "first_time_ever":
             return parse_expr("count()")
         elif self.series.math == "dau":
             actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
@@ -141,6 +141,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def is_active_users_math(self):
         return self.series.math in ["weekly_active", "monthly_active"]
+
+    def is_first_time_ever_math(self):
+        return self.series.math == "first_time_ever"
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
@@ -439,3 +442,32 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 return parent_select
 
         return QueryOrchestrator()
+
+    def get_first_time_ever_query(
+        self, from_clause: ast.JoinExpr, event_filter: ast.Expr | None = None
+    ) -> ast.JoinExpr:
+        first_occurrence_window = parse_expr(
+            """
+            row_number() OVER (PARTITION BY {person_field} ORDER BY timestamp ASC) as row_number
+            """,
+            placeholders={
+                "person_field": ast.Field(
+                    chain=["distinct_id"] if self.team.aggregate_users_by_distinct_id else ["person_id"]
+                ),
+            },
+        )
+
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=["*"]), first_occurrence_window], select_from=from_clause, where=event_filter
+        )
+
+        return ast.JoinExpr(
+            table=query,
+        )
+
+    def get_first_time_ever_filter(self):
+        return ast.CompareOperation(
+            left=ast.Field(chain=["row_number"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=1),
+        )

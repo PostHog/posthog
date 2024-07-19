@@ -159,17 +159,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             actors_query_time_frame=actors_query_time_frame,
         )
 
+        table_expr = ast.JoinExpr(
+            table=self._table_expr,
+            alias="e",
+            sample=(
+                ast.SampleExpr(sample_value=self._sample_value())
+                if not isinstance(self.series, DataWarehouseNode)
+                else None
+            ),
+        )
+
+        if self._aggregation_operation.is_first_time_ever_math():
+            table_expr = self._aggregation_operation.get_first_time_ever_query(table_expr, self._event_name())
+            events_filter = ast.And(
+                exprs=[
+                    events_filter,
+                    self._aggregation_operation.get_first_time_ever_filter(),
+                ]
+            )
+
         default_query = ast.SelectQuery(
             select=[ast.Alias(alias="total", expr=self._aggregation_operation.select_aggregation())],
-            select_from=ast.JoinExpr(
-                table=self._table_expr,
-                alias="e",
-                sample=(
-                    ast.SampleExpr(sample_value=self._sample_value())
-                    if not isinstance(self.series, DataWarehouseNode)
-                    else None
-                ),
-            ),
+            select_from=table_expr,
             where=events_filter,
             group_by=[],
         )
@@ -661,13 +672,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             )
 
         # Series
-        if series_event_name(self.series) is not None:
-            filters.append(
-                parse_expr(
-                    "event = {event}",
-                    placeholders={"event": ast.Constant(value=series_event_name(self.series))},
-                )
-            )
+        if not self._aggregation_operation.is_first_time_ever_math():
+            event_name = self._event_name()
+            if event_name is not None:
+                filters.append(event_name)
 
         # Filter Test Accounts
         if (
@@ -716,6 +724,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return ast.Constant(value=True)
 
         return ast.And(exprs=filters)
+
+    def _event_name(self) -> ast.Expr | None:
+        if series_event_name(self.series) is None:
+            return None
+        return parse_expr(
+            "event = {event}",
+            placeholders={"event": ast.Constant(value=series_event_name(self.series))},
+        )
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:
