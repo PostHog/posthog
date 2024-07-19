@@ -22,7 +22,7 @@ template_create: HogFunctionTemplate = HogFunctionTemplate(
     id="template-salesforce-create",
     name="Salesforce",
     description="Create objects in Salesforce",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=salesforce.com",
+    icon_url="/static/services/salesforce.png",
     hog="""
 fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.path}', {
   'body': inputs.properties,
@@ -66,7 +66,7 @@ template_update: HogFunctionTemplate = HogFunctionTemplate(
     id="template-salesforce-update",
     name="Salesforce",
     description="Update objects in Salesforce",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=salesforce.com",
+    icon_url="/static/services/salesforce.png",
     hog="""
 fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.path}', {
   'body': inputs.properties,

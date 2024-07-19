@@ -44,8 +44,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/hogvm':
-    specifier: ^1.0.26
-    version: 1.0.26(luxon@3.4.4)(re2@1.20.3)
+    specifier: ^1.0.27
+    version: 1.0.27(luxon@3.4.4)(re2@1.20.3)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -3110,8 +3110,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.26(luxon@3.4.4)(re2@1.20.3):
-    resolution: {integrity: sha512-lkJflxu/LP9TnXXW1FCePr2iaKKD7XKq68ipmtFY7v43km3ma0Se4NnuftiSX9evGIpQVXT/9JB5LY9waM/lJw==}
+  /@posthog/hogvm@1.0.27(luxon@3.4.4)(re2@1.20.3):
+    resolution: {integrity: sha512-tTI+Xg/SAS1cqL0VR/XI0NWV7PzL9u5y1mCdla3251zWE4LwdDJp3RPpAnNC8LWXUXjkaCF3dugVCygqtji6hg==}
     peerDependencies:
       luxon: ^3.4.4
       re2: ^1.21.3
