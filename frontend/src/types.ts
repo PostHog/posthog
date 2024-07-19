@@ -4029,6 +4029,24 @@ export type BatchExportConfiguration = {
     latest_runs?: BatchExportRun[]
 }
 
+export type RawBatchExportRun = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at: string
+    data_interval_start: string
+    data_interval_end: string
+    last_updated_at?: string
+}
+
 export type BatchExportRun = {
     id: string
     status:

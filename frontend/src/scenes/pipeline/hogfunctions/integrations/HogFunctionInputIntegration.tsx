@@ -1,9 +1,11 @@
+import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
@@ -18,11 +20,6 @@ export type HogFunctionInputIntegrationProps = HogFunctionInputIntegrationConfig
 
 export function HogFunctionInputIntegration({ schema, ...props }: HogFunctionInputIntegrationProps): JSX.Element {
     return <HogFunctionIntegrationChoice {...props} schema={schema} />
-    return (
-        <div className="text-danger">
-            <p>Unsupported integration type: {schema.integration}</p>
-        </div>
-    )
 }
 
 function HogFunctionIntegrationChoice({
@@ -46,17 +43,47 @@ function HogFunctionIntegrationChoice({
     const button = (
         <LemonMenu
             items={[
-                ...(integrationsOfKind?.map((integration) => ({
-                    icon: <img src={integration.icon_url} className="w-6 h-6" />,
-                    onClick: () => onChange?.(integration.id),
-                    label: integration.name,
-                })) || []),
+                integrationsOfKind?.length
+                    ? {
+                          items: [
+                              ...(integrationsOfKind?.map((integration) => ({
+                                  icon: <img src={integration.icon_url} className="w-6 h-6 rounded" />,
+                                  onClick: () => onChange?.(integration.id),
+                                  active: integration.id === value,
+                                  label: integration.name,
+                              })) || []),
+                          ],
+                      }
+                    : null,
                 {
-                    to: api.integrations.authorizeUrl({
-                        kind,
-                        next: window.location.pathname,
-                    }),
-                    label: `Connect to a different ${kind} integration`,
+                    items: [
+                        {
+                            to: api.integrations.authorizeUrl({
+                                kind,
+                                next: `${window.location.pathname}?integration_target=${schema.key}`,
+                            }),
+                            disableClientSideRouting: true,
+                            label: integrationsOfKind?.length
+                                ? `Connect to a different ${kind} integration`
+                                : `Connect to ${kind}`,
+                        },
+                    ],
+                },
+                {
+                    items: [
+                        {
+                            to: urls.settings('project-integrations'),
+                            label: 'Manage integrations',
+                            sideIcon: <IconExternal />,
+                        },
+                        value
+                            ? {
+                                  onClick: () => onChange?.(null),
+                                  label: 'Clear',
+                                  sideIcon: <IconX />,
+                              }
+                            : null,
+                    ],
                 },
             ]}
         >

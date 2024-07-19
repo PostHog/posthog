@@ -3,12 +3,20 @@ import { actions, afterMount, connect, kea, listeners, path, selectors } from 'k
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { fromParamsGivenUrl } from 'lib/utils'
+import IconSalesforce from 'public/services/salesforce.png'
+import IconSlack from 'public/services/slack.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
+
+const ICONS = {
+    slack: IconSlack,
+    salesforce: IconSalesforce,
+}
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
@@ -40,7 +48,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                                     ? integration.config.instance_url
                                     : 'Unknown',
                             // TODO: Make the icons endpoint independent of hog functions
-                            icon_url: `/api/projects/@current/hog_functions/icon/?id=${integration.kind}.com`,
+                            icon_url: ICONS[integration.kind],
                         }
                     })
                 },
@@ -49,9 +57,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
     })),
     listeners(({ actions }) => ({
         handleOauthCallback: async ({ kind, searchParams }) => {
-            const { state, code, error, next } = searchParams
-
-            const replaceUrl = next || urls.settings('project')
+            const { state, code, error } = searchParams
+            const { next } = fromParamsGivenUrl(state)
+            let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
                 lemonToast.error(`Failed due to "${error}"`)
@@ -60,16 +68,20 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
 
             try {
-                await api.integrations.create({
+                const integration = await api.integrations.create({
                     kind,
-                    config: { state, code, next },
+                    config: { state, code },
                 })
+
+                // Add the integration ID to the replaceUrl so that the landing page can use it
+                replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}integration_id=${integration.id}`
 
                 actions.loadIntegrations()
                 lemonToast.success(`Integration successful.`)
-                router.actions.replace(replaceUrl)
             } catch (e) {
                 lemonToast.error(`Something went wrong. Please try again.`)
+            } finally {
+                router.actions.replace(replaceUrl)
             }
         },
 

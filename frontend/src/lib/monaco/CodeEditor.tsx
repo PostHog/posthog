@@ -9,6 +9,7 @@ import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/mona
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 import * as hog from 'lib/monaco/languages/hog'
+import * as hogJson from 'lib/monaco/languages/hogJson'
 import * as hogQL from 'lib/monaco/languages/hogQL'
 import * as hogTemplate from 'lib/monaco/languages/hogTemplate'
 import { inStorybookTestRunner } from 'lib/utils'
@@ -88,6 +89,18 @@ function initEditor(
                 hogQLAutocompleteProvider(HogLanguage.hogTemplate)
             )
             monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
+        }
+    }
+    if (editorProps?.language === 'hogJson') {
+        if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogJson')) {
+            monaco.languages.register({
+                id: 'hogJson',
+                mimetypes: ['application/hog+json'],
+            })
+            monaco.languages.setLanguageConfiguration('hogJson', hogJson.conf())
+            monaco.languages.setMonarchTokensProvider('hogJson', hogJson.language())
+            monaco.languages.registerCompletionItemProvider('hogJson', hogQLAutocompleteProvider(HogLanguage.hogJson))
+            monaco.languages.registerCodeActionProvider('hogJson', hogQLMetadataProvider())
         }
     }
     if (options.tabFocusMode) {

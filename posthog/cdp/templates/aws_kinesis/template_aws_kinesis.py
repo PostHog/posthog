@@ -6,7 +6,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-aws-kinesis",
     name="AWS Kinesis",
     description="Put data to an AWS Kinesis stream",
-    # icon_url="/api/projects/@current/hog_functions/icon/?id=posthog.com&temp=true",
+    icon_url="/static/services/aws-kinesis.png",
     hog="""
 fn uploadToKinesis(data) {
   let region := inputs.aws_region

@@ -344,6 +344,7 @@ export interface HogQLAutocompleteResponse {
 
 export enum HogLanguage {
     hog = 'hog',
+    hogJson = 'hogJson',
     hogQL = 'hogQL',
     hogQLExpr = 'hogQLExpr',
     hogTemplate = 'hogTemplate',
