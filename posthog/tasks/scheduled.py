@@ -333,8 +333,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Check integrations to refresh every minute
-    sender.add_periodic_task(
-        crontab(minute="*"),
+    add_periodic_task_with_expiry(
+        sender,
+        60,
         refresh_integrations.s(),
         name="refresh integrations",
     )

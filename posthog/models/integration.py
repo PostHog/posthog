@@ -17,6 +17,8 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 import structlog
 
+from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+
 logger = structlog.get_logger(__name__)
 
 
@@ -214,6 +216,8 @@ class OauthIntegration:
             "refreshed_at": int(time.time()),
         }
 
+        config["refreshed_at"] = int(time.time())
+
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind=kind,
@@ -231,8 +235,8 @@ class OauthIntegration:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
 
         refresh_token = self.integration.sensitive_config.get("refresh_token")
-        expires_in = self.integration.sensitive_config.get("expires_in")
-        refreshed_at = self.integration.sensitive_config.get("refreshed_at")
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
 
         if not refresh_token or not expires_in or not refreshed_at:
             return False
@@ -260,14 +264,16 @@ class OauthIntegration:
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
-            raise Exception("Oauth error")
+            self.integration.errors = "TOKEN_REFRESH_FAILED"
 
-        self.integration.sensitive_config["access_token"] = config["access_token"]
-        self.integration.sensitive_config["expires_in"] = config.get("expires_in")
-        self.integration.sensitive_config["refreshed_at"] = int(time.time())
+        else:
+            logger.info(f"Refreshed access token for {self}")
+            self.integration.sensitive_config["access_token"] = config["access_token"]
+            self.integration.config["expires_in"] = config.get("expires_in")
+            self.integration.config["refreshed_at"] = int(time.time())
         self.integration.save()
 
-        logger.info(f"Refreshed access token for {self}")
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
 
 class SlackIntegrationError(Exception):
