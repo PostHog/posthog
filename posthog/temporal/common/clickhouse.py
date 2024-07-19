@@ -437,6 +437,7 @@ async def get_client(
                 database=settings.CLICKHOUSE_DATABASE,
                 max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
                 max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
+                max_bytes_before_external_group_by=settings.CLICKHOUSE_MAX_MEMORY_USAGE // 2,
                 max_block_size=max_block_size,
                 output_format_arrow_string_as_string="true",
                 **kwargs,
