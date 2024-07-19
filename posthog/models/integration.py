@@ -231,7 +231,7 @@ class OauthIntegration:
         )
 
         if integration.errors:
-            integration.errors = None
+            integration.errors = ""
             integration.save()
 
         return integration
