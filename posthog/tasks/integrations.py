@@ -11,6 +11,7 @@ def refresh_integrations() -> int:
 
     for integration in oauth_integrations:
         oauth_integration = OauthIntegration(integration)
+
         if oauth_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 

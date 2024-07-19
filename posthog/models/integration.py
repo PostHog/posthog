@@ -212,8 +212,6 @@ class OauthIntegration:
             # but we ensure they are popped and stored in sensitive config to avoid accidental exposure
             "refresh_token": config.pop("refresh_token", None),
             "id_token": config.pop("id_token", None),
-            "expires_in": config.pop("expires_in", None),
-            "refreshed_at": int(time.time()),
         }
 
         config["refreshed_at"] = int(time.time())
@@ -231,17 +229,17 @@ class OauthIntegration:
 
         return integration
 
-    def access_token_expired(self, time_threshold: int = 300) -> bool:
+    def access_token_expired(self, time_threshold=timedelta(seconds=180)) -> bool:
+        # NOTE: time_threshold should always be higher than our check interval for the job
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
 
         refresh_token = self.integration.sensitive_config.get("refresh_token")
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
-
         if not refresh_token or not expires_in or not refreshed_at:
             return False
 
-        return time.time() > refreshed_at + expires_in - time_threshold
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
 
     def refresh_access_token(self):
         """
