@@ -80,11 +80,9 @@ class OauthConfig:
 class OauthIntegration:
     supported_kinds = ["slack", "salesforce", "hubspot"]
     integration: Integration
-    kind: str
 
-    def __init__(self, integration: Integration, kind: str) -> None:
+    def __init__(self, integration: Integration) -> None:
         self.integration = integration
-        self.kind = kind
 
     @classmethod
     @cache_for(timedelta(minutes=5))
@@ -209,7 +207,11 @@ class OauthIntegration:
             # but we ensure they are popped and stored in sensitive config to avoid accidental exposure
             "refresh_token": config.pop("refresh_token", None),
             "id_token": config.pop("id_token", None),
+            "expires_in": config.pop("expires_in", None),
         }
+
+        if sensitive_config.get("expires_in"):
+            sensitive_config["expires_at"] = int(time.time()) + sensitive_config["expires_in"]
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -223,6 +225,47 @@ class OauthIntegration:
         )
 
         return integration
+
+    def access_token_expired(self, time_threshold: int = 300) -> bool:
+        # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
+
+        refresh_token = self.integration.sensitive_config.get("refresh_token")
+        expires_at = self.integration.sensitive_config.get("expires_at")
+
+        if not refresh_token or not expires_at:
+            return False
+
+        return time.time() > expires_at - time_threshold
+
+    def refresh_access_token(self):
+        """
+        Refresh the access token for the integration if necessary
+        """
+
+        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+
+        res = requests.post(
+            oauth_config.token_url,
+            data={
+                "client_id": oauth_config.client_id,
+                "client_secret": oauth_config.client_secret,
+                "refresh_token": self.integration.sensitive_config["refresh_token"],
+                "grant_type": "refresh_token",
+            },
+        )
+
+        config: dict = res.json()
+
+        if res.status_code != 200 or not config.get("access_token"):
+            raise Exception("Oauth error")
+
+        self.integration.sensitive_config["access_token"] = config["access_token"]
+        self.integration.sensitive_config["expires_in"] = config.get("expires_in")
+        if self.integration.sensitive_config.get("expires_in"):
+            self.integration.sensitive_config["expires_at"] = (
+                int(time.time()) + self.integration.sensitive_config["expires_in"]
+            )
+        self.integration.save()
 
 
 class SlackIntegrationError(Exception):
