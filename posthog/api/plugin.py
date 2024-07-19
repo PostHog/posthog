@@ -8,7 +8,7 @@ import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connections, transaction
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
@@ -16,7 +16,7 @@ from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import action, renderer_classes
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
@@ -28,7 +28,6 @@ from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
     Detail,
-    Trigger,
     dict_changes_between,
     load_all_activity,
     log_activity,
@@ -39,9 +38,8 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import (
     PluginSourceFile,
     update_validated_data_from_url,
-    validate_plugin_job_payload,
 )
-from posthog.models.utils import UUIDT, generate_random_token
+from posthog.models.utils import generate_random_token
 from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
@@ -253,7 +251,6 @@ class PluginsAccessLevelPermission(BasePermission):
 
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
-    organization_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Plugin
@@ -268,8 +265,6 @@ class PluginSerializer(serializers.ModelSerializer):
             "tag",
             "latest_tag",
             "is_global",
-            "organization_id",
-            "organization_name",
             "capabilities",
             "metrics",
             "public_jobs",
@@ -289,27 +284,20 @@ class PluginSerializer(serializers.ModelSerializer):
 
         return None
 
-    def get_organization_name(self, plugin: Plugin) -> str:
-        return plugin.organization.name
-
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:
+        context_organization = self.context["get_organization"]()
+        if not can_globally_manage_plugins(context_organization):
+            raise PermissionDenied("This organization can't manage plugins!")
+
         validated_data["url"] = self.initial_data.get("url", None)
-        validated_data["organization_id"] = self.context["organization_id"]
         validated_data["updated_at"] = now()
-        if validated_data.get("is_global") and not can_globally_manage_plugins(validated_data["organization_id"]):
-            raise PermissionDenied("This organization can't manage global plugins!")
-
         plugin = Plugin.objects.install(**validated_data)
-
         return plugin
 
     def update(self, plugin: Plugin, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         context_organization = self.context["get_organization"]()
-        if (
-            "is_global" in validated_data
-            and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
-        ):
-            raise PermissionDenied("This organization can't manage global plugins!")
+        if not can_globally_manage_plugins(context_organization):
+            raise PermissionDenied("This organization can't manage plugins!")
         validated_data["updated_at"] = now()
         return super().update(plugin, validated_data)
 
@@ -342,25 +330,20 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not has_plugin_access_level(self.organization_id, Organization.PluginsAccessLevel.CONFIG):
             return queryset.none()
 
-        queryset = queryset.filter(
-            Q(organization_id=self.organization_id)
-            | Q(is_global=True)
-            | Q(
-                id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
-                    team__organization_id=self.organization_id, deleted=False
-                ).values_list("plugin_id", flat=True)
+        if not can_globally_manage_plugins(self.organization_id):
+            queryset = queryset.filter(
+                Q(is_global=True)
+                | Q(
+                    id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
+                        team__organization_id=self.organization_id, deleted=False
+                    ).values_list("plugin_id", flat=True)
+                )
             )
-        )
-
-        queryset = queryset.select_related("organization")
 
         return queryset
 
     def get_plugin_with_permissions(self, reason="installation"):
         plugin = self.get_object()
-        organization = self.organization
-        if plugin.organization != organization:
-            raise NotFound()
         if not can_install_plugins(self.organization):
             raise PermissionDenied(f"Plugin {reason} is not available for the current organization!")
         return plugin
@@ -809,64 +792,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
-
-    @action(methods=["POST"], detail=True)
-    def job(self, request: request.Request, **kwargs):
-        if not can_configure_plugins(self.team.organization_id):
-            raise ValidationError("Plugin configuration is not available for the current organization!")
-
-        plugin_config = self.get_object()
-        plugin_config_id = plugin_config.id
-        job = request.data.get("job", {})
-
-        if "type" not in job:
-            raise ValidationError("The job type must be specified!")
-
-        # job_type = job name
-        job_type = job.get("type")
-        job_payload = job.get("payload", {})
-        job_op = job.get("operation", "start")
-        job_id = str(UUIDT())
-
-        validate_plugin_job_payload(
-            plugin_config.plugin,
-            job_type,
-            job_payload,
-            is_staff=request.user.is_staff or is_impersonated_session(request),
-        )
-
-        payload_json = json.dumps(
-            {
-                "type": job_type,
-                "payload": {**job_payload, **{"$operation": job_op, "$job_id": job_id}},
-                "pluginConfigId": plugin_config_id,
-                "pluginConfigTeam": self.team.pk,
-            }
-        )
-        sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
-        params = [payload_json]
-        try:
-            connection = connections["graphile"] if "graphile" in connections else connections["default"]
-            with connection.cursor() as cursor:
-                cursor.execute(sql, params)
-        except Exception as e:
-            raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
-
-        log_activity(
-            organization_id=self.team.organization.id,
-            # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=self.team.pk,
-            user=request.user,  # type: ignore
-            was_impersonated=is_impersonated_session(self.request),
-            item_id=plugin_config_id,
-            scope="PluginConfig",  # use the type plugin so we can also provide unified history
-            activity="job_triggered",
-            detail=Detail(
-                name=self.get_object().plugin.name,
-                trigger=Trigger(job_type=job_type, job_id=job_id, payload=job_payload),
-            ),
-        )
-        return Response(status=200)
 
     @action(methods=["GET"], detail=True)
     @renderer_classes((PlainRenderer,))
