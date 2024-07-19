@@ -50,7 +50,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG_TEMPLATE,
-            sourceQuery=HogQLQuery(query="select * from events"),
+            globals={"event": "$pageview"},
             startPosition=start,
             endPosition=end,
         )
@@ -61,7 +61,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG_JSON,
-            sourceQuery=HogQLQuery(query="select * from events"),
+            globals={"event": "$pageview"},
             startPosition=start,
             endPosition=end,
         )
@@ -345,7 +345,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
 
         query = '{ "key": "val_{event.distinct_id}_ue" }'
-        results = self._json(query=query, start=18, end=20, database=database)
+        results = self._json(query=query, start=15, end=20, database=database)
 
         suggestions = list(filter(lambda x: x.label == "event", results.suggestions))
         assert len(suggestions) == 1
