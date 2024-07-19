@@ -30,6 +30,9 @@ def dot_get(d: Any, path: str, default: Any = None) -> Any:
     return d
 
 
+ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
+
+
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
@@ -227,6 +230,10 @@ class OauthIntegration:
             },
         )
 
+        if integration.errors:
+            integration.errors = None
+            integration.save()
+
         return integration
 
     def access_token_expired(self, time_threshold=timedelta(seconds=180)) -> bool:
@@ -262,7 +269,7 @@ class OauthIntegration:
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
-            self.integration.errors = "TOKEN_REFRESH_FAILED"
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]

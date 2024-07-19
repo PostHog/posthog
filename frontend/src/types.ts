@@ -3549,6 +3549,7 @@ export interface IntegrationType {
     config: any
     created_by?: UserBasicType | null
     created_at: string
+    errors?: string
 }
 
 export interface SlackChannelType {
