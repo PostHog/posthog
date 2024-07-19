@@ -127,15 +127,16 @@ def _experiment_results_cached(
     timestamp = now()
     fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
 
+    # Event to detect experiment significance flip-flopping
     posthoganalytics.capture(
         experiment.created_by.email,
         "experiment result calculated",
         properties={
             "experiment_id": experiment.id,
             "goal_type": experiment.filters.get("insight", "FUNNELS"),
-            "significant": result["significant"],
-            "significance_code": result["significance_code"],
-            "probability": result["probability"],
+            "significant": result.get("significant"),
+            "significance_code": result.get("significance_code"),
+            "probability": result.get("probability"),
         },
     )
 
