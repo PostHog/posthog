@@ -1299,7 +1299,7 @@ export interface ErrorTrackingGroup {
     last_seen: string
     // Sparkline data handled by the DataTable
     volume?: any
-    assignee: string | null
+    assignee: number | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
     events?: ErrorTrackingGroupEvent[]
 }

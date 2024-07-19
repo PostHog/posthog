@@ -209,10 +209,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     @cached_property
     def error_tracking_groups(self):
-        queryset = (
-            ErrorTrackingGroup.objects.prefetch_related("assignee")
-            .filter(status__in=[ErrorTrackingGroup.Status.ACTIVE], team=self.team)
-            .values("fingerprint", "merged_fingerprints", "status", "assignee")
+        queryset = ErrorTrackingGroup.objects.prefetch_related("assignee").filter(
+            status__in=[ErrorTrackingGroup.Status.ACTIVE], team=self.team
         )
         queryset = queryset.filter(fingerprint=self.query.fingerprint) if self.query.fingerprint else queryset
         queryset = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")

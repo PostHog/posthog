@@ -344,7 +344,7 @@ class ErrorTrackingGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    assignee: Optional[str] = None
+    assignee: Optional[float] = None
     error: str
     events: Optional[list[Event]] = None
     fingerprint: str

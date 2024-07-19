@@ -3264,7 +3264,7 @@
             "additionalProperties": false,
             "properties": {
                 "assignee": {
-                    "type": ["string", "null"]
+                    "type": ["number", "null"]
                 },
                 "error": {
                     "type": "string"

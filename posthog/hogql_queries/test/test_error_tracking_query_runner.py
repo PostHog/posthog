@@ -4,6 +4,11 @@ from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQuery
 from posthog.schema import (
     ErrorTrackingQuery,
     DateRange,
+    FilterLogicalOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PersonPropertyFilter,
+    PropertyOperator,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -13,6 +18,9 @@ from posthog.test.base import (
     _create_event,
     flush_persons_and_events,
 )
+from posthog.models import ErrorTrackingGroup
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -124,91 +132,105 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["fingerprint"], "SyntaxError")
         self.assertEqual(results[0]["occurrences"], 2)
 
-    # def test_only_returns_exception_events(self):
-    #     with freeze_time("2020-01-10 12:11:00"):
-    #         _create_event(
-    #             distinct_id=self.distinct_id_one,
-    #             event="$pageview",
-    #             team=self.team,
-    #             properties={
-    #                 "$exception_fingerprint": "SyntaxError",
-    #             },
-    #         )
-    #     flush_persons_and_events()
+    def test_only_returns_exception_events(self):
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$pageview",
+                team=self.team,
+                properties={
+                    "$exception_fingerprint": "SyntaxError",
+                },
+            )
+        flush_persons_and_events()
 
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             select=["count() as occurrences"],
-    #             dateRange=DateRange(),
-    #         ),
-    #     )
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=[],
+                dateRange=DateRange(),
+            ),
+        )
 
-    #     results = self._calculate(runner)["results"]
-    #     self.assertEqual(len(results), 3)
+        results = self._calculate(runner)["results"]
+        self.assertEqual(len(results), 3)
 
-    # @snapshot_clickhouse_queries
-    # def test_hogql_filters(self):
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             select=["count() as occurrences"],
-    #             dateRange=DateRange(),
-    #             filterGroup=PropertyGroupFilter(
-    #                 type=FilterLogicalOperator.AND_,
-    #                 values=[
-    #                     PropertyGroupFilterValue(
-    #                         type=FilterLogicalOperator.OR_,
-    #                         values=[
-    #                             PersonPropertyFilter(
-    #                                 key="email", value="email@posthog.com", operator=PropertyOperator.EXACT
-    #                             ),
-    #                         ],
-    #                     )
-    #                 ],
-    #             ),
-    #         ),
-    #     )
+    @snapshot_clickhouse_queries
+    def test_hogql_filters(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=[],
+                dateRange=DateRange(),
+                filterGroup=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR_,
+                            values=[
+                                PersonPropertyFilter(
+                                    key="email", value="email@posthog.com", operator=PropertyOperator.EXACT
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            ),
+        )
 
-    #     results = self._calculate(runner)["results"]
-    #     # two errors exist for person with distinct_id_two
-    #     self.assertEqual(len(results), 2)
+        results = self._calculate(runner)["results"]
+        # two errors exist for person with distinct_id_two
+        self.assertEqual(len(results), 2)
 
-    # def test_merges_and_defaults_groups(self):
-    #     ErrorTrackingGroup.objects.create(
-    #         team=self.team, fingerprint="SyntaxError", merged_fingerprints=["custom_fingerprint"], assignee=self.user
-    #     )
+    maxDiff = None
 
-    #     runner = ErrorTrackingQueryRunner(
-    #         team=self.team,
-    #         query=ErrorTrackingQuery(
-    #             kind="ErrorTrackingQuery",
-    #             select=["count() as occurrences"],
-    #             fingerprint=None,
-    #             dateRange=DateRange(),
-    #         ),
-    #     )
+    def test_merges_and_defaults_groups(self):
+        ErrorTrackingGroup.objects.create(
+            team=self.team, fingerprint="SyntaxError", merged_fingerprints=["custom_fingerprint"], assignee=self.user
+        )
 
-    #     results = self._calculate(runner)["results"]
-    #     self.assertEqual(
-    #         results,
-    #         [
-    #             {
-    #                 "fingerprint": "SyntaxError",
-    #                 "merged_fingerprints": ["custom_fingerprint"],
-    #                 "status": "active",
-    #                 "assignee": self.user.id,
-    #                 # count is (2 x SyntaxError) + (1 x custom_fingerprint)
-    #                 "occurrences": 3,
-    #             },
-    #             {
-    #                 "fingerprint": "TypeError",
-    #                 "assignee": None,
-    #                 "merged_fingerprints": [],
-    #                 "status": "active",
-    #                 "occurrences": 1,
-    #             },
-    #         ],
-    #     )
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                select=[],
+                fingerprint=None,
+                dateRange=DateRange(),
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+        self.assertEqual(
+            results,
+            [
+                {
+                    "assignee": self.user.id,
+                    "error": '{"$exception_fingerprint": "SyntaxError"}',
+                    "events": [],
+                    "fingerprint": "SyntaxError",
+                    "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
+                    "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
+                    "merged_fingerprints": ["custom_fingerprint"],
+                    # count is (2 x SyntaxError) + (1 x custom_fingerprint)
+                    "occurrences": 3.0,
+                    "sessions": 1.0,
+                    "volume": None,
+                    "status": ErrorTrackingGroup.Status.ACTIVE,
+                },
+                {
+                    "assignee": None,
+                    "error": '{"$exception_fingerprint": "TypeError"}',
+                    "events": [],
+                    "fingerprint": "TypeError",
+                    "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
+                    "last_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
+                    "merged_fingerprints": [],
+                    "occurrences": 1.0,
+                    "sessions": 1.0,
+                    "volume": None,
+                    "status": ErrorTrackingGroup.Status.ACTIVE,
+                },
+            ],
+        )
