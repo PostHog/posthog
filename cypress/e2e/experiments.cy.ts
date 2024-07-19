@@ -47,7 +47,7 @@ describe('Experiments', () => {
 
         // Goal type selection is visible
         cy.get('[data-attr="experiment-goal-type-select"]')
-            .should('be.visible') // Ensure the outer element is visible
+            .should('be.visible')
             .within(() => {
                 cy.contains('Conversion funnel').should('be.visible')
                 cy.contains('Trend').should('be.visible')
