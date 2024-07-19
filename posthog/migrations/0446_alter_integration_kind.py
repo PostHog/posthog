@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0444_integration_unique_id"),
+        ("posthog", "0445_require_team_project_id_not_valid"),
     ]
 
     operations = [

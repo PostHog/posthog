@@ -272,6 +272,9 @@ export interface PluginsServerConfig extends CdpConfig {
 
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
+
+    // Whether to use the offset store approach that we are testing to see if it helps rebalances
+    SESSION_RECORDING_USE_OFFSET_STORE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {

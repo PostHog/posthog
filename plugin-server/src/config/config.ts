@@ -173,6 +173,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
         SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
         SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
+        SESSION_RECORDING_USE_OFFSET_STORE: false,
         // CDP
         CDP_WATCHER_OBSERVATION_PERIOD: 10000,
         CDP_WATCHER_DISABLED_PERIOD: 1000 * 60 * 10,
