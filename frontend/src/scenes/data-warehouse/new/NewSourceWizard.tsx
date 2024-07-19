@@ -62,15 +62,17 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
 
         return (
             <div className="mt-4 flex flex-row justify-end gap-2">
-                <LemonButton
-                    type="secondary"
-                    center
-                    data-attr="source-modal-back-button"
-                    onClick={onBack}
-                    disabledReason={!canGoBack && 'You cant go back from here'}
-                >
-                    Back
-                </LemonButton>
+                {canGoBack && (
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-modal-back-button"
+                        onClick={onBack}
+                        disabledReason={!canGoBack && 'You cant go back from here'}
+                    >
+                        Back
+                    </LemonButton>
+                )}
                 <LemonButton
                     loading={isLoading || manualLinkIsLoading}
                     disabledReason={!canGoNext && 'You cant click next yet'}

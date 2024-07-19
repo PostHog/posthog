@@ -45,7 +45,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehouseTable]: () => import('./data-warehouse/new/NewSourceWizard'),
     [Scene.DataWarehouseExternal]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
-    [Scene.DataWarehouseSettings]: () => import('./data-warehouse/settings/DataWarehouseSettingsScene'),
+    [Scene.DataWarehouseSettings]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehouseRedirect]: () => import('./data-warehouse/redirect/DataWarehouseRedirectScene'),
     [Scene.dataWarehouseSourceSettings]: () =>
         import('./data-warehouse/settings/source/DataWarehouseSourceSettingsScene'),
