@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0445_require_team_project_id_not_valid"),
+        ("posthog", "0446_annotation_dashboard_alter_annotation_scope"),
     ]
 
     operations = [
