@@ -106,6 +106,7 @@ class TestSessionsAPI(APIBaseTest):
             "Paid Unknown",
             "Paid Search",
             "Paid Shopping",
+            "Paid Social",
             "Paid Video",
         }
         assert actual_values == expected_values
