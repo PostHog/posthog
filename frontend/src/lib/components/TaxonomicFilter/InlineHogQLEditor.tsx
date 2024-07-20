@@ -21,36 +21,32 @@ const SHORTCUTS = [
     },
 ]
 
-export function InlineHogQLEditor({ value, onChange, metadataSource }: InlineHogQLEditorProps): JSX.Element {
+export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): JSX.Element {
     return (
         <>
-            <div className="flex flex-row gap-4 px-2">
-                <div className="flex flex-col gap-1 w-3/5">
-                    <div className="taxonomic-group-title px-0">HogQL expression</div>
-                    <HogQLEditor
-                        onChange={onChange}
-                        value={String(value ?? '')}
-                        submitText={value ? 'Update HogQL expression' : 'Add HogQL expression'}
-                        metadataSource={metadataSource}
-                        disableAutoFocus // :TRICKY: No autofocus here. It's controlled in the TaxonomicFilter.
-                    />
+            <div className="flex flex-col gap-2 px-2">
+                <div className="taxonomic-group-title px-0 ">HogQL expression</div>
+                <div className="flex flex-row gap-1 items-baseline">
+                    <span className="text-muted-alt mr-1 text-sm">Shortcuts</span>
+                    {SHORTCUTS.map(({ name, value }) => (
+                        <LemonButton
+                            key={name}
+                            size="xsmall"
+                            onClick={() => onChange(value, {})}
+                            tooltip={value}
+                            type="secondary"
+                        >
+                            {name}
+                        </LemonButton>
+                    ))}
                 </div>
-                <div className="flex flex-col gap-1 w-2/5">
-                    <h5 className="mt-1 mb-0">Shortcuts</h5>
-                    <ul className="space-y-px w-full">
-                        {SHORTCUTS.map(({ name, value }) => (
-                            <LemonButton
-                                key={name}
-                                size="small"
-                                fullWidth
-                                onClick={() => onChange(value, {})}
-                                tooltip={value}
-                            >
-                                {name}
-                            </LemonButton>
-                        ))}
-                    </ul>
-                </div>
+                <HogQLEditor
+                    onChange={onChange}
+                    value={String(value ?? '')}
+                    submitText={value ? 'Update HogQL expression' : 'Add HogQL expression'}
+                    disableAutoFocus // :TRICKY: No autofocus here. It's controlled in the TaxonomicFilter.
+                    hidePlaceholder
+                />
             </div>
         </>
     )
