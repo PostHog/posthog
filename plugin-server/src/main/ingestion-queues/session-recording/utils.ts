@@ -1,6 +1,6 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
+import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-rdkafka'
 import path from 'path'
 import { Counter } from 'prom-client'
 
