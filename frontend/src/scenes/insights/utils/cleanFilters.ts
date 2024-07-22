@@ -161,13 +161,13 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
             cleanedParams['breakdown_type'] = undefined
             cleanedParams['breakdowns'] = filters.breakdowns.map((b) => ({
                 property: b.property,
-                type: b.type,
+                type: b.type || filters.breakdown_type,
                 histogram_bin_count: b.histogram_bin_count,
                 group_type_index: b.group_type_index,
                 normalize_url:
-                    b.normalize_url && typeof b.property === 'string'
-                        ? cleanBreakdownNormalizeURL(b.property, filters.breakdown_normalize_url)
-                        : b.normalize_url,
+                    typeof b.property === 'string'
+                        ? cleanBreakdownNormalizeURL(b.property, b.normalize_url || filters.breakdown_normalize_url)
+                        : undefined,
             }))
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
