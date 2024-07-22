@@ -173,6 +173,7 @@ export const GroupByFilter = (): JSX.Element => {
                         ),
                     }
                 })}
+                closeOnClickInside={false}
             >
                 <LemonButton icon={<IconPlus />} size="small" type="secondary">
                     Group by

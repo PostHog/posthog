@@ -336,6 +336,7 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
     'cloudflare-r2': 'Cloudflare R2',
+    azure: 'Azure',
 }
 
 export interface SourceWizardLogicProps {
@@ -779,6 +780,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
+
+                if (((e.data?.message as string | undefined) ?? '').indexOf('Invalid credentials') != -1) {
+                    posthog.capture('warehouse credentials invalid', { sourceType: values.selectedConnector.name })
+                }
             }
 
             actions.setIsLoading(false)

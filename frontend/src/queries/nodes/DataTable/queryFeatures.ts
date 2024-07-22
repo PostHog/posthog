@@ -1,6 +1,7 @@
 import { Node } from '~/queries/schema'
 import {
     isActorsQuery,
+    isErrorTrackingQuery,
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
@@ -58,7 +59,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         }
     }
 
-    if (isWebOverviewQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
+    if (
+        isWebOverviewQuery(query) ||
+        isWebTopClicksQuery(query) ||
+        isWebStatsTableQuery(query) ||
+        isErrorTrackingQuery(query)
+    ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)

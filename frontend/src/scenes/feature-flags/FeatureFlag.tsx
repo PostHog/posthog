@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
 import { IconCollapse, IconExpand, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
@@ -722,15 +722,21 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         aggregationTargetName,
         featureFlag,
     } = useValues(featureFlagLogic)
-    const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
-        useActions(featureFlagLogic)
+    const {
+        distributeVariantsEqually,
+        addVariant,
+        removeVariant,
+        setMultivariateEnabled,
+        setFeatureFlag,
+        saveFeatureFlag,
+    } = useActions(featureFlagLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
     const confirmRevertMultivariateEnabled = (): void => {
         LemonDialog.open({
             title: 'Change value type?',
-            description: 'The existing vaiants will be lost',
+            description: 'The existing variants will be lost',
             primaryButton: {
                 children: 'Confirm',
                 type: 'primary',
@@ -750,7 +756,35 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             {readOnly ? (
                 <>
                     <div className="flex flex-col mb-4">
-                        <span className="card-secondary">Type</span>
+                        <span className="card-secondary">Status</span>
+                        <LemonSwitch
+                            onChange={(newValue) => {
+                                LemonDialog.open({
+                                    title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                    description: `This flag will be immediately ${
+                                        newValue === true ? 'rolled out to' : 'rolled back from'
+                                    } the users matching the release conditions.`,
+                                    primaryButton: {
+                                        children: 'Confirm',
+                                        type: 'primary',
+                                        onClick: () => {
+                                            const updatedFlag = { ...featureFlag, active: newValue }
+                                            setFeatureFlag(updatedFlag)
+                                            saveFeatureFlag(updatedFlag)
+                                        },
+                                        size: 'small',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
+                                })
+                            }}
+                            label="Enabled"
+                            checked={featureFlag.active}
+                        />
+                        <span className="card-secondary mt-4">Type</span>
                         <span>
                             {featureFlag.filters.multivariate
                                 ? 'Multiple variants with rollout percentages (A/B/C test)'

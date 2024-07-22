@@ -97,8 +97,7 @@ executing==2.0.1
     # via inline-snapshot
 faker==17.5.0
     # via -r requirements-dev.in
-fakeredis[lua]==2.11.0
-    # via -r requirements-dev.in
+fakeredis==2.23.3
 flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
@@ -142,7 +141,7 @@ jsonschema-specifications==2023.12.1
     #   openapi-schema-validator
 lazy-object-proxy==1.10.0
     # via openapi-spec-validator
-lupa==1.14.1
+lupa==2.2
     # via fakeredis
 markdown-it-py==3.0.0
     # via rich

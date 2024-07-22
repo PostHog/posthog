@@ -1,10 +1,12 @@
 import re
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import ANY
 
 import pytest
 from django.core.cache import cache
 from django.test.client import Client
+
 from freezegun.api import freeze_time
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.models.cohort.cohort import Cohort
@@ -617,14 +619,14 @@ class TestSurvey(APIBaseTest):
         flagId = survey_with_targeting["targeting_flag"]["id"]
         assert FeatureFlag.objects.filter(id=flagId).exists()
 
-        updated_survey_deletes_targeting_flag = self.client.patch(
+        updated_survey_does_not_delete_targeting_flag = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_with_targeting['id']}/",
             data={"start_date": "2023-04-01T12:00:10"},
         )
 
-        assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
-        assert updated_survey_deletes_targeting_flag.json()["name"] == "survey with targeting"
-        assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is not None
+        assert updated_survey_does_not_delete_targeting_flag.status_code == status.HTTP_200_OK
+        assert updated_survey_does_not_delete_targeting_flag.json()["name"] == "survey with targeting"
+        assert updated_survey_does_not_delete_targeting_flag.json()["targeting_flag"] is not None
 
         assert FeatureFlag.objects.filter(id=flagId).exists()
 
@@ -1168,6 +1170,186 @@ class TestSurvey(APIBaseTest):
         )
         self.team.refresh_from_db()
         assert self.team.surveys_opt_in is False
+
+    @freeze_time("2023-05-01 12:00:00")
+    def test_update_survey_targeting_flag_filters_records_activity(self):
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
+        targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
+        internal_targeting_flag = FeatureFlag.objects.create(
+            team=self.team, key="custom-targeting-flag", created_by=self.user
+        )
+
+        survey_with_flags = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            linked_flag=linked_flag,
+            targeting_flag=targeting_flag,
+            internal_targeting_flag=internal_targeting_flag,
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+        )
+
+        new_filters: dict[str, Any] = {
+            "targeting_flag_filters": {
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 69},
+                    {"variant": None, "properties": [], "rollout_percentage": 75},
+                ],
+                "payloads": {},
+                "multivariate": None,
+            }
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_flags.id}/",
+            data={"targeting_flag_filters": new_filters},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_activity_log = [
+            {
+                "user": {"first_name": self.user.first_name, "email": self.user.email},
+                "activity": "updated",
+                "scope": "Survey",
+                "item_id": str(survey_with_flags.id),
+                "detail": {
+                    "changes": [
+                        {
+                            "type": "Survey",
+                            "action": "changed",
+                            "field": "targeting_flag_filters",
+                            "before": {},
+                            "after": new_filters,
+                        },
+                    ],
+                    "trigger": None,
+                    "name": "Survey 2",
+                    "short_id": None,
+                    "type": None,
+                },
+                "created_at": "2023-05-01T12:00:00Z",
+            }
+        ]
+
+        self._assert_survey_activity(expected_activity_log)
+
+    @freeze_time("2023-05-01 12:00:00")
+    def test_create_survey_records_activity(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "New Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What's your favorite feature?"}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        survey_id = response.json()["id"]
+
+        self._assert_survey_activity(
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "created",
+                    "scope": "Survey",
+                    "item_id": survey_id,
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "New Survey",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
+
+    @freeze_time("2023-05-01 12:00:00")
+    def test_update_survey_records_activity(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Original Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Initial question?"}],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"name": "Updated Survey", "questions": [{"type": "open", "question": "Updated question?"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self._assert_survey_activity(
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "updated",
+                    "scope": "Survey",
+                    "item_id": str(survey.id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Survey",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "Original Survey",
+                                "after": "Updated Survey",
+                            },
+                            {
+                                "type": "Survey",
+                                "action": "changed",
+                                "field": "questions",
+                                "before": [{"type": "open", "question": "Initial question?"}],
+                                "after": [{"type": "open", "question": "Updated question?"}],
+                            },
+                        ],
+                        "trigger": None,
+                        "name": "Updated Survey",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
+
+    @freeze_time("2023-05-01 12:00:00")
+    def test_delete_survey_records_activity(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Survey to Delete",
+            type="popover",
+            questions=[{"type": "open", "question": "Question?"}],
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self._assert_survey_activity(
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "deleted",
+                    "scope": "Survey",
+                    "item_id": str(survey.id),
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": "Survey to Delete",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2023-05-01T12:00:00Z",
+                }
+            ],
+        )
+
+    def _assert_survey_activity(self, expected):
+        activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
+        self.assertEqual(activity["results"], expected)
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):

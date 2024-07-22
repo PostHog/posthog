@@ -1,3 +1,4 @@
+from posthog.models.project import Project
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
@@ -371,7 +372,8 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
+        with self.assertNumQueries(17):
+            response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
@@ -492,27 +494,106 @@ class TestExternalDataSource(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_stripe_credentials(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "client_secret": "blah",
+                    "account_id": "blah",
+                },
+            )
+
+            assert response.status_code == 200
+
+    def test_database_schema_stripe_credentials_sad_path(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = False
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "client_secret": "blah",
+                    "account_id": "blah",
+                },
+            )
+
+            assert response.status_code == 400
+
+    def test_database_schema_zendesk_credentials(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Zendesk",
+                    "subdomain": "blah",
+                    "api_key": "blah",
+                    "email_address": "blah",
+                },
+            )
+
+            assert response.status_code == 200
+
+    def test_database_schema_zendesk_credentials_sad_path(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = False
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Zendesk",
+                    "subdomain": "blah",
+                    "api_key": "blah",
+                    "email_address": "blah",
+                },
+            )
+
+            assert response.status_code == 400
+
     def test_database_schema_non_postgres_source(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
-            data={
-                "source_type": "Stripe",
-            },
-        )
-        results = response.json()
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                },
+            )
+            results = response.json()
 
-        self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 200)
 
-        table_names = [table["table"] for table in results]
-        for table in ENDPOINTS:
-            assert table in table_names
+            table_names = [table["table"] for table in results]
+            for table in ENDPOINTS:
+                assert table in table_names
 
-    @patch("posthog.warehouse.api.external_data_source.get_postgres_schemas")
+    @patch(
+        "posthog.warehouse.api.external_data_source.get_postgres_schemas", return_value={"table_1": [("id", "integer")]}
+    )
     def test_internal_postgres(self, patch_get_postgres_schemas):
-        patch_get_postgres_schemas.return_value = {"table_1": [("id", "integer")]}
+        # This test checks handling of project ID 2 in Cloud US and project ID 1 in Cloud EU,
+        # so let's make sure there are no projects with these IDs in the test DB
+        Project.objects.filter(id__in=[1, 2]).delete()
+        Team.objects.filter(id__in=[1, 2]).delete()
 
         with override_settings(CLOUD_DEPLOYMENT="US"):
-            team_2, _ = Team.objects.get_or_create(id=2, organization=self.team.organization)
+            team_2 = Team.objects.create(id=2, organization=self.team.organization)
             response = self.client.post(
                 f"/api/projects/{team_2.id}/external_data_sources/database_schema/",
                 data={
@@ -555,7 +636,7 @@ class TestExternalDataSource(APIBaseTest):
             self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
 
         with override_settings(CLOUD_DEPLOYMENT="EU"):
-            team_1, _ = Team.objects.get_or_create(id=1, organization=self.team.organization)
+            team_1 = Team.objects.create(id=1, organization=self.team.organization)
             response = self.client.post(
                 f"/api/projects/{team_1.id}/external_data_sources/database_schema/",
                 data={
@@ -602,7 +683,12 @@ class TestExternalDataSource(APIBaseTest):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
         job = ExternalDataJob.objects.create(
-            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=100
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=100,
+            workflow_run_id="test_run_id",
         )
 
         response = self.client.get(
@@ -617,3 +703,4 @@ class TestExternalDataSource(APIBaseTest):
         assert data[0]["status"] == "Completed"
         assert data[0]["rows_synced"] == 100
         assert data[0]["schema"]["id"] == str(schema.pk)
+        assert data[0]["workflow_run_id"] is not None

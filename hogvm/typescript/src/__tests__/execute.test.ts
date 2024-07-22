@@ -713,7 +713,7 @@ describe('hogvm execute', () => {
             ]).result
         ).toEqual([1, [2, [3, 4]], 5])
 
-        // var a := [1, 2, 3]; return a[1];
+        // var a := [1, 2, 3]; return a[2];
         expect(
             exec([
                 '_h',
@@ -728,14 +728,14 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(2)
 
-        // return [1, 2, 3][1];
+        // return [1, 2, 3][2];
         expect(
             exec([
                 '_h',
@@ -748,13 +748,13 @@ describe('hogvm execute', () => {
                 op.ARRAY,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(2)
 
-        // return [1, [2, [3, 4]], 5][1][1][1];
+        // return [1, [2, [3, 4]], 5][2][2][2];
         expect(
             exec([
                 '_h',
@@ -775,19 +775,19 @@ describe('hogvm execute', () => {
                 op.ARRAY,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(4)
 
-        // return [1, [2, [3, 4]], 5][1][1][1] + 1;
+        // return [1, [2, [3, 4]], 5][2][2][2] + 1;
         expect(
             exec([
                 '_h',
@@ -810,20 +810,20 @@ describe('hogvm execute', () => {
                 op.ARRAY,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.PLUS,
                 op.RETURN,
             ]).result
         ).toEqual(5)
 
-        // return [1, [2, [3, 4]], 5].1.1.1;
+        // return [1, [2, [3, 4]], 5].2.2.2;
         expect(
             exec([
                 '_h',
@@ -844,17 +844,22 @@ describe('hogvm execute', () => {
                 op.ARRAY,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(4)
+
+        // return [1, 2, 3][0]
+        expect(() => execSync(['_h', 33, 1, 33, 2, 33, 3, 43, 3, 33, 0, 45, 38])).toThrow(
+            'Hog arrays start from index 1'
+        )
     })
 
     test('test bytecode tuples', () => {
@@ -912,7 +917,7 @@ describe('hogvm execute', () => {
             ]).result
         ).toEqual(tuple([1, tuple([2, tuple([3, 4])]), 5]))
 
-        // var a := (1, 2, 3); return a[1];
+        // var a := (1, 2, 3); return a[2];
         expect(
             exec([
                 '_h',
@@ -927,14 +932,14 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(2)
 
-        // return (1, (2, (3, 4)), 5)[1][1][1];
+        // return (1, (2, (3, 4)), 5)[2][2][2];
         expect(
             exec([
                 '_h',
@@ -955,19 +960,19 @@ describe('hogvm execute', () => {
                 op.TUPLE,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(4)
 
-        // return (1, (2, (3, 4)), 5).1.1.1;
+        // return (1, (2, (3, 4)), 5).2.2.2;
         expect(
             exec([
                 '_h',
@@ -988,19 +993,19 @@ describe('hogvm execute', () => {
                 op.TUPLE,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(4)
 
-        // return (1, (2, (3, 4)), 5)[1][1][1] + 1;
+        // return (1, (2, (3, 4)), 5)[2][2][2] + 1;
         expect(
             exec([
                 '_h',
@@ -1023,13 +1028,13 @@ describe('hogvm execute', () => {
                 op.TUPLE,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.PLUS,
                 op.RETURN,
@@ -1038,7 +1043,7 @@ describe('hogvm execute', () => {
     })
 
     test('test bytecode nested', () => {
-        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;
+        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3.d.2;
         expect(
             exec([
                 '_h',
@@ -1065,20 +1070,20 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(3)
 
-        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];
+        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[3].d[3];
         expect(
             exec([
                 '_h',
@@ -1105,20 +1110,20 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(42)
 
-        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];
+        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3['d'][4];
         expect(
             exec([
                 '_h',
@@ -1145,20 +1150,20 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                3,
+                4,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(6)
 
-        // var r := {'d': (1, 3, 42, 6)}; return r.d.1;
+        // var r := {'d': (1, 3, 42, 6)}; return r.d.2;
         expect(
             exec([
                 '_h',
@@ -1182,7 +1187,7 @@ describe('hogvm execute', () => {
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1192,8 +1197,8 @@ describe('hogvm execute', () => {
 
     test('test bytecode nested modify', () => {
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r.2.d.2 := 3;
-        // return r.2.d.2;
+        // r.3.d.3 := 3;
+        // return r.3.d.3;
         expect(
             exec([
                 '_h',
@@ -1220,26 +1225,26 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.INTEGER,
                 3,
                 op.SET_PROPERTY,
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1247,8 +1252,8 @@ describe('hogvm execute', () => {
         ).toEqual(3)
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r[2].d[2] := 3;
-        // return r[2].d[2];
+        // r[3].d[3] := 3;
+        // return r[3].d[3];
         expect(
             exec([
                 '_h',
@@ -1275,26 +1280,26 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.INTEGER,
                 3,
                 op.SET_PROPERTY,
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1302,8 +1307,8 @@ describe('hogvm execute', () => {
         ).toEqual(3)
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r[2].c := [666];
-        // return r[2];
+        // r[3].c := [666];
+        // return r[3];
         expect(
             exec([
                 '_h',
@@ -1330,7 +1335,7 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'c',
@@ -1342,7 +1347,7 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1350,8 +1355,8 @@ describe('hogvm execute', () => {
         ).toEqual(map({ d: [1, 3, 42, 3], c: [666] }))
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r[2].d[2] := 3;
-        // return r[2].d;
+        // r[3].d[3] := 3;
+        // return r[3].d;
         expect(
             exec([
                 '_h',
@@ -1378,20 +1383,20 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.INTEGER,
                 3,
                 op.SET_PROPERTY,
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
@@ -1402,8 +1407,8 @@ describe('hogvm execute', () => {
         ).toEqual([1, 3, 3, 3])
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r.2['d'] := ['a', 'b', 'c', 'd'];
-        // return r[2].d[2];
+        // r.3['d'] := ['a', 'b', 'c', 'd'];
+        // return r[3].d[3];
         expect(
             exec([
                 '_h',
@@ -1430,7 +1435,7 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
@@ -1448,13 +1453,13 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1463,8 +1468,8 @@ describe('hogvm execute', () => {
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
         // var g := 'd';
-        // r.2[g] := ['a', 'b', 'c', 'd'];
-        // return r[2].d[2];
+        // r.3[g] := ['a', 'b', 'c', 'd'];
+        // return r[3].d[3];
         expect(
             exec([
                 '_h',
@@ -1493,7 +1498,7 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.GET_LOCAL,
                 1,
@@ -1511,13 +1516,13 @@ describe('hogvm execute', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,

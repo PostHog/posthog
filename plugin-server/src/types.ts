@@ -74,6 +74,7 @@ export enum PluginServerMode {
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
+    events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     jobs = 'jobs',
@@ -84,6 +85,7 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_function_overflow = 'cdp-function-overflow',
+    functional_tests = 'functional-tests',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -102,6 +104,7 @@ export type CdpConfig = {
     CDP_WATCHER_MIN_OBSERVATIONS: number
     CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
     CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+    CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -203,6 +206,7 @@ export interface PluginsServerConfig extends CdpConfig {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
@@ -219,6 +223,7 @@ export interface PluginsServerConfig extends CdpConfig {
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
     RUSTY_HOOK_URL: string
+    HOG_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
@@ -267,6 +272,9 @@ export interface PluginsServerConfig extends CdpConfig {
 
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
+
+    // Whether to use the offset store approach that we are testing to see if it helps rebalances
+    SESSION_RECORDING_USE_OFFSET_STORE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -323,6 +331,7 @@ export interface PluginServerCapabilities {
     ingestion?: boolean
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
+    eventsIngestionPipelines?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean

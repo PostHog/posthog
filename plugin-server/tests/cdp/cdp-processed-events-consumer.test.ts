@@ -200,7 +200,10 @@ describe('CDP Processed Events Consuner', () => {
                 },
             })
 
-            expect(decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])).toEqual({
+            const msg = decodeKafkaMessage(mockProducer.produce.mock.calls[2][0])
+            // Parse body so it can match by object equality rather than exact string equality
+            msg.value.asyncFunctionRequest.args[1].body = JSON.parse(msg.value.asyncFunctionRequest.args[1].body)
+            expect(msg).toEqual({
                 key: expect.any(String),
                 topic: 'cdp_function_callbacks_test',
                 value: {
@@ -225,7 +228,7 @@ describe('CDP Processed Events Consuner', () => {
                             'https://example.com/posthog-webhook',
                             {
                                 headers: { version: 'v=1.0.0' },
-                                body: JSON.stringify({
+                                body: {
                                     event: {
                                         uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
                                         name: '$pageview',
@@ -241,7 +244,7 @@ describe('CDP Processed Events Consuner', () => {
                                     person: null,
                                     event_url:
                                         'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null-test',
-                                }),
+                                },
                                 method: 'POST',
                             },
                         ],

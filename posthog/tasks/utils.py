@@ -31,6 +31,7 @@ class CeleryQueue(Enum):
     EMAIL = "email"
     LONG_RUNNING = "long_running"  # any task that has a good chance of taking more than a few seconds should go here
     ANALYTICS_QUERIES = "analytics_queries"
+    ANALYTICS_LIMITED = "analytics_limited"
     EXPORTS = "exports"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
     USAGE_REPORTS = "usage_reports"
