@@ -324,11 +324,11 @@ def _breakdown_filter(_filter: dict):
     if _filter.get("breakdowns") is not None and isinstance(_filter["breakdowns"], list):
         breakdowns = []
         for breakdown in _filter["breakdowns"]:
-            if isinstance(breakdown, dict) and ("value" in breakdown or "property" in breakdown):
+            if isinstance(breakdown, dict) and "property" in breakdown:
                 breakdowns.append(
                     {
                         "type": breakdown.get("type", "event"),
-                        "value": breakdown.get("value", breakdown.get("property")),
+                        "property": breakdown.get("property"),
                         "normalize_url": breakdown.get("normalize_url", None),
                         "histogram_bin_count": breakdown.get("histogram_bin_count", None),
                         "group_type_index": breakdown.get("group_type_index", None),
@@ -336,6 +336,7 @@ def _breakdown_filter(_filter: dict):
                 )
 
         if len(breakdowns) > 0:
+            # Multiple breakdowns accept up to three breakdowns
             breakdownFilter["breakdowns"] = breakdowns[:3]
 
     if breakdownFilter["breakdown"] is not None and breakdownFilter["breakdown_type"] is None:

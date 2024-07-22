@@ -1782,7 +1782,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-            BreakdownFilter(breakdowns=[Breakdown(value="breakdown_value", type=MultipleBreakdownType.EVENT)]),
+            BreakdownFilter(breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)]),
         )
 
         self.assertEqual(len(response.results), 26)
@@ -1794,7 +1794,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             BreakdownFilter(
-                breakdowns=[Breakdown(value="breakdown_value", type=MultipleBreakdownType.EVENT)], breakdown_limit=10
+                breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)], breakdown_limit=10
             ),
         )
         self.assertEqual(len(response.results), 11)
@@ -1807,7 +1807,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             BreakdownFilter(
-                breakdowns=[Breakdown(value="breakdown_value", type=MultipleBreakdownType.EVENT)],
+                breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)],
                 breakdown_limit=10,
                 breakdown_hide_other_aggregation=True,
             ),
@@ -1820,7 +1820,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-            BreakdownFilter(breakdowns=[Breakdown(value="breakdown_value", type=MultipleBreakdownType.EVENT)]),
+            BreakdownFilter(breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)]),
             limit_context=LimitContext.EXPORT,
         )
         self.assertEqual(len(response.results), 30)
@@ -1834,7 +1834,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
             BreakdownFilter(
-                breakdowns=[Breakdown(value="breakdown_value", type=MultipleBreakdownType.EVENT)], breakdown_limit=10
+                breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)], breakdown_limit=10
             ),
         )
         self.assertEqual(len(response.results), 11)
@@ -1847,7 +1847,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
             BreakdownFilter(
-                breakdowns=[Breakdown(value="breakdown_value", type=MultipleBreakdownType.EVENT)],
+                breakdowns=[Breakdown(property="breakdown_value", type=MultipleBreakdownType.EVENT)],
                 breakdown_limit=10,
                 breakdown_hide_other_aggregation=True,
             ),
@@ -2356,7 +2356,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.EVENT, value="$browser")], breakdown_limit=3),
+            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.EVENT, property="$browser")], breakdown_limit=3),
         )
 
         response = runner.to_actors_query_options()
@@ -2398,7 +2398,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.EVENT, value="bool_field")]),
+            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.EVENT, property="bool_field")]),
         )
 
         response = runner.to_actors_query_options()
@@ -2445,15 +2445,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(
-                breakdowns=[
-                    Breakdown(
-                        type=BreakdownType.EVENT,
-                        value="prop",
-                        histogram_bin_count=4,
-                    )
-                ]
-            ),
+            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.EVENT, property="prop", histogram_bin_count=4)]),
         )
         response = runner.to_actors_query_options()
 
@@ -2533,7 +2525,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.HOGQL, value="properties.$browser")]),
+            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.HOGQL, property="properties.$browser")]),
         )
 
         response = runner.to_actors_query_options()
@@ -2577,7 +2569,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE),
-            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.EVENT, value="$browser")]),
+            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.EVENT, property="$browser")]),
         )
 
         response = runner.to_actors_query_options()
@@ -2604,9 +2596,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE),
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(type=BreakdownType.EVENT, value="$browser"),
-                    Breakdown(type=BreakdownType.EVENT, value="prop", histogram_bin_count=2),
-                    Breakdown(type=BreakdownType.EVENT, value="bool_field"),
+                    Breakdown(type=BreakdownType.EVENT, property="$browser"),
+                    Breakdown(type=BreakdownType.EVENT, property="prop", histogram_bin_count=2),
+                    Breakdown(type=BreakdownType.EVENT, property="bool_field"),
                 ]
             ),
         )
@@ -2731,7 +2723,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             None,
             BreakdownFilter(
-                breakdowns=[Breakdown(type="event", value="$browser"), Breakdown(type="event", value="prop")]
+                breakdowns=[Breakdown(type="event", property="$browser"), Breakdown(type="event", property="prop")]
             ),
         )
 
@@ -2758,9 +2750,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(type="event", value="$browser"),
-                    Breakdown(type="event", value="prop"),
-                    Breakdown(type="event", value="bool_field"),
+                    Breakdown(type="event", property="$browser"),
+                    Breakdown(type="event", property="prop"),
+                    Breakdown(type="event", property="bool_field"),
                 ]
             ),
         )
@@ -2789,10 +2781,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ValidationError, match=".*at most 3.*"):
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(type="event", value="$browser"),
-                    Breakdown(type="event", value="prop"),
-                    Breakdown(type="event", value="bool_field"),
-                    Breakdown(type="event", value="bool_field"),
+                    Breakdown(type="event", property="$browser"),
+                    Breakdown(type="event", property="prop"),
+                    Breakdown(type="event", property="bool_field"),
+                    Breakdown(type="event", property="bool_field"),
                 ]
             )
 
@@ -2808,7 +2800,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
             None,
             BreakdownFilter(
-                breakdowns=[Breakdown(type="event", value="$browser"), Breakdown(type="person", value="name")]
+                breakdowns=[Breakdown(type="event", property="$browser"), Breakdown(type="person", property="name")]
             ),
         )
 
@@ -2840,8 +2832,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(type="event", value="$browser"),
-                    Breakdown(type="group", group_type_index=0, value="industry"),
+                    Breakdown(type="event", property="$browser"),
+                    Breakdown(type="group", group_type_index=0, property="industry"),
                 ]
             ),
         )
@@ -2879,8 +2871,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(type="group", group_type_index=1, value="employee_count"),
-                    Breakdown(type="group", group_type_index=0, value="industry"),
+                    Breakdown(type="group", group_type_index=1, property="employee_count"),
+                    Breakdown(type="group", group_type_index=0, property="industry"),
                 ]
             ),
         )
@@ -2918,9 +2910,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(type="group", group_type_index=0, value="industry"),
-                    Breakdown(type="group", group_type_index=0, value="name"),
-                    Breakdown(type="group", group_type_index=1, value="employee_count"),
+                    Breakdown(type="group", group_type_index=0, property="industry"),
+                    Breakdown(type="group", group_type_index=0, property="name"),
+                    Breakdown(type="group", group_type_index=1, property="employee_count"),
                 ]
             ),
         )
@@ -3019,7 +3011,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="$url", normalize_url=True),
+                    Breakdown(property="$url", normalize_url=True),
                 ]
             ),
         )
@@ -3041,7 +3033,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 None,
                 BreakdownFilter(
                     breakdowns=[
-                        Breakdown(value="$url", normalize_url=normalize_url),
+                        Breakdown(property="$url", normalize_url=normalize_url),
                     ]
                 ),
             )
@@ -3138,7 +3130,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="$bin"),
+                    Breakdown(property="$bin"),
                 ],
             ),
         )
@@ -3246,7 +3238,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="$bin", histogram_bin_count=5),
+                    Breakdown(property="$bin", histogram_bin_count=5),
                 ],
             ),
         )
@@ -3271,7 +3263,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="$bin", histogram_bin_count=5),
+                    Breakdown(property="$bin", histogram_bin_count=5),
                 ],
                 breakdown_limit=2,
             ),
@@ -3367,7 +3359,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="$bin", histogram_bin_count=5),
+                    Breakdown(property="$bin", histogram_bin_count=5),
                 ],
             ),
         )
@@ -3485,7 +3477,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(breakdowns=[Breakdown(value="$bin", histogram_bin_count=10)]),
+            BreakdownFilter(breakdowns=[Breakdown(property="$bin", histogram_bin_count=10)]),
         )
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
@@ -3502,8 +3494,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="$bin", histogram_bin_count=10),
-                    Breakdown(value="$second_bin", histogram_bin_count=10),
+                    Breakdown(property="$bin", histogram_bin_count=10),
+                    Breakdown(property="$second_bin", histogram_bin_count=10),
                 ]
             ),
         )
@@ -3525,7 +3517,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="$second_bin", histogram_bin_count=10),
+                    Breakdown(property="$second_bin", histogram_bin_count=10),
                 ]
             ),
         )
@@ -3541,9 +3533,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         breakdowns = [
-            Breakdown(value="prop", histogram_bin_count=2),
-            Breakdown(value="$browser"),
-            Breakdown(value="bool_field"),
+            Breakdown(property="prop", histogram_bin_count=2),
+            Breakdown(property="$browser"),
+            Breakdown(property="bool_field"),
         ]
         for breakdown_filter in itertools.combinations(breakdowns, 3):
             response = self._run_trends_query(
@@ -3578,8 +3570,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="prop", histogram_bin_count=2),
-                    Breakdown(value="$browser", histogram_bin_count=None),
+                    Breakdown(property="prop", histogram_bin_count=2),
+                    Breakdown(property="$browser", histogram_bin_count=None),
                 ]
             ),
         )
@@ -3616,7 +3608,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
             None,
             BreakdownFilter(
-                breakdowns=[Breakdown(value="$session_duration", type=MultipleBreakdownType.SESSION)],
+                breakdowns=[Breakdown(property="$session_duration", type=MultipleBreakdownType.SESSION)],
             ),
         )
 
@@ -3651,7 +3643,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="$session_duration", type=MultipleBreakdownType.SESSION, histogram_bin_count=4)
+                    Breakdown(property="$session_duration", type=MultipleBreakdownType.SESSION, histogram_bin_count=4)
                 ],
             ),
         )
@@ -3684,7 +3676,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
             None,
             BreakdownFilter(
-                breakdowns=[Breakdown(value="$session_duration", type="session", histogram_bin_count=4)],
+                breakdowns=[Breakdown(property="$session_duration", type="session", histogram_bin_count=4)],
             ),
         )
 
@@ -3716,7 +3708,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
             None,
             BreakdownFilter(
-                breakdowns=[Breakdown(value="$browser", type="event")],
+                breakdowns=[Breakdown(property="$browser", type="event")],
             ),
         )
 
@@ -3740,7 +3732,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(breakdowns=[Breakdown(value="properties.$browser", type=MultipleBreakdownType.HOGQL)]),
+            BreakdownFilter(breakdowns=[Breakdown(property="properties.$browser", type=MultipleBreakdownType.HOGQL)]),
         )
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
@@ -3767,8 +3759,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(value="properties.$browser", type=MultipleBreakdownType.HOGQL),
-                    Breakdown(value="prop", histogram_bin_count=2),
+                    Breakdown(property="properties.$browser", type=MultipleBreakdownType.HOGQL),
+                    Breakdown(property="prop", histogram_bin_count=2),
                 ]
             ),
         )
@@ -3799,14 +3791,14 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         breakdowns = [
-            Breakdown(value="prop", histogram_bin_count=2, type=MultipleBreakdownType.EVENT),
-            Breakdown(value="$browser", type=MultipleBreakdownType.EVENT),
-            Breakdown(value="bool_field", type=MultipleBreakdownType.EVENT),
-            Breakdown(value="properties.$browser", type=MultipleBreakdownType.HOGQL),
-            Breakdown(value="name", type=MultipleBreakdownType.PERSON),
-            Breakdown(value="$session_duration", type=MultipleBreakdownType.SESSION),
-            Breakdown(type="group", group_type_index=1, value="employee_count"),
-            Breakdown(type="group", group_type_index=0, value="industry"),
+            Breakdown(property="prop", histogram_bin_count=2, type=MultipleBreakdownType.EVENT),
+            Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+            Breakdown(property="bool_field", type=MultipleBreakdownType.EVENT),
+            Breakdown(property="properties.$browser", type=MultipleBreakdownType.HOGQL),
+            Breakdown(property="name", type=MultipleBreakdownType.PERSON),
+            Breakdown(property="$session_duration", type=MultipleBreakdownType.SESSION),
+            Breakdown(type="group", group_type_index=1, property="employee_count"),
+            Breakdown(type="group", group_type_index=0, property="industry"),
         ]
 
         for breakdown_filter in itertools.permutations(breakdowns, 3):
@@ -3832,7 +3824,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
             None,
-            BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.HOGQL, value="properties.$browser")]),
+            BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.HOGQL, property="properties.$browser")]),
         )
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
@@ -3877,9 +3869,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE),
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(type=BreakdownType.EVENT, value="$browser"),
-                    Breakdown(type=BreakdownType.EVENT, value="prop", histogram_bin_count=2),
-                    Breakdown(type=BreakdownType.EVENT, value="bool_field"),
+                    Breakdown(type=BreakdownType.EVENT, property="$browser"),
+                    Breakdown(type=BreakdownType.EVENT, property="prop", histogram_bin_count=2),
+                    Breakdown(type=BreakdownType.EVENT, property="bool_field"),
                 ]
             ),
         )
@@ -3949,15 +3941,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(
-                breakdowns=[
-                    Breakdown(
-                        type=BreakdownType.EVENT,
-                        value="prop",
-                        histogram_bin_count=4,
-                    )
-                ]
-            ),
+            BreakdownFilter(breakdowns=[Breakdown(type=BreakdownType.EVENT, property="prop", histogram_bin_count=4)]),
         )
         response = runner.to_actors_query_options()
 
@@ -3997,7 +3981,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE),
-            BreakdownFilter(breakdowns=[Breakdown(value="$browser")], breakdown_limit=2),
+            BreakdownFilter(breakdowns=[Breakdown(property="$browser")], breakdown_limit=2),
         )
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
@@ -4042,7 +4026,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [EventsNode(event="$pageview")],
                 TrendsFilter(display=display),
                 BreakdownFilter(
-                    breakdowns=[Breakdown(value="prop", type=MultipleBreakdownType.EVENT, histogram_bin_count=2)],
+                    breakdowns=[Breakdown(property="prop", type=MultipleBreakdownType.EVENT, histogram_bin_count=2)],
                     breakdown_limit=10,
                     breakdown_hide_other_aggregation=True,
                 ),
