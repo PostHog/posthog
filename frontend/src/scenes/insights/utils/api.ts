@@ -29,7 +29,7 @@ async function _perform<Flag extends boolean>(
 ): Promise<ReturnedInsightModelByFlag<Flag>> {
     const { writeAsQuery, readAsQuery } = options
 
-    const data = 'filters' in insight ? getInsightModel(insight as QueryBasedInsightModel, writeAsQuery) : insight
+    const data = getInsightModel(insight as QueryBasedInsightModel, writeAsQuery)
     const legacyInsight = method === 'create' ? await api.insights[method](data) : await api.insights[method](id!, data)
 
     const response = readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
