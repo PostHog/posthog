@@ -145,7 +145,8 @@ function AppMetricsGraph(): JSX.Element {
 
     return (
         <div className="relative border rounded p-6 bg-bg-light h-[50vh]">
-            {appMetricsLoading || !appMetrics ? <SpinnerOverlay /> : <canvas ref={canvasRef} />}
+            {appMetricsLoading && <SpinnerOverlay />}
+            {!!appMetrics && <canvas ref={canvasRef} />}
         </div>
     )
 }

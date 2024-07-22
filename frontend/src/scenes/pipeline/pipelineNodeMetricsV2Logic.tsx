@@ -48,7 +48,7 @@ export const pipelineNodeMetricsV2Logic = kea<pipelineNodeMetricsV2LogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setDateRange: () => {
+        setFilters: () => {
             actions.loadMetrics()
         },
     })),
