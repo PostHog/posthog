@@ -168,7 +168,7 @@ class OauthIntegration:
 
     @classmethod
     def integration_from_oauth_response(
-        cls, kind: str, team_id: str, created_by: User, params: dict[str, str]
+        cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
 
