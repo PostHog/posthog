@@ -2,7 +2,7 @@ import './EmptyStates.scss'
 
 // eslint-disable-next-line no-restricted-imports
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
-import { IconArchive, IconInfo, IconPlus, IconWarning } from '@posthog/icons'
+import { IconArchive, IconInfo, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -19,20 +19,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node } from '~/queries/schema'
-import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
+import { Node } from '~/queries/schema'
+import { InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 
 export function InsightEmptyState({
@@ -219,45 +213,6 @@ export function InsightLoadingState({
     )
 }
 
-export function InsightTimeoutState({ queryId }: { queryId?: string | null }): JSX.Element {
-    const { openSupportForm } = useActions(supportLogic)
-
-    return (
-        <div className="insight-empty-state warning">
-            <div className="empty-state-inner">
-                <>
-                    <div className="illustration-main">
-                        <IconErrorOutline />
-                    </div>
-                    <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
-                </>
-                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
-                    <div className="flex">
-                        <IconInfo className="w-4 h-4" />
-                    </div>
-                    <p className="text-xs m-0 leading-5">
-                        <>
-                            Sometimes this happens. Try refreshing the page, reducing the date range, or removing
-                            breakdowns. If you're still having issues,{' '}
-                            <Link
-                                onClick={() => {
-                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
-                                }}
-                            >
-                                let us know
-                            </Link>
-                            .
-                        </>
-                    </p>
-                </div>
-                {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
-                ) : null}
-            </div>
-        </div>
-    )
-}
-
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
     title?: string
@@ -316,63 +271,6 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                         Open in query debugger
                     </LemonButton>
                 )}
-            </div>
-        </div>
-    )
-}
-
-type FunnelSingleStepStateProps = { actionable?: boolean }
-
-export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepStateProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { series } = useValues(funnelDataLogic(insightProps))
-    const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
-
-    const filters = series ? seriesToActionsAndEvents(series) : {}
-    const setFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({
-            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.None),
-        } as Partial<FunnelsQuery>)
-    }
-
-    const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
-
-    return (
-        <div className="insight-empty-state funnels-empty-state">
-            <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <PlusCircleOutlined />
-                </div>
-                <h2 className="text-xl leading-tight funnels-empty-state__title">Add another step!</h2>
-                <p className="text-sm text-center text-balance">
-                    You’re almost there! Funnels require at least two steps before calculating.
-                    {actionable &&
-                        ' Once you have two steps defined, additional changes will recalculate automatically.'}
-                </p>
-                {actionable && (
-                    <div className="flex justify-center mt-4">
-                        <LemonButton
-                            size="large"
-                            type="secondary"
-                            onClick={() => addFilter()}
-                            data-attr="add-action-event-button-empty-state"
-                            icon={<IconPlus />}
-                        >
-                            Add funnel step
-                        </LemonButton>
-                    </div>
-                )}
-                <div className="mt-4">
-                    <Link
-                        data-attr="funnels-single-step-help"
-                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
-                        target="_blank"
-                        className="flex items-center justify-center"
-                        targetBlankIcon
-                    >
-                        Learn more about funnels in PostHog docs
-                    </Link>
-                </div>
             </div>
         </div>
     )
