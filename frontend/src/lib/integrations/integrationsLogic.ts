@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
+import IconHubspot from 'public/services/hubspot.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -13,9 +14,10 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 
-const ICONS = {
+const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
     salesforce: IconSalesforce,
+    hubspot: IconHubspot,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
@@ -41,12 +43,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     return res.results.map((integration) => {
                         return {
                             ...integration,
-                            name:
-                                integration.kind === 'slack'
-                                    ? integration.config.team.name
-                                    : integration.kind === 'salesforce'
-                                    ? integration.config.instance_url
-                                    : 'Unknown',
                             // TODO: Make the icons endpoint independent of hog functions
                             icon_url: ICONS[integration.kind],
                         }

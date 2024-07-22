@@ -211,6 +211,7 @@ export type HogFunctionType = {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
+    depends_on_integration_ids?: Set<IntegrationType['id']>
 }
 
 export type HogFunctionInputType = {
