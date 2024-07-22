@@ -314,24 +314,36 @@ class BytecodeBuilder(Visitor):
         return response
 
     def visit_throw_statement(self, node: ast.ThrowStatement):
-        response = self.visit(node.expr)
-        response.append(Operation.THROW)
-        return response
+        return [*self.visit(node.expr), Operation.THROW]
 
     def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        if node.finally_stmt:
+            raise QueryError("finally blocks are not yet supported")
+        if not node.catch_stmt:
+            raise QueryError("try statement must have a catch block")
+
         try_stmt = self.visit(node.try_stmt)
-        catch_stmt = self.visit(node.catch_stmt) if node.catch_stmt else []
-        finally_stmt = self.visit(node.finally_stmt) if node.finally_stmt else []
-
-        if len(catch_stmt) == 0 and len(finally_stmt) == 0:
-            raise QueryError("try-catch statement must have either catch or finally block")
-
         response = []
+        response.extend(
+            [
+                Operation.TRY,
+                len(try_stmt) + 1 + 2 + 3,  # + POP_TRY + JUMP_OVER_CATCH + POP_TRY + this TRY statement itself
+                node.catch_var is not None,
+            ]
+        )
         response.extend(try_stmt)
-        if catch_stmt:
-            response.extend([Operation.JUMP, len(catch_stmt) + (2 if finally_stmt else 0)])
-            response.extend(catch_stmt)
-        response.extend(finally_stmt)
+        response.append(Operation.POP_TRY)
+
+        if node.catch_var is not None:
+            self._start_scope()
+            self._declare_local(node.catch_var)
+            catch_stmt = [*self.visit(node.catch_stmt), *self._end_scope()]
+        else:
+            catch_stmt = self.visit(node.catch_stmt)
+
+        response.extend([Operation.JUMP, len(catch_stmt) + 1])
+        response.append(Operation.POP_TRY)
+        response.extend(catch_stmt)
         return response
 
     def visit_if_statement(self, node: ast.IfStatement):

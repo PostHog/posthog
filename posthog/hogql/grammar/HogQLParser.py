@@ -174,11 +174,11 @@ def serializedATN():
         226,5,150,0,0,225,224,1,0,0,0,225,226,1,0,0,0,226,13,1,0,0,0,227,
         229,5,84,0,0,228,230,3,4,2,0,229,228,1,0,0,0,229,230,1,0,0,0,230,
         232,1,0,0,0,231,233,5,150,0,0,232,231,1,0,0,0,232,233,1,0,0,0,233,
-        15,1,0,0,0,234,235,5,93,0,0,235,244,3,10,5,0,236,241,5,14,0,0,237,
+        15,1,0,0,0,234,235,5,93,0,0,235,244,3,34,17,0,236,241,5,14,0,0,237,
         238,5,130,0,0,238,239,3,158,79,0,239,240,5,149,0,0,240,242,1,0,0,
-        0,241,237,1,0,0,0,241,242,1,0,0,0,242,243,1,0,0,0,243,245,3,10,5,
+        0,241,237,1,0,0,0,241,242,1,0,0,0,242,243,1,0,0,0,243,245,3,34,17,
         0,244,236,1,0,0,0,244,245,1,0,0,0,245,248,1,0,0,0,246,247,5,29,0,
-        0,247,249,3,10,5,0,248,246,1,0,0,0,248,249,1,0,0,0,249,17,1,0,0,
+        0,247,249,3,34,17,0,248,246,1,0,0,0,248,249,1,0,0,0,249,17,1,0,0,
         0,250,251,5,40,0,0,251,252,5,130,0,0,252,253,3,4,2,0,253,254,5,149,
         0,0,254,257,3,10,5,0,255,256,5,25,0,0,256,258,3,10,5,0,257,255,1,
         0,0,0,257,258,1,0,0,0,258,19,1,0,0,0,259,260,5,100,0,0,260,261,5,
@@ -1473,19 +1473,19 @@ class HogQLParser ( Parser ):
         def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
             super().__init__(parent, invokingState)
             self.parser = parser
-            self.tryStmt = None # StatementContext
+            self.tryStmt = None # BlockContext
             self.catchVar = None # IdentifierContext
-            self.catchStmt = None # StatementContext
-            self.finallyStmt = None # StatementContext
+            self.catchStmt = None # BlockContext
+            self.finallyStmt = None # BlockContext
 
         def TRY(self):
             return self.getToken(HogQLParser.TRY, 0)
 
-        def statement(self, i:int=None):
+        def block(self, i:int=None):
             if i is None:
-                return self.getTypedRuleContexts(HogQLParser.StatementContext)
+                return self.getTypedRuleContexts(HogQLParser.BlockContext)
             else:
-                return self.getTypedRuleContext(HogQLParser.StatementContext,i)
+                return self.getTypedRuleContext(HogQLParser.BlockContext,i)
 
 
         def CATCH(self):
@@ -1520,22 +1520,23 @@ class HogQLParser ( Parser ):
 
         localctx = HogQLParser.TryCatchStmtContext(self, self._ctx, self.state)
         self.enterRule(localctx, 16, self.RULE_tryCatchStmt)
+        self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
             self.state = 234
             self.match(HogQLParser.TRY)
             self.state = 235
-            localctx.tryStmt = self.statement()
+            localctx.tryStmt = self.block()
             self.state = 244
             self._errHandler.sync(self)
-            la_ = self._interp.adaptivePredict(self._input,11,self._ctx)
-            if la_ == 1:
+            _la = self._input.LA(1)
+            if _la==14:
                 self.state = 236
                 self.match(HogQLParser.CATCH)
                 self.state = 241
                 self._errHandler.sync(self)
-                la_ = self._interp.adaptivePredict(self._input,10,self._ctx)
-                if la_ == 1:
+                _la = self._input.LA(1)
+                if _la==130:
                     self.state = 237
                     self.match(HogQLParser.LPAREN)
                     self.state = 238
@@ -1545,17 +1546,17 @@ class HogQLParser ( Parser ):
 
 
                 self.state = 243
-                localctx.catchStmt = self.statement()
+                localctx.catchStmt = self.block()
 
 
             self.state = 248
             self._errHandler.sync(self)
-            la_ = self._interp.adaptivePredict(self._input,12,self._ctx)
-            if la_ == 1:
+            _la = self._input.LA(1)
+            if _la==29:
                 self.state = 246
                 self.match(HogQLParser.FINALLY)
                 self.state = 247
-                localctx.finallyStmt = self.statement()
+                localctx.finallyStmt = self.block()
 
 
         except RecognitionException as re:

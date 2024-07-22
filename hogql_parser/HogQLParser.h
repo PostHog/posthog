@@ -309,15 +309,15 @@ public:
 
   class  TryCatchStmtContext : public antlr4::ParserRuleContext {
   public:
-    HogQLParser::StatementContext *tryStmt = nullptr;
+    HogQLParser::BlockContext *tryStmt = nullptr;
     HogQLParser::IdentifierContext *catchVar = nullptr;
-    HogQLParser::StatementContext *catchStmt = nullptr;
-    HogQLParser::StatementContext *finallyStmt = nullptr;
+    HogQLParser::BlockContext *catchStmt = nullptr;
+    HogQLParser::BlockContext *finallyStmt = nullptr;
     TryCatchStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *TRY();
-    std::vector<StatementContext *> statement();
-    StatementContext* statement(size_t i);
+    std::vector<BlockContext *> block();
+    BlockContext* block(size_t i);
     antlr4::tree::TerminalNode *CATCH();
     antlr4::tree::TerminalNode *FINALLY();
     antlr4::tree::TerminalNode *LPAREN();

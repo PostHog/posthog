@@ -16,6 +16,8 @@ export interface VMState {
     stack: any[]
     /** Call stack of the VM */
     callStack: [number, number, number][]
+    /** Throw stack of the VM */
+    throwStack: [number, number, number, boolean][]
     /** Declared functions of the VM */
     declaredFunctions: Record<string, [number, number]>
     /** Instruction pointer of the VM */
@@ -114,6 +116,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const stack: any[] = vmState ? vmState.stack : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: [number, number, number][] = vmState ? vmState.callStack : []
+    const throwStack: [number, number, number, boolean][] = vmState ? vmState.throwStack : []
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
     let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
@@ -413,6 +416,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 bytecode,
                                 stack,
                                 callStack,
+                                throwStack,
                                 declaredFunctions,
                                 ip: ip + 1,
                                 ops,
@@ -426,6 +430,32 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     } else {
                         throw new Error(`Unsupported function call: ${name}`)
                     }
+                }
+                break
+            }
+            case Operation.TRY:
+                throwStack.push([callStack.length, stack.length, ip + next(), !!next()])
+                break
+            case Operation.POP_TRY:
+                if (throwStack.length > 0) {
+                    throwStack.pop()
+                } else {
+                    throw new Error('Invalid operation POP_TRY: no try block to pop')
+                }
+                break
+            case Operation.THROW: {
+                if (throwStack.length > 0) {
+                    const exception = popStack()
+                    const [callStackLen, stackLen, catchIp, useVar] = throwStack.pop()!
+                    spliceStack1(stackLen)
+                    memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
+                    callStack.splice(callStackLen)
+                    if (useVar) {
+                        pushStack(exception)
+                    }
+                    ip = catchIp
+                } else {
+                    throw new Error('No catch block to throw to')
                 }
                 break
             }

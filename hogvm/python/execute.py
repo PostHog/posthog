@@ -39,6 +39,7 @@ def execute_bytecode(
     stack: list = []
     mem_stack: list = []
     call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
+    throw_stack: list[tuple[int, int, int, bool]] = []  # (call_stack_length, stack_length, catch_ip, use_local_var)
     declared_functions: dict[str, tuple[int, int]] = {}
     mem_used = 0
     max_mem_used = 0
@@ -89,7 +90,7 @@ def execute_bytecode(
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
         elif debug:
-            debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
+            debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack, throw_stack)
         match symbol:
             case None:
                 break
@@ -260,11 +261,33 @@ def execute_bytecode(
                     if name not in STL:
                         raise HogVMException(f"Unsupported function call: {name}")
 
-                    push_stack(STL[name](args, team, stdout, timeout))
+                    push_stack(STL[name](args, team, stdout, timeout.total_seconds()))
+            case Operation.TRY:
+                throw_stack.append((len(call_stack), len(stack), ip + next_token(), next_token()))
+            case Operation.POP_TRY:
+                if throw_stack:
+                    throw_stack.pop()
+                else:
+                    raise HogVMException("Invalid operation POP_TRY: no try block to pop")
+            case Operation.THROW:
+                if throw_stack:
+                    exception = pop_stack()
+                    call_stack_len, stack_len, catch_ip, use_var = throw_stack.pop()
+                    stack = stack[0:stack_len]
+                    mem_used -= sum(mem_stack[stack_len:])
+                    mem_stack = mem_stack[0:stack_len]
+                    call_stack = call_stack[0:call_stack_len]
+                    if use_var:
+                        push_stack(exception)
+                    ip = catch_ip
+                else:
+                    # TODO: add Hog exception name/payload
+                    raise HogVMException("No catch block to throw to")
+
         if ip == last_op:
             break
     if debug:
-        debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack)
+        debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack, throw_stack)
     if len(stack) > 1:
         raise HogVMException("Invalid bytecode. More than one value left on stack")
     if len(stack) == 1:

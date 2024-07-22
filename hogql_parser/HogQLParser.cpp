@@ -266,10 +266,10 @@ void hogqlparserParserInitialize() {
   	0,224,226,5,150,0,0,225,224,1,0,0,0,225,226,1,0,0,0,226,13,1,0,0,0,227,
   	229,5,84,0,0,228,230,3,4,2,0,229,228,1,0,0,0,229,230,1,0,0,0,230,232,
   	1,0,0,0,231,233,5,150,0,0,232,231,1,0,0,0,232,233,1,0,0,0,233,15,1,0,
-  	0,0,234,235,5,93,0,0,235,244,3,10,5,0,236,241,5,14,0,0,237,238,5,130,
+  	0,0,234,235,5,93,0,0,235,244,3,34,17,0,236,241,5,14,0,0,237,238,5,130,
   	0,0,238,239,3,158,79,0,239,240,5,149,0,0,240,242,1,0,0,0,241,237,1,0,
-  	0,0,241,242,1,0,0,0,242,243,1,0,0,0,243,245,3,10,5,0,244,236,1,0,0,0,
-  	244,245,1,0,0,0,245,248,1,0,0,0,246,247,5,29,0,0,247,249,3,10,5,0,248,
+  	0,0,241,242,1,0,0,0,242,243,1,0,0,0,243,245,3,34,17,0,244,236,1,0,0,0,
+  	244,245,1,0,0,0,245,248,1,0,0,0,246,247,5,29,0,0,247,249,3,34,17,0,248,
   	246,1,0,0,0,248,249,1,0,0,0,249,17,1,0,0,0,250,251,5,40,0,0,251,252,5,
   	130,0,0,252,253,3,4,2,0,253,254,5,149,0,0,254,257,3,10,5,0,255,256,5,
   	25,0,0,256,258,3,10,5,0,257,255,1,0,0,0,257,258,1,0,0,0,258,19,1,0,0,
@@ -1472,12 +1472,12 @@ tree::TerminalNode* HogQLParser::TryCatchStmtContext::TRY() {
   return getToken(HogQLParser::TRY, 0);
 }
 
-std::vector<HogQLParser::StatementContext *> HogQLParser::TryCatchStmtContext::statement() {
-  return getRuleContexts<HogQLParser::StatementContext>();
+std::vector<HogQLParser::BlockContext *> HogQLParser::TryCatchStmtContext::block() {
+  return getRuleContexts<HogQLParser::BlockContext>();
 }
 
-HogQLParser::StatementContext* HogQLParser::TryCatchStmtContext::statement(size_t i) {
-  return getRuleContext<HogQLParser::StatementContext>(i);
+HogQLParser::BlockContext* HogQLParser::TryCatchStmtContext::block(size_t i) {
+  return getRuleContext<HogQLParser::BlockContext>(i);
 }
 
 tree::TerminalNode* HogQLParser::TryCatchStmtContext::CATCH() {
@@ -1516,6 +1516,7 @@ std::any HogQLParser::TryCatchStmtContext::accept(tree::ParseTreeVisitor *visito
 HogQLParser::TryCatchStmtContext* HogQLParser::tryCatchStmt() {
   TryCatchStmtContext *_localctx = _tracker.createInstance<TryCatchStmtContext>(_ctx, getState());
   enterRule(_localctx, 16, HogQLParser::RuleTryCatchStmt);
+  size_t _la = 0;
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
@@ -1529,53 +1530,38 @@ HogQLParser::TryCatchStmtContext* HogQLParser::tryCatchStmt() {
     setState(234);
     match(HogQLParser::TRY);
     setState(235);
-    antlrcpp::downCast<TryCatchStmtContext *>(_localctx)->tryStmt = statement();
+    antlrcpp::downCast<TryCatchStmtContext *>(_localctx)->tryStmt = block();
     setState(244);
     _errHandler->sync(this);
 
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 11, _ctx)) {
-    case 1: {
+    _la = _input->LA(1);
+    if (_la == HogQLParser::CATCH) {
       setState(236);
       match(HogQLParser::CATCH);
       setState(241);
       _errHandler->sync(this);
 
-      switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 10, _ctx)) {
-      case 1: {
+      _la = _input->LA(1);
+      if (_la == HogQLParser::LPAREN) {
         setState(237);
         match(HogQLParser::LPAREN);
         setState(238);
         antlrcpp::downCast<TryCatchStmtContext *>(_localctx)->catchVar = identifier();
         setState(239);
         match(HogQLParser::RPAREN);
-        break;
-      }
-
-      default:
-        break;
       }
       setState(243);
-      antlrcpp::downCast<TryCatchStmtContext *>(_localctx)->catchStmt = statement();
-      break;
-    }
-
-    default:
-      break;
+      antlrcpp::downCast<TryCatchStmtContext *>(_localctx)->catchStmt = block();
     }
     setState(248);
     _errHandler->sync(this);
 
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 12, _ctx)) {
-    case 1: {
+    _la = _input->LA(1);
+    if (_la == HogQLParser::FINALLY) {
       setState(246);
       match(HogQLParser::FINALLY);
       setState(247);
-      antlrcpp::downCast<TryCatchStmtContext *>(_localctx)->finallyStmt = statement();
-      break;
-    }
-
-    default:
-      break;
+      antlrcpp::downCast<TryCatchStmtContext *>(_localctx)->finallyStmt = block();
     }
    
   }

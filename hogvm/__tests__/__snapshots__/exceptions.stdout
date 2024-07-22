@@ -1,0 +1,19 @@
+start
+try
+------------------
+start
+try
+------------------
+try again
+Error was the exception
+------------------
+try again
+No var for error
+------------------
+base
+first
+second
+Throwing in third
+Caught in base: Threw in third
+Caught in root: Threw in third
+The end

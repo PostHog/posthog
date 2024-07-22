@@ -30,9 +30,9 @@ statement      : returnStmt
 
 returnStmt     : RETURN expression? SEMICOLON?;
 throwStmt      : THROW expression? SEMICOLON?;
-tryCatchStmt   : TRY tryStmt=statement
-                 (CATCH (LPAREN catchVar=identifier RPAREN)? catchStmt=statement)?
-                 (FINALLY finallyStmt=statement)?
+tryCatchStmt   : TRY tryStmt=block
+                 (CATCH (LPAREN catchVar=identifier RPAREN)? catchStmt=block)?
+                 (FINALLY finallyStmt=block)?
                  ;
 ifStmt         : IF LPAREN expression RPAREN statement ( ELSE statement )? ;
 whileStmt      : WHILE LPAREN expression RPAREN statement SEMICOLON?;
