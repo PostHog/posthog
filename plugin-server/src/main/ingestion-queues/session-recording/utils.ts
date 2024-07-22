@@ -82,32 +82,6 @@ export const queryWatermarkOffsets = (
     })
 }
 
-export const queryCommittedOffsets = (
-    kafkaConsumer: KafkaConsumer | undefined,
-    topicPartitions: TopicPartition[]
-): Promise<Record<number, number>> => {
-    return new Promise<Record<number, number>>((resolve, reject) => {
-        if (!kafkaConsumer) {
-            return reject('Not connected')
-        }
-
-        kafkaConsumer.committed(topicPartitions, 10000, (err, offsets) => {
-            if (err) {
-                captureException(err)
-                status.error('🔥', 'Failed to query kafka committed offsets', err)
-                return reject(err)
-            }
-
-            resolve(
-                offsets.reduce((acc, { partition, offset }) => {
-                    acc[partition] = offset
-                    return acc
-                }, {} as Record<number, number>)
-            )
-        })
-    })
-}
-
 export const getPartitionsForTopic = (
     kafkaConsumer: KafkaConsumer | undefined,
     topic: string
