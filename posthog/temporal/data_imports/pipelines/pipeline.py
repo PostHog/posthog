@@ -131,7 +131,7 @@ class DataImportPipeline:
                 counts = Counter(filtered_rows)
                 total_counts = counts + total_counts
 
-                if total_counts.total() != 0:
+                if total_counts.total() > 0:
                     async_to_sync(validate_schema_and_update_table)(
                         run_id=self.inputs.run_id,
                         team_id=self.inputs.team_id,
@@ -166,7 +166,7 @@ class DataImportPipeline:
             counts = Counter(filtered_rows)
             total_counts = total_counts + counts
 
-            if total_counts.total() != 0:
+            if total_counts.total() > 0:
                 async_to_sync(validate_schema_and_update_table)(
                     run_id=self.inputs.run_id,
                     team_id=self.inputs.team_id,
