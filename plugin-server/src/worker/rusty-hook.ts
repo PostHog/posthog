@@ -162,7 +162,7 @@ export class RustyHook {
                 // rusty-hook. By returning `false`, we leave it to the `AsyncFunctionExecutor` to
                 // call `fetch` inline.
                 if (response.status >= 400) {
-                    const message = 'Hoghook enqueue failed with an HTTP 4XX'
+                    const message = 'Hoghook enqueue failed with an HTTP Error'
                     Sentry.captureMessage(message, {
                         extra: {
                             status: response.status,
