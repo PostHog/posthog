@@ -106,11 +106,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     if (stage === PipelineStage.Transformation) {
         return <TransformationOptionsTable />
     } else if (stage === PipelineStage.Destination) {
-        return (
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
-                <DestinationOptionsTable />
-            </PayGateMini>
-        )
+        return <DestinationOptionsTable />
     } else if (stage === PipelineStage.SiteApp) {
         return <SiteAppOptionsTable />
     }
