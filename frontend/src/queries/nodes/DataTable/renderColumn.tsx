@@ -37,6 +37,14 @@ export function renderColumn(
         return <Spinner />
     } else if (value === errorColumn) {
         return <LemonTag color="red">Error</LemonTag>
+    } else if (queryContextColumnName && queryContextColumn?.render) {
+        const Component = queryContextColumn?.render
+        return <Component record={record} columnName={queryContextColumnName} value={value} query={query} />
+    } else if (context?.columns?.[key] && context?.columns?.[key].render) {
+        const Component = context?.columns?.[key]?.render
+        return Component ? <Component record={record} columnName={key} value={value} query={query} /> : String(value)
+    } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
+        return renderHogQLX(value)
     } else if (value === null) {
         return (
             <Tooltip title="NULL" placement="right" delayMs={0}>
@@ -45,11 +53,6 @@ export function renderColumn(
                 </span>
             </Tooltip>
         )
-    } else if (queryContextColumnName && queryContextColumn?.render) {
-        const Component = queryContextColumn?.render
-        return <Component record={record} columnName={queryContextColumnName} value={value} query={query} />
-    } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
-        return renderHogQLX(value)
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -234,9 +237,6 @@ export function renderColumn(
         ) : (
             String(value)
         )
-    } else if (context?.columns?.[key]) {
-        const Component = context?.columns?.[key]?.render
-        return Component ? <Component record={record} columnName={key} value={value} query={query} /> : String(value)
     } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline
