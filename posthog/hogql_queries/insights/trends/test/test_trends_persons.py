@@ -8,7 +8,7 @@ import pytest
 
 from posthog.api.test.test_team import create_team
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import Team, Cohort, GroupTypeMapping
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition, PropertyType
@@ -25,6 +25,7 @@ from posthog.schema import (
     EventsNode,
     InsightActorsQuery,
     MathGroupTypeIndex,
+    MultipleBreakdownType,
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
@@ -393,6 +394,70 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[0]), "person2")
         self.assertEqual(get_event_count(result[0]), 2)
 
+    @skip("fails, as other returns all breakdowns, even those that should be display with the breakdown_limit")
+    def test_trends_multiple_breakdowns_others_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        value="$browser",
+                    )
+                ],
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Chrome"])
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 2)
+
+        result = self._get_actors(
+            trends_query=source_query, day="2023-04-29", breakdown=["$$_posthog_breakdown_other_$$"]
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 2)
+
+    # TODO: remove this test once "Other" actually filters out all other values
+    def test_trends_filter_by_other(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(value="some_property", type=MultipleBreakdownType.EVENT)],
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=[BREAKDOWN_OTHER_STRING_LABEL])
+        self.assertEqual(len(result), 3)
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(value="some_property", type=MultipleBreakdownType.EVENT),
+                    Breakdown(value="$browser", type=MultipleBreakdownType.EVENT),
+                ],
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(
+            trends_query=source_query,
+            day="2023-05-01",
+            breakdown=[BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL],
+        )
+        self.assertEqual(len(result), 3)
+
     def test_trends_breakdown_null_persons(self):
         self._create_events()
         source_query = TrendsQuery(
@@ -741,36 +806,6 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result), 0)
 
-    @skip("fails, as other returns all breakdowns, even those that should be display with the breakdown_limit")
-    def test_trends_multiple_breakdowns_others_persons(self):
-        self._create_events()
-        source_query = TrendsQuery(
-            series=[EventsNode(event="$pageview")],
-            dateRange=InsightDateRange(date_from="-7d"),
-            breakdownFilter=BreakdownFilter(
-                breakdowns=[
-                    Breakdown(
-                        value="$browser",
-                    )
-                ],
-                breakdown_limit=1,
-            ),
-        )
-
-        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Chrome"])
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person1")
-        self.assertEqual(get_event_count(result[0]), 2)
-
-        result = self._get_actors(
-            trends_query=source_query, day="2023-04-29", breakdown=["$$_posthog_breakdown_other_$$"]
-        )
-
-        self.assertEqual(len(result), 1)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
-        self.assertEqual(get_event_count(result[0]), 2)
-
     def test_trends_multiple_breakdown_null_persons(self):
         self._create_events()
         source_query = TrendsQuery(
@@ -884,3 +919,81 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=['["str",10]'])
             result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[10,false]"])
             result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[{},{}]"])
+
+    def test_trends_breakdown_by_boolean(self):
+        PropertyDefinition.objects.create(team=self.team, name="bool", property_type=PropertyType.Boolean)
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+        )
+
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2023-04-29 16:00",
+            properties={"bool": True},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person2",
+            timestamp="2023-04-29 17:00",
+            properties={"bool": False},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person3",
+            timestamp="2023-04-29 17:00",
+            properties={},
+            team=self.team,
+        )
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(
+                        value="bool",
+                    )
+                ],
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["true"])
+        self.assertEqual(len(result), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["false"])
+        self.assertEqual(len(result), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=[BREAKDOWN_NULL_STRING_LABEL])
+        self.assertEqual(len(result), 1)
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdown="bool",
+                breakdown_limit=1,
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="true")
+        self.assertEqual(len(result), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="false")
+        self.assertEqual(len(result), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=BREAKDOWN_NULL_STRING_LABEL)
+        self.assertEqual(len(result), 1)

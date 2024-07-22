@@ -50,7 +50,18 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             kind="HogQLAutocomplete",
             query=query,
             language=HogLanguage.HOG_TEMPLATE,
-            sourceQuery=HogQLQuery(query="select * from events"),
+            globals={"event": "$pageview"},
+            startPosition=start,
+            endPosition=end,
+        )
+        return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
+
+    def _json(self, query: str, start: int, end: int, database: Optional[Database] = None) -> HogQLAutocompleteResponse:
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query=query,
+            language=HogLanguage.HOG_JSON,
+            globals={"event": "$pageview"},
             startPosition=start,
             endPosition=end,
         )
@@ -323,6 +334,32 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion is not None
         assert suggestion.label == "event"
         assert suggestion.insertText == "event"
+
+        results = self._template(query=query, start=5, end=5, database=database)
+        assert len(results.suggestions) == 0
+
+        results = self._template(query=query, start=5, end=6, database=database)
+        assert len(results.suggestions) == 0
+
+    def test_autocomplete_template_json(self):
+        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+
+        query = '{ "key": "val_{event.distinct_id}_ue" }'
+        results = self._json(query=query, start=15, end=20, database=database)
+
+        suggestions = list(filter(lambda x: x.label == "event", results.suggestions))
+        assert len(suggestions) == 1
+
+        suggestion = suggestions[0]
+        assert suggestion is not None
+        assert suggestion.label == "event"
+        assert suggestion.insertText == "event"
+
+        results = self._json(query=query, start=5, end=5, database=database)
+        assert len(results.suggestions) == 0
+
+        results = self._json(query=query, start=5, end=6, database=database)
+        assert len(results.suggestions) == 0
 
     def test_autocomplete_hog(self):
         database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)

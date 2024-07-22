@@ -395,8 +395,8 @@ class SnowflakeClient:
         stage_table: str,
         merge_key: collections.abc.Iterable[SnowflakeField],
         update_when_matched: collections.abc.Iterable[SnowflakeField],
-        person_version_key: str = "version",
-        person_distinct_id_version_key: str = "version",
+        person_version_key: str = "person_version",
+        person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
         """Merge two identical person model tables in Snowflake."""
         merge_condition = "ON "

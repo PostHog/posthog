@@ -138,6 +138,8 @@ def calculate_for_query_based_insight(
         dashboard_filters_json=dashboard.filters if dashboard is not None else None,
         execution_mode=execution_mode,
         user=user,
+        insight_id=insight.pk,
+        dashboard_id=dashboard.pk if dashboard else None,
     )
 
     if isinstance(process_response, BaseModel):
@@ -171,6 +173,7 @@ def calculate_for_query_based_insight(
         cache_target_age=response.get("cache_target_age"),
         timings=response.get("timings"),
         query_status=response.get("query_status"),
+        hogql=response.get("hogql"),
     )
 
 

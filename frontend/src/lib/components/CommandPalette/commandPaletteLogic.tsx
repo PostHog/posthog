@@ -174,8 +174,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
         setInput: (input: string) => ({ input }),
         onArrowUp: true,
         onArrowDown: (maxIndex: number) => ({ maxIndex }),
-        onMouseEnterResult: (index: number) => ({ index }),
-        onMouseLeaveResult: true,
         executeResult: (result: CommandResult) => ({ result }),
         activateFlow: (flow: CommandFlow | null) => ({ flow }),
         backFlow: true,
@@ -193,7 +191,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 togglePalette: (previousState) => !previousState,
             },
         ],
-        keyboardResultIndex: [
+        activeResultIndex: [
             0,
             {
                 setInput: () => 0,
@@ -202,17 +200,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 backFlow: () => 0,
                 onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
                 onArrowDown: (previousIndex, { maxIndex }) => (previousIndex < maxIndex ? previousIndex + 1 : maxIndex),
-            },
-        ],
-        hoverResultIndex: [
-            null as number | null,
-            {
-                activateFlow: () => null,
-                backFlow: () => null,
-                onMouseEnterResult: (_, { index }) => index,
-                onMouseLeaveResult: () => null,
-                onArrowUp: () => null,
-                onArrowDown: () => null,
             },
         ],
         input: [
@@ -250,12 +237,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             (selectors) => [selectors.input],
             (input: string) => {
                 return input.trim().toLowerCase() === 'squeak'
-            },
-        ],
-        activeResultIndex: [
-            (selectors) => [selectors.keyboardResultIndex, selectors.hoverResultIndex],
-            (keyboardResultIndex: number, hoverResultIndex: number | null) => {
-                return hoverResultIndex ?? keyboardResultIndex
             },
         ],
         regexpCommandPairs: [

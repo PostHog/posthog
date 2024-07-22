@@ -5,6 +5,7 @@ import { useValues } from 'kea'
 import { ExternalDataJob } from '~/types'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
+import { LogsView } from './Logs'
 
 const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Running: 'primary',
@@ -20,6 +21,7 @@ export const Syncs = (): JSX.Element => {
         <LemonTable
             dataSource={jobs}
             loading={jobsLoading}
+            disableTableWhileLoading={false}
             columns={[
                 {
                     title: 'Schema',
@@ -46,6 +48,19 @@ export const Syncs = (): JSX.Element => {
                     },
                 },
             ]}
+            expandable={
+                jobs.length > 0
+                    ? {
+                          expandedRowRender: (job) => (
+                              <div className="p-4">
+                                  <LogsView job={job} />
+                              </div>
+                          ),
+                          rowExpandable: () => true,
+                          noIndent: true,
+                      }
+                    : undefined
+            }
         />
     )
 }

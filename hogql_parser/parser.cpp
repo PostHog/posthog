@@ -1822,35 +1822,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprArrayAccess) {
     PyObject* property = visitAsPyObject(ctx->columnExpr(1));
-    int is_property_a_constant = is_ast_node_instance(property, "Constant");
-    if (is_property_a_constant == -1) {
-      Py_DECREF(property);
-      throw PyInternalError();
-    }
-    if (is_property_a_constant) {
-      PyObject* property_value = PyObject_GetAttrString(property, "value");
-      if (!property_value) {
-        Py_DECREF(property);
-        throw PyInternalError();
-      }
-      PyObject* zero = PyLong_FromLong(0);
-      if (!zero) {
-        Py_DECREF(property_value);
-        Py_DECREF(property);
-        throw PyInternalError();
-      }
-      int is_property_zero = PyObject_RichCompareBool(property_value, zero, Py_EQ);
-      Py_DECREF(zero);
-      Py_DECREF(property_value);
-      if (is_property_zero == -1) {
-        Py_DECREF(property);
-        throw PyInternalError();
-      }
-      if (is_property_zero) {
-        Py_DECREF(property);
-        throw SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
-      }
-    }
     PyObject* object;
     try {
       object = visitAsPyObject(ctx->columnExpr(0));
@@ -1863,35 +1834,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprNullArrayAccess) {
     PyObject* property = visitAsPyObject(ctx->columnExpr(1));
-    int is_property_a_constant = is_ast_node_instance(property, "Constant");
-    if (is_property_a_constant == -1) {
-      Py_DECREF(property);
-      throw PyInternalError();
-    }
-    if (is_property_a_constant) {
-      PyObject* property_value = PyObject_GetAttrString(property, "value");
-      if (!property_value) {
-        Py_DECREF(property);
-        throw PyInternalError();
-      }
-      PyObject* zero = PyLong_FromLong(0);
-      if (!zero) {
-        Py_DECREF(property_value);
-        Py_DECREF(property);
-        throw PyInternalError();
-      }
-      int is_property_zero = PyObject_RichCompareBool(property_value, zero, Py_EQ);
-      Py_DECREF(zero);
-      Py_DECREF(property_value);
-      if (is_property_zero == -1) {
-        Py_DECREF(property);
-        throw PyInternalError();
-      }
-      if (is_property_zero) {
-        Py_DECREF(property);
-        throw SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
-      }
-    }
     PyObject* object;
     try {
       object = visitAsPyObject(ctx->columnExpr(0));
@@ -2029,21 +1971,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprTupleAccess) {
     PyObject* index = PyLong_FromString(ctx->DECIMAL_LITERAL()->getText().c_str(), NULL, 10);
     if (!index) throw PyInternalError();
-    PyObject* zero = PyLong_FromLong(0);
-    if (!zero) {
-      Py_DECREF(index);
-      throw PyInternalError();
-    }
-    int is_index_zero = PyObject_RichCompareBool(index, zero, Py_EQ);
-    Py_DECREF(zero);
-    if (is_index_zero == -1) {
-      Py_DECREF(index);
-      throw PyInternalError();
-    }
-    if (is_index_zero) {
-      Py_DECREF(index);
-      throw SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
-    }
     PyObject* tuple;
     try {
       tuple = visitAsPyObject(ctx->columnExpr());
@@ -2057,21 +1984,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprNullTupleAccess) {
     PyObject* index = PyLong_FromString(ctx->DECIMAL_LITERAL()->getText().c_str(), NULL, 10);
     if (!index) throw PyInternalError();
-    PyObject* zero = PyLong_FromLong(0);
-    if (!zero) {
-      Py_DECREF(index);
-      throw PyInternalError();
-    }
-    int is_index_zero = PyObject_RichCompareBool(index, zero, Py_EQ);
-    Py_DECREF(zero);
-    if (is_index_zero == -1) {
-      Py_DECREF(index);
-      throw PyInternalError();
-    }
-    if (is_index_zero) {
-      Py_DECREF(index);
-      throw SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
-    }
     PyObject* tuple;
     try {
       tuple = visitAsPyObject(ctx->columnExpr());

@@ -15,9 +15,9 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 use crate::cleanup::Cleaner;
-use crate::kafka_producer::KafkaContext;
 
 use hook_common::kafka_messages::app_metrics::{AppMetric, AppMetricCategory};
+use hook_common::kafka_producer::KafkaContext;
 use hook_common::metrics::get_current_timestamp_seconds;
 
 #[derive(Error, Debug)]
@@ -58,6 +58,7 @@ pub struct WebhookCleaner {
     pg_pool: PgPool,
     kafka_producer: FutureProducer<KafkaContext>,
     app_metrics_topic: String,
+    hog_mode: bool,
 }
 
 #[derive(sqlx::FromRow, Debug)]
@@ -155,6 +156,7 @@ impl WebhookCleaner {
         database_url: &str,
         kafka_producer: FutureProducer<KafkaContext>,
         app_metrics_topic: String,
+        hog_mode: bool,
     ) -> Result<Self> {
         let options = PgConnectOptions::from_str(database_url)
             .map_err(|error| WebhookCleanerError::PoolCreationError { error })?
@@ -167,6 +169,7 @@ impl WebhookCleaner {
             pg_pool,
             kafka_producer,
             app_metrics_topic,
+            hog_mode,
         })
     }
 
@@ -175,11 +178,13 @@ impl WebhookCleaner {
         pg_pool: PgPool,
         kafka_producer: FutureProducer<KafkaContext>,
         app_metrics_topic: String,
+        hog_mode: bool,
     ) -> Result<Self> {
         Ok(Self {
             pg_pool,
             kafka_producer,
             app_metrics_topic,
+            hog_mode,
         })
     }
 
@@ -394,7 +399,13 @@ impl WebhookCleaner {
 
         let (completed_row_count, completed_agg_row_count) = {
             let completed_row_count = self.get_row_count_for_status(&mut tx, "completed").await?;
-            let completed_agg_rows = self.get_completed_agg_rows(&mut tx).await?;
+            let completed_agg_rows = if self.hog_mode {
+                // Hog mode doesn't need to send metrics to Kafka (and can't aggregate by
+                // plugin anyway), so we can skip this.
+                vec![]
+            } else {
+                self.get_completed_agg_rows(&mut tx).await?
+            };
             let agg_row_count = completed_agg_rows.len() as u64;
             let completed_app_metrics: Vec<AppMetric> =
                 completed_agg_rows.into_iter().map(Into::into).collect();
@@ -404,7 +415,13 @@ impl WebhookCleaner {
 
         let (failed_row_count, failed_agg_row_count) = {
             let failed_row_count = self.get_row_count_for_status(&mut tx, "failed").await?;
-            let failed_agg_rows = self.get_failed_agg_rows(&mut tx).await?;
+            let failed_agg_rows = if self.hog_mode {
+                // Hog mode doesn't need to send metrics to Kafka (and can't aggregate by
+                // plugin anyway), so we can skip this.
+                vec![]
+            } else {
+                self.get_failed_agg_rows(&mut tx).await?
+            };
             let agg_row_count = failed_agg_rows.len() as u64;
             let failed_app_metrics: Vec<AppMetric> =
                 failed_agg_rows.into_iter().map(Into::into).collect();
@@ -413,7 +430,7 @@ impl WebhookCleaner {
         };
 
         let mut rows_deleted = 0;
-        if completed_agg_row_count + failed_agg_row_count != 0 {
+        if completed_row_count + failed_row_count != 0 {
             rows_deleted = self.delete_observed_rows(&mut tx).await?;
 
             if rows_deleted != completed_row_count + failed_row_count {
@@ -493,18 +510,15 @@ impl Cleaner for WebhookCleaner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config;
-    use crate::kafka_producer::{create_kafka_producer, KafkaContext};
-    use health::HealthRegistry;
+
     use hook_common::kafka_messages::app_metrics::{
         Error as WebhookError, ErrorDetails, ErrorType,
     };
     use hook_common::pgqueue::PgQueueJob;
     use hook_common::pgqueue::{NewJob, PgQueue, PgTransactionBatch};
+    use hook_common::test::create_mock_kafka;
     use hook_common::webhook::{HttpMethod, WebhookJobMetadata, WebhookJobParameters};
     use rdkafka::consumer::{Consumer, StreamConsumer};
-    use rdkafka::mocking::MockCluster;
-    use rdkafka::producer::{DefaultProducerContext, FutureProducer};
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
     use rdkafka::{ClientConfig, Message};
     use sqlx::{PgPool, Row};
@@ -512,35 +526,6 @@ mod tests {
     use std::str::FromStr;
 
     const APP_METRICS_TOPIC: &str = "app_metrics";
-
-    async fn create_mock_kafka() -> (
-        MockCluster<'static, DefaultProducerContext>,
-        FutureProducer<KafkaContext>,
-    ) {
-        let registry = HealthRegistry::new("liveness");
-        let handle = registry
-            .register("one".to_string(), time::Duration::seconds(30))
-            .await;
-        let cluster = MockCluster::new(1).expect("failed to create mock brokers");
-
-        let config = config::KafkaConfig {
-            kafka_producer_linger_ms: 0,
-            kafka_producer_queue_mib: 50,
-            kafka_message_timeout_ms: 5000,
-            kafka_compression_codec: "none".to_string(),
-            kafka_hosts: cluster.bootstrap_servers(),
-            app_metrics_topic: APP_METRICS_TOPIC.to_string(),
-            plugin_log_entries_topic: "plugin_log_entries".to_string(),
-            kafka_tls: false,
-        };
-
-        (
-            cluster,
-            create_kafka_producer(&config, handle)
-                .await
-                .expect("failed to create mocked kafka producer"),
-        )
-    }
 
     fn check_app_metric_vector_equality(v1: &[AppMetric], v2: &[AppMetric]) {
         // Ignores `error_uuid`s.
@@ -569,9 +554,14 @@ mod tests {
             .expect("failed to create mock consumer");
         consumer.subscribe(&[APP_METRICS_TOPIC]).unwrap();
 
-        let webhook_cleaner =
-            WebhookCleaner::new_from_pool(db, mock_producer, APP_METRICS_TOPIC.to_owned())
-                .expect("unable to create webhook cleaner");
+        let hog_mode = false;
+        let webhook_cleaner = WebhookCleaner::new_from_pool(
+            db,
+            mock_producer,
+            APP_METRICS_TOPIC.to_owned(),
+            hog_mode,
+        )
+        .expect("unable to create webhook cleaner");
 
         let cleanup_stats = webhook_cleaner
             .cleanup_impl()
@@ -762,9 +752,14 @@ mod tests {
             .expect("failed to create mock consumer");
         consumer.subscribe(&[APP_METRICS_TOPIC]).unwrap();
 
-        let webhook_cleaner =
-            WebhookCleaner::new_from_pool(db, mock_producer, APP_METRICS_TOPIC.to_owned())
-                .expect("unable to create webhook cleaner");
+        let hog_mode = false;
+        let webhook_cleaner = WebhookCleaner::new_from_pool(
+            db,
+            mock_producer,
+            APP_METRICS_TOPIC.to_owned(),
+            hog_mode,
+        )
+        .expect("unable to create webhook cleaner");
 
         let cleanup_stats = webhook_cleaner
             .cleanup_impl()
@@ -782,9 +777,14 @@ mod tests {
     #[sqlx::test(migrations = "../migrations", fixtures("webhook_cleanup"))]
     async fn test_serializable_isolation(db: PgPool) {
         let (_, mock_producer) = create_mock_kafka().await;
-        let webhook_cleaner =
-            WebhookCleaner::new_from_pool(db.clone(), mock_producer, APP_METRICS_TOPIC.to_owned())
-                .expect("unable to create webhook cleaner");
+        let hog_mode = false;
+        let webhook_cleaner = WebhookCleaner::new_from_pool(
+            db.clone(),
+            mock_producer,
+            APP_METRICS_TOPIC.to_owned(),
+            hog_mode,
+        )
+        .expect("unable to create webhook cleaner");
 
         let queue = PgQueue::new_from_pool("webhooks", db.clone()).await;
 
