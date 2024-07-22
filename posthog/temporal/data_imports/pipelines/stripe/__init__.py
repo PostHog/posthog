@@ -268,7 +268,7 @@ def stripe_source(
             "headers": {
                 "Stripe-Account": account_id,
             }
-            if account_id
+            if account_id is not None and len(account_id) > 0
             else None,
             "paginator": StripePaginator(),
         },
