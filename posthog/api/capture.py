@@ -88,7 +88,7 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
 EVENTS_REJECTED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_rejected_over_quota",
     "Events rejected by capture due to quota-limiting, send a quota limiting signal to the client which stops sending us traffic.",
-    labelnames=[LABEL_RESOURCE_TYPE, "token"],
+    labelnames=[LABEL_RESOURCE_TYPE],
 )
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
@@ -679,7 +679,7 @@ def get_event(request):
     # so we check if a random number if less than the given sample rate
     # that means we can set SAMPLE_RATE to 0 to disable this and 1 to turn on for all clients
     if recordings_were_quota_limited and random() < settings.RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE:
-        EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
+        EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
         response_body["quota_limited"] = ["recordings"]
 
     return cors_response(request, JsonResponse(response_body))
