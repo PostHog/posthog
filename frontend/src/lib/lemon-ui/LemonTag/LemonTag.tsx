@@ -65,7 +65,7 @@ export const LemonTag: React.FunctionComponent<LemonTagProps & React.RefAttribut
                     className
                 )}
                 role={props.onClick ? 'button' : undefined}
-                title={disabledReason || tooltip}
+                title={disabledReason}
                 aria-disabled={disabledReason ? true : undefined}
                 {...props}
             >
