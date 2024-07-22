@@ -306,6 +306,7 @@ WHERE
     {parsed_date_to}
     {event_filter}
     {value_filter}
+{order_by_clause}
 LIMIT 10
 """
 

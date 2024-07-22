@@ -21,7 +21,7 @@ let body := {
 }
 
 let headers := {
-    'Authorization': f'Bearer {inputs.access_token}',
+    'Authorization': f'Bearer {inputs.oauth.access_token}',
     'Content-Type': 'application/json'
 }
 
@@ -45,22 +45,20 @@ if (res.status == 409) {
     }
     print('Contact updated successfully!')
     return
-} else if (res.status != 200 or res.body.status == 'error') {
+} else if (res.status >= 300 or res.body.status == 'error') {
     print('Error creating contact:', res.body)
     return
 } else {
     print('Contact created successfully!')
 }
-
-
 """.strip(),
     inputs_schema=[
         {
-            "key": "access_token",
-            "type": "string",
-            "label": "Access token",
-            "description": "Can be acquired under Profile Preferences -> Integrations -> Private Apps",
-            "secret": True,
+            "key": "oauth",
+            "type": "integration",
+            "integration": "hubspot",
+            "label": "Hubspot connection",
+            "secret": False,
             "required": True,
         },
         {

@@ -1814,6 +1814,7 @@ export enum PluginInstallationType {
     Custom = 'custom',
     Repository = 'repository',
     Source = 'source',
+    Inline = 'inline',
 }
 
 export interface PluginType {
@@ -3539,16 +3540,17 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot'
 
 export interface IntegrationType {
     id: number
     kind: IntegrationKind
-    name: string
+    display_name: string
     icon_url: string
     config: any
     created_by?: UserBasicType | null
     created_at: string
+    errors?: string
 }
 
 export interface SlackChannelType {

@@ -1167,6 +1167,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }

@@ -49,7 +49,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 name: 'account_id',
                 label: 'Account id',
                 type: 'text',
-                required: true,
+                required: false,
                 placeholder: 'acct_...',
             },
             {
