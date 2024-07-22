@@ -669,7 +669,10 @@ def get_event(request):
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
 
     response_body: dict[str, int | list[str]] = {"status": 1}
-    if recordings_were_quota_limited and settings.RECORDINGS_QUOTA_LIMITING_RESPONSES:
+    # if this has an unexpected effect we don't want it to have an unexpected effect on all clients at once,
+    # so we check if a random number if less than the given sample rate
+    # that means we can set SAMPLE_RATE to 0 to disable this and 1 to turn on for all clients
+    if recordings_were_quota_limited and random() < settings.RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE:
         response_body["quota_limited"] = ["recordings"]
 
     return cors_response(request, JsonResponse(response_body))

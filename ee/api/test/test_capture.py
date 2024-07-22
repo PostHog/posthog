@@ -264,7 +264,7 @@ class TestCaptureAPI(APIBaseTest):
     def test_quota_limited_recordings_return_retry_after_header_when_enabled(
         self, _kafka_produce, _fake_token_limiting
     ) -> None:
-        with self.settings(QUOTA_LIMITING_ENABLED=True, RECORDINGS_QUOTA_LIMITING_RESPONSES=True):
+        with self.settings(QUOTA_LIMITING_ENABLED=True, RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE=1):
 
             def fake_limiter(*args, **kwargs):
                 return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
@@ -281,7 +281,7 @@ class TestCaptureAPI(APIBaseTest):
     def test_quota_limited_recordings_do_not_return_retry_after_header_when_disabled(
         self, _kafka_produce, _fake_token_limiting
     ) -> None:
-        with self.settings(QUOTA_LIMITING_ENABLED=True, RECORDINGS_QUOTA_LIMITING_RESPONSES=False):
+        with self.settings(QUOTA_LIMITING_ENABLED=True, RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE=0):
 
             def fake_limiter(*args, **kwargs):
                 return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
