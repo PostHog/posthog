@@ -358,10 +358,13 @@ name = "autocomplete"
 version = "0.1.0"
 dependencies = [
  "envconfig",
+ "lru",
  "rdkafka",
  "serde",
  "serde_json",
  "serde_repr",
+ "sqlx",
+ "thiserror",
  "time",
  "tokio",
  "tracing",
@@ -2132,6 +2135,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 dependencies = [
  "value-bag",
+]
+
+[[package]]
+name = "lru"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
+dependencies = [
+ "hashbrown 0.14.3",
 ]
 
 [[package]]

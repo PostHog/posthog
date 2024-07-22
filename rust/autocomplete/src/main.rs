@@ -16,28 +16,27 @@ fn setup_tracing() {
 
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>>{
     // Default to debug logging
     env::set_var("RUST_LOG", "debug");
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env().unwrap();
+    let config = Config::init_from_env()?;
 
     let kafka_config: ClientConfig = (&config.kafka).into();
 
-    let consumer: StreamConsumer = kafka_config.create().unwrap();
+    let consumer: StreamConsumer = kafka_config.create()?;
 
-    let cache = PropertyCacheManager::new(&config);
+    let cache = PropertyCacheManager::new(&config).await?;
 
-    consumer.subscribe(&[config.kafka.event_topic.as_str()]).unwrap();
+    consumer.subscribe(&[config.kafka.event_topic.as_str()])?;
 
     info!("Subscribed to topic: {}", config.kafka.event_topic);
 
     loop {
         match consumer.recv().await {
             Ok(message) => {
-                debug!("Received message: {:?}", message);
                 let payload = message.payload_view::<str>();
 
 
@@ -54,7 +53,11 @@ async fn main() {
                     continue;
                 };
 
-                cache.handle_event(event).await;
+                debug!("Received event: {:?}", event);
+
+                if let Err(e) = cache.handle_event(event).await {
+                    warn!("Error handling event: {:?}", e);
+                }
 
             }
             Err(e) => {

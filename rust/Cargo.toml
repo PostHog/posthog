@@ -88,3 +88,4 @@ url = { version = "2.5.0 " }
 uuid = { version = "1.6.1", features = ["v7", "serde"] }
 neon = "1"
 serde_repr = { version = "0.1" }
+lru = { version = "0.12" }
