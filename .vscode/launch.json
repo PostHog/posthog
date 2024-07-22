@@ -15,6 +15,20 @@
             }
         },
         {
+            "name": "Frontend (https)",
+            "command": "pnpm start",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "env": {
+                "LOCAL_HTTPS": "1",
+                "JS_URL": "https://secure.posthog.dev"
+            }
+        },
+        {
             "name": "Backend",
             "consoleName": "Backend",
             "type": "debugpy",
@@ -189,6 +203,21 @@
                 "Backend (with local billing)",
                 "Celery Threaded Pool",
                 "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 2,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (https)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Frontend (https)",
                 "Plugin Server",
                 "Temporal Worker"
             ],

@@ -81,8 +81,10 @@ export class AsyncFunctionExecutor {
 
             // If the caller hasn't forced it to be synchronous and the team has the rustyhook enabled, enqueue it
             if (!options?.sync && this.hogHookEnabledForTeams(request.teamId)) {
-                await this.rustyHook.enqueueForHog(request)
-                return
+                const enqueued = await this.rustyHook.enqueueForHog(request)
+                if (enqueued) {
+                    return
+                }
             }
 
             status.info('🦔', `[HogExecutor] Webhook not sent via rustyhook, sending directly instead`)

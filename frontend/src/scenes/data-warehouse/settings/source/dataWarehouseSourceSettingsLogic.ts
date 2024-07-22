@@ -118,17 +118,31 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     }),
     listeners(({ values, actions, cache }) => ({
         loadSourceSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
+            clearTimeout(cache.sourceRefreshTimeout)
 
-            cache.refreshTimeout = setTimeout(() => {
+            cache.sourceRefreshTimeout = setTimeout(() => {
                 actions.loadSource()
             }, REFRESH_INTERVAL)
         },
         loadSourceFailure: () => {
-            clearTimeout(cache.refreshTimeout)
+            clearTimeout(cache.sourceRefreshTimeout)
 
-            cache.refreshTimeout = setTimeout(() => {
+            cache.sourceRefreshTimeout = setTimeout(() => {
                 actions.loadSource()
+            }, REFRESH_INTERVAL)
+        },
+        loadJobsSuccess: () => {
+            clearTimeout(cache.jobsRefreshTimeout)
+
+            cache.jobsRefreshTimeout = setTimeout(() => {
+                actions.loadJobs()
+            }, REFRESH_INTERVAL)
+        },
+        loadJobsFailure: () => {
+            clearTimeout(cache.jobsRefreshTimeout)
+
+            cache.jobsRefreshTimeout = setTimeout(() => {
+                actions.loadJobs()
             }, REFRESH_INTERVAL)
         },
         reloadSchema: async ({ schema }) => {

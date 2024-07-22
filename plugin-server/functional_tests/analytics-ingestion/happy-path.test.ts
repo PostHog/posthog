@@ -1,11 +1,46 @@
 import { UUIDT } from '../../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, fetchGroups, fetchPersons, getMetric } from '../api'
+import {
+    capture,
+    createOrganization,
+    createTeam,
+    fetchEvents,
+    fetchGroups,
+    fetchIngestionWarnings,
+    fetchPersons,
+    getMetric,
+} from '../api'
 import { waitForExpect } from '../expectations'
 
 let organizationId: string
 
 beforeAll(async () => {
     organizationId = await createOrganization()
+})
+
+test.concurrent(`event ingestion: handles $$client_ingestion_warning events`, async () => {
+    const teamId = await createTeam(organizationId)
+    const distinctId = new UUIDT().toString()
+
+    await capture({
+        teamId,
+        distinctId,
+        uuid: new UUIDT().toString(),
+        event: '$$client_ingestion_warning',
+        properties: {
+            $$client_ingestion_warning_message: 'test message',
+        },
+    })
+
+    await waitForExpect(async () => {
+        const events = await fetchIngestionWarnings(teamId)
+        expect(events).toEqual([
+            expect.objectContaining({
+                type: 'client_ingestion_warning',
+                team_id: teamId,
+                details: expect.objectContaining({ message: 'test message' }),
+            }),
+        ])
+    })
 })
 
 test.concurrent(`event ingestion: can set and update group properties`, async () => {
