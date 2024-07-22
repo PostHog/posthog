@@ -1,5 +1,5 @@
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
+import { Sparkline } from 'lib/components/Sparkline'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
@@ -31,9 +31,10 @@ export function renderHogQLX(value: any): JSX.Element {
         if (!tag) {
             return <JSONViewer src={rest} name={null} collapsed={Object.keys(rest).length > 10 ? 0 : 1} />
         } else if (tag === 'Sparkline') {
+            const { data, type, ...props } = rest
             return (
                 <ErrorBoundary>
-                    <Sparkline {...rest} data={rest.data ?? []} type={rest.type ?? []} />
+                    <Sparkline {...props} data={data ?? []} type={type} />
                 </ErrorBoundary>
             )
         }

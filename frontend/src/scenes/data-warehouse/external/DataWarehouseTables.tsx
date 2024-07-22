@@ -1,11 +1,9 @@
-import { IconBrackets, IconChevronDown, IconDatabase, IconGear } from '@posthog/icons'
+import { IconBrackets, IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -65,7 +63,6 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         useValues(dataWarehouseSceneLogic)
     const { selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable, toggleSchemaModal } =
         useActions(dataWarehouseSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [collapsed, setCollapsed] = useState(false)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
@@ -120,6 +117,17 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             >
                 Add join
             </LemonButton>
+            {table.type == 'view' && (
+                <LemonButton
+                    onClick={() => {
+                        router.actions.push(urls.dataWarehouseView(table.id, table.query))
+                    }}
+                    data-attr="schema-list-item-edit"
+                    fullWidth
+                >
+                    Edit view definition
+                </LemonButton>
+            )}
             {deleteButton(table)}
         </>
     )
@@ -159,10 +167,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     })),
                     isLoading: databaseLoading,
                 },
-            ]
-
-            if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
-                items.push({
+                {
                     name: 'Views',
                     items: views.map((table) => ({
                         name: table.name,
@@ -176,8 +181,8 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     })),
                     emptyLabel: <span className="text-muted">No views found</span>,
                     isLoading: databaseLoading,
-                })
-            }
+                },
+            ]
 
             return items
         }
@@ -203,10 +208,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 })),
                 isLoading: databaseLoading,
             },
-        ]
-
-        if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
-            items.push({
+            {
                 name: 'Views',
                 items: views.map((table) => ({
                     table: table,
@@ -214,8 +216,8 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 })),
                 emptyLabel: <span className="text-muted">No views found</span>,
                 isLoading: databaseLoading,
-            })
-        }
+            },
+        ]
 
         return items
     }
@@ -223,7 +225,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     return (
         <div
             className={clsx(
-                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto max-h-screen`,
+                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : 'flex-0'
             )}
         >
@@ -231,35 +233,8 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
             ) : (
                 <>
-                    <LemonButton
-                        size="xsmall"
-                        onClick={() => setCollapsed(true)}
-                        fullWidth
-                        sideIcon={
-                            <div className="flex flex-row gap-1">
-                                <LemonButton
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        router.actions.push(urls.dataWarehouseTable())
-                                    }}
-                                    type="primary"
-                                    size="xsmall"
-                                >
-                                    Link source
-                                </LemonButton>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="primary"
-                                    icon={<IconGear />}
-                                    data-attr="new-data-warehouse-settings-link"
-                                    key="new-data-warehouse-settings-link"
-                                    onClick={() => router.actions.push(urls.dataWarehouseSettings())}
-                                />
-                                <IconChevronDown className="rotate-90 text-xl" />
-                            </div>
-                        }
-                    >
-                        <span className="uppercase text-muted-alt tracking-wider">Schemas</span>
+                    <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth>
+                        <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>

@@ -1,5 +1,5 @@
 import { lemonToast, Link } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import {
     Breadcrumb,
+    DataWarehouseTab,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
@@ -49,7 +50,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 name: 'account_id',
                 label: 'Account id',
                 type: 'text',
-                required: true,
+                required: false,
                 placeholder: 'acct_...',
             },
             {
@@ -336,10 +337,16 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
     'cloudflare-r2': 'Cloudflare R2',
+    azure: 'Azure',
+}
+
+export interface SourceWizardLogicProps {
+    onComplete?: () => void
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
+    props({} as SourceWizardLogicProps),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
@@ -526,8 +533,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep, s.isManualLinkingSelected],
-            (currentStep, isManualLinkingSelected): string => {
+            (s) => [s.currentStep, s.isManualLinkingSelected, (_, props) => props.onComplete],
+            (currentStep, isManualLinkingSelected, onComplete): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
@@ -537,7 +544,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4) {
-                    return 'Return to settings'
+                    if (onComplete) {
+                        return 'Next'
+                    }
+                    return 'Return to sources'
                 }
 
                 return 'Next'
@@ -641,8 +651,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return ''
             },
         ],
+        // determines if the wizard is wrapped in another component
+        isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         onBack: () => {
             if (values.currentStep <= 1) {
                 actions.onClear()
@@ -688,7 +700,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 4) {
-                actions.closeWizard()
+                if (props.onComplete) {
+                    props.onComplete()
+                } else {
+                    actions.closeWizard()
+                }
             }
         },
         createTableSuccess: () => {
@@ -698,7 +714,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.cancelWizard()
 
             if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
-                router.actions.push(urls.dataWarehouseSettings())
+                router.actions.push(urls.dataWarehouse(DataWarehouseTab.ManagedSources))
             } else if (router.values.location.pathname.includes(urls.pipelineNodeDataWarehouseNew())) {
                 router.actions.push(urls.pipeline(PipelineTab.DataImport))
             }
@@ -765,6 +781,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
+
+                if (((e.data?.message as string | undefined) ?? '').indexOf('Invalid credentials') != -1) {
+                    posthog.capture('warehouse credentials invalid', { sourceType: values.selectedConnector.name })
+                }
             }
 
             actions.setIsLoading(false)

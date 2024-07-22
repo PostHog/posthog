@@ -546,6 +546,13 @@ export const billingLogic = kea<billingLogicType>([
                 const products = _search.products.split(',')
                 actions.setScrollToProductKey(products[0])
             }
+            if (_search.billing_error) {
+                actions.setBillingAlert({
+                    status: 'error',
+                    title: 'Error',
+                    message: _search.billing_error,
+                })
+            }
             actions.setRedirectPath()
             actions.setIsOnboarding()
         },

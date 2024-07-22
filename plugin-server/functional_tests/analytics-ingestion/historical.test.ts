@@ -49,9 +49,6 @@ test(`event ingestion: can ingest into the historical topic`, async () => {
         expect(event).toEqual(
             expect.objectContaining({
                 $group_0: 'posthog',
-                group0_properties: {
-                    prop: 'value',
-                },
             })
         )
     })
@@ -90,9 +87,6 @@ test(`event ingestion: can ingest into the historical topic`, async () => {
         expect(event).toEqual(
             expect.objectContaining({
                 $group_0: 'posthog',
-                group0_properties: {
-                    prop: 'updated value',
-                },
             })
         )
     })

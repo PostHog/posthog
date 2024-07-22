@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey, SDKKey } from '~/types'
 
+import { DataWarehouseSources } from './data-warehouse/sources'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
@@ -177,6 +178,14 @@ const SessionReplayOnboarding = (): JSX.Element => {
             value: currentTeam?.capture_performance_opt_in ?? true,
             visible: true,
         },
+        {
+            type: 'toggle',
+            title: 'Record user sessions',
+            description: 'Watch recordings of how users interact with your web app to see what can be improved.',
+            teamProperty: 'session_recording_opt_in',
+            value: true,
+            visible: false,
+        },
     ]
 
     if (hasAvailableFeature(AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM)) {
@@ -241,11 +250,20 @@ const SurveysOnboarding = (): JSX.Element => {
     )
 }
 
+const DataWarehouseOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <DataWarehouseSources usersAction="Data Warehouse" stepKey={OnboardingStepKey.LINK_DATA} />
+        </OnboardingWrapper>
+    )
+}
+
 export const onboardingViews = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
     [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
     [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
     [ProductKey.SURVEYS]: SurveysOnboarding,
+    [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {

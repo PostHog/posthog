@@ -3,6 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
+import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -31,6 +32,7 @@ interface DataTableVisualizationProps {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    readOnly?: boolean
 }
 
 let uniqueNode = 0
@@ -70,6 +72,7 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
 }
 
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
+    const { readOnly } = props
     const { query, visualizationType, showEditingUI, showResultControls, sourceFeatures, response, responseLoading } =
         useValues(dataVisualizationLogic)
 
@@ -110,9 +113,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     }
 
     return (
-        <div className="DataVisualization flex flex-1">
+        <div className="DataVisualization flex flex-1 gap-2">
+            {!readOnly && showEditingUI && (
+                <div className="flex max-sm:hidden">
+                    <DatabaseTableTreeWithItems inline />
+                </div>
+            )}
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                {showEditingUI && (
+                {!readOnly && showEditingUI && (
                     <>
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
                         {sourceFeatures.has(QueryFeature.dateRangePicker) && (
@@ -130,7 +138,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         )}
                     </>
                 )}
-                {showResultControls && (
+                {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
                         <div className="flex gap-4 justify-between flex-wrap">

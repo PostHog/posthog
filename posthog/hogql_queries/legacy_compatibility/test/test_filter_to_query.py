@@ -8,6 +8,7 @@ from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
     BaseMathType,
+    Breakdown,
     BreakdownAttributionType,
     BreakdownFilter,
     BreakdownType,
@@ -1342,7 +1343,27 @@ class TestFilterToQuery(BaseTest):
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.breakdownFilter,
-            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+            BreakdownFilter(breakdowns=[{"type": BreakdownType.EVENT, "value": "$browser"}]),
+        )
+
+        filter = {
+            "breakdowns": [
+                {"type": "event", "property": "$browser"},
+                {"type": "session", "property": "$session_duration"},
+            ]
+        }
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, TrendsQuery)
+        self.assertEqual(
+            query.breakdownFilter,
+            BreakdownFilter(
+                breakdowns=[
+                    {"type": BreakdownType.EVENT, "value": "$browser"},
+                    {"type": BreakdownType.SESSION, "value": "$session_duration"},
+                ]
+            ),
         )
 
     def test_breakdown_type_default(self):
@@ -1619,6 +1640,51 @@ class TestFilterToQuery(BaseTest):
             LifecycleFilter(
                 showValuesOnSeries=True,
                 toggledLifecycles=[LifecycleToggle.NEW, LifecycleToggle.DORMANT],
+            ),
+        )
+
+    def test_multiple_breakdowns(self):
+        filter = {
+            "breakdowns": [
+                {"type": "event", "value": "$url", "normalize_url": True},
+                {"type": "group", "value": "$os", "group_type_index": 0},
+                {"type": "session", "value": "$session_duration", "histogram_bin_count": 10},
+                {"type": "person", "value": "extra_prop"},
+            ]
+        }
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, TrendsQuery)
+        self.assertEqual(
+            query.breakdownFilter,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type=BreakdownType.EVENT, value="$url", normalize_url=True),
+                    Breakdown(type=BreakdownType.GROUP, value="$os", group_type_index=0),
+                    Breakdown(type=BreakdownType.SESSION, value="$session_duration", histogram_bin_count=10),
+                ]
+            ),
+        )
+
+    def test_legacy_multiple_breakdowns(self):
+        filter = {
+            "breakdowns": [
+                {"type": "event", "property": "$url"},
+                {"type": "session", "property": "$session_duration"},
+            ]
+        }
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, TrendsQuery)
+        self.assertEqual(
+            query.breakdownFilter,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type=BreakdownType.EVENT, value="$url"),
+                    Breakdown(type=BreakdownType.SESSION, value="$session_duration"),
+                ]
             ),
         )
 

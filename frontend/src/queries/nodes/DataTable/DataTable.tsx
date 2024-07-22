@@ -53,6 +53,7 @@ import {
     EventsQuery,
     HogQLQuery,
     PersonsNode,
+    SessionAttributionExplorerQuery,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import {
@@ -385,7 +386,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery) => setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery | SessionAttributionExplorerQuery) =>
+            setQuery?.({ ...query, source }),
         [setQuery]
     )
 
@@ -404,7 +406,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             />
         ) : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
-            <DateRange key="date-range" query={query.source as HogQLQuery | EventsQuery} setQuery={setQuerySource} />
+            <DateRange
+                key="date-range"
+                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery}
+                setQuery={setQuerySource}
+            />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
@@ -415,7 +421,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters
                 key="event-property"
-                query={query.source as EventsQuery}
+                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery}
                 setQuery={setQuerySource}
                 taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
             />

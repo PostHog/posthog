@@ -1,6 +1,6 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { type EditorProps, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, loader, Monaco } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -9,14 +9,20 @@ import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/mona
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 import * as hog from 'lib/monaco/languages/hog'
+import * as hogJson from 'lib/monaco/languages/hogJson'
 import * as hogQL from 'lib/monaco/languages/hogQL'
 import * as hogTemplate from 'lib/monaco/languages/hogTemplate'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
+import * as monaco from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage } from '~/queries/schema'
+
+if (loader) {
+    loader.config({ monaco })
+}
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
@@ -25,6 +31,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     autoFocus?: boolean
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
+    schema?: Record<string, any> | null
 }
 let codeEditorIndex = 0
 
@@ -84,6 +91,18 @@ function initEditor(
             monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
         }
     }
+    if (editorProps?.language === 'hogJson') {
+        if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogJson')) {
+            monaco.languages.register({
+                id: 'hogJson',
+                mimetypes: ['application/hog+json'],
+            })
+            monaco.languages.setLanguageConfiguration('hogJson', hogJson.conf())
+            monaco.languages.setMonarchTokensProvider('hogJson', hogJson.language())
+            monaco.languages.registerCompletionItemProvider('hogJson', hogQLAutocompleteProvider(HogLanguage.hogJson))
+            monaco.languages.registerCodeActionProvider('hogJson', hogQLMetadataProvider())
+        }
+    }
     if (options.tabFocusMode) {
         editor.onKeyDown((evt) => {
             if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
@@ -123,6 +142,7 @@ export function CodeEditor({
     autoFocus,
     globals,
     sourceQuery,
+    schema,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -159,6 +179,36 @@ export function CodeEditor({
             monacoRoot?.remove()
         }
     }, [])
+
+    useEffect(() => {
+        if (!monaco) {
+            return
+        }
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+            jsx: editorProps?.path?.endsWith('.tsx')
+                ? monaco.languages.typescript.JsxEmit.React
+                : monaco.languages.typescript.JsxEmit.Preserve,
+            esModuleInterop: true,
+        })
+    }, [monaco, editorProps.path])
+
+    useEffect(() => {
+        if (!monaco) {
+            return
+        }
+        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+            validate: true,
+            schemas: schema
+                ? [
+                      {
+                          uri: 'http://internal/node-schema.json',
+                          fileMatch: ['*'],
+                          schema: schema,
+                      },
+                  ]
+                : [],
+        })
+    }, [monaco, schema])
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])

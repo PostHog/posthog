@@ -2,7 +2,7 @@
 
 import { isTestEnv } from '../utils/env-utils'
 
-const suffix = isTestEnv() ? '_test' : ''
+export const suffix = isTestEnv() ? '_test' : ''
 export const prefix = process.env.KAFKA_PREFIX || ''
 
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
@@ -25,7 +25,6 @@ export const KAFKA_JOBS_DLQ = `${prefix}jobs_dlq${suffix}`
 export const KAFKA_SCHEDULED_TASKS = `${prefix}scheduled_tasks${suffix}`
 export const KAFKA_SCHEDULED_TASKS_DLQ = `${prefix}scheduled_tasks_dlq${suffix}`
 export const KAFKA_METRICS_TIME_TO_SEE_DATA = `${prefix}clickhouse_metrics_time_to_see_data${suffix}`
-export const KAFKA_PERSON_OVERRIDE = `${prefix}clickhouse_person_override${suffix}`
 
 // read session recording snapshot items
 export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS = `${prefix}session_recording_snapshot_item_events${suffix}`

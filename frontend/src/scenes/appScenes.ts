@@ -45,8 +45,10 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehouseTable]: () => import('./data-warehouse/new/NewSourceWizard'),
     [Scene.DataWarehouseExternal]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
-    [Scene.DataWarehouseSettings]: () => import('./data-warehouse/settings/DataWarehouseSettingsScene'),
+    [Scene.DataWarehouseSettings]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehouseRedirect]: () => import('./data-warehouse/redirect/DataWarehouseRedirectScene'),
+    [Scene.dataWarehouseSourceSettings]: () =>
+        import('./data-warehouse/settings/source/DataWarehouseSourceSettingsScene'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
@@ -80,5 +82,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
-    [Scene.SessionAttributionExplorer]: () => import('./web-analytics/SessionDebugger/SessionAttributionExplorerScene'),
+    [Scene.SessionAttributionExplorer]: () =>
+        import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
 }

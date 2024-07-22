@@ -5,9 +5,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
-import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { isActionFilter, isEventFilter, isRecordingPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
@@ -17,6 +16,7 @@ import posthog from 'posthog-js'
 import {
     AnyPropertyFilter,
     DurationType,
+    EntityTypes,
     FilterableLogLevel,
     FilterLogicalOperator,
     FilterType,
@@ -62,7 +62,7 @@ interface EventUUIDsMatching {
 
 interface BackendEventsMatching {
     matchType: 'backend'
-    filters: RecordingFilters
+    filters: RecordingUniversalFilters
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
@@ -126,9 +126,8 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
     })
 }
 
-function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
-    const nestedFilters = universalFilters.filter_group.values[0] as UniversalFiltersGroup
-    const filters = nestedFilters.values as UniversalFilterValue[]
+export function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
+    const filters = filtersFromUniversalFilterGroups(universalFilters)
 
     const properties: AnyPropertyFilter[] = []
     const events: FilterType['events'] = []
@@ -153,6 +152,20 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
                     if (value) {
                         snapshot_source = f
                     }
+                } else if (f.key === 'visited_page') {
+                    events.push({
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: EntityTypes.EVENTS,
+                        properties: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$current_url',
+                                value: f.value,
+                                operator: f.operator,
+                            },
+                        ],
+                    })
                 }
             } else {
                 properties.push(f)
@@ -172,7 +185,7 @@ function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUnive
         console_search_query,
         console_logs,
         snapshot_source,
-        operand: nestedFilters.type,
+        operand: universalFilters.filter_group.type,
     }
 }
 
@@ -669,6 +682,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 const eventFilters = filterValues.filter(isEventFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
+                const hasVisitedPageFilter = filterValues
+                    .filter(isRecordingPropertyFilter)
+                    .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
                 const hasActions = !!actionFilters.length
@@ -678,7 +694,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
-                if (hasActions) {
+                if (hasActions || hasVisitedPageFilter) {
                     return { matchType: 'backend', filters }
                 }
                 if (!hasEvents) {
@@ -813,6 +829,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setSelectedRecordingId: () => buildURL(false),
+            setUniversalFilters: () => buildURL(true),
             setAdvancedFilters: () => buildURL(true),
             setSimpleFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
@@ -843,6 +860,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         convertLegacyFiltersToUniversalFilters(params.simpleFilters, params.advancedFilters)
                     )
                 }
+            }
+            if (values.useUniversalFiltering && params.filters && !equal(params.filters, values.filters)) {
+                actions.setUniversalFilters(params.filters)
+                actions.setAdvancedFilters(convertUniversalFiltersToLegacyFilters(params.filters))
             }
         }
         return {
