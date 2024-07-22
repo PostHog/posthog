@@ -1304,7 +1304,19 @@ export interface ErrorTrackingGroup {
     volume?: any
     assignee: number | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
-    events?: Record<string, any>[]
+    events?: ErrorTrackingGroupEvent[]
+}
+
+export type ErrorTrackingGroupEvent = {
+    uuid: string
+    properties: string
+    timestamp: string
+    person: {
+        distinct_id: string
+        uuid?: string
+        created_at?: string
+        properties?: string
+    }
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {

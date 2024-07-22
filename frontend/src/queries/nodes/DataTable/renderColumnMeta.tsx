@@ -20,7 +20,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     const queryFeatures = getQueryFeatures(query.source)
     let align: ColumnMeta['align']
 
-    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : key
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
 
     if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
@@ -76,6 +76,14 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         width = queryContextColumn.width
     } else if (context?.columns?.[key]?.width) {
         width = context.columns[key].width
+    }
+
+    if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
+        const Component = queryContextColumn.renderTitle
+        title = Component ? <Component columnName={queryContextColumnName} query={query} /> : queryContextColumn.title
+    } else if (context?.columns?.[key]?.title || context?.columns?.[key]?.renderTitle) {
+        const Component = context?.columns?.[key]?.renderTitle
+        title = Component ? <Component columnName={key} query={query} /> : context?.columns?.[key]?.title
     }
 
     if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && !query.allowSorting) {
