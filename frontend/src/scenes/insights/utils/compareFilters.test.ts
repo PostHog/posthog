@@ -207,7 +207,7 @@ describe('compareFilters', () => {
                     histogram_bin_count: 10,
                 },
                 {
-                    property: '$prop',
+                    property: '$pathname',
                     type: 'group',
                     normalize_url: true,
                 },
@@ -223,7 +223,7 @@ describe('compareFilters', () => {
                     histogram_bin_count: 10,
                 },
                 {
-                    property: '$prop',
+                    property: '$pathname',
                     type: 'group',
                     normalize_url: false,
                 },
@@ -242,7 +242,7 @@ describe('compareFilters', () => {
                     histogram_bin_count: 10,
                 },
                 {
-                    property: '$prop',
+                    property: '$pathname',
                     type: 'group',
                     normalize_url: true,
                 },

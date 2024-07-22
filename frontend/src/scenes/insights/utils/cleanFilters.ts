@@ -166,7 +166,10 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
                 group_type_index: b.group_type_index,
                 normalize_url:
                     typeof b.property === 'string'
-                        ? cleanBreakdownNormalizeURL(b.property, b.normalize_url || filters.breakdown_normalize_url)
+                        ? cleanBreakdownNormalizeURL(
+                              b.property,
+                              typeof b.normalize_url === 'boolean' ? b.normalize_url : filters.breakdown_normalize_url
+                          )
                         : undefined,
             }))
         } else if (filters.breakdown) {
