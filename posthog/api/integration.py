@@ -20,15 +20,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Integration
-        fields = [
-            "id",
-            "kind",
-            "config",
-            "created_at",
-            "created_by",
-            "errors",
-        ]
-        read_only_fields = ["id", "created_at", "created_by", "errors"]
+        fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
+        read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
 
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
