@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { payGateMiniLogic, PayGateMiniLogicProps } from './payGateMiniLogic'
 
 interface PayGateButtonProps extends PayGateMiniLogicProps {
-    onClick: () => void
+    onClick?: () => void
 }
 
 export const PayGateButton = ({ feature, currentUsage, onClick }: PayGateButtonProps): JSX.Element | null => {
