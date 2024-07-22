@@ -1,7 +1,13 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp, ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
+import {
+    AppMetric2Type,
+    ClickHouseTimestamp,
+    ElementPropertyFilter,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+} from '../types'
 
 export type HogBytecode = any[]
 
@@ -247,7 +253,7 @@ export type CdpOverflowMessage = CdpOverflowMessageInvocations | CdpOverflowMess
 
 export type HogFunctionMessageToProduce = {
     topic: string
-    value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse
+    value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse | AppMetric2Type
     key: string
 }
 
