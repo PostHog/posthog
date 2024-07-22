@@ -8,6 +8,7 @@ from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
+from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -329,4 +330,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/20"),
         calculate_external_data_rows_synced.s(),
         name="calculate external data rows synced",
+    )
+
+    # Check integrations to refresh every minute
+    add_periodic_task_with_expiry(
+        sender,
+        60,
+        refresh_integrations.s(),
+        name="refresh integrations",
     )

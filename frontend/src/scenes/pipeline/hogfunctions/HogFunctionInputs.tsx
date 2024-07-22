@@ -273,6 +273,7 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                         options={[
                             { label: 'Slack', value: 'slack' },
                             { label: 'Salesforce', value: 'salesforce' },
+                            { label: 'Hubspot', value: 'hubspot' },
                         ]}
                         placeholder="Choose kind"
                     />

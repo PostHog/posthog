@@ -1,5 +1,5 @@
 import { IconLock } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -160,12 +160,31 @@ export function OverViewTab({
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => {
-                                        featureFlag.id
-                                            ? updateFeatureFlag({
-                                                  id: featureFlag.id,
-                                                  payload: { active: !featureFlag.active },
-                                              })
-                                            : null
+                                        const newValue = !featureFlag.active
+                                        LemonDialog.open({
+                                            title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                            description: `This flag will be immediately ${
+                                                newValue === true ? 'rolled out to' : 'rolled back from'
+                                            } the users matching the release conditions.`,
+                                            primaryButton: {
+                                                children: 'Confirm',
+                                                type: 'primary',
+                                                onClick: () => {
+                                                    featureFlag.id
+                                                        ? updateFeatureFlag({
+                                                              id: featureFlag.id,
+                                                              payload: { active: newValue },
+                                                          })
+                                                        : null
+                                                },
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
                                     }}
                                     id={`feature-flag-${featureFlag.id}-switch`}
                                     disabled={!featureFlag.can_edit}

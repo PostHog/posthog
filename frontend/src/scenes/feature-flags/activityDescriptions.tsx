@@ -260,6 +260,22 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return { description: null }
     }
 
+    if (logItem.activity === 'created') {
+        return {
+            description: (
+                <SentenceList
+                    listParts={[<>created a new feature flag:</>]}
+                    prefix={
+                        <>
+                            <strong>{userNameForLogItem(logItem)}</strong>
+                        </>
+                    }
+                    suffix={<> {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>}
+                />
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let changeSuffix: Description = (

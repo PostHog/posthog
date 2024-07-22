@@ -1,6 +1,8 @@
+import base64
 import dlt
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.requests import Response, Request
+import requests
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
 from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
@@ -278,3 +280,12 @@ def zendesk_source(
     }
 
     yield from rest_api_resources(config, team_id, job_id)
+
+
+def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
+    basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
+    res = requests.get(
+        f"https://{subdomain}.zendesk.com/api/v2/tickets/count", headers={"Authorization": f"Basic {basic_token}"}
+    )
+
+    return res.status_code == 200
