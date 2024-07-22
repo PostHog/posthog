@@ -1,3 +1,5 @@
+from typing import Optional
+
 from freezegun import freeze_time
 from parameterized import parameterized
 
@@ -105,6 +107,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         include_scroll_depth=False,
         properties=None,
         session_table_version: SessionTableVersion = SessionTableVersion.V1,
+        filter_test_accounts: Optional[bool] = False,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
         query = WebStatsTableQuery(
@@ -115,6 +118,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             doPathCleaning=bool(path_cleaning_filters),
             includeBounceRate=include_bounce_rate,
             includeScrollDepth=include_scroll_depth,
+            filterTestAccounts=filter_test_accounts,
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
         runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
@@ -183,11 +187,26 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
 
         results = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", session_table_version=session_table_version
+            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=True
         ).results
 
         self.assertEqual(
             [],
+            results,
+        )
+
+    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
+    def test_dont_filter_test_accounts(self, session_table_version: SessionTableVersion):
+        s1 = str(uuid7("2023-12-02"))
+        # Create 1 test account
+        self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", session_table_version=session_table_version, filter_test_accounts=False
+        ).results
+
+        self.assertEqual(
+            [["/", 1, 1], ["/login", 1, 1]],
             results,
         )
 

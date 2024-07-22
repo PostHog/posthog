@@ -2979,6 +2979,7 @@ class WebOverviewQuery(BaseModel):
     )
     compare: Optional[bool] = None
     dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -2996,6 +2997,7 @@ class WebStatsTableQuery(BaseModel):
     breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
     includeBounceRate: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
@@ -3014,6 +3016,7 @@ class WebTopClicksQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
