@@ -1,19 +1,24 @@
 .InsightTooltipWrapper {
     position: absolute;
     z-index: var(--z-graph-tooltip);
-    pointer-events: none;
+    pointer-events: auto;
     transition: all 0.4s;
 }
 
 .InsightTooltip {
     max-width: 30rem;
-    overflow: hidden;
+    overflow-x: auto;
     font-size: 0.8125rem;
-    pointer-events: none;
+    pointer-events: auto;
     background: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation-3000);
+
+    &:hover {
+        display: block;
+        opacity: 1;
+    }
 
     &--embedded {
         border: none;
