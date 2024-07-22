@@ -4,6 +4,7 @@ import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import { LemonBadge, LemonButton, LemonModal, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -27,6 +28,10 @@ export function Transformations(): JSX.Element {
 
     return (
         <>
+            <PageHeader
+                caption="Transform your incoming events before they are stored in PostHog or sent on to Destinations."
+                buttons={<NewButton stage={PipelineStage.Transformation} />}
+            />
             <ProductIntroduction
                 productName="Pipeline transformations"
                 thingName="transformation"

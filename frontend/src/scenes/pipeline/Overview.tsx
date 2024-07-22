@@ -1,4 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
+import { PageHeader } from 'lib/components/PageHeader'
 import { urls } from 'scenes/urls'
 
 import { PipelineTab } from '~/types'
@@ -9,6 +10,7 @@ import { TransformationsTable } from './Transformations'
 export function Overview(): JSX.Element {
     return (
         <div>
+            <PageHeader caption="Transform your incoming events or send them to Destinations outside of PostHog." />
             <Link to={urls.pipeline(PipelineTab.Transformations)}>
                 <h2 className="mt-4">Transformations</h2>
             </Link>
