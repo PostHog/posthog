@@ -8,11 +8,10 @@ import { NotFound } from 'lib/components/NotFound'
 import { Playlist } from 'lib/components/Playlist/Playlist'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
-import { ErrorTrackingGroup } from '~/queries/schema'
-
 import { errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
 
-type ErrorTrackingGroupEvent = {
+type ErrorTrackingEvent = {
+    id: string
     uuid: string
     properties: Record<string, any>
     timestamp: string
@@ -25,12 +24,17 @@ type ErrorTrackingGroupEvent = {
 }
 
 export const OverviewTab = (): JSX.Element => {
-    const { group, groupLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { group, events, groupLoading } = useValues(errorTrackingGroupSceneLogic)
 
-    const groupEvents = (group: ErrorTrackingGroup): ErrorTrackingGroupEvent[] => {
-        const events = group.events || []
-        return events as ErrorTrackingGroupEvent[]
-    }
+    const mappedEvents: ErrorTrackingEvent[] = events.map((e) => ({
+        ...e,
+        id: e.uuiddd,
+        properties: JSON.parse(e.properties),
+        person: {
+            ...e.person,
+            properties: JSON.parse(e.person.properties),
+        },
+    }))
 
     return groupLoading ? (
         <Spinner className="self-align-center justify-self-center" />
@@ -43,7 +47,7 @@ export const OverviewTab = (): JSX.Element => {
                         {
                             key: 'exceptions',
                             title: 'Exceptions',
-                            items: groupEvents(group).map((e) => ({ ...e, id: e.uuid })),
+                            items: mappedEvents,
                             render: ListItemException,
                         },
                     ]}
@@ -69,13 +73,7 @@ export const OverviewTab = (): JSX.Element => {
     )
 }
 
-const ListItemException = ({
-    item: event,
-    isActive,
-}: {
-    item: ErrorTrackingGroupEvent
-    isActive: boolean
-}): JSX.Element => {
+const ListItemException = ({ item: event, isActive }: { item: ErrorTrackingEvent; isActive: boolean }): JSX.Element => {
     const properties = ['$browser', '$device_type', '$os']
         .flatMap((property) => {
             let value = event.properties[property]

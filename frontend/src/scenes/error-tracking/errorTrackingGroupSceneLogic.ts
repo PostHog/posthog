@@ -21,6 +21,18 @@ export enum ErrorGroupTab {
     Breakdowns = 'breakdowns',
 }
 
+type ErrorTrackingGroupEvent = {
+    uuid: string
+    properties: string
+    timestamp: string
+    person: {
+        distinct_id: string
+        uuid?: string
+        created_at?: string
+        properties?: string
+    }
+}
+
 export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingGroupSceneLogic', key]),
     props({} as ErrorTrackingGroupSceneLogicProps),
@@ -81,6 +93,8 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                 ]
             },
         ],
+
+        events: [(s) => [s.group], (group) => (group?.events || []) as ErrorTrackingGroupEvent[]],
     }),
 
     actionToUrl(({ values }) => ({
