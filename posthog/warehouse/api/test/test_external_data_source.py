@@ -494,20 +494,94 @@ class TestExternalDataSource(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_stripe_credentials(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "client_secret": "blah",
+                    "account_id": "blah",
+                },
+            )
+
+            assert response.status_code == 200
+
+    def test_database_schema_stripe_credentials_sad_path(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = False
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "client_secret": "blah",
+                    "account_id": "blah",
+                },
+            )
+
+            assert response.status_code == 400
+
+    def test_database_schema_zendesk_credentials(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Zendesk",
+                    "subdomain": "blah",
+                    "api_key": "blah",
+                    "email_address": "blah",
+                },
+            )
+
+            assert response.status_code == 200
+
+    def test_database_schema_zendesk_credentials_sad_path(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = False
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Zendesk",
+                    "subdomain": "blah",
+                    "api_key": "blah",
+                    "email_address": "blah",
+                },
+            )
+
+            assert response.status_code == 400
+
     def test_database_schema_non_postgres_source(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
-            data={
-                "source_type": "Stripe",
-            },
-        )
-        results = response.json()
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                },
+            )
+            results = response.json()
 
-        self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 200)
 
-        table_names = [table["table"] for table in results]
-        for table in ENDPOINTS:
-            assert table in table_names
+            table_names = [table["table"] for table in results]
+            for table in ENDPOINTS:
+                assert table in table_names
 
     @patch(
         "posthog.warehouse.api.external_data_source.get_postgres_schemas", return_value={"table_1": [("id", "integer")]}

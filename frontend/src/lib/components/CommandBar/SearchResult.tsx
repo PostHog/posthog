@@ -1,4 +1,5 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
@@ -17,17 +18,16 @@ type SearchResultProps = {
     result: ResultType
     resultIndex: number
     focused: boolean
-    keyboardFocused: boolean
 }
 
-export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
-    const { isAutoScrolling, aggregationLabel } = useValues(searchBarLogic)
-    const { onMouseEnterResult, onMouseLeaveResult, openResult, setIsAutoScrolling } = useActions(searchBarLogic)
+export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps): JSX.Element => {
+    const { aggregationLabel } = useValues(searchBarLogic)
+    const { openResult } = useActions(searchBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
     useLayoutEffect(() => {
-        if (keyboardFocused) {
+        if (focused) {
             // :HACKY: This uses the non-standard scrollIntoViewIfNeeded api
             // to improve scroll behaviour. Change to scrollIntoView({ scrollMode: 'if-needed' })
             // once available.
@@ -36,31 +36,15 @@ export const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: 
             } else {
                 ref.current?.scrollIntoView()
             }
-
-            // set scrolling state to prevent mouse enter/leave events during
-            // keyboard navigation
-            setIsAutoScrolling(true)
-            setTimeout(() => {
-                setIsAutoScrolling(false)
-            }, 50)
         }
-    }, [keyboardFocused])
+    }, [focused])
 
     return (
         <div
-            className={`w-full pl-3 pr-2 ${focused ? 'bg-bg-3000' : 'bg-bg-light'} border-r border-b cursor-pointer`}
-            onMouseEnter={() => {
-                if (isAutoScrolling) {
-                    return
-                }
-                onMouseEnterResult(resultIndex)
-            }}
-            onMouseLeave={() => {
-                if (isAutoScrolling) {
-                    return
-                }
-                onMouseLeaveResult()
-            }}
+            className={clsx(
+                'w-full pl-3 pr-2 hover:bg-bg-3000 border-l-4 border-r border-b cursor-pointer',
+                focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
+            )}
             onClick={() => {
                 openResult(resultIndex)
             }}
