@@ -86,7 +86,7 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAsNamingSuccess: (name: string) => ({ name }),
+        saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
         cancelChanges: true,
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -435,7 +435,7 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAsNamingSuccess: async ({ name }) => {
+        saveAsNamingSuccess: async ({ name, redirectToViewMode }) => {
             let filters
             let query
             if (!values.queryBasedInsightSaving && isInsightVizNode(values.queryBasedInsight.query)) {
@@ -457,7 +457,12 @@ export const insightLogic = kea<insightLogicType>([
             )
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
-            router.actions.push(urls.insightEdit(insight.short_id))
+
+            if (redirectToViewMode) {
+                router.actions.push(urls.insightView(insight.short_id))
+            } else {
+                router.actions.push(urls.insightEdit(insight.short_id))
+            }
         },
         cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})
