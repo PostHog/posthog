@@ -76,6 +76,7 @@ export const startBatchConsumer = async ({
     fetchMinBytes,
     maxHealthHeartbeatIntervalMs = 60_000,
     autoOffsetStore = true,
+    topicMetadataRefreshInterval,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -97,6 +98,7 @@ export const startBatchConsumer = async ({
     debug?: string
     queuedMaxMessagesKBytes?: number
     fetchMinBytes?: number
+    topicMetadataRefreshInterval?: number
     /**
      * default to 0 which disables logging
      * granularity of 1000ms
@@ -130,6 +132,7 @@ export const startBatchConsumer = async ({
 
     const consumerConfig: ConsumerGlobalConfig = {
         ...connectionConfig,
+        'topic.metadata.refresh.interval.ms': topicMetadataRefreshInterval,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
         'max.poll.interval.ms': maxPollIntervalMs,
