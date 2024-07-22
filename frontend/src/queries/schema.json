@@ -423,6 +423,9 @@
                 "normalize_url": {
                     "type": "boolean"
                 },
+                "property": {
+                    "type": "string"
+                },
                 "type": {
                     "anyOf": [
                         {
@@ -432,12 +435,9 @@
                             "type": "null"
                         }
                     ]
-                },
-                "value": {
-                    "type": "string"
                 }
             },
-            "required": ["value"],
+            "required": ["property"],
             "type": "object"
         },
         "BreakdownAttributionType": {
