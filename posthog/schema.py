@@ -331,24 +331,22 @@ class Status(StrEnum):
     PENDING_RELEASE = "pending_release"
 
 
-class Person(BaseModel):
+class ErrorTrackingGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    created_at: Optional[str] = None
-    distinct_id: str
-    properties: Optional[str] = None
-    uuid: Optional[str] = None
-
-
-class ErrorTrackingGroupEvent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    person: Person
-    properties: str
-    timestamp: str
-    uuid: str
+    assignee: Optional[float] = None
+    description: Optional[str] = None
+    events: Optional[list[dict[str, Any]]] = None
+    fingerprint: str
+    first_seen: AwareDatetime
+    last_seen: AwareDatetime
+    merged_fingerprints: list[str]
+    occurrences: float
+    sessions: float
+    status: Status
+    users: float
+    volume: Optional[Any] = None
 
 
 class Order(StrEnum):
@@ -384,7 +382,7 @@ class EventOddsRatioSerialized(BaseModel):
     success_count: int
 
 
-class Person1(BaseModel):
+class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -402,7 +400,7 @@ class EventType(BaseModel):
     elements_chain: Optional[str] = None
     event: str
     id: str
-    person: Optional[Person1] = None
+    person: Optional[Person] = None
     properties: dict[str, Any]
     timestamp: str
     uuid: Optional[str] = None
@@ -1423,6 +1421,40 @@ class CachedActorsQueryResponse(BaseModel):
     types: list[str]
 
 
+class CachedErrorTrackingQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[ErrorTrackingGroup]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1947,6 +1979,28 @@ class Response6(BaseModel):
     types: Optional[list] = None
 
 
+class Response7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    results: list[ErrorTrackingGroup]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2020,24 +2074,6 @@ class ElementPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["element"] = "element"
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
-
-
-class ErrorTrackingGroup(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignee: Optional[float] = None
-    description: Optional[str] = None
-    events: Optional[list[ErrorTrackingGroupEvent]] = None
-    fingerprint: str
-    first_seen: AwareDatetime
-    last_seen: AwareDatetime
-    merged_fingerprints: list[str]
-    occurrences: float
-    sessions: float
-    status: Status
-    users: float
-    volume: Optional[Any] = None
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -3051,40 +3087,6 @@ class AnyResponseType(
     ]
 
 
-class CachedErrorTrackingQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: AwareDatetime
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[ErrorTrackingGroup]
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class CachedHogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3230,28 +3232,6 @@ class Response2(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = Field(default=None, description="Types of returned columns")
-
-
-class Response7(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    results: list[ErrorTrackingGroup]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
 
 
 class DataWarehouseNode(BaseModel):

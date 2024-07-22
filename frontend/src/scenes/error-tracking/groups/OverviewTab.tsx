@@ -8,9 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { Playlist } from 'lib/components/Playlist/Playlist'
 import { PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
-import { ErrorTrackingGroupEvent } from '~/queries/schema'
-
-import { errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
+import { ErrorTrackingGroupEvent, errorTrackingGroupSceneLogic } from '../errorTrackingGroupSceneLogic'
 
 export const OverviewTab = (): JSX.Element => {
     const { group, events, groupLoading } = useValues(errorTrackingGroupSceneLogic)

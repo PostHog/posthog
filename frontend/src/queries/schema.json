@@ -3271,7 +3271,7 @@
                 },
                 "events": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingGroupEvent"
+                        "type": "object"
                     },
                     "type": "array"
                 },
@@ -3319,41 +3319,6 @@
                 "assignee",
                 "status"
             ],
-            "type": "object"
-        },
-        "ErrorTrackingGroupEvent": {
-            "additionalProperties": false,
-            "properties": {
-                "person": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "created_at": {
-                            "type": "string"
-                        },
-                        "distinct_id": {
-                            "type": "string"
-                        },
-                        "properties": {
-                            "type": "string"
-                        },
-                        "uuid": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["distinct_id"],
-                    "type": "object"
-                },
-                "properties": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
-                }
-            },
-            "required": ["uuid", "properties", "timestamp", "person"],
             "type": "object"
         },
         "ErrorTrackingQuery": {
