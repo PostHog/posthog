@@ -136,16 +136,7 @@ class _KafkaProducer:
                 **{"api_version_auto_timeout_ms": 30000}
                 if settings.DEBUG
                 else {},  # Local development connections could be really slow
-                **{
-                    "metadata_max_age_ms": "60000",
-                    "batch_size": "16000000",
-                    "max_request_size": "104857600",
-                    "linger_ms": "100",
-                    "partitioner": "consistent_random",
-                    "max_in_flight_requests_per_connection": "1000000",
-                }
-                if settings.KAFKA_PRODUCER_USE_WARPSTREAM_SETTINGS
-                else {},
+                **settings.KAFKA_PRODUCER_SETTINGS,
                 **_sasl_params(),
             )
 

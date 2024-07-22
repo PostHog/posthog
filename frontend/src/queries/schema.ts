@@ -344,6 +344,7 @@ export interface HogQLAutocompleteResponse {
 
 export enum HogLanguage {
     hog = 'hog',
+    hogJson = 'hogJson',
     hogQL = 'hogQL',
     hogQLExpr = 'hogQLExpr',
     hogTemplate = 'hogTemplate',
@@ -1166,6 +1167,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }

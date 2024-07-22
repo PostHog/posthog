@@ -375,7 +375,7 @@ class BytecodeBuilder(Visitor):
         response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL, "values", 1])
 
         loop_index_local = self._declare_local("__H_index_H__")  # 0
-        response.extend([Operation.INTEGER, 0])
+        response.extend([Operation.INTEGER, 1])
 
         loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
         response.extend([Operation.GET_LOCAL, expr_values_local, Operation.CALL, "length", 1])
@@ -390,7 +390,7 @@ class BytecodeBuilder(Visitor):
         response.extend([Operation.NULL])
 
         # check if loop_index < loop_limit
-        condition = [Operation.GET_LOCAL, loop_limit_local, Operation.GET_LOCAL, loop_index_local, Operation.LT]
+        condition = [Operation.GET_LOCAL, loop_limit_local, Operation.GET_LOCAL, loop_index_local, Operation.LT_EQ]
 
         # set key_var and value_var
         body: list = []

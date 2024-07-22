@@ -1,13 +1,13 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  node-rdkafka@2.17.0:
-    hash: p4aetcvho53cvjti6c3zi7tfaq
-    path: patches/node-rdkafka@2.17.0.patch
+  node-rdkafka@3.1.0:
+    hash: 2blh4g6m4osumqx2eqyegyjb7q
+    path: patches/node-rdkafka@3.1.0.patch
 
 dependencies:
   '@aws-sdk/client-s3':
@@ -44,8 +44,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/hogvm':
-    specifier: ^1.0.26
-    version: 1.0.26(luxon@3.4.4)(re2@1.20.3)
+    specifier: ^1.0.27
+    version: 1.0.27(luxon@3.4.4)(re2@1.20.3)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -113,8 +113,8 @@ dependencies:
     specifier: ^2.6.1
     version: 2.6.9
   node-rdkafka:
-    specifier: ^2.17.0
-    version: 2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
+    specifier: ^3.1.0
+    version: 3.1.0(patch_hash=2blh4g6m4osumqx2eqyegyjb7q)
   node-schedule:
     specifier: ^2.1.0
     version: 2.1.1
@@ -3110,8 +3110,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.26(luxon@3.4.4)(re2@1.20.3):
-    resolution: {integrity: sha512-lkJflxu/LP9TnXXW1FCePr2iaKKD7XKq68ipmtFY7v43km3ma0Se4NnuftiSX9evGIpQVXT/9JB5LY9waM/lJw==}
+  /@posthog/hogvm@1.0.27(luxon@3.4.4)(re2@1.20.3):
+    resolution: {integrity: sha512-tTI+Xg/SAS1cqL0VR/XI0NWV7PzL9u5y1mCdla3251zWE4LwdDJp3RPpAnNC8LWXUXjkaCF3dugVCygqtji6hg==}
     peerDependencies:
       luxon: ^3.4.4
       re2: ^1.21.3
@@ -8318,6 +8318,10 @@ packages:
     resolution: {integrity: sha512-2ZTgtl0nJsO0KQCjEpxcIr5D+Yv90plTitZt9JBfQvVJDS5seMl3FOvsh3+9CoYWXf/1l5OaZzzF6nDm4cagaQ==}
     dev: false
 
+  /nan@2.20.0:
+    resolution: {integrity: sha512-bk3gXBZDGILuuo/6sKtr0DQmSThYHLtNCdSdXk9YkxD/jK6X2vmCyyXBBxyqZ4XcnzTyYEAThfX3DCEnLf6igw==}
+    dev: false
+
   /nanoassert@1.1.0:
     resolution: {integrity: sha512-C40jQ3NzfkP53NsO8kEOFd79p4b9kDXQMwgiY1z8ZwrDZgUyom0AHwGegF4Dm99L+YoYhuaB0ceerUcXmqr1rQ==}
     dev: true
@@ -8431,13 +8435,13 @@ packages:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
     dev: true
 
-  /node-rdkafka@2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq):
-    resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
-    engines: {node: '>=6.0.0'}
+  /node-rdkafka@3.1.0(patch_hash=2blh4g6m4osumqx2eqyegyjb7q):
+    resolution: {integrity: sha512-H0FeV6cgkFX/NHKPyWsUHoC4l645/2vfKVdTyvKmwX+nafHuZzT6xVWl2kJQBNVJcRVgtQA1Loz6iXWhq03RKw==}
+    engines: {node: '>=16'}
     requiresBuild: true
     dependencies:
       bindings: 1.5.0
-      nan: 2.17.0
+      nan: 2.20.0
     dev: false
     patched: true
 

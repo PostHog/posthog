@@ -157,12 +157,32 @@ export class RustyHook {
                     break
                 }
 
+                // TODO: Remove this after more thorough testing of hoghooks. For now, we don't want
+                // to choke up Hog ingestion if something is wrong with our payload or with
+                // rusty-hook. By returning `false`, we leave it to the `AsyncFunctionExecutor` to
+                // call `fetch` inline.
+                if (response.status >= 400) {
+                    const message = 'Hoghook enqueue failed with an HTTP 4XX'
+                    Sentry.captureMessage(message, {
+                        extra: {
+                            status: response.status,
+                            statusText: response.statusText,
+                        },
+                    })
+                    status.error('🔴', message, {
+                        status: response.status,
+                        statusText: response.statusText,
+                        payload,
+                    })
+                    return false
+                }
+
                 // Throw to unify error handling below.
                 throw new Error(
-                    `rusty-hook for Hog returned ${response.status} ${response.statusText}: ${await response.text()}`
+                    `Hoghook enqueue returned ${response.status} ${response.statusText}: ${await response.text()}`
                 )
             } catch (error) {
-                status.error('🔴', 'Webhook enqueue to rusty-hook for Hog failed', { error, attempt })
+                status.error('🔴', 'Hoghook enqueue to rusty-hook for Hog failed', { error, attempt })
                 Sentry.captureException(error)
             }
 
