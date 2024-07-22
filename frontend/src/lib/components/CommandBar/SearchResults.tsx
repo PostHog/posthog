@@ -8,8 +8,7 @@ import { SearchResult, SearchResultSkeleton } from './SearchResult'
 import { SearchResultPreview } from './SearchResultPreview'
 
 export const SearchResults = (): JSX.Element => {
-    const { combinedSearchResults, combinedSearchLoading, activeResultIndex, keyboardResultIndex } =
-        useValues(searchBarLogic)
+    const { combinedSearchResults, combinedSearchLoading, activeResultIndex } = useValues(searchBarLogic)
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -46,7 +45,6 @@ export const SearchResults = (): JSX.Element => {
                                     result={result}
                                     resultIndex={index}
                                     focused={index === activeResultIndex}
-                                    keyboardFocused={index === keyboardResultIndex}
                                 />
                             ))}
                     </div>
