@@ -31,9 +31,7 @@ export const pipelineNodeMetricsV2Logic = kea<pipelineNodeMetricsV2LogicType>([
             {
                 loadMetrics: async () => {
                     const params: AppMetricsV2RequestParams = {
-                        before: values.dateRange.to ?? undefined,
-                        after: values.dateRange.from ?? undefined,
-                        interval: values.interval,
+                        ...values.filters,
                         breakdown_by: 'name',
                     }
                     return await api.hogFunctions.metrics(props.id, params)

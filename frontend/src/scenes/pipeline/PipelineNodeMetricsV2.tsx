@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
+import { inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
 import { pipelineNodeLogic } from './pipelineNodeLogic'
@@ -20,8 +20,8 @@ export function PipelineNodeMetricsV2(): JSX.Element {
 
     const logic = pipelineNodeMetricsV2Logic({ id: node.id })
 
-    const { dateRange, filters } = useValues(logic)
-    const { setDateRange, setFilters } = useActions(logic)
+    const { filters } = useValues(logic)
+    const { setFilters } = useActions(logic)
 
     return (
         <BindLogic logic={pipelineNodeMetricsV2Logic} props={{ id: node.id }}>
@@ -33,13 +33,14 @@ export function PipelineNodeMetricsV2(): JSX.Element {
                             { label: 'Daily', value: 'day' },
                             { label: 'Weekly', value: 'week' },
                         ]}
+                        size="small"
                         value={filters.interval}
                         onChange={(value) => setFilters({ interval: value })}
                     />
                     <DateFilter
-                        dateTo={dateRange.to}
-                        dateFrom={dateRange.from}
-                        onChange={(from, to) => setDateRange(from, to)}
+                        dateTo={filters.before}
+                        dateFrom={filters.after}
+                        onChange={(from, to) => setFilters({ after: from, before: to })}
                         allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
                         makeLabel={(key) => (
                             <>
@@ -86,16 +87,9 @@ export function PipelineNodeMetricsV2(): JSX.Element {
 //     )
 // }
 
-function renderNumber(value: number | undefined): JSX.Element {
-    return <>{value ? humanFriendlyNumber(value) : value}</>
-}
-
 function AppMetricsGraph(): JSX.Element {
     const { appMetrics, appMetricsLoading } = useValues(pipelineNodeMetricsV2Logic)
-
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-
-    console.log(appMetrics)
 
     useEffect(() => {
         let chart: Chart
@@ -170,8 +164,6 @@ function colorConfig(name: string): Partial<ChartDataset<'line', any>> {
             color = getColorVar('data-color-2')
             break
     }
-
-    console.log({ color, name })
 
     return {
         borderColor: color,
