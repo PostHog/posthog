@@ -157,7 +157,6 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
         if (canMultiPropertyBreakdown && filters.breakdowns && filters.breakdowns.length > 0) {
             cleanedParams['breakdowns'] = filters.breakdowns
         } else if (isTrends && filters.breakdowns && filters.breakdowns.length > 0) {
-            // Clean up a legacy breakdown
             cleanedParams['breakdown_type'] = undefined
             cleanedParams['breakdowns'] = filters.breakdowns.map((b) => ({
                 property: b.property,
