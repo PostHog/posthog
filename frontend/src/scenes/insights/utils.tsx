@@ -242,7 +242,7 @@ function formatNumericBreakdownLabel(
 
         return (
             formatPropertyValueForDisplay(
-                nestedBreakdown?.value ?? breakdownFilter?.breakdown,
+                nestedBreakdown?.property ?? breakdownFilter?.breakdown,
                 breakdown_value,
                 propertyFilterTypeToPropertyDefinitionType(nestedBreakdown?.type ?? breakdownFilter?.breakdown_type)
             )?.toString() ?? 'None'

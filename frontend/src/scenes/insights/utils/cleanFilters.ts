@@ -158,28 +158,17 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
             cleanedParams['breakdowns'] = filters.breakdowns
         } else if (isTrends && filters.breakdowns && filters.breakdowns.length > 0) {
             // Clean up a legacy breakdown
-            if (filters.breakdowns[0].property) {
-                cleanedParams['breakdown'] = filters.breakdowns[0].property
-                cleanedParams['breakdown_type'] = filters.breakdowns[0].type || filters.breakdown_type
-                cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
-                    cleanedParams['breakdown'] as string,
-                    filters.breakdown_normalize_url
-                )
-            } else {
-                cleanedParams['breakdown_type'] = undefined
-                cleanedParams['breakdowns'] = filters.breakdowns
-                    .map((b) => ({
-                        value: b.value,
-                        type: b.type,
-                        histogram_bin_count: b.histogram_bin_count,
-                        group_type_index: b.group_type_index,
-                        normalize_url:
-                            b.normalize_url && b.value
-                                ? cleanBreakdownNormalizeURL(b.value, filters.breakdown_normalize_url)
-                                : b.normalize_url,
-                    }))
-                    .filter((b) => !!b.value)
-            }
+            cleanedParams['breakdown_type'] = undefined
+            cleanedParams['breakdowns'] = filters.breakdowns.map((b) => ({
+                property: b.property,
+                type: b.type,
+                histogram_bin_count: b.histogram_bin_count,
+                group_type_index: b.group_type_index,
+                normalize_url:
+                    b.normalize_url && typeof b.property === 'string'
+                        ? cleanBreakdownNormalizeURL(b.property, filters.breakdown_normalize_url)
+                        : b.normalize_url,
+            }))
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
             cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(

@@ -179,7 +179,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (!isTimeToConvertFunnel && Array.isArray(results)) {
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
-                            ? breakdownFilter?.breakdowns.map((b) => b.value).join('::')
+                            ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
                             : breakdownFilter?.breakdown ?? undefined
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }

@@ -172,26 +172,26 @@ describe('cleanFilters', () => {
 
     it('keeps multiple breakdowns', () => {
         const cleanedFilters = cleanFilters({
-            breakdowns: [{ value: 'any', type: 'event' }],
+            breakdowns: [{ property: 'any', type: 'event' }],
             insight: InsightType.TRENDS,
         } as TrendsFilterType)
 
-        expect(cleanedFilters).toHaveProperty('breakdowns', [{ value: 'any', type: 'event' }])
+        expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: 'any', type: 'event' }])
     })
 
     it('keeps normalize_url for multiple breakdowns', () => {
         const cleanedFilters = cleanFilters({
-            breakdowns: [{ value: '$current_url', type: 'event', normalize_url: true }],
+            breakdowns: [{ property: '$current_url', type: 'event', normalize_url: true }],
             insight: InsightType.TRENDS,
         } as TrendsFilterType)
 
         expect(cleanedFilters).toHaveProperty('breakdowns', [
-            { value: '$current_url', type: 'event', normalize_url: true },
+            { property: '$current_url', type: 'event', normalize_url: true },
         ])
 
         cleanedFilters.breakdowns![0].normalize_url = false
         expect(cleanedFilters).toHaveProperty('breakdowns', [
-            { value: '$current_url', type: 'event', normalize_url: false },
+            { property: '$current_url', type: 'event', normalize_url: false },
         ])
     })
 
@@ -219,13 +219,13 @@ describe('cleanFilters', () => {
 
     it('cleans a breakdown when multiple breakdowns are used', () => {
         const cleanedFilters = cleanFilters({
-            breakdowns: [{ value: 'any', type: 'event' }],
+            breakdowns: [{ property: 'any', type: 'event' }],
             breakdown_type: 'event',
             breakdown: 'test',
             insight: InsightType.TRENDS,
         } as TrendsFilterType)
 
-        expect(cleanedFilters).toHaveProperty('breakdowns', [{ value: 'any', type: 'event' }])
+        expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: 'any', type: 'event' }])
         expect(cleanedFilters).toHaveProperty('breakdown_type', undefined)
         expect(cleanedFilters).toHaveProperty('breakdown', undefined)
     })

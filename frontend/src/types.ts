@@ -2085,11 +2085,10 @@ export type BreakdownKeyType = string | number | (string | number)[] | null
  * Mirroring the legacy fields here for backwards compatibility with multiple breakdowns.
  */
 export interface Breakdown {
-    value?: string
     /**
      * Legacy breakdown has a `property` field that is `value` now.
      */
-    property?: string | number
+    property: string | number
     type: BreakdownType
     normalize_url?: boolean
     histogram_bin_count?: number
