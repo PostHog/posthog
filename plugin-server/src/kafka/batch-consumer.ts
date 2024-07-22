@@ -132,7 +132,6 @@ export const startBatchConsumer = async ({
 
     const consumerConfig: ConsumerGlobalConfig = {
         ...connectionConfig,
-        'topic.metadata.refresh.interval.ms': topicMetadataRefreshInterval,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
         'max.poll.interval.ms': maxPollIntervalMs,
@@ -186,6 +185,10 @@ export const startBatchConsumer = async ({
 
     if (kafkaStatisticIntervalMs) {
         consumerConfig['statistics.interval.ms'] = kafkaStatisticIntervalMs
+    }
+
+    if (topicMetadataRefreshInterval) {
+        consumerConfig['topic.metadata.refresh.interval.ms'] = topicMetadataRefreshInterval
     }
 
     if (debug) {
