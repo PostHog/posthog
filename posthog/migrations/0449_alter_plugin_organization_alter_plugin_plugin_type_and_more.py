@@ -5,6 +5,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Added to support concurrent index creation
     dependencies = [
         ("posthog", "0448_add_mysql_externaldatasource_source_type"),
     ]
@@ -64,13 +65,14 @@ class Migration(migrations.Migration):
                 migrations.RunSQL(
                     """
                     ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_url_bccac89d_uniq" UNIQUE ("url");  -- existing-table-constraint-ignore
-                    CREATE INDEX "posthog_plugin_url_bccac89d_like" ON "posthog_plugin" ("url" varchar_pattern_ops);
-                    """,
-                    reverse_sql="""
-                        DROP INDEX IF EXISTS "posthog_plugin_url_bccac89d_like";
-                        ALTER TABLE "posthog_plugin" DROP CONSTRAINT IF EXISTS "posthog_plugin_url_bccac89d_uniq"; -- existing-table-constraint-ignore
-                    """,
-                )
+                    """
+                ),
+                # We add the index seperately
+                migrations.RunSQL(
+                    """
+                    CREATE INDEX CONCURRENTLY "posthog_plugin_url_bccac89d_like" ON "posthog_plugin" ("url" varchar_pattern_ops);
+                    """
+                ),
             ],
         ),
     ]
