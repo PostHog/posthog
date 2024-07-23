@@ -20,6 +20,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        snapshotTimeout: 15000,
     },
 }
 export default meta
