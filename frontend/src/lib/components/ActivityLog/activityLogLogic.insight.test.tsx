@@ -4,6 +4,7 @@ import { render } from '@testing-library/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
+import { BreakdownFilter } from '~/queries/schema'
 import { ActivityScope } from '~/types'
 
 jest.mock('lib/colors')
@@ -159,19 +160,18 @@ describe('the activity log logic', () => {
             expect(renderedExtendedDescription).toHaveTextContent(
                 "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry Code"
             )
-
-            insightMock.after.breakdownFilter = {
+            ;(insightMock.after.breakdownFilter as BreakdownFilter) = {
                 breakdowns: [
                     {
-                        value: '$geoip_country_code',
+                        property: '$geoip_country_code',
                         type: 'event',
                     },
                     {
-                        value: '$session_duration',
+                        property: '$session_duration',
                         type: 'session',
                     },
                 ],
-            } as any
+            }
 
             logic = await insightTestSetup('test insight', 'updated', [insightMock as any])
             actual = logic.values.humanizedActivity
