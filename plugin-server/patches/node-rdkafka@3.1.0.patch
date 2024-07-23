@@ -1,35 +1,3 @@
-diff --git a/Oops.rej b/Oops.rej
-new file mode 100644
-index 0000000000000000000000000000000000000000..328fc546fcb400745783b3562f1cb1cb055e1804
---- /dev/null
-+++ b/Oops.rej
-@@ -0,0 +1,26 @@
-+@@ -1,25 +0,0 @@
-+-# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
-+-# For more information see: https://help.github.com/actions/language-and-framework-guides/publishing-nodejs-packages
-+-
-+-name: Publish node-rdkafka
-+-
-+-on:
-+-  release:
-+-    types: [created]
-+-
-+-jobs:
-+-  publish-npm:
-+-    runs-on: ubuntu-latest
-+-    steps:
-+-      - uses: actions/checkout@v3
-+-        with:
-+-          submodules: recursive
-+-      - uses: actions/setup-node@v3
-+-        with:
-+-          node-version: 18
-+-          registry-url: https://registry.npmjs.org/
-+-          cache: "npm"
-+-      - run: npm ci
-+-      - run: npm publish
-+-        env:
-+-          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
 diff --git a/docker-compose.yml b/docker-compose.yml
 index abe29df25c7312382074b3e15289cb862a340247..8a12f135b4f96e5a0dd25e7c21adb2b3b0e644fa 100644
 --- a/docker-compose.yml
@@ -551,10 +519,10 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
  
      it('should happen gracefully', function(cb) {
 diff --git a/index.d.ts b/index.d.ts
-index d7ce7e61e985ce46ceae2c10329d6448cc487dca..2c7b9a3d40b0547209c2cffe1f4e62d9573ab617 100644
+index 43bedfc97223ee938c6d0f2c5b2c4ecec7dfa800..e10a6d7258613b8ff78b21e9da3d2370f042c5cf 100644
 --- a/index.d.ts
 +++ b/index.d.ts
-@@ -223,6 +223,12 @@ export class KafkaConsumer extends Client<KafkaConsumerEvents> {
+@@ -227,6 +227,12 @@ export class KafkaConsumer extends Client<KafkaConsumerEvents> {
      consume(cb: (err: LibrdKafkaError, messages: Message[]) => void): void;
      consume(): void;
  
@@ -781,10 +749,10 @@ index a6aadbd64609e5d5ae1a80205aac7ce3a49d9345..f817aa976c83b74670c7464099679eb3
      topic_result="$?"
      if [ "$topic_result" == "1" ]; then
 diff --git a/src/kafka-consumer.cc b/src/kafka-consumer.cc
-index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528ebac6e3b24 100644
+index 0f5e32eda8968a26733d7c76cbdce71bfe7d7085..eec338eb06e5502960f12e826b1a48bdc146361f 100644
 --- a/src/kafka-consumer.cc
 +++ b/src/kafka-consumer.cc
-@@ -179,6 +179,32 @@ Baton KafkaConsumer::Assign(std::vector<RdKafka::TopicPartition*> partitions) {
+@@ -197,6 +197,32 @@ Baton KafkaConsumer::Assign(std::vector<RdKafka::TopicPartition*> partitions) {
    return Baton(errcode);
  }
  
@@ -817,7 +785,7 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
  Baton KafkaConsumer::Unassign() {
    if (!IsClosing() && !IsConnected()) {
      return Baton(RdKafka::ERR__STATE);
-@@ -195,12 +221,46 @@ Baton KafkaConsumer::Unassign() {
+@@ -213,12 +239,46 @@ Baton KafkaConsumer::Unassign() {
  
    // Destroy the old list of partitions since we are no longer using it
    RdKafka::TopicPartition::destroy(m_partitions);
@@ -864,7 +832,7 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
  Baton KafkaConsumer::Commit(std::vector<RdKafka::TopicPartition*> toppars) {
    if (!IsConnected()) {
      return Baton(RdKafka::ERR__STATE);
-@@ -469,6 +529,12 @@ Baton KafkaConsumer::RefreshAssignments() {
+@@ -487,6 +547,12 @@ Baton KafkaConsumer::RefreshAssignments() {
    }
  }
  
@@ -877,7 +845,7 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
  std::string KafkaConsumer::Name() {
    if (!IsConnected()) {
      return std::string("");
-@@ -527,8 +593,11 @@ void KafkaConsumer::Init(v8::Local<v8::Object> exports) {
+@@ -546,8 +612,11 @@ void KafkaConsumer::Init(v8::Local<v8::Object> exports) {
    Nan::SetPrototypeMethod(tpl, "committed", NodeCommitted);
    Nan::SetPrototypeMethod(tpl, "position", NodePosition);
    Nan::SetPrototypeMethod(tpl, "assign", NodeAssign);
@@ -889,7 +857,7 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
  
    Nan::SetPrototypeMethod(tpl, "commit", NodeCommit);
    Nan::SetPrototypeMethod(tpl, "commitSync", NodeCommitSync);
-@@ -759,6 +828,64 @@ NAN_METHOD(KafkaConsumer::NodeAssign) {
+@@ -778,6 +847,64 @@ NAN_METHOD(KafkaConsumer::NodeAssign) {
    info.GetReturnValue().Set(Nan::True());
  }
  
@@ -954,7 +922,7 @@ index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528eb
  NAN_METHOD(KafkaConsumer::NodeUnassign) {
    Nan::HandleScope scope;
  
-@@ -779,6 +906,71 @@ NAN_METHOD(KafkaConsumer::NodeUnassign) {
+@@ -798,6 +925,71 @@ NAN_METHOD(KafkaConsumer::NodeUnassign) {
    info.GetReturnValue().Set(Nan::True());
  }
  
@@ -1053,7 +1021,7 @@ index c91590ecc5d47c1d7a2a93c3e46b4b4657525df0..43e016db4ec47121051cb282f718a2b3
    static NAN_METHOD(NodeUnsubscribe);
    static NAN_METHOD(NodeCommit);
 diff --git a/test/consumer.spec.js b/test/consumer.spec.js
-index 40b52ee4e1c718890f43b91adfb543319d5cc342..5e1a5655be0d2598163478aaaae936213c3bf27c 100644
+index 4fc3bd53208bdaafa3df2df1e5bd9184387b8859..2d32c854d13f99531b9b6a36765c65fa42dd8d62 100644
 --- a/test/consumer.spec.js
 +++ b/test/consumer.spec.js
 @@ -77,7 +77,7 @@ module.exports = {

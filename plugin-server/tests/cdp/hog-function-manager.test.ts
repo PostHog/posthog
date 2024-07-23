@@ -113,6 +113,7 @@ describe('HogFunctionManager', () => {
                         value: integrations[0].id,
                     },
                 },
+                depends_on_integration_ids: new Set([integrations[0].id]),
             },
         ])
 

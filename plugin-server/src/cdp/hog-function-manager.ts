@@ -28,6 +28,11 @@ export class HogFunctionManager {
                 const { hogFunctionIds, teamId } = JSON.parse(message)
                 await this.reloadHogFunctions(teamId, hogFunctionIds)
             },
+
+            'reload-integrations': async (message) => {
+                const { integrationIds, teamId } = JSON.parse(message)
+                await this.reloadIntegrations(teamId, integrationIds)
+            },
         })
     }
 
@@ -149,6 +154,15 @@ export class HogFunctionManager {
         return items[0] ?? null
     }
 
+    public reloadIntegrations(teamId: Team['id'], ids: IntegrationType['id'][]): Promise<void> {
+        // We need to find all hog functions that depend on these integrations and re-enrich them
+
+        const items: HogFunctionType[] = Object.values(this.cache[teamId] || {})
+        const itemsToReload = items.filter((item) => ids.some((id) => item.depends_on_integration_ids?.has(id)))
+
+        return this.enrichWithIntegrations(itemsToReload)
+    }
+
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
         const integrationIds: number[] = []
 
@@ -158,6 +172,8 @@ export class HogFunctionManager {
                     const input = item.inputs?.[schema.key]
                     if (input && typeof input.value === 'number') {
                         integrationIds.push(input.value)
+                        item.depends_on_integration_ids = item.depends_on_integration_ids || new Set()
+                        item.depends_on_integration_ids.add(input.value)
                     }
                 }
             })
