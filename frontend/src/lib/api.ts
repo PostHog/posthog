@@ -13,6 +13,7 @@ import {
     ActionType,
     ActivityScope,
     AlertType,
+    AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,
     BatchExportConfiguration,
@@ -1631,13 +1632,13 @@ const api = {
         async metrics(
             id: HogFunctionType['id'],
             params: AppMetricsV2RequestParams = {}
-        ): Promise<AppMetricsV2Response[]> {
+        ): Promise<AppMetricsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics').withQueryString(params).get()
         },
         async metricsTotals(
             id: HogFunctionType['id'],
             params: Partial<AppMetricsV2RequestParams> = {}
-        ): Promise<AppMetricsV2Response[]> {
+        ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
 
