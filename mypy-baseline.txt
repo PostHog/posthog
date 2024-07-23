@@ -94,6 +94,10 @@ posthog/models/plugin.py:0: error: Name "timezone.datetime" is not defined  [nam
 posthog/models/plugin.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/models/person/person.py:0: error: "_T" has no attribute "_add_distinct_ids"  [attr-defined]
 posthog/models/person/person.py:0: error: Incompatible types in assignment (expression has type "list[Never]", variable has type "_QuerySet[PersonDistinctId, str]")  [assignment]
+posthog/warehouse/models/external_data_schema.py:0: error: Library stubs not installed for "pymysql"  [import-untyped]
+posthog/warehouse/models/external_data_schema.py:0: note: Hint: "python3 -m pip install types-PyMySQL"
+posthog/warehouse/models/external_data_schema.py:0: note: (or run "mypy --install-types" to install all missing stub packages)
+posthog/warehouse/models/external_data_schema.py:0: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Argument 1 to "create_hogql_database" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
