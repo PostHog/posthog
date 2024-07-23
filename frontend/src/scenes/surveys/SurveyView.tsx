@@ -27,7 +27,7 @@ import {
     SurveyType,
 } from '~/types'
 
-import { SURVEY_EVENT_NAME } from './constants'
+import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -293,11 +293,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.questions[0].question && (
                                                 <>
                                                     <span className="card-secondary mt-4">Type</span>
-                                                    <span>
-                                                        {survey.questions.length > 1
-                                                            ? 'Multiple questions'
-                                                            : capitalizeFirstLetter(survey.questions[0].type)}
-                                                    </span>
+                                                    <span>{SurveyQuestionLabel[survey.questions[0].type]}</span>
                                                     <span className="card-secondary mt-4">
                                                         {pluralize(
                                                             survey.questions.length,
