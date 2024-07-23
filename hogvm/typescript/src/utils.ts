@@ -18,7 +18,7 @@ export class UncaughtHogVMException extends HogVMException {
     }
 
     toString(): string {
-        const msg = this.message.replace("'", "\\'")
+        const msg = this.message.replaceAll("'", "\\'")
         return `${this.type}('${msg}')`
     }
 }
