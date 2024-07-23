@@ -408,7 +408,12 @@ class BytecodeBuilder(Visitor):
                 set_end_positions.append(len(catches_bytecode) - 1)
 
         # re-raise if nothing matched
-        catches_bytecode.extend([Operation.THROW])
+        catches_bytecode.extend(
+            [
+                Operation.POP,  # pop the name
+                Operation.THROW,  # throw the error
+            ]
+        )
         end_scope = self._end_scope()
         catches_bytecode.extend(end_scope)
 
