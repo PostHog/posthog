@@ -137,7 +137,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     // Experiments / beta features
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
-    BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
