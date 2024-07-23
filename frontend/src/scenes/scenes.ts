@@ -565,7 +565,7 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
-    [urls.dataWarehouseSettings(':tab')]: Scene.DataWarehouseSettings,
+    [urls.dataWarehouseSettings(':tab')]: Scene.DataWarehouse,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
     [urls.dataWarehouseSourceSettings(':id', ':tab')]: Scene.dataWarehouseSourceSettings,
     [urls.featureFlags()]: Scene.FeatureFlags,
