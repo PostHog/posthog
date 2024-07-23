@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
@@ -104,7 +104,10 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     })),
     actionToUrl(({ values, props }) => {
         return {
-            setCurrentTab: () => [urls.pipelineNode(props.stage as PipelineStage, props.id, values.currentTab)],
+            setCurrentTab: () => {
+                console.log('ACTION TO URL', props.stage, props.id, values.currentTab)
+                return [urls.pipelineNode(props.stage as PipelineStage, props.id, values.currentTab)]
+            },
         }
     }),
     urlToAction(({ actions, values }) => ({
@@ -114,4 +117,12 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             }
         },
     })),
+
+    beforeUnmount(({ props }) => {
+        console.log('UNMOUNTING', props.id, props.stage)
+    }),
+
+    afterMount(({ props }) => {
+        console.log('MOUNTING', props.id, props.stage)
+    }),
 ])
