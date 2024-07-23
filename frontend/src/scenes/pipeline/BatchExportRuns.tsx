@@ -310,15 +310,16 @@ export function BatchExportRunsGrouped({
                     },
                 ]}
                 emptyState={
-                    <>
-                        No runs in this time range. Your exporter runs every <b>{interval}</b>.
-                        <br />
+                    <div className="space-y-2">
+                        <div>
+                            No runs in this time range. Your exporter runs every <b>{interval}</b>.
+                        </div>
                         {canEnableNewDestinations && (
                             <LemonButton type="primary" onClick={() => openBackfillModal()}>
                                 Backfill batch export
                             </LemonButton>
                         )}
-                    </>
+                    </div>
                 }
             />
         </>
