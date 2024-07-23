@@ -161,8 +161,8 @@ async function expectStoryToMatchSnapshot(
     })
 
     // Wait for all images to load
-    await waitForPageReady(page)
     await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !i.naturalWidth))
+    await waitForPageReady(page)
     await page.waitForTimeout(2000)
 
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
@@ -173,8 +173,8 @@ async function expectStoryToMatchSnapshot(
     })
 
     // Wait for all images to load
-    await waitForPageReady(page)
     await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !i.naturalWidth))
+    await waitForPageReady(page)
     await page.waitForTimeout(100)
 
     await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
