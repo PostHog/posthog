@@ -248,12 +248,6 @@ export class HogExecutor {
         if (!state) {
             addLog(result, 'debug', `Executing function`)
         } else {
-            // NOTE: We do our own check here for async steps as it saves executing Hog and is easier to handle
-            if (state.asyncSteps >= MAX_ASYNC_STEPS) {
-                addLog(result, 'error', `Function exceeded maximum async steps`)
-                result.error = 'Function exceeded maximum async steps'
-                return result
-            }
             addLog(result, 'debug', `Resuming function`)
         }
 

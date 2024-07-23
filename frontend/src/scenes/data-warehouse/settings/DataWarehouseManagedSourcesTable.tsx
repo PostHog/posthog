@@ -16,7 +16,7 @@ import IconStripe from 'public/services/stripe.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { urls } from 'scenes/urls'
 
-import { manualLinkSources, ProductKey } from '~/types'
+import { DataWarehouseTab, manualLinkSources, ProductKey } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -28,7 +28,7 @@ const StatusTagSetting = {
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
-    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById, currentTab } =
+    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
 
@@ -64,7 +64,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     render: function RenderName(_, source) {
                         return (
                             <LemonTableLink
-                                to={urls.dataWarehouseSourceSettings(source.id, currentTab)}
+                                to={urls.dataWarehouseSourceSettings(source.id, DataWarehouseTab.ManagedSources)}
                                 title={source.source_type}
                                 description={source.prefix}
                             />

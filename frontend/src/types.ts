@@ -1814,6 +1814,7 @@ export enum PluginInstallationType {
     Custom = 'custom',
     Repository = 'repository',
     Source = 'source',
+    Inline = 'inline',
 }
 
 export interface PluginType {
@@ -3829,7 +3830,7 @@ export interface DataWarehouseViewLink {
 
 export enum DataWarehouseSettingsTab {
     Managed = 'managed',
-    SelfManaged = 'self_managed',
+    SelfManaged = 'self-managed',
 }
 
 export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
@@ -4393,4 +4394,10 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
+}
+
+export enum DataWarehouseTab {
+    Explore = 'explore',
+    ManagedSources = 'managed-sources',
+    SelfManagedSources = 'self-managed-sources',
 }
