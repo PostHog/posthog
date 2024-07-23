@@ -86,7 +86,7 @@ export const OnboardingBillingStep = ({
                         </div>
                     )}
 
-                    {(!product.subscribed || showPlanComp) && !billingLoading && (
+                    {(!product.subscribed || showPlanComp) && (
                         <>
                             <BillingHero />
                             {billing?.subscription_level === 'custom' ? (
