@@ -243,7 +243,7 @@ export class HogExecutor {
             hogFunctionUrl: invocation.globals.source?.url,
         }
 
-        status.info('🦔', `[HogExecutor] Executing function`, loggingContext)
+        status.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result: HogFunctionInvocationResult = {
             ...invocation,
