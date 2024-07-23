@@ -68,7 +68,7 @@ export function DestinationOptionsTable(): JSX.Element {
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
-                                    to={target.url}
+                                    to={canEnableNewDestinations || target.status === 'free' ? target.url : undefined}
                                     title={
                                         <>
                                             {target.name}

@@ -4295,7 +4295,7 @@ export type HogFunctionTemplateType = Pick<
     HogFunctionType,
     'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
 > & {
-    status: 'alpha' | 'beta' | 'stable'
+    status: 'alpha' | 'beta' | 'stable' | 'free'
 }
 
 export type HogFunctionIconResponse = {

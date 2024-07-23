@@ -10,9 +10,11 @@ import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
+    AvailableFeature,
     FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
@@ -121,12 +123,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         return id ?? templateId ?? 'new'
     }),
     connect({
-        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes'], userLogic, ['hasAvailableFeature']],
     }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
-    connect({
-        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
-    }),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
@@ -215,6 +214,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
+        showPaygate: [
+            (s) => [s.template, s.hasAvailableFeature],
+            (template, hasAvailableFeature) => {
+                return template && template.status !== 'free' && !hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+            },
+        ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
             (template, hogFunction): HogFunctionConfigurationType => {

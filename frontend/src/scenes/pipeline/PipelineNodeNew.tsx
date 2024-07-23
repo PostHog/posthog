@@ -96,11 +96,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     }
 
     if (hogFunctionId) {
-        const res = <HogFunctionConfiguration templateId={hogFunctionId} />
-        if (stage === PipelineStage.Destination) {
-            return <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>{res}</PayGateMini>
-        }
-        return res
+        return <HogFunctionConfiguration templateId={hogFunctionId} />
     }
 
     if (stage === PipelineStage.Transformation) {
