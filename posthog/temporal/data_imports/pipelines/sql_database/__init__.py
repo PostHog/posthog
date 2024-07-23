@@ -150,7 +150,7 @@ def sql_database(
 
 def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[str, TColumnSchema]:
     with engine.connect() as conn:
-        execute_result = conn.execute(
+        execute_result: CursorResult | None = conn.execute(
             "SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = %(schema_name)s AND table_name = %(table_name)s",
             {"schema_name": schema_name, "table_name": table_name},
         )
