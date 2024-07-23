@@ -1,27 +1,25 @@
-import './Experiment.scss'
+import '../Experiment.scss'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
 
-import { LoadingState } from './Experiment'
-import { ExperimentForm } from './ExperimentForm'
-import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
-import { experimentLogic } from './experimentLogic'
+import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
+import { experimentLogic } from '../experimentLogic'
 import {
     ExperimentLoadingAnimation,
+    LoadingState,
     NoResultsEmptyState,
     PageHeaderCustom,
     ResultsHeader,
-} from './ExperimentView/components'
-import { DataCollection } from './ExperimentView/DataCollection'
-import { DistributionTable } from './ExperimentView/DistributionTable'
-import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './ExperimentView/Goal'
-import { Info } from './ExperimentView/Info'
-import { Overview } from './ExperimentView/Overview'
-import { ReleaseConditionsTable } from './ExperimentView/ReleaseConditionsTable'
-import { Results } from './ExperimentView/Results'
-import { SecondaryMetricsTable } from './ExperimentView/SecondaryMetricsTable'
+} from './components'
+import { DataCollection } from './DataCollection'
+import { DistributionTable } from './DistributionTable'
+import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
+import { Info } from './Info'
+import { Overview } from './Overview'
+import { ReleaseConditionsTable } from './ReleaseConditionsTable'
+import { Results } from './Results'
+import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export function ExperimentView(): JSX.Element {
     const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
@@ -92,14 +90,4 @@ export function ExperimentView(): JSX.Element {
             </div>
         </>
     )
-}
-
-export function ExperimentNext(): JSX.Element {
-    const { experimentId, editingExistingExperiment, experimentMissing } = useValues(experimentLogic)
-
-    if (experimentMissing) {
-        return <NotFound object="experiment" />
-    }
-
-    return experimentId === 'new' || editingExistingExperiment ? <ExperimentForm /> : <ExperimentView />
 }

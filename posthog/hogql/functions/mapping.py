@@ -830,6 +830,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
     "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
+    # table functions
+    "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {

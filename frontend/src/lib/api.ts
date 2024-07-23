@@ -1654,7 +1654,7 @@ const api = {
         },
         async update(
             annotationId: RawAnnotationType['id'],
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
@@ -1668,7 +1668,7 @@ const api = {
                 .get()
         },
         async create(
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
