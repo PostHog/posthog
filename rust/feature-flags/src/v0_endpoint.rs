@@ -8,6 +8,7 @@ use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use tracing::instrument;
 
+use crate::api::FlagValue;
 use crate::{
     api::{FlagError, FlagsResponse},
     router,
@@ -87,8 +88,11 @@ pub async fn flags(
     Ok(Json(FlagsResponse {
         error_while_computing_flags: false,
         feature_flags: HashMap::from([
-            ("beta-feature".to_string(), "variant-1".to_string()),
-            ("rollout-flag".to_string(), true.to_string()),
+            (
+                "beta-feature".to_string(),
+                FlagValue::String("variant-1".to_string()),
+            ),
+            ("rollout-flag".to_string(), FlagValue::Boolean(true)),
         ]),
     }))
 }

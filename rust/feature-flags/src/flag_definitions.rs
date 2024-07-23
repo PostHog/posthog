@@ -1,8 +1,7 @@
+use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::instrument;
-
-use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
 // TODO: Add integration tests across repos to ensure this doesn't happen.
@@ -121,7 +120,6 @@ impl FeatureFlag {
 }
 
 #[derive(Debug, Deserialize)]
-
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
 }
@@ -155,35 +153,59 @@ impl FeatureFlagList {
         client: Arc<dyn DatabaseClient + Send + Sync>,
         team_id: i32,
     ) -> Result<FeatureFlagList, FlagError> {
-        let mut conn = client.get_connection().await?;
-        // TODO: Clean up error handling here
+        let mut conn = client.get_connection().await.map_err(|e| {
+            tracing::error!("Failed to get database connection: {}", e);
+            FlagError::DatabaseUnavailable
+        })?;
 
         let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1";
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(team_id)
             .fetch_all(&mut *conn)
-            .await?;
-
-        let serialized_flags = serde_json::to_string(&flags_row).map_err(|e| {
-            tracing::error!("failed to serialize flags: {}", e);
-            println!("failed to serialize flags: {}", e);
-            FlagError::DataParsingError
-        })?;
-
-        let flags_list: Vec<FeatureFlag> =
-            serde_json::from_str(&serialized_flags).map_err(|e| {
-                tracing::error!("failed to parse data to flags list: {}", e);
-                println!("failed to parse data: {}", e);
-
-                FlagError::DataParsingError
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch feature flags from database: {}", e);
+                FlagError::Internal(format!("Database query error: {}", e))
             })?;
+
+        let flags_list = flags_row
+            .into_iter()
+            .map(|row| {
+                let filters = serde_json::from_value(row.filters).map_err(|e| {
+                    tracing::error!("Failed to deserialize filters for flag {}: {}", row.key, e);
+                    FlagError::DataParsingError
+                })?;
+
+                Ok(FeatureFlag {
+                    id: row.id,
+                    team_id: row.team_id,
+                    name: row.name,
+                    key: row.key,
+                    filters,
+                    deleted: row.deleted,
+                    active: row.active,
+                    ensure_experience_continuity: row.ensure_experience_continuity,
+                })
+            })
+            .collect::<Result<Vec<FeatureFlag>, FlagError>>()?;
+
         Ok(FeatureFlagList { flags: flags_list })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+    use mockall::mock;
+    use mockall::predicate::*;
+    use serde_json::json;
+    use tokio::runtime::Runtime;
+    use tokio::time::timeout;
+
+    use std::time::Duration;
+
     use super::*;
+    use crate::database::CustomDatabaseError;
     use crate::test_utils::{
         insert_flags_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
         insert_new_team_in_redis, setup_pg_client, setup_redis_client,
@@ -282,6 +304,99 @@ mod tests {
         assert_eq!(flag.filters.groups[0].rollout_percentage, Some(50.0));
     }
 
+    #[test]
+    fn test_utf16_property_names_and_values() {
+        let json_str = r#"{
+            "id": 1,
+            "team_id": 2,
+            "name": "𝖚𝖙𝖋16_𝖙𝖊𝖘𝖙_𝖋𝖑𝖆𝖌",
+            "key": "𝖚𝖙𝖋16_𝖙𝖊𝖘𝖙_𝖋𝖑𝖆𝖌",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "𝖕𝖗𝖔𝖕𝖊𝖗𝖙𝖞",
+                                "value": "𝓿𝓪𝓵𝓾𝓮",
+                                "type": "person"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }"#;
+
+        let flag: FeatureFlag = serde_json::from_str(json_str).expect("Failed to deserialize");
+
+        assert_eq!(flag.key, "𝖚𝖙𝖋16_𝖙𝖊𝖘𝖙_𝖋𝖑𝖆𝖌");
+        let property = &flag.filters.groups[0].properties.as_ref().unwrap()[0];
+        assert_eq!(property.key, "𝖕𝖗𝖔𝖕𝖊𝖗𝖙𝖞");
+        assert_eq!(property.value, json!("𝓿𝓪𝓵𝓾𝓮"));
+    }
+
+    #[test]
+    fn test_deserialize_complex_flag() {
+        let json_str = r#"{
+            "id": 1,
+            "team_id": 2,
+            "name": "Complex Flag",
+            "key": "complex_flag",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "test@example.com",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 50
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33.33
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Group",
+                            "rollout_percentage": 66.67
+                        }
+                    ]
+                },
+                "aggregation_group_type_index": 0,
+                "payloads": {"test": {"type": "json", "value": {"key": "value"}}}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false
+        }"#;
+
+        let flag: FeatureFlag = serde_json::from_str(json_str).expect("Failed to deserialize");
+
+        assert_eq!(flag.id, 1);
+        assert_eq!(flag.team_id, 2);
+        assert_eq!(flag.name, Some("Complex Flag".to_string()));
+        assert_eq!(flag.key, "complex_flag");
+        assert_eq!(flag.filters.groups.len(), 1);
+        assert_eq!(flag.filters.groups[0].properties.as_ref().unwrap().len(), 1);
+        assert_eq!(flag.filters.groups[0].rollout_percentage, Some(50.0));
+        assert_eq!(
+            flag.filters.multivariate.as_ref().unwrap().variants.len(),
+            2
+        );
+        assert_eq!(flag.filters.aggregation_group_type_index, Some(0));
+        assert!(flag.filters.payloads.is_some());
+        assert!(!flag.deleted);
+        assert!(flag.active);
+        assert!(!flag.ensure_experience_continuity);
+    }
+
     // TODO: Add more tests to validate deserialization of flags.
     // TODO: Also make sure old flag data is handled, or everything is migrated to new style in production
 
@@ -297,5 +412,120 @@ mod tests {
                 assert_eq!(flags.len(), 0);
             }
         }
+    }
+
+    mock! {
+        DatabaseClient {}
+        #[async_trait]
+        impl DatabaseClient for DatabaseClient {
+            async fn get_connection(&self) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres> , crate::database::CustomDatabaseError>;
+            async fn run_query(
+                &self,
+                query: String,
+                parameters: Vec<String>,
+                timeout_ms: Option<u64>,
+            ) -> Result<Vec<sqlx::postgres::PgRow>, crate::database::CustomDatabaseError>;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_from_pg_success_mocked() {
+        let mut db_mock = MockDatabaseClient::new();
+
+        db_mock.expect_run_query()
+            .withf(|query, params, _| {
+                query.contains("SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag") &&
+                params == &vec![1.to_string()]
+            })
+            .returning(|_, _, _| {
+                Ok(vec![FeatureFlagRow {
+                    id: 1,
+                    team_id: 1,
+                    name: Some("Test Flag".to_string()),
+                    key: "test_flag".to_string(),
+                    filters: json!({
+                        "groups": [
+                            {
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "value": "test@example.com",
+                                        "type": "person"
+                                    }
+                                ],
+                                "rollout_percentage": 50
+                            }
+                        ]
+                    }),
+                    deleted: false,
+                    active: true,
+                    ensure_experience_continuity: false,
+                }])
+            });
+
+        let result = FeatureFlagList::from_pg(Arc::new(db_mock), 1).await;
+
+        assert!(result.is_ok());
+        let flag_list = result.unwrap();
+        assert_eq!(flag_list.flags.len(), 1);
+        let flag = &flag_list.flags[0];
+        assert_eq!(flag.id, 1);
+        assert_eq!(flag.team_id, 1);
+        assert_eq!(flag.name, Some("Test Flag".to_string()));
+        assert_eq!(flag.key, "test_flag");
+        assert!(!flag.deleted);
+        assert!(flag.active);
+        assert!(!flag.ensure_experience_continuity);
+
+        assert_eq!(flag.filters.groups.len(), 1);
+        let group = &flag.filters.groups[0];
+        assert_eq!(group.properties.as_ref().unwrap().len(), 1);
+        let property = &group.properties.as_ref().unwrap()[0];
+        assert_eq!(property.key, "email");
+        assert_eq!(property.value, json!("test@example.com"));
+        assert_eq!(property.prop_type, "person");
+        assert_eq!(group.rollout_percentage, Some(50.0));
+    }
+
+    #[tokio::test]
+    async fn test_from_pg_database_unavailable_mocked() {
+        let mut db_mock = MockDatabaseClient::new();
+
+        db_mock.expect_run_query().returning(|_, _, _| {
+            let rt = Runtime::new().unwrap();
+            let elapsed_error = rt.block_on(async {
+                let dummy_future = async {};
+                timeout(Duration::from_secs(0), dummy_future)
+                    .await
+                    .unwrap_err()
+            });
+            Err(CustomDatabaseError::Timeout(elapsed_error))
+        });
+
+        let result = FeatureFlagList::from_pg(Arc::new(db_mock), 1).await;
+
+        assert!(matches!(result, Err(FlagError::DatabaseUnavailable)));
+    }
+
+    #[tokio::test]
+    async fn test_from_pg_data_parsing_error_mocked() {
+        let mut db_mock = MockDatabaseClient::new();
+
+        db_mock.expect_run_query().returning(|_, _, _| {
+            Ok(vec![FeatureFlagRow {
+                id: 1,
+                team_id: 1,
+                name: Some("Test Flag".to_string()),
+                key: "test_flag".to_string(),
+                filters: json!({"invalid": "filter"}), // Invalid filter structure
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: false,
+            }])
+        });
+
+        let result = FeatureFlagList::from_pg(Arc::new(db_mock), 1).await;
+
+        assert!(matches!(result, Err(FlagError::DataParsingError)));
     }
 }
