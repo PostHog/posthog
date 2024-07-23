@@ -1,6 +1,8 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'kea-forms'
+import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -59,6 +61,10 @@ export function DestinationOptionsTable(): JSX.Element {
                     {
                         title: 'Name',
                         sticky: true,
+                        key: 'name',
+                        sorter(a, b) {
+                            return a.name.localeCompare(b.name)
+                        },
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
@@ -67,11 +73,15 @@ export function DestinationOptionsTable(): JSX.Element {
                                         <>
                                             {target.name}
                                             {target.status === 'alpha' ? (
-                                                <LemonTag type="caution">Experimental</LemonTag>
+                                                <LemonTag type="danger">Experimental</LemonTag>
                                             ) : target.status === 'beta' ? (
-                                                <LemonTag type="highlight">Beta</LemonTag>
+                                                <LemonTag type="completion">Beta</LemonTag>
                                             ) : target.status === 'stable' ? (
-                                                <LemonTag type="breakdown">New</LemonTag> // Once Hog Functions are fully released we can remove the new label
+                                                <LemonTag type="highlight">New</LemonTag> // Once Hog Functions are fully released we can remove the new label
+                                            ) : target.status ? (
+                                                <LemonTag type="highlight">
+                                                    {capitalizeFirstLetter(target.status)}
+                                                </LemonTag>
                                             ) : undefined}
                                         </>
                                     }
@@ -85,17 +95,22 @@ export function DestinationOptionsTable(): JSX.Element {
                         width: 100,
                         align: 'right',
                         render: function RenderActions(_, target) {
-                            return canEnableNewDestinations ? (
+                            return canEnableNewDestinations || target.status === 'free' ? (
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
                                     icon={<IconPlusSmall />}
                                     // Preserve hash params to pass config in
                                     to={target.url}
+                                    fullWidth
                                 >
                                     Create
                                 </LemonButton>
-                            ) : <LemonButton
+                            ) : (
+                                <span className="whitespace-nowrap">
+                                    <PayGateButton feature={AvailableFeature.DATA_PIPELINES} type="secondary" />
+                                </span>
+                            )
                         },
                     },
                 ]}
