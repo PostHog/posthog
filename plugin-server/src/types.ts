@@ -149,6 +149,7 @@ export interface PluginsServerConfig extends CdpConfig {
     KAFKA_SASL_MECHANISM: KafkaSaslMechanism | undefined
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
+    KAFKA_CLIENT_ID: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
@@ -161,6 +162,7 @@ export interface PluginsServerConfig extends CdpConfig {
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
+    KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: number | undefined
     KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
     KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
     KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
