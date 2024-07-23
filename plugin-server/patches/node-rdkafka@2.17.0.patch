@@ -1,3 +1,35 @@
+diff --git a/Oops.rej b/Oops.rej
+new file mode 100644
+index 0000000000000000000000000000000000000000..328fc546fcb400745783b3562f1cb1cb055e1804
+--- /dev/null
++++ b/Oops.rej
+@@ -0,0 +1,26 @@
++@@ -1,25 +0,0 @@
++-# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
++-# For more information see: https://help.github.com/actions/language-and-framework-guides/publishing-nodejs-packages
++-
++-name: Publish node-rdkafka
++-
++-on:
++-  release:
++-    types: [created]
++-
++-jobs:
++-  publish-npm:
++-    runs-on: ubuntu-latest
++-    steps:
++-      - uses: actions/checkout@v3
++-        with:
++-          submodules: recursive
++-      - uses: actions/setup-node@v3
++-        with:
++-          node-version: 18
++-          registry-url: https://registry.npmjs.org/
++-          cache: "npm"
++-      - run: npm ci
++-      - run: npm publish
++-        env:
++-          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
 diff --git a/docker-compose.yml b/docker-compose.yml
 index abe29df25c7312382074b3e15289cb862a340247..8a12f135b4f96e5a0dd25e7c21adb2b3b0e644fa 100644
 --- a/docker-compose.yml
@@ -519,10 +551,10 @@ index a167483f1e0ea15c4edcb368e36640b4349574e8..38fcfd7464afb7df682b7b5f1fdb228b
  
      it('should happen gracefully', function(cb) {
 diff --git a/index.d.ts b/index.d.ts
-index 43bedfc97223ee938c6d0f2c5b2c4ecec7dfa800..e10a6d7258613b8ff78b21e9da3d2370f042c5cf 100644
+index d7ce7e61e985ce46ceae2c10329d6448cc487dca..2c7b9a3d40b0547209c2cffe1f4e62d9573ab617 100644
 --- a/index.d.ts
 +++ b/index.d.ts
-@@ -227,6 +227,12 @@ export class KafkaConsumer extends Client<KafkaConsumerEvents> {
+@@ -223,6 +223,12 @@ export class KafkaConsumer extends Client<KafkaConsumerEvents> {
      consume(cb: (err: LibrdKafkaError, messages: Message[]) => void): void;
      consume(): void;
  
@@ -749,10 +781,10 @@ index a6aadbd64609e5d5ae1a80205aac7ce3a49d9345..f817aa976c83b74670c7464099679eb3
      topic_result="$?"
      if [ "$topic_result" == "1" ]; then
 diff --git a/src/kafka-consumer.cc b/src/kafka-consumer.cc
-index 0f5e32eda8968a26733d7c76cbdce71bfe7d7085..eec338eb06e5502960f12e826b1a48bdc146361f 100644
+index 019b0cb6478756120efe9a5f6f1bb4182b4af4ea..3895407788ae31ae38d7707eb63528ebac6e3b24 100644
 --- a/src/kafka-consumer.cc
 +++ b/src/kafka-consumer.cc
-@@ -197,6 +197,32 @@ Baton KafkaConsumer::Assign(std::vector<RdKafka::TopicPartition*> partitions) {
+@@ -179,6 +179,32 @@ Baton KafkaConsumer::Assign(std::vector<RdKafka::TopicPartition*> partitions) {
    return Baton(errcode);
  }
  
@@ -785,7 +817,7 @@ index 0f5e32eda8968a26733d7c76cbdce71bfe7d7085..eec338eb06e5502960f12e826b1a48bd
  Baton KafkaConsumer::Unassign() {
    if (!IsClosing() && !IsConnected()) {
      return Baton(RdKafka::ERR__STATE);
-@@ -213,12 +239,46 @@ Baton KafkaConsumer::Unassign() {
+@@ -195,12 +221,46 @@ Baton KafkaConsumer::Unassign() {
  
    // Destroy the old list of partitions since we are no longer using it
    RdKafka::TopicPartition::destroy(m_partitions);
@@ -832,7 +864,7 @@ index 0f5e32eda8968a26733d7c76cbdce71bfe7d7085..eec338eb06e5502960f12e826b1a48bd
  Baton KafkaConsumer::Commit(std::vector<RdKafka::TopicPartition*> toppars) {
    if (!IsConnected()) {
      return Baton(RdKafka::ERR__STATE);
-@@ -487,6 +547,12 @@ Baton KafkaConsumer::RefreshAssignments() {
+@@ -469,6 +529,12 @@ Baton KafkaConsumer::RefreshAssignments() {
    }
  }
  
@@ -845,7 +877,7 @@ index 0f5e32eda8968a26733d7c76cbdce71bfe7d7085..eec338eb06e5502960f12e826b1a48bd
  std::string KafkaConsumer::Name() {
    if (!IsConnected()) {
      return std::string("");
-@@ -546,8 +612,11 @@ void KafkaConsumer::Init(v8::Local<v8::Object> exports) {
+@@ -527,8 +593,11 @@ void KafkaConsumer::Init(v8::Local<v8::Object> exports) {
    Nan::SetPrototypeMethod(tpl, "committed", NodeCommitted);
    Nan::SetPrototypeMethod(tpl, "position", NodePosition);
    Nan::SetPrototypeMethod(tpl, "assign", NodeAssign);
@@ -857,7 +889,7 @@ index 0f5e32eda8968a26733d7c76cbdce71bfe7d7085..eec338eb06e5502960f12e826b1a48bd
  
    Nan::SetPrototypeMethod(tpl, "commit", NodeCommit);
    Nan::SetPrototypeMethod(tpl, "commitSync", NodeCommitSync);
-@@ -778,6 +847,64 @@ NAN_METHOD(KafkaConsumer::NodeAssign) {
+@@ -759,6 +828,64 @@ NAN_METHOD(KafkaConsumer::NodeAssign) {
    info.GetReturnValue().Set(Nan::True());
  }
  
@@ -922,7 +954,7 @@ index 0f5e32eda8968a26733d7c76cbdce71bfe7d7085..eec338eb06e5502960f12e826b1a48bd
  NAN_METHOD(KafkaConsumer::NodeUnassign) {
    Nan::HandleScope scope;
  
-@@ -798,6 +925,71 @@ NAN_METHOD(KafkaConsumer::NodeUnassign) {
+@@ -779,6 +906,71 @@ NAN_METHOD(KafkaConsumer::NodeUnassign) {
    info.GetReturnValue().Set(Nan::True());
  }
  
@@ -1021,7 +1053,7 @@ index c91590ecc5d47c1d7a2a93c3e46b4b4657525df0..43e016db4ec47121051cb282f718a2b3
    static NAN_METHOD(NodeUnsubscribe);
    static NAN_METHOD(NodeCommit);
 diff --git a/test/consumer.spec.js b/test/consumer.spec.js
-index 4fc3bd53208bdaafa3df2df1e5bd9184387b8859..2d32c854d13f99531b9b6a36765c65fa42dd8d62 100644
+index 40b52ee4e1c718890f43b91adfb543319d5cc342..5e1a5655be0d2598163478aaaae936213c3bf27c 100644
 --- a/test/consumer.spec.js
 +++ b/test/consumer.spec.js
 @@ -77,7 +77,7 @@ module.exports = {
@@ -1047,3 +1079,49 @@ index 0f4de520ed6b8a06dfe355e0bb9091273def98a5..ada72a7e621ea5433f194ab3d22eef32
  var t = require('assert');
  
  var client;
+diff --git a/deps/librdkafka/src/rdkafka_partition.h b/deps/librdkafka/src/rdkafka_partition.h
+index f9dd686423..aef704b95f 100644
+--- a/deps/librdkafka/src/rdkafka_partition.h
++++ b/deps/librdkafka/src/rdkafka_partition.h
+@@ -68,24 +68,35 @@ struct rd_kafka_toppar_err {
+                                   *   last msg sequence */
+ };
+ 
+-
++/**
++ * @brief Fetchpos comparator, only offset is compared.
++ */
++static RD_UNUSED RD_INLINE int
++rd_kafka_fetch_pos_cmp_offset(const rd_kafka_fetch_pos_t *a,
++                              const rd_kafka_fetch_pos_t *b) {
++        if (a->offset < b->offset)
++                return -1;
++        else if (a->offset > b->offset)
++                return 1;
++        else
++                return 0;
++}
+ 
+ /**
+  * @brief Fetchpos comparator, leader epoch has precedence.
++ *        iff both values are not null.
+  */
+ static RD_UNUSED RD_INLINE int
+ rd_kafka_fetch_pos_cmp(const rd_kafka_fetch_pos_t *a,
+                        const rd_kafka_fetch_pos_t *b) {
++        if (a->leader_epoch == -1 || b->leader_epoch == -1)
++                return rd_kafka_fetch_pos_cmp_offset(a, b);
+         if (a->leader_epoch < b->leader_epoch)
+                 return -1;
+         else if (a->leader_epoch > b->leader_epoch)
+                 return 1;
+-        else if (a->offset < b->offset)
+-                return -1;
+-        else if (a->offset > b->offset)
+-                return 1;
+         else
+-                return 0;
++                return rd_kafka_fetch_pos_cmp_offset(a, b);
+ }
+ 
+ 

@@ -1604,7 +1604,7 @@ export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    value: string
+    property: string
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin

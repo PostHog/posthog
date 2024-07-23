@@ -14,6 +14,7 @@ import { BatchExportRuns } from './BatchExportRuns'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
+import { PipelineNodeMetricsV2 } from './PipelineNodeMetricsV2'
 import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
@@ -58,10 +59,8 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
     }
 
-    if ([PipelineBackend.Plugin, PipelineBackend.BatchExport].includes(node.backend)) {
-        tabToContent[PipelineNodeTab.Metrics] = <PipelineNodeMetrics id={id} />
-    }
-
+    tabToContent[PipelineNodeTab.Metrics] =
+        node.backend === PipelineBackend.HogFunction ? <PipelineNodeMetricsV2 /> : <PipelineNodeMetrics id={id} />
     tabToContent[PipelineNodeTab.Logs] = <PipelineNodeLogs id={id} stage={stage} />
 
     if (node.backend === PipelineBackend.BatchExport) {

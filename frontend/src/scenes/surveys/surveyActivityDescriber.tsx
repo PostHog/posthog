@@ -25,6 +25,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyQuestionLabel } from './constants'
+
 const isEmptyOrUndefined = (value: any): boolean => value === undefined || value === null || value === ''
 
 const nameOrLinkToSurvey = (
@@ -440,7 +442,8 @@ export function describeQuestionChanges(before: SurveyQuestion, after: SurveyQue
         before.type !== after.type
             ? [
                   <>
-                      changed question type from <strong>{before.type}</strong> to <strong>{after.type}</strong>
+                      changed question type from <strong>{SurveyQuestionLabel[before.type]}</strong> to{' '}
+                      <strong>{SurveyQuestionLabel[after.type]}</strong>
                   </>,
               ]
             : []
