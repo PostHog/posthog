@@ -74,7 +74,7 @@ def fetch_app_metrics_trends(
         {'AND metric_name IN %(name)s' if name else ''}
         {'AND metric_kind IN %(kind)s' if kind else ''}
         GROUP BY timestamp, breakdown
-        ORDER BY timestamp ASC WITH FILL STEP toIntervalHour(1)
+        ORDER BY timestamp ASC
     """
 
     clickhouse_kwargs["team_id"] = team_id
@@ -93,7 +93,8 @@ def fetch_app_metrics_trends(
         raise ValueError("Unexpected results from ClickHouse")
 
     # We create the x values based on the date range and interval
-    labels = []
+    labels: list[str] = []
+    label_format = "%Y-%m-%dT%H:%M" if interval == "hour" else "%Y-%m-%d"
 
     range_date = after
     # Normalize the start of the range to the start of the interval
@@ -106,7 +107,7 @@ def fetch_app_metrics_trends(
         range_date -= timedelta(days=range_date.weekday())
 
     while range_date <= before:
-        labels.append(range_date)
+        labels.append(range_date.strftime(label_format))
         if interval == "hour":
             range_date += timedelta(hours=1)
         elif interval == "day":
@@ -115,20 +116,20 @@ def fetch_app_metrics_trends(
             range_date += timedelta(weeks=1)
 
     response = AppMetricsResponse(labels=[], series=[])
-    data_by_breakdown: dict[str, dict[datetime, int]] = {}
+    data_by_breakdown: dict[str, dict[str, int]] = {}
 
-    breakdown_names = set([row[1] for row in results])
+    breakdown_names = {row[1] for row in results}
 
     for result in results:
         timestamp, breakdown, count = result
         if breakdown not in data_by_breakdown:
             data_by_breakdown[breakdown] = {}
 
-        data_by_breakdown[breakdown][timestamp] = count
+        data_by_breakdown[breakdown][timestamp.strftime(label_format)] = count
 
     # Now we can construct the response object
 
-    response.labels = [x.strftime("%Y-%m-%dT%H:%M:%S") for x in labels]
+    response.labels = labels
 
     for breakdown in breakdown_names:
         series = AppMetricSeries(name=breakdown, values=[])

@@ -159,7 +159,7 @@ function colorConfig(name: string): Partial<ChartDataset<'line', any>> {
             color = getColorVar('data-color-1')
             break
         case 'failed':
-            color = getColorVar('data-color-12')
+            color = getColorVar('danger')
             break
         default:
             color = getColorVar('data-color-2')
