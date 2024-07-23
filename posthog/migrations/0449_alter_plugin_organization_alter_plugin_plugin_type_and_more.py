@@ -10,16 +10,29 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name="plugin",
-            name="organization",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="plugins",
-                related_query_name="plugin",
-                to="posthog.organization",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterField(
+                    model_name="plugin",
+                    name="organization",
+                    field=models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="plugins",
+                        related_query_name="plugin",
+                        to="posthog.organization",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    """
+                    SET CONSTRAINTS "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" IMMEDIATE; ALTER TABLE "posthog_plugin" DROP CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o";
+                    ALTER TABLE "posthog_plugin" ALTER COLUMN "organization_id" DROP NOT NULL;
+                    ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" FOREIGN KEY ("organization_id") REFERENCES "posthog_organization" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    """
+                ),
+            ],
         ),
         migrations.AlterField(
             model_name="plugin",
