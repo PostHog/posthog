@@ -1,11 +1,12 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSkeleton, Popover, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { pipelineNodeMetricsV2Logic } from './pipelineNodeMetricsV2Logic'
@@ -117,6 +118,9 @@ function AppMetricsTotals(): JSX.Element {
 function AppMetricsGraph(): JSX.Element {
     const { appMetrics, appMetricsLoading } = useValues(pipelineNodeMetricsV2Logic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const [isTooltipShown, setIsTooltipShown] = useState(false)
+    const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
+    const tooltipRef = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
         let chart: Chart
@@ -154,6 +158,36 @@ function AppMetricsGraph(): JSX.Element {
                         legend: {
                             display: false,
                         },
+                        tooltip: {
+                            enabled: false, // Using external tooltip
+                            external({ tooltip, chart }) {
+                                setIsTooltipShown(tooltip.opacity > 0)
+                                setPopoverContent(
+                                    <InsightTooltip
+                                        embedded
+                                        hideInspectActorsSection
+                                        // showHeader={!!labels}
+                                        altTitle={tooltip.dataPoints[0].label}
+                                        seriesData={tooltip.dataPoints.map((dp, i) => ({
+                                            id: i,
+                                            dataIndex: 0,
+                                            datasetIndex: 0,
+                                            label: dp.dataset.label,
+                                            color: dp.dataset.borderColor as string,
+                                            count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
+                                        }))}
+                                        renderSeries={(value) => value}
+                                        renderCount={(count) => humanFriendlyNumber(count)}
+                                    />
+                                )
+
+                                if (tooltipRef.current) {
+                                    const position = chart.canvas.getBoundingClientRect()
+                                    tooltipRef.current.style.left = position.left + tooltip.caretX + 'px'
+                                    tooltipRef.current.style.top = position.top + tooltip.caretY + 'px'
+                                }
+                            },
+                        },
                     },
                     maintainAspectRatio: false,
                     interaction: {
@@ -174,22 +208,25 @@ function AppMetricsGraph(): JSX.Element {
         <div className="relative border rounded p-6 bg-bg-light h-[50vh]">
             {appMetricsLoading && <SpinnerOverlay />}
             {!!appMetrics && <canvas ref={canvasRef} />}
+            <Popover visible={isTooltipShown} overlay={popoverContent} placement="top" padded={false}>
+                <div className="fixed" ref={tooltipRef} />
+            </Popover>
         </div>
     )
 }
 
 function colorConfig(name: string): Partial<ChartDataset<'line', any>> {
-    let color = getColorVar('data-color-1')
+    let color = ''
 
     switch (name) {
         case 'succeeded':
-            color = getColorVar('data-color-1')
+            color = getColorVar('success')
             break
         case 'failed':
             color = getColorVar('danger')
             break
         default:
-            color = getColorVar('data-color-2')
+            color = getColorVar('data-color-1')
             break
     }
 
