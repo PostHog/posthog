@@ -1,28 +1,38 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'kea-forms'
+import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
-import { PipelineStage } from '~/types'
+import { AvailableFeature, PipelineStage } from '~/types'
 
+import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { PipelineBackend } from '../types'
 import { newDestinationsLogic } from './newDestinationsLogic'
 
 export function DestinationOptionsTable(): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { loading, filteredDestinations, filters } = useValues(newDestinationsLogic)
-    const { setFilters } = useActions(newDestinationsLogic)
+    const { setFilters, openFeedbackDialog } = useActions(newDestinationsLogic)
+    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
 
     return (
-        <>
-            <div className="flex items-center mb-2 gap-2">
+        <div className="space-y-2">
+            <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+
+            <div className="flex items-center gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
                     value={filters.search ?? ''}
                     onChange={(e) => setFilters({ search: e })}
                 />
+                <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
+                    Can't find what you're looking for?
+                </Link>
                 <div className="flex-1" />
                 <LemonSelect
                     type="secondary"
@@ -54,19 +64,27 @@ export function DestinationOptionsTable(): JSX.Element {
                     {
                         title: 'Name',
                         sticky: true,
+                        key: 'name',
+                        sorter(a, b) {
+                            return a.name.localeCompare(b.name)
+                        },
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
-                                    to={target.url}
+                                    to={canEnableNewDestinations || target.status === 'free' ? target.url : undefined}
                                     title={
                                         <>
                                             {target.name}
                                             {target.status === 'alpha' ? (
-                                                <LemonTag type="caution">Experimental</LemonTag>
+                                                <LemonTag type="danger">Experimental</LemonTag>
                                             ) : target.status === 'beta' ? (
-                                                <LemonTag type="highlight">Beta</LemonTag>
+                                                <LemonTag type="completion">Beta</LemonTag>
                                             ) : target.status === 'stable' ? (
-                                                <LemonTag type="breakdown">New</LemonTag> // Once Hog Functions are fully released we can remove the new label
+                                                <LemonTag type="highlight">New</LemonTag> // Once Hog Functions are fully released we can remove the new label
+                                            ) : target.status ? (
+                                                <LemonTag type="highlight">
+                                                    {capitalizeFirstLetter(target.status)}
+                                                </LemonTag>
                                             ) : undefined}
                                         </>
                                     }
@@ -80,21 +98,26 @@ export function DestinationOptionsTable(): JSX.Element {
                         width: 100,
                         align: 'right',
                         render: function RenderActions(_, target) {
-                            return (
+                            return canEnableNewDestinations || target.status === 'free' ? (
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
                                     icon={<IconPlusSmall />}
                                     // Preserve hash params to pass config in
                                     to={target.url}
+                                    fullWidth
                                 >
                                     Create
                                 </LemonButton>
+                            ) : (
+                                <span className="whitespace-nowrap">
+                                    <PayGateButton feature={AvailableFeature.DATA_PIPELINES} type="secondary" />
+                                </span>
                             )
                         },
                     },
                 ]}
             />
-        </>
+        </div>
     )
 }

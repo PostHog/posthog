@@ -96,36 +96,30 @@ export class HogExecutor {
     constructor(private hogFunctionManager: HogFunctionManager) {}
 
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
-        total: number
-        matching: number
-        functions: HogFunctionType[]
+        matchingFunctions: HogFunctionType[]
+        nonMatchingFunctions: HogFunctionType[]
     } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
+        const nonMatchingFunctions: HogFunctionType[] = []
+        const matchingFunctions: HogFunctionType[] = []
+
         // Filter all functions based on the invocation
-        const functions = allFunctionsForTeam.filter((hogFunction) => {
+        allFunctionsForTeam.forEach((hogFunction) => {
             try {
-                const filters = hogFunction.filters
+                if (hogFunction.filters?.bytecode) {
+                    const filterResult = exec(hogFunction.filters.bytecode, {
+                        globals: filtersGlobals,
+                        timeout: DEFAULT_TIMEOUT_MS,
+                        maxAsyncSteps: 0,
+                    })
 
-                if (!filters?.bytecode) {
-                    // NOTE: If we don't have bytecode this indicates something went wrong.
-                    // The model will always save a bytecode if it was compiled correctly
-                    return false
+                    if (typeof filterResult.result === 'boolean' && filterResult.result) {
+                        matchingFunctions.push(hogFunction)
+                        return
+                    }
                 }
-
-                const filterResult = exec(filters.bytecode, {
-                    globals: filtersGlobals,
-                    timeout: DEFAULT_TIMEOUT_MS,
-                    maxAsyncSteps: 0,
-                })
-
-                if (typeof filterResult.result !== 'boolean') {
-                    // NOTE: If the result is not a boolean we should not execute the function
-                    return false
-                }
-
-                return filterResult.result
             } catch (error) {
                 status.error('🦔', `[HogExecutor] Error filtering function`, {
                     hogFunctionId: hogFunction.id,
@@ -134,20 +128,19 @@ export class HogExecutor {
                 })
             }
 
-            return false
+            nonMatchingFunctions.push(hogFunction)
         })
 
         status.debug(
             '🦔',
-            `[HogExecutor] Found ${Object.keys(functions).length} matching functions out of ${
+            `[HogExecutor] Found ${Object.keys(matchingFunctions).length} matching functions out of ${
                 Object.keys(allFunctionsForTeam).length
             } for team`
         )
 
         return {
-            total: allFunctionsForTeam.length,
-            matching: functions.length,
-            functions,
+            nonMatchingFunctions,
+            matchingFunctions,
         }
     }
 
@@ -243,7 +236,7 @@ export class HogExecutor {
             hogFunctionUrl: invocation.globals.source?.url,
         }
 
-        status.info('🦔', `[HogExecutor] Executing function`, loggingContext)
+        status.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result: HogFunctionInvocationResult = {
             ...invocation,

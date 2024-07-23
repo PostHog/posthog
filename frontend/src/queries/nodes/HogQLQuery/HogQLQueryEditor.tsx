@@ -223,29 +223,17 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             : ''
                                     }
                                     data-attr="hogql-query-editor-save-as-view"
-                                >
-                                    Save as view
-                                </LemonButton>
-                            )}
-                            <LemonButtonWithDropdown
-                                className="ml-2"
-                                icon={<IconInfo />}
-                                type="secondary"
-                                size="small"
-                                dropdown={{
-                                    overlay: (
+                                    tooltip={
                                         <div>
                                             Save a query as a view that can be referenced in another query. This is
                                             useful for modeling data and organizing large queries into readable chunks.{' '}
                                             <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
                                         </div>
-                                    ),
-                                    placement: 'right-start',
-                                    fallbackPlacements: ['left-start'],
-                                    actionable: true,
-                                    closeParentPopoverOnClickInside: true,
-                                }}
-                            />
+                                    }
+                                >
+                                    Save as view
+                                </LemonButton>
+                            )}
                         </>
                     )}
                 </div>
