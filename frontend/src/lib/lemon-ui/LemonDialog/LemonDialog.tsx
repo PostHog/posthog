@@ -113,6 +113,17 @@ export const LemonFormDialog = ({
 
     const firstError = useMemo(() => Object.values(formValidationErrors)[0] as string, [formValidationErrors])
 
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent): void => {
+            if (e.key === 'Enter' && primaryButton?.htmlType === 'submit') {
+                void onSubmit(form)
+            }
+        }
+
+        document.addEventListener('keydown', onKeyDown)
+        return () => document.removeEventListener('keydown', onKeyDown)
+    }, [])
+
     const primaryButton: LemonDialogProps['primaryButton'] = {
         type: 'primary',
         children: 'Submit',
