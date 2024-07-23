@@ -63,8 +63,8 @@ class ThrowStatement(Statement):
 @dataclass(kw_only=True)
 class TryCatchStatement(Statement):
     try_stmt: Statement
-    catch_stmt: Optional[Statement] = None
-    catch_var: Optional[str] = None
+    # var name (e), error type (RetryError), stmt ({})  # (e: RetryError) {}
+    catches: list[tuple[Optional[str], Optional[str], Statement]]
     finally_stmt: Optional[Statement] = None
 
 

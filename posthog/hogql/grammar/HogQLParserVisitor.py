@@ -49,6 +49,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#catchBlock.
+    def visitCatchBlock(self, ctx:HogQLParser.CatchBlockContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#tryCatchStmt.
     def visitTryCatchStmt(self, ctx:HogQLParser.TryCatchStmtContext):
         return self.visitChildren(ctx)

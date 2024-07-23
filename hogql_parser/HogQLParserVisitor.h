@@ -35,6 +35,8 @@ public:
 
     virtual std::any visitThrowStmt(HogQLParser::ThrowStmtContext *context) = 0;
 
+    virtual std::any visitCatchBlock(HogQLParser::CatchBlockContext *context) = 0;
+
     virtual std::any visitTryCatchStmt(HogQLParser::TryCatchStmtContext *context) = 0;
 
     virtual std::any visitIfStmt(HogQLParser::IfStmtContext *context) = 0;

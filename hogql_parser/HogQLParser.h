@@ -47,30 +47,30 @@ public:
   enum {
     RuleProgram = 0, RuleDeclaration = 1, RuleExpression = 2, RuleVarDecl = 3, 
     RuleIdentifierList = 4, RuleStatement = 5, RuleReturnStmt = 6, RuleThrowStmt = 7, 
-    RuleTryCatchStmt = 8, RuleIfStmt = 9, RuleWhileStmt = 10, RuleForStmt = 11, 
-    RuleForInStmt = 12, RuleFuncStmt = 13, RuleVarAssignment = 14, RuleExprStmt = 15, 
-    RuleEmptyStmt = 16, RuleBlock = 17, RuleKvPair = 18, RuleKvPairList = 19, 
-    RuleSelect = 20, RuleSelectUnionStmt = 21, RuleSelectStmtWithParens = 22, 
-    RuleSelectStmt = 23, RuleWithClause = 24, RuleTopClause = 25, RuleFromClause = 26, 
-    RuleArrayJoinClause = 27, RuleWindowClause = 28, RulePrewhereClause = 29, 
-    RuleWhereClause = 30, RuleGroupByClause = 31, RuleHavingClause = 32, 
-    RuleOrderByClause = 33, RuleProjectionOrderByClause = 34, RuleLimitAndOffsetClause = 35, 
-    RuleOffsetOnlyClause = 36, RuleSettingsClause = 37, RuleJoinExpr = 38, 
-    RuleJoinOp = 39, RuleJoinOpCross = 40, RuleJoinConstraintClause = 41, 
-    RuleSampleClause = 42, RuleOrderExprList = 43, RuleOrderExpr = 44, RuleRatioExpr = 45, 
-    RuleSettingExprList = 46, RuleSettingExpr = 47, RuleWindowExpr = 48, 
-    RuleWinPartitionByClause = 49, RuleWinOrderByClause = 50, RuleWinFrameClause = 51, 
-    RuleWinFrameExtend = 52, RuleWinFrameBound = 53, RuleExpr = 54, RuleColumnTypeExpr = 55, 
-    RuleColumnExprList = 56, RuleColumnExpr = 57, RuleColumnArgList = 58, 
-    RuleColumnArgExpr = 59, RuleColumnLambdaExpr = 60, RuleHogqlxTagElement = 61, 
-    RuleHogqlxTagAttribute = 62, RuleWithExprList = 63, RuleWithExpr = 64, 
-    RuleColumnIdentifier = 65, RuleNestedIdentifier = 66, RuleTableExpr = 67, 
-    RuleTableFunctionExpr = 68, RuleTableIdentifier = 69, RuleTableArgList = 70, 
-    RuleDatabaseIdentifier = 71, RuleFloatingLiteral = 72, RuleNumberLiteral = 73, 
-    RuleLiteral = 74, RuleInterval = 75, RuleKeyword = 76, RuleKeywordForAlias = 77, 
-    RuleAlias = 78, RuleIdentifier = 79, RuleEnumValue = 80, RulePlaceholder = 81, 
-    RuleString = 82, RuleTemplateString = 83, RuleStringContents = 84, RuleFullTemplateString = 85, 
-    RuleStringContentsFull = 86
+    RuleCatchBlock = 8, RuleTryCatchStmt = 9, RuleIfStmt = 10, RuleWhileStmt = 11, 
+    RuleForStmt = 12, RuleForInStmt = 13, RuleFuncStmt = 14, RuleVarAssignment = 15, 
+    RuleExprStmt = 16, RuleEmptyStmt = 17, RuleBlock = 18, RuleKvPair = 19, 
+    RuleKvPairList = 20, RuleSelect = 21, RuleSelectUnionStmt = 22, RuleSelectStmtWithParens = 23, 
+    RuleSelectStmt = 24, RuleWithClause = 25, RuleTopClause = 26, RuleFromClause = 27, 
+    RuleArrayJoinClause = 28, RuleWindowClause = 29, RulePrewhereClause = 30, 
+    RuleWhereClause = 31, RuleGroupByClause = 32, RuleHavingClause = 33, 
+    RuleOrderByClause = 34, RuleProjectionOrderByClause = 35, RuleLimitAndOffsetClause = 36, 
+    RuleOffsetOnlyClause = 37, RuleSettingsClause = 38, RuleJoinExpr = 39, 
+    RuleJoinOp = 40, RuleJoinOpCross = 41, RuleJoinConstraintClause = 42, 
+    RuleSampleClause = 43, RuleOrderExprList = 44, RuleOrderExpr = 45, RuleRatioExpr = 46, 
+    RuleSettingExprList = 47, RuleSettingExpr = 48, RuleWindowExpr = 49, 
+    RuleWinPartitionByClause = 50, RuleWinOrderByClause = 51, RuleWinFrameClause = 52, 
+    RuleWinFrameExtend = 53, RuleWinFrameBound = 54, RuleExpr = 55, RuleColumnTypeExpr = 56, 
+    RuleColumnExprList = 57, RuleColumnExpr = 58, RuleColumnArgList = 59, 
+    RuleColumnArgExpr = 60, RuleColumnLambdaExpr = 61, RuleHogqlxTagElement = 62, 
+    RuleHogqlxTagAttribute = 63, RuleWithExprList = 64, RuleWithExpr = 65, 
+    RuleColumnIdentifier = 66, RuleNestedIdentifier = 67, RuleTableExpr = 68, 
+    RuleTableFunctionExpr = 69, RuleTableIdentifier = 70, RuleTableArgList = 71, 
+    RuleDatabaseIdentifier = 72, RuleFloatingLiteral = 73, RuleNumberLiteral = 74, 
+    RuleLiteral = 75, RuleInterval = 76, RuleKeyword = 77, RuleKeywordForAlias = 78, 
+    RuleAlias = 79, RuleIdentifier = 80, RuleEnumValue = 81, RulePlaceholder = 82, 
+    RuleString = 83, RuleTemplateString = 84, RuleStringContents = 85, RuleFullTemplateString = 86, 
+    RuleStringContentsFull = 87
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -98,6 +98,7 @@ public:
   class StatementContext;
   class ReturnStmtContext;
   class ThrowStmtContext;
+  class CatchBlockContext;
   class TryCatchStmtContext;
   class IfStmtContext;
   class WhileStmtContext;
@@ -307,22 +308,40 @@ public:
 
   ThrowStmtContext* throwStmt();
 
+  class  CatchBlockContext : public antlr4::ParserRuleContext {
+  public:
+    HogQLParser::IdentifierContext *catchVar = nullptr;
+    HogQLParser::IdentifierContext *catchType = nullptr;
+    HogQLParser::BlockContext *catchStmt = nullptr;
+    CatchBlockContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *CATCH();
+    BlockContext *block();
+    antlr4::tree::TerminalNode *LPAREN();
+    antlr4::tree::TerminalNode *RPAREN();
+    std::vector<IdentifierContext *> identifier();
+    IdentifierContext* identifier(size_t i);
+    antlr4::tree::TerminalNode *COLON();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  CatchBlockContext* catchBlock();
+
   class  TryCatchStmtContext : public antlr4::ParserRuleContext {
   public:
     HogQLParser::BlockContext *tryStmt = nullptr;
-    HogQLParser::IdentifierContext *catchVar = nullptr;
-    HogQLParser::BlockContext *catchStmt = nullptr;
     HogQLParser::BlockContext *finallyStmt = nullptr;
     TryCatchStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *TRY();
     std::vector<BlockContext *> block();
     BlockContext* block(size_t i);
-    antlr4::tree::TerminalNode *CATCH();
+    std::vector<CatchBlockContext *> catchBlock();
+    CatchBlockContext* catchBlock(size_t i);
     antlr4::tree::TerminalNode *FINALLY();
-    antlr4::tree::TerminalNode *LPAREN();
-    antlr4::tree::TerminalNode *RPAREN();
-    IdentifierContext *identifier();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

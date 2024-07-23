@@ -47,6 +47,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitCatchBlock(HogQLParser::CatchBlockContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitTryCatchStmt(HogQLParser::TryCatchStmtContext *ctx) override {
     return visitChildren(ctx);
   }
