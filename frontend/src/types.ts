@@ -333,6 +333,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
 }
 
