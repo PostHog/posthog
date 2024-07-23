@@ -1628,6 +1628,12 @@ const api = {
         ): Promise<AppMetricsV2Response[]> {
             return await new ApiRequest().hogFunction(id).withAction('metrics').withQueryString(params).get()
         },
+        async metricsTotals(
+            id: HogFunctionType['id'],
+            params: Partial<AppMetricsV2RequestParams> = {}
+        ): Promise<AppMetricsV2Response[]> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
+        },
 
         async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             return await new ApiRequest().hogFunctionTemplates().get()

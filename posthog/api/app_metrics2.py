@@ -30,6 +30,16 @@ class AppMetricResponseSerializer(DataclassSerializer):
         dataclass = AppMetricsResponse
 
 
+@dataclass
+class AppMetricsTotalsResponse:
+    totals: dict[str, int]
+
+
+class AppMetricsTotalsResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = AppMetricsTotalsResponse
+
+
 class AppMetricsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(required=False, default="-7d")
     before = serializers.CharField(required=False)
@@ -140,6 +150,57 @@ def fetch_app_metrics_trends(
     return response
 
 
+def fetch_app_metric_totals(
+    team_id: int,
+    app_source: str,
+    app_source_id: str,
+    breakdown_by: str = "kind",
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+    instance_id: Optional[str] = None,
+    name: Optional[list[str]] = None,
+    kind: Optional[list[str]] = None,
+) -> AppMetricsTotalsResponse:
+    """
+    Calculate the totals for the app metrics over the given period.
+    """
+
+    name = name or []
+    kind = kind or []
+
+    clickhouse_kwargs: dict[str, Any] = {
+        "team_id": team_id,
+        "app_source": app_source,
+        "app_source_id": app_source_id,
+        "after": after.strftime("%Y-%m-%dT%H:%M:%S") if after else None,
+        "before": before.strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+    }
+
+    clickhouse_query = f"""
+        SELECT
+            metric_{breakdown_by} as breakdown,
+            count(breakdown) as count
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+        AND app_source = %(app_source)s
+        AND app_source_id = %(app_source_id)s
+        {'AND timestamp >= toDateTime64(%(after)s, 6)' if after else ''}
+        {'AND timestamp <= toDateTime64(%(before)s, 6)' if before else ''}
+        {'AND instance_id = %(instance_id)s' if instance_id else ''}
+        {'AND metric_name IN %(name)s' if name else ''}
+        {'AND metric_kind IN %(kind)s' if kind else ''}
+        GROUP BY breakdown
+    """
+
+    results = sync_execute(clickhouse_query, clickhouse_kwargs)
+
+    if not isinstance(results, list):
+        raise ValueError("Unexpected results from ClickHouse")
+
+    totals = {row[0]: row[1] for row in results}
+    return AppMetricsTotalsResponse(totals=totals)
+
+
 class AppMetricsMixin(viewsets.GenericViewSet):
     app_source: str  # Should be set by the inheriting class
 
@@ -188,4 +249,42 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         )
 
         serializer = AppMetricResponseSerializer(instance=data)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["GET"], url_path="metrics/totals")
+    def metrics_totals(self, request: Request, *args, **kwargs):
+        obj = self.get_object()
+        param_serializer = AppMetricsRequestSerializer(data=request.query_params)
+
+        if not self.app_source:
+            raise ValidationError("app_source not set on the viewset")
+
+        if not param_serializer.is_valid():
+            raise ValidationError(param_serializer.errors)
+
+        params = param_serializer.validated_data
+        team = cast(Team, self.team)  # type: ignore
+
+        after_date = None
+        before_date = None
+
+        if params.get("after"):
+            after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], team.timezone_info)
+
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], team.timezone_info)
+
+        data = fetch_app_metric_totals(
+            team_id=self.team_id,  # type: ignore
+            app_source=self.app_source,
+            app_source_id=str(obj.id),
+            # From request params
+            after=after_date,
+            before=before_date,
+            breakdown_by=params.get("breakdown_by"),
+            name=params["name"].split(",") if params.get("name") else None,
+            kind=params["kind"].split(",") if params.get("kind") else None,
+        )
+
+        serializer = AppMetricsTotalsResponseSerializer(instance=data)
         return Response(serializer.data)

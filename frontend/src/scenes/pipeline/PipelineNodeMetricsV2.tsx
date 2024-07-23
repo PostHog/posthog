@@ -1,15 +1,25 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { inStorybookTestRunner } from 'lib/utils'
+import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
 import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { pipelineNodeMetricsV2Logic } from './pipelineNodeMetricsV2Logic'
 import { PipelineBackend } from './types'
+
+const METRICS_INFO = {
+    succeeded: 'Total number of events processed successfully',
+    failed: 'Total number of events that had errors during processing',
+    filtered: 'Total number of events that were filtered out',
+    disabled_temporarily:
+        'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
+    disabled_permanently:
+        'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
+}
 
 export function PipelineNodeMetricsV2(): JSX.Element {
     const { node } = useValues(pipelineNodeLogic)
@@ -26,7 +36,11 @@ export function PipelineNodeMetricsV2(): JSX.Element {
     return (
         <BindLogic logic={pipelineNodeMetricsV2Logic} props={{ id: node.id }}>
             <div className="space-y-4">
-                <div className="flex items-center justify-end gap-2">
+                <AppMetricsTotals />
+
+                <div className="flex items-center gap-2">
+                    <h2 className="mb-0">Delivery trends</h2>
+                    <div className="flex-1" />
                     <LemonSelect
                         options={[
                             { label: 'Hourly', value: 'hour' },
@@ -40,7 +54,7 @@ export function PipelineNodeMetricsV2(): JSX.Element {
                     <DateFilter
                         dateTo={filters.before}
                         dateFrom={filters.after}
-                        onChange={(from, to) => setFilters({ after: from, before: to })}
+                        onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
                         allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
                         makeLabel={(key) => (
                             <>
@@ -56,36 +70,44 @@ export function PipelineNodeMetricsV2(): JSX.Element {
     )
 }
 
-// function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX.Element {
-//     if (metricsLoading) {
-//         return <LemonSkeleton className="w-20 h-4 mb-2" repeat={4} />
-//     }
+function AppMetricBigNumber({
+    label,
+    value,
+    tooltip,
+}: {
+    label: string
+    value: number | undefined
+    tooltip: JSX.Element | string
+}): JSX.Element {
+    return (
+        <Tooltip title={tooltip}>
+            <div className="border p-2 rounded bg-bg-light flex-1 flex flex-col gap-2 items-center">
+                <div className="uppercase font-bold text-xs">{label.replace(/_/g, ' ')}</div>
+                <div className="text-2xl flex-1 mb-2 flex items-center">{humanFriendlyNumber(value ?? 0)}</div>
+            </div>
+        </Tooltip>
+    )
+}
 
-//     return (
-//         <div className="space-y-4">
-//             <div className="flex items-start gap-8 flex-wrap">
-//                 <div>
-//                     <div className="text-muted font-semibold mb-2">
-//                         Events Processed successfully
-//                         <Tooltip title="Total number of events processed successfully">
-//                             <IconInfo />
-//                         </Tooltip>
-//                     </div>
-//                     <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
-//                 </div>
-//                 <div>
-//                     <div className="text-muted font-semibold mb-2">
-//                         Events Failed
-//                         <Tooltip title="Total number of events that threw an error during processing">
-//                             <IconInfo />
-//                         </Tooltip>
-//                     </div>
-//                     <div className="text-4xl">{renderNumber(metrics?.totals?.failures)}</div>
-//                 </div>
-//             </div>
-//         </div>
-//     )
-// }
+function AppMetricsTotals(): JSX.Element {
+    const { appMetricsTotals, appMetricsTotalsLoading } = useValues(pipelineNodeMetricsV2Logic)
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center gap-2 flex-wrap">
+                {Object.entries(METRICS_INFO).map(([key, value]) => (
+                    <div key={key} className="flex flex-col h-30 min-w-30 flex-1 max-w-100">
+                        {appMetricsTotalsLoading ? (
+                            <LemonSkeleton className="h-full w-full" />
+                        ) : (
+                            <AppMetricBigNumber label={key} value={appMetricsTotals.totals?.[key]} tooltip={value} />
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
 
 function AppMetricsGraph(): JSX.Element {
     const { appMetrics, appMetricsLoading } = useValues(pipelineNodeMetricsV2Logic)

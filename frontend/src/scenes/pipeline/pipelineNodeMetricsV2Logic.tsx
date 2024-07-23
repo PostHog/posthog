@@ -2,7 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers } from 
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { AppMetricsV2RequestParams, AppMetricsV2Response } from '~/types'
+import { AppMetricsTotalsV2Response, AppMetricsV2RequestParams, AppMetricsV2Response } from '~/types'
 
 import type { pipelineNodeMetricsV2LogicType } from './pipelineNodeMetricsV2LogicType'
 
@@ -27,7 +27,7 @@ export const pipelineNodeMetricsV2Logic = kea<pipelineNodeMetricsV2LogicType>([
     }),
     loaders(({ values, props }) => ({
         appMetrics: [
-            null as AppMetricsV2Response,
+            null as AppMetricsV2Response | null,
             {
                 loadMetrics: async () => {
                     const params: AppMetricsV2RequestParams = {
@@ -35,6 +35,18 @@ export const pipelineNodeMetricsV2Logic = kea<pipelineNodeMetricsV2LogicType>([
                         breakdown_by: 'name',
                     }
                     return await api.hogFunctions.metrics(props.id, params)
+                },
+            },
+        ],
+
+        appMetricsTotals: [
+            null as AppMetricsTotalsV2Response | null,
+            {
+                loadMetricsTotals: async () => {
+                    const params: AppMetricsV2RequestParams = {
+                        breakdown_by: 'name',
+                    }
+                    return await api.hogFunctions.metricsTotals(props.id, params)
                 },
             },
         ],
@@ -54,5 +66,6 @@ export const pipelineNodeMetricsV2Logic = kea<pipelineNodeMetricsV2LogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadMetrics()
+        actions.loadMetricsTotals()
     }),
 ])

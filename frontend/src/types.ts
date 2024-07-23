@@ -4381,6 +4381,10 @@ export type AppMetricsV2Response = {
     }[]
 }
 
+export type AppMetricsTotalsV2Response = {
+    totals: Record<string, number>
+}
+
 export type AppMetricsV2RequestParams = {
     after?: string
     before?: string
