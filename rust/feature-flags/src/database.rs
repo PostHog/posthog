@@ -10,6 +10,8 @@ use sqlx::{
 use thiserror::Error;
 use tokio::time::timeout;
 
+use crate::config::Config;
+
 const DATABASE_TIMEOUT_MILLISECS: u64 = 1000;
 
 #[derive(Error, Debug)]
@@ -43,13 +45,23 @@ pub struct PgClient {
 }
 
 impl PgClient {
-    pub async fn new(addr: String) -> Result<PgClient, CustomDatabaseError> {
-        // TODO: Get these vals from config
+    pub async fn new_read_client(config: &Config) -> Result<PgClient, CustomDatabaseError> {
         let pool = PgPoolOptions::new()
-            .max_connections(5)
+            .max_connections(config.max_pg_connections)
             .acquire_timeout(Duration::from_secs(1))
             .test_before_acquire(true)
-            .connect(&addr)
+            .connect(&config.read_database_url)
+            .await?;
+
+        Ok(PgClient { pool })
+    }
+
+    pub async fn new_write_client(config: &Config) -> Result<PgClient, CustomDatabaseError> {
+        let pool = PgPoolOptions::new()
+            .max_connections(config.max_pg_connections)
+            .acquire_timeout(Duration::from_secs(1))
+            .test_before_acquire(true)
+            .connect(&config.write_database_url)
             .await?;
 
         Ok(PgClient { pool })

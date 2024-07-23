@@ -4,6 +4,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
+    config::{Config, DEFAULT_TEST_CONFIG},
     database::{Client as DatabaseClientTrait, PgClient},
     flag_definitions::{self, FeatureFlag, FeatureFlagRow},
     redis::{Client as RedisClientTrait, RedisClient},
@@ -127,15 +128,13 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_client(url: Option<String>) -> Arc<PgClient> {
-    let pg_url = match url {
-        Some(value) => value,
-        None => "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
-    };
-    let client = PgClient::new(pg_url)
-        .await
-        .expect("Failed to create pg client");
-    Arc::new(client)
+pub async fn setup_pg_client(config: Option<&Config>) -> Arc<PgClient> {
+    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    Arc::new(
+        PgClient::new_read_client(config)
+            .await
+            .expect("Failed to create pg read client"),
+    )
 }
 
 pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error> {
