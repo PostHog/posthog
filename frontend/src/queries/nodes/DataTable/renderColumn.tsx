@@ -26,6 +26,7 @@ export function renderColumn(
     key: string,
     value: any,
     record: Record<string, any> | any[],
+    recordIndex: number,
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
@@ -39,10 +40,22 @@ export function renderColumn(
         return <LemonTag color="red">Error</LemonTag>
     } else if (queryContextColumnName && queryContextColumn?.render) {
         const Component = queryContextColumn?.render
-        return <Component record={record} columnName={queryContextColumnName} value={value} query={query} />
+        return (
+            <Component
+                record={record}
+                columnName={queryContextColumnName}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+            />
+        )
     } else if (context?.columns?.[key] && context?.columns?.[key].render) {
         const Component = context?.columns?.[key]?.render
-        return Component ? <Component record={record} columnName={key} value={value} query={query} /> : String(value)
+        return Component ? (
+            <Component record={record} columnName={key} value={value} query={query} recordIndex={recordIndex} />
+        ) : (
+            String(value)
+        )
     } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
         return renderHogQLX(value)
     } else if (value === null) {
@@ -233,7 +246,7 @@ export function renderColumn(
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? (
-            <Component record={record} columnName={columnName} value={value} query={query} />
+            <Component record={record} columnName={columnName} value={value} query={query} recordIndex={recordIndex} />
         ) : (
             String(value)
         )

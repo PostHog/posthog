@@ -52,14 +52,11 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingLogic']),
 
     actions({
-        // Filter options
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
         _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
-        // API actions
-        assignGroup: (id: number, fingerprint: string) => ({ id, fingerprint }),
     }),
     reducers({
         dateRange: [
@@ -129,6 +126,5 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
                 actions._setSparklineOptions([])
             }
         },
-        assignGroup: async ({ id, fingerprint }) => {},
     })),
 ])

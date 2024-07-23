@@ -1,16 +1,18 @@
 import { TZLabel } from '@posthog/apps-common'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
+import { InsightLogicProps } from '~/types'
 
+import { errorTrackingDataLogic } from './errorTrackingDataLogic'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
@@ -23,6 +25,10 @@ export const scene: SceneExport = {
 export function ErrorTrackingScene(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
 
+    const insightProps: InsightLogicProps = {
+        dashboardItemId: 'new-ErrorTrackingQuery',
+    }
+
     const context: QueryContext = {
         columns: {
             error: {
@@ -33,13 +39,17 @@ export function ErrorTrackingScene(): JSX.Element {
             assignee: { render: AssigneeColumn },
         },
         showOpenEditorButton: false,
+        insightProps: insightProps,
+        alwaysRefresh: true,
     }
 
     return (
-        <div className="space-y-4">
-            <ErrorTrackingFilters />
-            <Query query={query} context={context} />
-        </div>
+        <BindLogic logic={errorTrackingDataLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+            <div className="space-y-4">
+                <ErrorTrackingFilters />
+                <Query query={query} context={context} />
+            </div>
+        </BindLogic>
     )
 }
 
@@ -86,8 +96,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 }
 
 const AssigneeColumn: QueryContextColumnComponent = (props) => {
-    const { query } = useValues(errorTrackingSceneLogic)
-    const { loadData } = useActions(dataNodeLogic({ key: 'InsightViz.new-ErrorTracking', query }))
+    const { assignGroup } = useActions(errorTrackingDataLogic)
 
     const record = props.record as ErrorTrackingGroup
 
@@ -96,9 +105,8 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
             defaultLabel="Unassigned"
             value={record.assignee}
             onChange={(user) => {
-                debugger
-                loadData()
-                // console.log(user.id)
+                const assigneeId = user?.id || null
+                assignGroup(props.recordIndex, assigneeId)
             }}
         />
     )

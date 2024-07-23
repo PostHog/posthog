@@ -8,7 +8,13 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse, RefreshType } from '~/queries/schema'
+import {
+    DatabaseSerializedFieldType,
+    ErrorTrackingGroup,
+    QuerySchema,
+    QueryStatusResponse,
+    RefreshType,
+} from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
@@ -655,6 +661,15 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent('activity')
     }
 
+    // Error tracking
+    public errorTracking(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('error_tracking')
+    }
+
+    public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent(fingerprint)
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -888,6 +903,12 @@ const api = {
                     })
                 )
                 .get()
+        },
+        async create(data: any): Promise<InsightModel> {
+            return await new ApiRequest().insights().create({ data })
+        },
+        async update(id: number, data: any): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data })
         },
     },
 
@@ -1674,6 +1695,15 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().annotations().assembleEndpointUrl()
+        },
+    },
+
+    errorTracking: {
+        async update(
+            fingerprint: ErrorTrackingGroup['fingerprint'],
+            data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
+        ): Promise<ErrorTrackingGroup> {
+            return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
         },
     },
 
