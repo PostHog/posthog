@@ -11,7 +11,7 @@ import {
     AnyPartialFilterType,
     AppMetricsUrlParams,
     DashboardType,
-    DataWarehouseSettingsTab,
+    DataWarehouseTab,
     FilterType,
     InsightShortId,
     PipelineNodeTab,
@@ -115,6 +115,7 @@ export const urls = {
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
     replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
@@ -156,13 +157,24 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (query?: string | Record<string, any>): string =>
-        combineUrl('/data-warehouse', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
-            .url,
+    dataWarehouse: (tab?: DataWarehouseTab | ':tab', query?: string | Record<string, any>): string =>
+        combineUrl(
+            `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
+            {},
+            query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
+        ).url,
+    dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
+        combineUrl(
+            `/data-warehouse/view/${id}`,
+            {},
+            query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
+        ).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
-        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
+    dataWarehouseSettings: (tab?: DataWarehouseTab | ':tab'): string =>
+        `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
+    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseTab.ManagedSources}/${id}`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
@@ -216,7 +228,7 @@ export const urls = {
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
-    integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
+    integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     shared: (token: string, exportOptions: ExportOptions = {}): string =>
         combineUrl(
             `/shared/${token}`,
@@ -244,4 +256,5 @@ export const urls = {
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
     alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
+    sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
 }

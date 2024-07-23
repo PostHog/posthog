@@ -124,7 +124,7 @@ jobs:
                         "release": "ingestion",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }}
+                        "labels": ${{ toJson(steps.labels.outputs.labels) }}
                       }
 
             - name: Check for changes that affect batch exports temporal worker

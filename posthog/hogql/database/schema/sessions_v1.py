@@ -157,16 +157,16 @@ def select_from_sessions_table_v1(
                 )
             ],
         ),
-        "$entry_current_url": arg_min_merge_field("entry_url"),
-        "$exit_current_url": arg_max_merge_field("exit_url"),
-        "$entry_utm_source": arg_min_merge_field("initial_utm_source"),
-        "$entry_utm_campaign": arg_min_merge_field("initial_utm_campaign"),
-        "$entry_utm_medium": arg_min_merge_field("initial_utm_medium"),
-        "$entry_utm_term": arg_min_merge_field("initial_utm_term"),
-        "$entry_utm_content": arg_min_merge_field("initial_utm_content"),
-        "$entry_referring_domain": arg_min_merge_field("initial_referring_domain"),
-        "$entry_gclid": arg_min_merge_field("initial_gclid"),
-        "$entry_gad_source": arg_min_merge_field("initial_gad_source"),
+        "$entry_current_url": null_if_empty(arg_min_merge_field("entry_url")),
+        "$exit_current_url": null_if_empty(arg_max_merge_field("exit_url")),
+        "$entry_utm_source": null_if_empty(arg_min_merge_field("initial_utm_source")),
+        "$entry_utm_campaign": null_if_empty(arg_min_merge_field("initial_utm_campaign")),
+        "$entry_utm_medium": null_if_empty(arg_min_merge_field("initial_utm_medium")),
+        "$entry_utm_term": null_if_empty(arg_min_merge_field("initial_utm_term")),
+        "$entry_utm_content": null_if_empty(arg_min_merge_field("initial_utm_content")),
+        "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
+        "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
+        "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
         "$event_count_map": ast.Call(
             name="sumMap",
             args=[ast.Field(chain=[table_name, "event_count_map"])],
@@ -420,3 +420,7 @@ def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team:
         return [["1"], ["0"]]
 
     return []
+
+
+def null_if_empty(expr: ast.Expr) -> ast.Call:
+    return ast.Call(name="nullIf", args=[expr, ast.Constant(value="")])

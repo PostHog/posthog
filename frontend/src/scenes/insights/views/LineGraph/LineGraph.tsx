@@ -22,7 +22,7 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'lib/Chart'
-import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
+import { getBarColorFromStatus, getGraphColors, getTrendLikeSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -230,7 +230,6 @@ export interface LineGraphProps {
     labelGroupType: number | 'people' | 'none'
     trendsFilter?: TrendsFilter | null
     formula?: string | null
-    compare?: boolean | null
     showValuesOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
@@ -263,7 +262,6 @@ export function LineGraph_({
     onClick,
     ['data-attr']: dataAttr,
     showPersonsModal = true,
-    compare = false,
     inSurveyView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
@@ -315,10 +313,13 @@ export function LineGraph_({
         }
     }, [])
 
-    function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
+    function processDataset(dataset: ChartDataset<any>, totalDatasets: number): ChartDataset<any> {
+        const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
+        const adjustedIndex = isPrevious ? dataset.seriesIndex - totalDatasets / 2 : dataset.seriesIndex
+
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getSeriesColor(dataset.id, compare && !isArea)
+            : getTrendLikeSeriesColor(adjustedIndex, isPrevious && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
         const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
@@ -390,7 +391,7 @@ export function LineGraph_({
             }
         }
 
-        datasets = datasets.map((dataset) => processDataset(dataset))
+        datasets = datasets.map((dataset) => processDataset(dataset, datasets.length))
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))

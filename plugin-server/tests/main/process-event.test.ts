@@ -50,7 +50,7 @@ export async function createPerson(
         null,
         false,
         new UUIDT().toString(),
-        distinctIds
+        distinctIds.map((distinctId) => ({ distinctId }))
     )
 }
 
@@ -1224,19 +1224,6 @@ test('capture first team event', async () => {
         new UUIDT().toString()
     )
 
-    expect(posthog.capture).toHaveBeenCalledWith({
-        distinctId: 'plugin_test_user_distinct_id_1001',
-        event: 'first team event ingested',
-        properties: {
-            team: team.uuid,
-        },
-        groups: {
-            project: team.uuid,
-            organization: team.organization_id,
-            instance: 'unknown',
-        },
-    })
-
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)
 
@@ -1764,7 +1751,8 @@ describe('when handling $identify', () => {
         // completing before continuing with the first identify.
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
-            const result = await originalCreatePerson(...args)
+            // We need to slice off the txn arg, or else we conflict with the `identify` below.
+            const result = await originalCreatePerson(...args.slice(0, -1))
 
             if (createPersonMock.mock.calls.length === 1) {
                 // On second invocation, make another identify call
@@ -2440,8 +2428,10 @@ test('person and group properties on events', async () => {
     const events = await hub.db.fetchEvents()
     const event = [...events].find((e: any) => e['event'] === 'test event')
     expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
-    expect(event?.group0_properties).toEqual({ foo: 'bar' })
-    expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
+    expect(event?.properties.$group_0).toEqual('org:5')
+    expect(event?.properties.$group_1).toEqual('second_key')
+    expect(event?.group0_properties).toEqual({}) // We stopped writing these to the event as queries don't use them
+    expect(event?.group1_properties).toEqual({}) // We stopped writing these to the event as queries don't use them
 })
 
 test('set and set_once on the same key', async () => {

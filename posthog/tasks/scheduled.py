@@ -6,7 +6,9 @@ from celery.canvas import Signature
 from celery.schedules import crontab
 from django.conf import settings
 
+from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
+from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -47,7 +49,7 @@ from posthog.tasks.tasks import (
     update_quota_limiting,
     verify_persons_data_in_sync,
     update_survey_iteration,
-    invalid_web_replays,
+    replay_count_metrics,
     calculate_external_data_rows_synced,
 )
 from posthog.utils import get_crontab
@@ -91,6 +93,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
 
     add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/30"),
+        schedule_warming_for_teams_task.s(),
+        name="schedule warming for largest teams",
+    )
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
@@ -223,7 +231,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
-    add_periodic_task_with_expiry(sender, 3600, invalid_web_replays.s())
+    add_periodic_task_with_expiry(sender, 3600, replay_count_metrics.s(), name="replay_count_metrics")
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
@@ -322,4 +330,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/20"),
         calculate_external_data_rows_synced.s(),
         name="calculate external data rows synced",
+    )
+
+    # Check integrations to refresh every minute
+    add_periodic_task_with_expiry(
+        sender,
+        60,
+        refresh_integrations.s(),
+        name="refresh integrations",
     )

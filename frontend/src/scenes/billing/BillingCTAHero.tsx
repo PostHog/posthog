@@ -1,5 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { BlushingHog } from 'lib/components/hedgehogs'
 import useResizeObserver from 'use-resize-observer'
 
@@ -30,17 +31,18 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
                 </div>
                 <div className="flex justify-start space-x-2">
-                    <LemonButton
+                    <BillingUpgradeCTA
                         className="mt-4 inline-block"
                         to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
                         type="primary"
                         status="alt"
+                        data-attr="billing-page-core-upgrade-cta"
                         disableClientSideRouting
                         loading={!!billingProductLoading}
                         onClick={() => setBillingProductLoading(product.type)}
                     >
                         Upgrade now
-                    </LemonButton>
+                    </BillingUpgradeCTA>
                     <LemonButton
                         className="mt-4 inline-block"
                         onClick={() => toggleIsPlanComparisonModalOpen()}

@@ -22,9 +22,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_6)s), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_10)s), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null'), %(hogql_val_11)s), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
   '''
@@ -63,7 +63,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_7)s), person.version), plus(now64(6, %(hogql_val_8)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE ifNull(equals(person_distinct_ids__person.properties___rgInternal, %(hogql_val_9)s), 0))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
   '''
@@ -102,7 +102,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_7)s), person.version), plus(now64(6, %(hogql_val_8)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE ifNull(equals(person_distinct_ids__person.properties___rgInternal, %(hogql_val_9)s), 0))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
   '''
@@ -130,9 +130,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_6)s), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_10)s), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null'), %(hogql_val_11)s), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
   '''
@@ -160,9 +160,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_6)s), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_10)s), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null'), %(hogql_val_11)s), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 50000
   '''
@@ -187,7 +187,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -223,9 +223,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -258,7 +258,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -294,9 +294,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -329,7 +329,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -365,9 +365,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -400,7 +400,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -436,9 +436,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -471,7 +471,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -521,7 +521,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(person_distinct_ids__person.properties___email, 'bla'), 0))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -554,7 +554,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -604,7 +604,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(person_distinct_ids__person.properties___email, 'bla'), 0))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -637,7 +637,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -687,7 +687,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(person_distinct_ids__person.properties___email, 'bla'), 0))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -720,7 +720,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -770,7 +770,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id)
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE ifNull(equals(person_distinct_ids__person.properties___email, 'bla'), 0))))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -803,7 +803,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -839,9 +839,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -874,7 +874,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -910,9 +910,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -945,7 +945,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -981,9 +981,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1016,7 +1016,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1052,9 +1052,9 @@
                                                                                                                                                                                                                                                                                                                                                                                                                          FROM events
                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 23:58:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), ifNull(equals(nullIf(nullIf(mat_pp_email, ''), 'null'), 'bla'), 0))
                                                                                                                                                                                                                                                                                                                                                                                                                          GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                         HAVING 1)))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1090,7 +1090,7 @@
                                                                                                                                                                     FROM events
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1126,7 +1126,7 @@
                                                                                                                                                                     FROM events
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1162,7 +1162,7 @@
                                                                                                                                                                     FROM events
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1198,7 +1198,7 @@
                                                                                                                                                                     FROM events
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1239,7 +1239,7 @@
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                     WHERE ifNull(equals(person_distinct_ids.person_id, '00000000-0000-0000-0000-000000000000'), 0))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1280,7 +1280,7 @@
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                     WHERE ifNull(equals(person_distinct_ids.person_id, '00000000-0000-0000-0000-000000000000'), 0))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1321,7 +1321,7 @@
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                     WHERE ifNull(equals(person_distinct_ids.person_id, '00000000-0000-0000-0000-000000000000'), 0))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1362,7 +1362,7 @@
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                                                                                                                                                                     WHERE ifNull(equals(person_distinct_ids.person_id, '00000000-0000-0000-0000-000000000000'), 0))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1404,7 +1404,7 @@
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1446,7 +1446,7 @@
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1488,7 +1488,7 @@
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,
@@ -1530,7 +1530,7 @@
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
-  HAVING true
+  HAVING 1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0 SETTINGS readonly=2,

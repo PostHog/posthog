@@ -74,6 +74,10 @@ def to_dict(query: BaseModel) -> dict:
                             ]
                         }
 
+                        for key in ("targetEntity", "returningEntity"):
+                            if key in dumped[insightFilterKey] and "uuid" in dumped[insightFilterKey][key]:
+                                del dumped[insightFilterKey][key]["uuid"]
+
                         # use a canonical value for each display category
                         if "display" in dumped[insightFilterKey]:
                             canonical_display = grouped_chart_display_types(dumped[insightFilterKey]["display"])

@@ -11,7 +11,7 @@ import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { convertLargeNumberToWords, getProration, getProrationMessage, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -23,7 +23,7 @@ export function PlanIcon({
     className,
     timeDenominator,
 }: {
-    feature?: BillingV2FeatureType
+    feature?: BillingFeatureType
     className?: string
     timeDenominator?: string
 }): JSX.Element {
@@ -56,7 +56,7 @@ const PricingTiers = ({
     plan,
     product,
 }: {
-    plan: BillingV2PlanType
+    plan: BillingPlanType
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element => {
     const { width, ref: tiersRef } = useResizeObserver()
@@ -114,7 +114,7 @@ const PricingTiers = ({
  * @param {string} plan.included_if - Condition for plan inclusion.
  * @returns {string} - The pricing description for the plan.
  */
-function getPlanDescription(plan: BillingV2PlanType): string {
+function getPlanDescription(plan: BillingPlanType): string {
     if (plan.free_allocation && !plan.tiers) {
         return 'Free forever'
     } else if (plan.unit_amount_usd) {
@@ -166,11 +166,8 @@ export const AllProductsPlanComparison = ({
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
                             : getUpgradeProductLink({
                                   product,
-                                  upgradeToPlanKey: plan.plan_key || '',
                                   redirectPath,
                                   includeAddons,
-                                  subscriptionLevel: billing?.subscription_level,
-                                  featureFlags,
                               })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
@@ -283,7 +280,7 @@ export const AllProductsPlanComparison = ({
                                     </th>
                                 </tr>
                                 {includedPlans
-                                    .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
+                                    .find((plan: BillingPlanType) => plan.included_if == 'has_subscription')
                                     ?.features?.map((feature) => (
                                         // Inclusion product feature row
                                         <tr key={`tr-${feature.key}`} className="border-b">
@@ -334,7 +331,7 @@ export const AllProductsPlanComparison = ({
                                 </span>
                             </span>
                         ),
-                        className: 'bg-white',
+                        className: 'bg-bg-3000',
                         key: currentProduct.type,
                         content: (
                             <table className="w-full table-fixed max-w-[920px]" ref={planComparisonRef}>
@@ -521,13 +518,7 @@ export const AllProductsPlanComparisonModal = ({
     )
 }
 
-const AddonPlanTiers = ({
-    plan,
-    addon,
-}: {
-    plan: BillingV2PlanType
-    addon: BillingProductV2AddonType
-}): JSX.Element => {
+const AddonPlanTiers = ({ plan, addon }: { plan: BillingPlanType; addon: BillingProductV2AddonType }): JSX.Element => {
     const [showTiers, setShowTiers] = useState(false)
 
     return showTiers ? (

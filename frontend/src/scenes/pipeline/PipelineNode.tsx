@@ -14,6 +14,7 @@ import { BatchExportRuns } from './BatchExportRuns'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
+import { PipelineNodeMetricsV2 } from './PipelineNodeMetricsV2'
 import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
@@ -48,7 +49,6 @@ export const scene: SceneExport = {
 
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
-
     const { currentTab, node } = useValues(pipelineNodeLogic)
 
     if (!stage) {
@@ -57,13 +57,19 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
 
     const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> = {
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
-        [PipelineNodeTab.Metrics]: <PipelineNodeMetrics id={id} />,
-        [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
     }
+
+    tabToContent[PipelineNodeTab.Metrics] =
+        node.backend === PipelineBackend.HogFunction ? <PipelineNodeMetricsV2 /> : <PipelineNodeMetrics id={id} />
+    tabToContent[PipelineNodeTab.Logs] = <PipelineNodeLogs id={id} stage={stage} />
+
     if (node.backend === PipelineBackend.BatchExport) {
         tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
     }
-    tabToContent[PipelineNodeTab.History] = <ActivityLog id={id} scope={ActivityScope.PLUGIN} />
+
+    if ([PipelineBackend.Plugin, PipelineBackend.BatchExport].includes(node.backend)) {
+        tabToContent[PipelineNodeTab.History] = <ActivityLog id={id} scope={ActivityScope.PLUGIN} />
+    }
 
     return (
         <>

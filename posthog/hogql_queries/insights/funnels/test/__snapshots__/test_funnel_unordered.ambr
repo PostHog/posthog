@@ -135,8 +135,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
@@ -146,7 +146,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=23622320128
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -299,8 +300,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
@@ -310,7 +311,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=23622320128
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -449,8 +451,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
@@ -460,7 +462,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=23622320128
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -694,8 +697,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
@@ -705,7 +708,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=23622320128
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -939,8 +943,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
@@ -950,7 +954,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=23622320128
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -1205,8 +1210,8 @@
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
@@ -1216,7 +1221,8 @@
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
                      max_query_size=1048576,
-                     max_bytes_before_external_group_by=23622320128
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.1

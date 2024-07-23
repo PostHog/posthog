@@ -36,6 +36,7 @@ class AvailableFeature(StrEnum):
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
+    DATA_PIPELINES = "data_pipelines"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -314,3 +315,5 @@ BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
+
+INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid

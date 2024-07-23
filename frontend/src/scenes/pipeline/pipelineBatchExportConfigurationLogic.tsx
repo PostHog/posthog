@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
 
@@ -99,7 +99,7 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                 team_id: {
                     name: 'team_id',
                     hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
-                    type: 'string',
+                    type: 'integer',
                     schema_valid: true,
                 },
                 set: {
@@ -155,7 +155,7 @@ const personsTable: DatabaseSchemaBatchExportTable = {
         team_id: {
             name: 'team_id',
             hogql_value: 'team_id',
-            type: 'string',
+            type: 'integer',
             schema_valid: true,
         },
         distinct_id: {
@@ -174,6 +174,18 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             name: 'properties',
             hogql_value: 'properties',
             type: 'json',
+            schema_valid: true,
+        },
+        person_version: {
+            name: 'person_version',
+            hogql_value: 'person_version',
+            type: 'integer',
+            schema_valid: true,
+        },
+        person_distinct_id_version: {
+            name: 'person_distinct_id_version',
+            hogql_value: 'person_distinct_id_version',
+            type: 'integer',
             schema_valid: true,
         },
     },

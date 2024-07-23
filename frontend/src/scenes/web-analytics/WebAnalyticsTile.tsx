@@ -241,7 +241,9 @@ export const WebStatsTrendTile = ({
             if (!dataset) {
                 return
             }
-            const breakdownValue = dataset.breakdownValues?.[graphPoint.index]
+
+            const breakdownValues = dataset.breakdownValues?.[graphPoint.index]
+            const breakdownValue = Array.isArray(breakdownValues) ? breakdownValues[0] : breakdownValues
             if (!breakdownValue) {
                 return
             }
@@ -332,7 +334,7 @@ export const WebStatsTableTile = ({
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
     const onClick = useCallback(
-        (breakdownValue: string) => {
+        (breakdownValue: string | null) => {
             if (!key || !type) {
                 return
             }
@@ -400,7 +402,7 @@ export const WebStatsTableTile = ({
     )
 }
 
-const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | undefined => {
+const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | null | undefined => {
     if (typeof record !== 'object' || !record || !('result' in record)) {
         return undefined
     }
@@ -427,6 +429,10 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
                 return breakdownValue[1]
             }
             break
+    }
+
+    if (breakdownValue === null) {
+        return null // null is a valid value, as opposed to undefined which signals that there isn't a valid value
     }
 
     if (typeof breakdownValue !== 'string') {

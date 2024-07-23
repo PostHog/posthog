@@ -1,7 +1,13 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp, ElementPropertyFilter, EventPropertyFilter, PersonPropertyFilter } from '../types'
+import {
+    AppMetric2Type,
+    ClickHouseTimestamp,
+    ElementPropertyFilter,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+} from '../types'
 
 export type HogBytecode = any[]
 
@@ -95,6 +101,10 @@ export type HogFunctionInvocationGlobals = {
     >
 }
 
+export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
+    inputs: Record<string, any>
+}
+
 export type HogFunctionOverflowedGlobals = {
     hogFunctionIds: HogFunctionType['id'][]
     globals: HogFunctionInvocationGlobals
@@ -168,6 +178,7 @@ export type HogFunctionInvocationResult = HogFunctionInvocation & {
         args: any[]
         vmState: VMState
     }
+    capturedPostHogEvents?: HogFunctionCapturedEvent[]
 }
 
 export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
@@ -176,7 +187,7 @@ export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
         /** An error message to indicate something went wrong and the invocation should be stopped */
         error?: any
         /** The data to be passed to the Hog function from the response */
-        vmResponse?: any
+        response?: any
         timings: HogFunctionTiming[]
     }
 }
@@ -206,10 +217,12 @@ export type HogFunctionType = {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
+    depends_on_integration_ids?: Set<IntegrationType['id']>
 }
 
 export type HogFunctionInputType = {
     value: any
+    secret?: boolean
     bytecode?: HogBytecode | object
 }
 
@@ -240,6 +253,14 @@ export type CdpOverflowMessage = CdpOverflowMessageInvocations | CdpOverflowMess
 
 export type HogFunctionMessageToProduce = {
     topic: string
-    value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse
+    value: CdpOverflowMessage | HogFunctionLogEntrySerialized | HogFunctionInvocationAsyncResponse | AppMetric2Type
     key: string
+}
+
+export type HogFunctionCapturedEvent = {
+    team_id: number
+    event: string
+    distinct_id: string
+    timestamp: string
+    properties: Record<string, any>
 }

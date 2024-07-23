@@ -653,7 +653,14 @@ class Resolver(CloningVisitor):
             if self.dialect == "clickhouse":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+
+                if node.type.isolate_scope:
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: node.type.table_type}))
+
                 new_node = self.visit(new_node)
+
+                if node.type.isolate_scope:
+                    self.scopes.pop()
                 return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
@@ -684,6 +691,9 @@ class Resolver(CloningVisitor):
     def visit_array_access(self, node: ast.ArrayAccess):
         node = super().visit_array_access(node)
 
+        if self.dialect == "clickhouse" and isinstance(node.property, ast.Constant) and node.property.value == 0:
+            raise QueryError("SQL indexes start from one, not from zero. E.g: array[1]")
+
         array = node.array
         while isinstance(array, ast.Alias):
             array = array.expr
@@ -711,6 +721,9 @@ class Resolver(CloningVisitor):
 
     def visit_tuple_access(self, node: ast.TupleAccess):
         node = super().visit_tuple_access(node)
+
+        if self.dialect == "clickhouse" and node.index == 0:
+            raise QueryError("SQL indexes start from one, not from zero. E.g: array.1")
 
         tuple = node.tuple
         while isinstance(tuple, ast.Alias):

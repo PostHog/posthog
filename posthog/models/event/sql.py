@@ -22,6 +22,7 @@ TRUNCATE_EVENTS_TABLE_SQL = (
     lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL"
 
@@ -71,7 +72,10 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-
+    , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
+    , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
+    , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
+    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
 """
 
 EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
@@ -302,6 +306,7 @@ WHERE
     {parsed_date_to}
     {event_filter}
     {value_filter}
+{order_by_clause}
 LIMIT 10
 """
 

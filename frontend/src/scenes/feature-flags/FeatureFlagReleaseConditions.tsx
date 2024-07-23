@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -106,7 +106,7 @@ export function FeatureFlagReleaseConditions({
                 <div className="mb-4 border rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
-                            <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
+                            <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
                             <div>
                                 {group.properties?.length ? (
                                     <>
@@ -169,9 +169,7 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                     )}
-                                    <span className="simple-tag tag-light-blue text-primary-alt">
-                                        {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
-                                    </span>
+                                    <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonSnack>
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
@@ -190,10 +188,7 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         [...(Array.isArray(property.value) ? property.value : [property.value])].map(
                                             (val, idx) => (
-                                                <span
-                                                    key={idx}
-                                                    className="simple-tag tag-light-blue text-primary-alt display-value"
-                                                >
+                                                <LemonSnack key={idx}>
                                                     {val}
                                                     {isPropertyFilterWithOperator(property) &&
                                                     ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -210,7 +205,7 @@ export function FeatureFlagReleaseConditions({
                                                               true
                                                           )} )`
                                                         : ''}
-                                                </span>
+                                                </LemonSnack>
                                             )
                                         )
                                     )}
@@ -321,11 +316,19 @@ export function FeatureFlagReleaseConditions({
                                 ) : (
                                     <Spinner className="mr-1" />
                                 )}{' '}
-                                {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
-                                    ? `(${humanFriendlyNumber(
-                                          Math.floor((affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100)
-                                      )} / ${humanFriendlyNumber(totalUsers)})`
-                                    : ''}{' '}
+                                {(() => {
+                                    const affectedUserCount = affectedUsers[index]
+                                    if (
+                                        affectedUserCount !== undefined &&
+                                        affectedUserCount >= 0 &&
+                                        totalUsers !== null
+                                    ) {
+                                        return `(${humanFriendlyNumber(
+                                            Math.floor((affectedUserCount * (group.rollout_percentage ?? 100)) / 100)
+                                        )} / ${humanFriendlyNumber(totalUsers)})`
+                                    }
+                                    return ''
+                                })()}{' '}
                                 of total {aggregationTargetName}.
                             </div>
                         </div>
@@ -389,9 +392,7 @@ export function FeatureFlagReleaseConditions({
                                 {group.properties?.length ? (
                                     <>
                                         Match <b>{aggregationTargetName}</b> against value set on{' '}
-                                        <span className="simple-tag tag-light-blue text-primary-alt">
-                                            {'$feature_enrollment/' + featureFlagKey}
-                                        </span>
+                                        <LemonSnack>{'$feature_enrollment/' + featureFlagKey}</LemonSnack>
                                     </>
                                 ) : (
                                     <>

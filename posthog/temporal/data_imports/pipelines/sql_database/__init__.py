@@ -1,14 +1,15 @@
 """Source that loads tables form any SQLAlchemy supported database, supports batching requests and incremental loads."""
 
 from datetime import datetime, date
-from typing import Any, Optional, Union, List  # noqa: UP035
+from typing import Any, Optional, Union, List, cast  # noqa: UP035
 from collections.abc import Iterable
 from zoneinfo import ZoneInfo
 from sqlalchemy import MetaData, Table
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, CursorResult
 
 import dlt
 from dlt.sources import DltResource, DltSource
+from dlt.common.schema.typing import TColumnSchema
 
 
 from dlt.sources.credentials import ConnectionStringCredentials
@@ -138,8 +139,38 @@ def sql_database(
             merge_key=get_primary_key(table),
             write_disposition="merge" if incremental else "replace",
             spec=SqlDatabaseTableConfiguration,
+            table_format="delta",
+            columns=get_column_hints(engine, schema or "", table.name),
         )(
             engine=engine,
             table=table,
             incremental=incremental,
         )
+
+
+def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[str, TColumnSchema]:
+    with engine.connect() as conn:
+        execute_result: CursorResult | None = conn.execute(
+            "SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = %(schema_name)s AND table_name = %(table_name)s",
+            {"schema_name": schema_name, "table_name": table_name},
+        )
+
+        if execute_result is None:
+            return {}
+
+        cursor_result = cast(CursorResult, execute_result)
+        results = cursor_result.fetchall()
+
+    columns: dict[str, TColumnSchema] = {}
+
+    for column_name, data_type, numeric_precision, numeric_scale in results:
+        if data_type != "numeric":
+            continue
+
+        columns[column_name] = {
+            "data_type": "decimal",
+            "precision": numeric_precision or 76,
+            "scale": numeric_scale or 16,
+        }
+
+    return columns

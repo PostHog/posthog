@@ -482,6 +482,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 local_results_file,
                 records_since_last_flush: int,
                 bytes_since_last_flush: int,
+                flush_counter: int,
                 last_inserted_at: dt.datetime,
                 last: bool,
             ):

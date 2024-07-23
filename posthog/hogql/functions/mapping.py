@@ -394,9 +394,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
-        2,
+        1,
         overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
-        tz_aware=True,
     ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
@@ -831,6 +830,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
     "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
+    # table functions
+    "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
@@ -877,7 +878,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "avgWeighted": HogQLFunctionMeta("avgWeighted", 2, 2, aggregate=True),
     "avgWeightedIf": HogQLFunctionMeta("avgWeightedIf", 3, 3, aggregate=True),
     "avgArray": HogQLFunctionMeta("avgArrayOrNull", 1, 1, aggregate=True),
-    # "topK": HogQLFunctionMeta("topK", 1, 1, aggregate=True),
+    "topK": HogQLFunctionMeta("topK", 1, 1, min_params=1, max_params=1, aggregate=True),
     # "topKIf": HogQLFunctionMeta("topKIf", 2, 2, aggregate=True),
     # "topKWeighted": HogQLFunctionMeta("topKWeighted", 1, 1, aggregate=True),
     # "topKWeightedIf": HogQLFunctionMeta("topKWeightedIf", 2, 2, aggregate=True),
@@ -941,6 +942,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqHLL12If": HogQLFunctionMeta("uniqHLL12If", 2, None, aggregate=True),
     "uniqTheta": HogQLFunctionMeta("uniqTheta", 1, None, aggregate=True),
     "uniqThetaIf": HogQLFunctionMeta("uniqThetaIf", 2, None, aggregate=True),
+    "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, None, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
     "medianIf": HogQLFunctionMeta("medianIf", 2, 2, aggregate=True),
     "medianExact": HogQLFunctionMeta("medianExact", 1, 1, aggregate=True),
@@ -1014,10 +1016,8 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
-    "hogql_lookupPaidDomainType": HogQLFunctionMeta("hogql_lookupPaidDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
     "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
-    "hogql_lookupOrganicDomainType": HogQLFunctionMeta("hogql_lookupOrganicDomainType", 1, 1),
     "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
 }

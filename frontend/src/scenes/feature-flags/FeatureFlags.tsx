@@ -1,5 +1,5 @@
 import { IconLock } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -9,7 +9,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -18,7 +17,6 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -60,12 +58,7 @@ export function OverViewTab({
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm, filters, shouldShowEmptyState } =
         useValues(flagLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
-    const { user, hasAvailableFeature } = useValues(userLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const shouldShowProductIntroduction =
-        !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS] &&
-        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -167,12 +160,31 @@ export function OverViewTab({
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => {
-                                        featureFlag.id
-                                            ? updateFeatureFlag({
-                                                  id: featureFlag.id,
-                                                  payload: { active: !featureFlag.active },
-                                              })
-                                            : null
+                                        const newValue = !featureFlag.active
+                                        LemonDialog.open({
+                                            title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                            description: `This flag will be immediately ${
+                                                newValue === true ? 'rolled out to' : 'rolled back from'
+                                            } the users matching the release conditions.`,
+                                            primaryButton: {
+                                                children: 'Confirm',
+                                                type: 'primary',
+                                                onClick: () => {
+                                                    featureFlag.id
+                                                        ? updateFeatureFlag({
+                                                              id: featureFlag.id,
+                                                              payload: { active: newValue },
+                                                          })
+                                                        : null
+                                                },
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
                                     }}
                                     id={`feature-flag-${featureFlag.id}-switch`}
                                     disabled={!featureFlag.can_edit}
@@ -237,18 +249,16 @@ export function OverViewTab({
 
     return (
         <>
-            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                <ProductIntroduction
-                    productName="Feature flags"
-                    productKey={ProductKey.FEATURE_FLAGS}
-                    thingName="feature flag"
-                    description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
-                    docsURL="https://posthog.com/docs/feature-flags/manual"
-                    action={() => router.actions.push(urls.featureFlag('new'))}
-                    isEmpty={shouldShowEmptyState}
-                    customHog={FeatureFlagHog}
-                />
-            )}{' '}
+            <ProductIntroduction
+                productName="Feature flags"
+                productKey={ProductKey.FEATURE_FLAGS}
+                thingName="feature flag"
+                description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+                docsURL="https://posthog.com/docs/feature-flags/manual"
+                action={() => router.actions.push(urls.featureFlag('new'))}
+                isEmpty={shouldShowEmptyState}
+                customHog={FeatureFlagHog}
+            />
             {!shouldShowEmptyState && (
                 <>
                     <div>
@@ -431,10 +441,9 @@ export function groupFilters(
             )
         } else if (rollout_percentage !== null) {
             return `${rollout_percentage}% of all ${aggregationTargetName}`
-        } else {
-            console.error('A group with full rollout was not detected early')
-            return `100% of all ${aggregationTargetName}`
         }
+        console.error('A group with full rollout was not detected early')
+        return `100% of all ${aggregationTargetName}`
     }
     return 'Multiple groups'
 }

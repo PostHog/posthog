@@ -17,7 +17,9 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         CANCELLED = "Cancelled", "Cancelled"
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    pipeline: models.ForeignKey = models.ForeignKey("posthog.ExternalDataSource", on_delete=models.CASCADE)
+    pipeline: models.ForeignKey = models.ForeignKey(
+        "posthog.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE
+    )
     schema: models.ForeignKey = models.ForeignKey(
         "posthog.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True
     )
@@ -28,23 +30,29 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
     )
 
     workflow_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
     __repr__ = sane_repr("id")
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema_id)}".lower().replace("-", "_")
 
+    def deprecated_folder_path(self) -> str:
+        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
+
     def url_pattern_by_schema(self, schema: str) -> str:
         if TEST:
-            return (
-                f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/test-pipeline/{self.folder_path()}/{schema.lower()}/*.parquet"
-            )
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/*.parquet"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
 
-    def delete_data_in_bucket(self) -> None:
+    def delete_deprecated_data_in_bucket(self) -> None:
         s3 = get_s3_client()
-        s3.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+
+        if s3.exists(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}"):
+            s3.delete(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}", recursive=True)
+
+        return
 
 
 @database_sync_to_async
@@ -54,6 +62,20 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=job_id)
+
+
+@database_sync_to_async
+def aget_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJob]:
+    from posthog.warehouse.models import ExternalDataSchema
+
+    return list(
+        ExternalDataJob.objects.prefetch_related(
+            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
+        )
+        .filter(schema_id=schema_id)
+        .order_by("-created_at")
+        .all()
+    )
 
 
 @database_sync_to_async

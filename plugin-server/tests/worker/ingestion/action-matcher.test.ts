@@ -741,7 +741,7 @@ describe('ActionMatcher', () => {
                 null,
                 true,
                 new UUIDT().toString(),
-                ['random']
+                [{ distinctId: 'random' }]
             )
 
             const cohortPerson = await hub.db.createPerson(
@@ -753,7 +753,7 @@ describe('ActionMatcher', () => {
                 null,
                 true,
                 new UUIDT().toString(),
-                ['cohort']
+                [{ distinctId: 'cohort' }]
             )
             await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
 

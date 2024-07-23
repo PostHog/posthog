@@ -6,12 +6,26 @@
     "configurations": [
         {
             "name": "Frontend",
-            "command": "npm start",
+            "command": "pnpm start",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
+            }
+        },
+        {
+            "name": "Frontend (https)",
+            "command": "pnpm start",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "env": {
+                "LOCAL_HTTPS": "1",
+                "JS_URL": "https://secure.posthog.dev"
             }
         },
         {
@@ -79,66 +93,11 @@
                 "include": ["posthog/**/*.py"]
             },
             "request": "launch",
-            "program": "${workspaceFolder}/env/bin/watchmedo",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["run_autoreload_celery"],
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
-            "args": [
-                "auto-restart",
-                "--directory=./",
-                "--pattern=*.py",
-                "--recursive",
-                "--",
-                "celery",
-                "-A",
-                "posthog",
-                "worker",
-                "--without-heartbeat",
-                "--without-mingle",
-                "--pool=threads",
-                "-Ofair",
-                "-n",
-                "node@%h"
-            ],
-            "envFile": "${workspaceFolder}/bin/celery-queues.env",
-            "env": {
-                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
-                "DEBUG": "1",
-                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
-            },
-            "presentation": {
-                "group": "main"
-            }
-        },
-        {
-            "name": "Celery Redbeat Scheduler",
-            "consoleName": "Celery Redbeat Scheduler",
-            "type": "debugpy",
-            "justMyCode": true,
-            "autoReload": {
-                "enable": true,
-                "include": ["posthog/**/*.py"]
-            },
-            "request": "launch",
-            "program": "${workspaceFolder}/env/bin/watchmedo",
-            "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
-            "cwd": "${workspaceFolder}",
-            "args": [
-                "auto-restart",
-                "--directory=./",
-                "--pattern=*.py",
-                "--recursive",
-                "--",
-                "celery",
-                "-A",
-                "posthog",
-                "beat",
-                "-S",
-                "redbeat.RedBeatScheduler"
-            ],
-            "envFile": "${workspaceFolder}/bin/celery-queues.env",
             "env": {
                 "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
                 "DEBUG": "1",
@@ -160,7 +119,9 @@
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
-                "OBJECT_STORAGE_ENABLED": "True"
+                "OBJECT_STORAGE_ENABLED": "True",
+                "HOG_HOOK_URL": "http://localhost:3300/hoghook",
+                "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": ""
             },
             "presentation": {
                 "group": "main"
@@ -215,22 +176,54 @@
             "pythonLaunchName": "Pytest: Current File",
             "cppConfig": "custom",
             "cppAttachName": "(lldb) Attach"
+        },
+        {
+            "name": "Python: Debug Tests",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "purpose": ["debug-test"],
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ],
     "compounds": [
         {
             "name": "PostHog",
+            "configurations": ["Backend", "Celery Threaded Pool", "Frontend", "Plugin Server", "Temporal Worker"],
+            "stopAll": true,
+            "presentation": {
+                "order": 1,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (local billing)",
             "configurations": [
-                "Backend",
+                "Backend (with local billing)",
                 "Celery Threaded Pool",
-                "Celery Redbeat Scheduler",
                 "Frontend",
                 "Plugin Server",
                 "Temporal Worker"
             ],
             "stopAll": true,
             "presentation": {
-                "order": 1,
+                "order": 2,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (https)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Frontend (https)",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 2,
                 "group": "compound"
             }
         }

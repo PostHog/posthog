@@ -218,9 +218,9 @@ def object_storage_client() -> ObjectStorageClient:
     return _client
 
 
-def write(file_name: str, content: Union[str, bytes], extras: dict | None = None) -> None:
+def write(file_name: str, content: Union[str, bytes], extras: dict | None = None, bucket: str | None = None) -> None:
     return object_storage_client().write(
-        bucket=settings.OBJECT_STORAGE_BUCKET,
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
         key=file_name,
         content=content,
         extras=extras,
@@ -231,8 +231,8 @@ def tag(file_name: str, tags: dict[str, str]) -> None:
     return object_storage_client().tag(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, tags=tags)
 
 
-def read(file_name: str) -> Optional[str]:
-    return object_storage_client().read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+def read(file_name: str, bucket: str | None = None) -> Optional[str]:
+    return object_storage_client().read(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
 def read_bytes(file_name: str) -> Optional[bytes]:

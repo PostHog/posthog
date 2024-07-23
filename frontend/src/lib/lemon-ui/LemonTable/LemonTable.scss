@@ -159,7 +159,7 @@
                 color: var(--text-3000);
 
                 > td:not(.LemonTable__cell--sticky) {
-                    background: var(--primary-bg-hover);
+                    background: var(--primary-highlight);
                 }
             }
 
@@ -296,7 +296,7 @@
     background: var(--lemon-table-background-color);
 
     .LemonTable__row--status-highlighted &::before {
-        background: var(--primary-bg-hover);
+        background: var(--primary-highlight);
     }
 }
 

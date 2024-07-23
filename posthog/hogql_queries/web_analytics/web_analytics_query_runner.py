@@ -9,7 +9,6 @@ from django.core.cache import cache
 from django.utils.timezone import datetime
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.caching.utils import is_stale
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
@@ -143,15 +142,12 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def _test_account_filters(self):
+        if not self.query.filterTestAccounts:
+            return []
         if isinstance(self.team.test_account_filters, list) and len(self.team.test_account_filters) > 0:
             return self.team.test_account_filters
         else:
             return []
-
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()

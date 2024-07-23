@@ -1,20 +1,29 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { createExampleEvent } from 'scenes/pipeline/hogfunctions/utils/event-conversion'
+import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { groupsModel } from '~/models/groupsModel'
 import {
+    AvailableFeature,
     FilterType,
     HogFunctionConfigurationType,
+    HogFunctionInputType,
+    HogFunctionInvocationGlobals,
     HogFunctionTemplateType,
     HogFunctionType,
     PipelineNodeTab,
     PipelineStage,
+    PipelineTab,
     PluginConfigFilters,
     PluginConfigTypeNew,
 } from '~/types'
@@ -69,10 +78,19 @@ function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    const sanitizedInputs = {}
+    const sanitizedInputs: Record<string, HogFunctionInputType> = {}
 
     data.inputs_schema?.forEach((input) => {
         const value = data.inputs?.[input.key]?.value
+        const secret = data.inputs?.[input.key]?.secret
+
+        if (secret) {
+            sanitizedInputs[input.key] = {
+                value: '********', // Don't send the actual value
+                secret: true,
+            }
+            return
+        }
 
         if (input.type === 'json' && typeof value === 'string') {
             try {
@@ -82,10 +100,10 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
             } catch (e) {
                 // Ignore
             }
-        } else {
-            sanitizedInputs[input.key] = {
-                value: value,
-            }
+            return
+        }
+        sanitizedInputs[input.key] = {
+            value: value,
         }
     })
 
@@ -104,6 +122,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
         return id ?? templateId ?? 'new'
     }),
+    connect({
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes'], userLogic, ['hasAvailableFeature']],
+    }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
@@ -112,6 +133,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicate: true,
         duplicateFromTemplate: true,
         resetToTemplate: true,
+        deleteHogFunction: true,
     }),
     reducers({
         showSource: [
@@ -176,15 +198,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    ...values.inputFormErrors,
+                    ...(values.inputFormErrors as any),
                 }
             },
             submit: async (data) => {
                 const payload = sanitizeConfiguration(data)
 
-                if (props.templateId) {
-                    // Only sent on create
-                    ;(payload as any).template_id = props.templateId
+                // Only sent on create
+                ;(payload as any).template_id = props.templateId || values.hogFunction?.template?.id
+
+                if (!values.hasAddon) {
+                    // Remove the source field if the user doesn't have the addon
+                    delete payload.hog
+                    delete payload.inputs_schema
                 }
 
                 await asyncActions.upsertHogFunction(payload)
@@ -192,12 +218,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
+        hasAddon: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => {
+                return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+            },
+        ],
+        showPaygate: [
+            (s) => [s.template, s.hasAddon],
+            (template, hasAddon) => {
+                return template && template.status !== 'free' && !hasAddon
+            },
+        ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
             (template, hogFunction): HogFunctionConfigurationType => {
                 if (template) {
                     // Fill defaults from template
-                    const inputs = {}
+                    const inputs: Record<string, HogFunctionInputType> = {}
 
                     template.inputs_schema?.forEach((schema) => {
                         if (schema.default) {
@@ -226,11 +264,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration],
             (configuration) => {
                 const inputs = configuration.inputs ?? {}
-                const inputErrors = {}
+                const inputErrors: Record<string, string> = {}
 
                 configuration.inputs_schema?.forEach((input) => {
                     const key = input.key
                     const value = inputs[key]?.value
+                    if (inputs[key]?.secret) {
+                        // We leave unmodified secret values alone
+                        return
+                    }
+
                     if (input.required && !value) {
                         inputErrors[key] = 'This field is required'
                     }
@@ -258,8 +301,73 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
             },
         ],
-        // TODO: connect to the actual globals
-        globalVars: [(s) => [s.hogFunction], (): Record<string, any> => createExampleEvent()],
+        exampleInvocationGlobals: [
+            (s) => [s.configuration, s.currentTeam, s.groupTypes],
+            (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
+                const globals: HogFunctionInvocationGlobals = {
+                    event: {
+                        uuid: uuid(),
+                        distinct_id: uuid(),
+                        name: '$pageview',
+                        timestamp: dayjs().toISOString(),
+                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
+                        properties: {
+                            $current_url: window.location.href,
+                            $browser: 'Chrome',
+                        },
+                    },
+                    person: {
+                        uuid: uuid(),
+                        name: 'Example person',
+                        url: `${window.location.origin}/person/${uuid()}`,
+                        properties: {
+                            email: 'example@posthog.com',
+                        },
+                    },
+                    groups: {},
+                    project: {
+                        id: currentTeam?.id || 0,
+                        name: currentTeam?.name || '',
+                        url: `${window.location.origin}/project/${currentTeam?.id}`,
+                    },
+                    source: {
+                        name: configuration?.name ?? 'Unnamed',
+                        url: window.location.href,
+                    },
+                }
+
+                groupTypes.forEach((groupType) => {
+                    globals.groups![groupType.group_type] = {
+                        id: uuid(),
+                        type: groupType.group_type,
+                        index: groupType.group_type_index,
+                        url: `${window.location.origin}/groups/${
+                            groupType.group_type_index
+                        }/groups/${encodeURIComponent(groupType.group_type_index)}`,
+                        properties: {},
+                    }
+                })
+
+                return globals
+            },
+        ],
+        exampleInvocationGlobalsWithInputs: [
+            (s) => [s.exampleInvocationGlobals, s.configuration],
+            (
+                exampleInvocationGlobals,
+                configuration
+            ): HogFunctionInvocationGlobals & { inputs?: Record<string, any> } => {
+                const inputs: Record<string, any> = {}
+                for (const input of configuration?.inputs_schema || []) {
+                    inputs[input.key] = input.type
+                }
+
+                return {
+                    ...exampleInvocationGlobals,
+                    inputs,
+                }
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -292,10 +400,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         resetForm: () => {
-            actions.resetConfiguration({
+            const config = {
                 ...values.defaultFormState,
                 ...(cache.configFromUrl || {}),
-            })
+            }
+
+            const paramsFromUrl = cache.paramsFromUrl ?? {}
+            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                config.inputs[paramsFromUrl.integration_target] = {
+                    value: paramsFromUrl.integration_id,
+                }
+            }
+
+            actions.resetConfiguration(config)
         },
 
         duplicate: async () => {
@@ -304,8 +421,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     ...values.configuration,
                     name: `${values.configuration.name} (copy)`,
                 }
+                const originalTemplate = values.hogFunction.template?.id ?? 'new'
                 router.actions.push(
-                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-template-helloworld`),
+                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-${originalTemplate}`),
                     undefined,
                     {
                         configuration: newConfig,
@@ -331,7 +449,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (values.hogFunction?.template) {
                 const template = values.hogFunction.template
                 // Fill defaults from template
-                const inputs = {}
+                const inputs: Record<string, HogFunctionInputType> = {}
 
                 template.inputs_schema?.forEach((schema) => {
                     if (schema.default) {
@@ -354,18 +472,55 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             // Clear the manually set errors otherwise the submission won't work
             actions.setConfigurationManualErrors({})
         },
+
+        deleteHogFunction: async () => {
+            if (!values.hogFunction) {
+                return
+            }
+            const { id, name } = values.hogFunction
+            await deleteWithUndo({
+                endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
+                object: {
+                    id,
+                    name,
+                },
+                callback(undo) {
+                    if (undo) {
+                        router.actions.replace(
+                            urls.pipelineNode(PipelineStage.Destination, `hog-${id}`, PipelineNodeTab.Configuration)
+                        )
+                    }
+                },
+            })
+
+            router.actions.replace(urls.pipeline(PipelineTab.Destinations))
+        },
     })),
     afterMount(({ props, actions, cache }) => {
+        cache.paramsFromUrl = {
+            integration_id: router.values.searchParams.integration_id,
+            integration_target: router.values.searchParams.integration_target,
+        }
+
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
             actions.loadTemplate() // comes with plugin info
         } else if (props.id) {
             actions.loadHogFunction()
         }
+
+        if (router.values.searchParams.integration_target) {
+            // Clear query params so we don't keep trying to set the integration
+            router.actions.replace(router.values.location.pathname, undefined, router.values.hashParams)
+        }
     }),
 
     subscriptions(({ props, cache }) => ({
         configuration: (configuration) => {
+            if (!Object.keys(configuration).length) {
+                return
+            }
+
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true

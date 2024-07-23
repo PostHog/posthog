@@ -399,7 +399,7 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "dashboard"
-    queryset = Dashboard.objects_including_soft_deleted.order_by("name")
+    queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
     permission_classes = [CanEditDashboard]
 
     def get_serializer_class(self) -> type[BaseSerializer]:

@@ -24,6 +24,7 @@ export const CAMPAIGN_PROPERTIES: string[] = [
     'mc_cid', // mailchimp campaign id
     'igshid', // instagram
     'ttclid', // tiktok
+    'rdt_cid', // reddit
 ]
 
 // copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
@@ -66,6 +67,7 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     'mc_cid',
     'igshid',
     'ttclid',
+    'rdt_cid',
 ])
 
 // If adding event properties with labels, check whether they should be added to
@@ -954,6 +956,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'gclid',
             description: 'Google Click ID',
         },
+        rdt_cid: {
+            label: 'rdt_cid',
+            description: 'Reddit Click ID',
+        },
         gad_source: {
             label: 'gad_source',
             description: 'Google Ads Source',
@@ -1138,6 +1144,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         console_log_query: {
             label: 'Console log',
             description: 'Text of console logs captured',
+        },
+        visited_page: {
+            label: 'Visited page',
+            description: 'URL a user visited during their session',
         },
     },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>

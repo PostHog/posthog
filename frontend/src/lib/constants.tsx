@@ -156,24 +156,24 @@ export const FEATURE_FLAGS = {
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
     // owner: #team-replay, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
-    DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
+    WEB_VITALS_AUTOCAPTURE: 'web-vitals-autocapture', // owner: @team-replay
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
-    SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    HOGQL_DASHBOARD_CARDS: 'hogql-dashboard-cards', // owner: @thmsobrmlr
+    QUERY_BASED_DASHBOARD_CARDS: 'query-based-dashboard-cards', // owner: @thmsobrmlr
+    QUERY_BASED_INSIGHTS_SAVING: 'query-based-insights-saving', // owner: @thmsobrmlr
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
-    PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
     SURVEYS_WIDGETS: 'surveys-widgets', // owner: #team-feature-success
     SURVEYS_EVENTS: 'surveys-events', // owner: #team-feature-success
+    SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-feature-success
     SURVEYS_RECURRING: 'surveys-recurring', // owner: #team-feature-success
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
@@ -186,7 +186,6 @@ export const FEATURE_FLAGS = {
     REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
-    SESSION_REPLAY_FILTER_ORDERING: 'session-replay-filter-ordering', // owner: #team-replay
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
@@ -194,23 +193,20 @@ export const FEATURE_FLAGS = {
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
     PLUGINS_FILTERING: 'plugins-filtering', // owner: @benjackwhite
-    SESSION_REPLAY_HOG_QL_FILTERING: 'session-replay-hogql-filtering', // owner: #team-replay
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     LIVE_EVENTS: 'live-events', // owner: @zach or @jams
-    SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
     HOG_FUNCTIONS: 'hog-functions', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
-    SESSION_REPLAY_UNIVERSAL_FILTERS: 'session-replay-universal-filters', // owner: #team-replay
     ALERTS: 'alerts', // owner: github.com/nikitaevg
-    SUBSCRIBE_TO_ALL_PRODUCTS: 'subscribe-to-all-products', // owner: #team-growth
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
-    SURVEYS_BRANCHING_LOGIC: 'surveys-branching-logic', // owner: @jurajmajerik #team-feature-success
+    MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
     WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
+    SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -252,9 +248,6 @@ export const CLOUD_HOSTNAMES = {
 }
 
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
-
-// If _any_ item on a dashboard is older than this, dashboard is automatically reloaded
-export const AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS = 20
 
 export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 

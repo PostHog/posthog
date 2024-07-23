@@ -6,27 +6,26 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
-import HTTPIcon from 'public/hedgehog/running-hog.png'
-import BigQueryIcon from 'public/pipeline/BigQuery.png'
-import PostgresIcon from 'public/pipeline/Postgres.png'
-import RedshiftIcon from 'public/pipeline/Redshift.svg'
-import S3Icon from 'public/pipeline/S3.png'
-import SnowflakeIcon from 'public/pipeline/Snowflake.png'
+import IconHTTP from 'public/hedgehog/running-hog.png'
+import IconS3 from 'public/services/aws-s3.png'
+import IconBigQuery from 'public/services/bigquery.png'
+import IconPostgres from 'public/services/postgres.png'
+import IconRedshift from 'public/services/redshift.png'
+import IconSnowflake from 'public/services/snowflake.png'
 import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
     BatchExportService,
+    LogEntryLevel,
     PipelineNodeTab,
     PipelineStage,
     PluginConfigTypeNew,
-    PluginLogEntryType,
     PluginType,
 } from '~/types'
 
 import { pipelineAccessLogic } from './pipelineAccessLogic'
-import { PipelineLogLevel } from './pipelineNodeLogsLogic'
 import {
     Destination,
     ImportApp,
@@ -46,7 +45,6 @@ const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     // filtering apps
     'https://github.com/PostHog/downsampling-plugin',
     'https://github.com/PostHog/posthog-filter-out-plugin',
-    'https://github.com/PostHog/schema-enforcer-plugin',
     // transformation apps
     'https://github.com/PostHog/language-url-splitter-app',
     'https://github.com/PostHog/posthog-app-url-parameters-to-event-properties',
@@ -162,12 +160,12 @@ export function RenderBatchExportIcon({
     size?: 'small' | 'medium'
 }): JSX.Element {
     const icon = {
-        BigQuery: BigQueryIcon,
-        Postgres: PostgresIcon,
-        Redshift: RedshiftIcon,
-        S3: S3Icon,
-        Snowflake: SnowflakeIcon,
-        HTTP: HTTPIcon,
+        BigQuery: IconBigQuery,
+        Postgres: IconPostgres,
+        Redshift: IconRedshift,
+        S3: IconS3,
+        Snowflake: IconSnowflake,
+        HTTP: IconHTTP,
     }[type]
 
     const sizePx = size === 'small' ? 30 : 60
@@ -191,82 +189,29 @@ export function RenderBatchExportIcon({
     )
 }
 
-export const logLevelToTypeFilter = (level: PipelineLogLevel): PluginLogEntryType => {
-    switch (level) {
-        case PipelineLogLevel.Debug:
-            return PluginLogEntryType.Debug
-        case PipelineLogLevel.Error:
-            return PluginLogEntryType.Error
-        case PipelineLogLevel.Info:
-            return PluginLogEntryType.Info
-        case PipelineLogLevel.Log:
-            return PluginLogEntryType.Log
-        case PipelineLogLevel.Warning:
-            return PluginLogEntryType.Warn
-        default:
-            throw new Error('unknown log level')
-    }
-}
-
-export const logLevelsToTypeFilters = (levels: PipelineLogLevel[]): PluginLogEntryType[] =>
-    levels.map((l) => logLevelToTypeFilter(l))
-
-export const typeToLogLevel = (type: PluginLogEntryType): PipelineLogLevel => {
-    switch (type) {
-        case PluginLogEntryType.Debug:
-            return PipelineLogLevel.Debug
-        case PluginLogEntryType.Error:
-            return PipelineLogLevel.Error
-        case PluginLogEntryType.Info:
-            return PipelineLogLevel.Info
-        case PluginLogEntryType.Log:
-            return PipelineLogLevel.Log
-        case PluginLogEntryType.Warn:
-            return PipelineLogLevel.Warning
-        default:
-            throw new Error('unknown log type')
-    }
-}
-
-export function LogLevelDisplay(level: PipelineLogLevel): JSX.Element {
+export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
     let color: string | undefined
     switch (level) {
-        case PipelineLogLevel.Debug:
+        case 'DEBUG':
             color = 'text-muted'
             break
-        case PipelineLogLevel.Log:
+        case 'LOG':
             color = 'text-text-3000'
             break
-        case PipelineLogLevel.Info:
+        case 'INFO':
             color = 'text-primary'
             break
-        case PipelineLogLevel.Warning:
+        case 'WARNING':
+        case 'WARN':
             color = 'text-warning'
             break
-        case PipelineLogLevel.Error:
+        case 'ERROR':
             color = 'text-danger'
             break
         default:
             break
     }
     return <span className={color}>{level}</span>
-}
-
-export function LogTypeDisplay(type: PluginLogEntryType): JSX.Element {
-    return LogLevelDisplay(typeToLogLevel(type))
-}
-
-export const humanFriendlyFrequencyName = (frequency: Destination['interval']): string => {
-    switch (frequency) {
-        case 'realtime':
-            return 'Realtime'
-        case 'day':
-            return 'Daily'
-        case 'hour':
-            return 'Hourly'
-        case 'every 5 minutes':
-            return '5 min'
-    }
 }
 
 export function nameColumn<
@@ -325,7 +270,6 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
         },
         {
             label: 'View metrics',
-            status: 'danger',
             to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Metrics),
         },
         {

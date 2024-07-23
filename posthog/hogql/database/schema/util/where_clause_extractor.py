@@ -221,7 +221,7 @@ class WhereClauseExtractor(CloningVisitor):
                 filtered.append(expr)
 
         if len(filtered) == 0:
-            return ast.Constant(value=False)
+            return ast.Constant(value=True)
         elif len(filtered) == 1:
             return filtered[0]
         else:

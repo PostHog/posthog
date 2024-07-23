@@ -16,6 +16,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -244,7 +245,10 @@ async function processEncodedResponse(
 }
 
 const getSourceKey = (source: SessionRecordingSnapshotSource): string => {
-    return `${source.source}-${source.blob_key}`
+    // realtime sources vary so blob_key is not always present and is either null or undefined...
+    // we only care about key when not realtime
+    // and we'll always have a key when not realtime
+    return `${source.source}-${source.blob_key || source.source}`
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -273,6 +277,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         persistRecording: true,
         maybePersistRecording: true,
         pollRealtimeSnapshots: true,
+        stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
     }),
     reducers(() => ({
@@ -286,6 +291,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {} as Partial<RecordingEventsFilters>,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        isRealtimePolling: [
+            false as boolean,
+            {
+                pollRealtimeSnapshots: () => true,
+                stopRealtimePolling: () => false,
             },
         ],
         isNotFound: [
@@ -476,6 +488,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const { person } = values.sessionPlayerData
 
+                    let loadedProperties: Record<string, any> = existingEvent.properties
                     // TODO: Move this to an optimised HogQL query when available...
                     try {
                         const res: any = await api.query({
@@ -492,7 +505,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         const result = res.results.find((x: any) => x[1] === event.timestamp)
 
                         if (result) {
-                            existingEvent.properties = JSON.parse(result[0])
+                            loadedProperties = JSON.parse(result[0])
+                            existingEvent.properties = loadedProperties
                             existingEvent.fullyLoaded = true
                         }
                     } catch (e) {
@@ -501,7 +515,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         captureException(e)
                     }
 
-                    return values.sessionEventsData
+                    // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
+                    return !values.sessionEventsData
+                        ? values.sessionEventsData
+                        : values.sessionEventsData.map((x) => {
+                              return x.id === event.id
+                                  ? ({
+                                        ...x,
+                                        properties: loadedProperties,
+                                        fullyLoaded: true,
+                                    } as RecordingEventType)
+                                  : x
+                          })
                 },
             },
         ],
@@ -607,6 +632,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.realTimePollingTimeoutID = setTimeout(() => {
                     actions.loadSnapshotsForSource({ source: SnapshotSourceType.realtime })
                 }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
+            } else {
+                actions.stopRealtimePolling()
             }
         },
         loadEventsSuccess: () => {
@@ -662,6 +689,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
     })),
     selectors(({ cache }) => ({
+        webVitalsEvents: [
+            (s) => [s.sessionEventsData],
+            (sessionEventsData): RecordingEventType[] =>
+                (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
+        ],
+
         sessionPlayerData: [
             (s, p) => [
                 s.sessionPlayerMetaData,
@@ -721,29 +754,52 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
 
+        firstSnapshot: [
+            (s) => [s.snapshots],
+            (snapshots): RecordingSnapshot | null => {
+                return snapshots[0] || null
+            },
+        ],
+
+        lastSnapshot: [
+            (s) => [s.snapshots],
+            (snapshots): RecordingSnapshot | null => {
+                return snapshots[snapshots.length - 1] || null
+            },
+        ],
+
         start: [
-            (s) => [s.sessionPlayerMetaData],
-            (meta): Dayjs | undefined => {
-                return meta?.start_time ? dayjs(meta.start_time) : undefined
+            (s) => [s.firstSnapshot, s.sessionPlayerMetaData],
+            (firstSnapshot, meta): Dayjs | null => {
+                const eventStart = meta?.start_time ? dayjs(meta.start_time) : null
+                const snapshotStart = firstSnapshot ? dayjs(firstSnapshot.timestamp) : null
+
+                // whichever is earliest
+                if (eventStart && snapshotStart) {
+                    return eventStart.isBefore(snapshotStart) ? eventStart : snapshotStart
+                }
+                return eventStart || snapshotStart
             },
         ],
 
         end: [
-            (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (meta, snapshots): Dayjs | undefined => {
-                // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
-                // either use the metadata end point or the last snapshot, whichever is later.
-                const end = meta?.end_time ? dayjs(meta.end_time) : undefined
-                const lastEvent = snapshots?.slice(-1)[0]
+            (s) => [s.lastSnapshot, s.sessionPlayerMetaData],
+            (lastSnapshot, meta): Dayjs | null => {
+                const eventEnd = meta?.end_time ? dayjs(meta.end_time) : null
+                const snapshotEnd = lastSnapshot ? dayjs(lastSnapshot.timestamp) : null
 
-                return lastEvent?.timestamp && lastEvent.timestamp > +(end ?? 0) ? dayjs(lastEvent.timestamp) : end
+                // whichever is latest
+                if (eventEnd && snapshotEnd) {
+                    return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
+                }
+                return eventEnd || snapshotEnd
             },
         ],
 
         durationMs: [
             (s) => [s.start, s.end],
             (start, end): number => {
-                return end?.diff(start) ?? 0
+                return !!start && !!end ? end.diff(start) : 0
             },
         ],
 
@@ -835,9 +891,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                 }
 
-                const minutesSinceRecording = dayjs().diff(start, 'minute')
-
-                return everyWindowMissingFullSnapshot && minutesSinceRecording <= 5
+                return everyWindowMissingFullSnapshot
             },
         ],
 
@@ -890,6 +944,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return snapshots.filter((snapshot) => snapshot.type === EventType.Custom).map((x) => x as customEvent)
             },
         ],
+    })),
+    subscriptions(({ actions }) => ({
+        webVitalsEvents: (value: RecordingEventType[]) => {
+            value.forEach((item) => {
+                // we preload all web vitals data, so it can be used before user interaction
+                if (!item.fullyLoaded) {
+                    actions.loadFullEventData(item)
+                }
+            })
+        },
     })),
     afterMount(({ cache }) => {
         resetTimingsCache(cache)
