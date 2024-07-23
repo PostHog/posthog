@@ -273,7 +273,7 @@ describe('Hog Executor', () => {
             expect(asyncResult2.error).toEqual('Exceeded maximum number of async steps: 2')
             expect(asyncResult2.logs.map((log) => log.message)).toEqual([
                 'Resuming function',
-                'Error executing function: Error: Exceeded maximum number of async steps: 2',
+                'Error executing function: HogVMException: Exceeded maximum number of async steps: 2',
             ])
         })
     })
@@ -312,7 +312,7 @@ describe('Hog Executor', () => {
                 'I AM FIBONACCI',
                 'Function exceeded maximum log entries. No more logs will be collected.',
                 expect.stringContaining(
-                    'Error executing function: Error: Execution timed out after 0.1 seconds. Performed'
+                    'Error executing function: HogVMException: Execution timed out after 0.1 seconds. Performed'
                 ),
             ])
         })
