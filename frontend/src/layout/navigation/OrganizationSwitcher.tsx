@@ -5,6 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -83,11 +84,12 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
             <LemonDivider />
             {currentOrganization && (
                 <LemonButton
-                    icon={<Lettermark name={currentOrganization.name} />}
+                    icon={<UploadedLogo name={currentOrganization.name} mediaId={currentOrganization.logo_media_id} />}
                     title={`Switch to organization ${currentOrganization.name}`}
+                    active
                     fullWidth
                 >
-                    <strong>{currentOrganization.name}</strong>
+                    {currentOrganization.name}
                     <AccessLevelIndicator organization={currentOrganization} />
                 </LemonButton>
             )}
