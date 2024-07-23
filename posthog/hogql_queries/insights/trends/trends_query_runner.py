@@ -272,12 +272,9 @@ class TrendsQueryRunner(QueryRunner):
                             MultipleBreakdownOptions(
                                 values=self._get_breakdown_items(
                                     values,
-                                    breakdown_filter.value,
+                                    breakdown_filter.property,
                                     breakdown_filter.type,
-                                    histogram_breakdown=(
-                                        not breakdown.ignore_histogram_bin_count
-                                        and isinstance(breakdown_filter.histogram_bin_count, int)
-                                    ),
+                                    histogram_breakdown=isinstance(breakdown_filter.histogram_bin_count, int),
                                     group_type_index=breakdown_filter.group_type_index,
                                 )
                             )
@@ -287,10 +284,7 @@ class TrendsQueryRunner(QueryRunner):
                         breakdown_values,
                         self.query.breakdownFilter.breakdown,
                         self.query.breakdownFilter.breakdown_type,
-                        histogram_breakdown=(
-                            not breakdown.ignore_histogram_bin_count
-                            and isinstance(self.query.breakdownFilter.breakdown_histogram_bin_count, int)
-                        ),
+                        histogram_breakdown=isinstance(self.query.breakdownFilter.breakdown_histogram_bin_count, int),
                         group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
                         is_boolean_field=self._is_breakdown_filter_field_boolean(),
                     )
@@ -993,7 +987,7 @@ class TrendsQueryRunner(QueryRunner):
         if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:
             labels = []
             for breakdown, label in zip(self.query.breakdownFilter.breakdowns, breakdown_value):
-                if self._is_breakdown_field_boolean(breakdown.value, breakdown.type, breakdown.group_type_index):
+                if self._is_breakdown_field_boolean(breakdown.property, breakdown.type, breakdown.group_type_index):
                     labels.append(self._convert_boolean(label))
                 else:
                     labels.append(label)

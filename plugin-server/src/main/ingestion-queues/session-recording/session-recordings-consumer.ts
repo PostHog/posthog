@@ -5,7 +5,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
-import { sessionRecordingConsumerConfig } from '../../../config/config'
+import { buildIntegerMatcher, sessionRecordingConsumerConfig } from '../../../config/config'
 import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
@@ -13,7 +13,7 @@ import {
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer } from '../../../kafka/producer'
-import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
+import { PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
@@ -155,6 +155,7 @@ export class SessionRecordingIngester {
     private debugPartition: number | undefined = undefined
 
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
+    private isDebugLoggingEnabled: ValueMatcher<number>
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -163,9 +164,8 @@ export class SessionRecordingIngester {
         private consumeOverflow: boolean,
         captureRedis: Redis | undefined
     ) {
-        this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
-            ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
-            : undefined
+        this.isDebugLoggingEnabled = buildIntegerMatcher(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION, true)
+
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
@@ -270,11 +270,8 @@ export class SessionRecordingIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const {
-            // partition,
-            highOffset,
-        } = event.metadata
-        const isDebug = true // this.debugPartition === partition
+        const { partition, highOffset } = event.metadata
+        const isDebug = this.isDebugLoggingEnabled(partition)
         if (isDebug) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
                 ...event.metadata,
@@ -323,7 +320,7 @@ export class SessionRecordingIngester {
                 session_id,
                 partition,
                 topic,
-                this.debugPartition === partition
+                this.isDebugLoggingEnabled(partition)
             )
         }
 
@@ -484,11 +481,13 @@ export class SessionRecordingIngester {
         // eachBatchWithContext, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster
         const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
+
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: replayClusterConnectionConfig,
             groupId: this.consumerGroupId,
             topic: this.topic,
-            autoCommit: false,
+            autoCommit: true,
+            autoOffsetStore: false, // We will use our own offset store logic
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.
@@ -509,6 +508,7 @@ export class SessionRecordingIngester {
             consumerErrorBackoffMs: this.config.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
+            topicMetadataRefreshInterval: this.config.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: async (messages, { heartbeat }) => {
                 return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))
             },
@@ -523,6 +523,7 @@ export class SessionRecordingIngester {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
+            status.info('🔁', 'blob_ingester_consumer - rebalancing', { err, topicPartitions })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
@@ -775,30 +776,29 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
+                const partitionBlockingSessions = blockingSessions.filter((s) => s.partition === partition)
 
                 const tp = {
                     topic: this.topic,
                     partition,
                 }
 
-                status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                    ...tp,
-                    blockingSessions,
-                })
+                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
+                //     ...tp,
+                //     partitionBlockingSessions,
+                // })
 
                 let potentiallyBlockingSession: SessionManager | undefined
 
                 let activeSessionsOnThisPartition = 0
-                for (const sessionManager of blockingSessions) {
-                    if (sessionManager.partition === partition) {
-                        const lowestOffset = sessionManager.getLowestOffset()
-                        activeSessionsOnThisPartition++
-                        if (
-                            lowestOffset !== null &&
-                            lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
-                        ) {
-                            potentiallyBlockingSession = sessionManager
-                        }
+                for (const sessionManager of partitionBlockingSessions) {
+                    const lowestOffset = sessionManager.getLowestOffset()
+                    activeSessionsOnThisPartition++
+                    if (
+                        lowestOffset !== null &&
+                        lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
+                    ) {
+                        potentiallyBlockingSession = sessionManager
                     }
                 }
 
@@ -810,7 +810,7 @@ export class SessionRecordingIngester {
                     : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
 
                 if (!highestOffsetToCommit) {
-                    const partitionDebug = true //this.debugPartition === partition
+                    const partitionDebug = this.isDebugLoggingEnabled(partition)
                     const logMethod = partitionDebug ? status.info : status.debug
                     logMethod(
                         '🤔',
@@ -831,11 +831,18 @@ export class SessionRecordingIngester {
                     return
                 }
 
-                this.connectedBatchConsumer?.commit({
+                const result = this.connectedBatchConsumer?.offsetsStore([
+                    {
+                        ...tp,
+                        offset: highestOffsetToCommit + 1,
+                    },
+                ])
+
+                status.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
                     ...tp,
-                    // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
-                    // for some reason you commit the next offset you expect to read and not the one you actually have
-                    offset: highestOffsetToCommit + 1,
+                    highestOffsetToCommit,
+                    result,
+                    consumerExists: !!this.connectedBatchConsumer,
                 })
 
                 // Store the committed offset to the persistent store to avoid rebalance issues

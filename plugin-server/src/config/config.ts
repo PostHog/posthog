@@ -46,6 +46,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_MECHANISM: undefined,
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
+        KAFKA_CLIENT_ID: undefined,
         KAFKA_CLIENT_RACK: undefined,
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
@@ -58,6 +59,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: 300_000,
         KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
+        KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: undefined,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
@@ -119,6 +121,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
@@ -133,6 +136,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_FOR_TEAMS: '',
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
+        HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
@@ -162,7 +166,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
         SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: true,
-        SESSION_RECORDING_DEBUG_PARTITION: undefined,
+        SESSION_RECORDING_DEBUG_PARTITION: '',
         SESSION_RECORDING_KAFKA_DEBUG: undefined,
         SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
         SESSION_RECORDING_OVERFLOW_ENABLED: false,
@@ -180,6 +184,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_MIN_OBSERVATIONS: 3,
         CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: 0.8,
         CDP_WATCHER_DISABLED_RATING_THRESHOLD: 0.5,
+        CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
     }
 }
 

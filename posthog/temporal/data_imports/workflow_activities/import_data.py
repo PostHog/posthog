@@ -2,7 +2,6 @@ import dataclasses
 from typing import Any
 import uuid
 
-from dlt.common.schema.typing import TSchemaTables
 from temporalio import activity
 
 from posthog.temporal.data_imports.pipelines.helpers import aremove_reset_pipeline, aupdate_job_count
@@ -29,7 +28,7 @@ class ImportDataActivityInputs:
 
 
 @activity.defn
-async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchemaTables, dict[str, int]]:  # noqa: F821
+async def import_data_activity(inputs: ImportDataActivityInputs):
     model: ExternalDataJob = await get_external_data_job(
         job_id=inputs.run_id,
     )
@@ -57,8 +56,6 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
 
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
-        # Cludge: account_id should be checked here too but can deal with nulls
-        # until we require re update of account_ids in stripe so they're all store
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
 
@@ -252,7 +249,7 @@ async def _run(
     inputs: ImportDataActivityInputs,
     schema: ExternalDataSchema,
     reset_pipeline: bool,
-) -> tuple[TSchemaTables, dict[str, int]]:
+):
     # Temp background heartbeat for now
     async def heartbeat() -> None:
         while True:
@@ -272,5 +269,3 @@ async def _run(
     finally:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])
-
-    return source.schema.tables, table_row_counts

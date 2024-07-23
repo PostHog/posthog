@@ -75,11 +75,14 @@ export const startBatchConsumer = async ({
     kafkaStatisticIntervalMs = 0,
     fetchMinBytes,
     maxHealthHeartbeatIntervalMs = 60_000,
+    autoOffsetStore = true,
+    topicMetadataRefreshInterval,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
     topic: string
     autoCommit: boolean
+    autoOffsetStore?: boolean
     sessionTimeout: number
     maxPollIntervalMs: number
     consumerMaxBytesPerPartition: number
@@ -95,6 +98,7 @@ export const startBatchConsumer = async ({
     debug?: string
     queuedMaxMessagesKBytes?: number
     fetchMinBytes?: number
+    topicMetadataRefreshInterval?: number
     /**
      * default to 0 which disables logging
      * granularity of 1000ms
@@ -183,8 +187,12 @@ export const startBatchConsumer = async ({
         consumerConfig['statistics.interval.ms'] = kafkaStatisticIntervalMs
     }
 
+    if (topicMetadataRefreshInterval) {
+        consumerConfig['topic.metadata.refresh.interval.ms'] = topicMetadataRefreshInterval
+    }
+
     if (debug) {
-        // NOTE: If the key exists with value undefined the consumer will throw which is annoying so we define it here instead
+        // NOTE: If the key exists with value undefined the consumer will throw which is annoying, so we define it here instead
         consumerConfig.debug = debug
     }
 
@@ -311,7 +319,7 @@ export const startBatchConsumer = async ({
                     status.debug('⌛️', logSummary, batchSummary)
                 }
 
-                if (autoCommit) {
+                if (autoCommit && autoOffsetStore) {
                     storeOffsetsForMessages(messages, consumer)
                 }
             }

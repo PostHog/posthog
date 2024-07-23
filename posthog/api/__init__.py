@@ -3,7 +3,13 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import external_data_source, saved_query, table, view_link, external_data_schema
+from posthog.warehouse.api import (
+    external_data_source,
+    saved_query,
+    table,
+    view_link,
+    external_data_schema,
+)
 from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
 from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet

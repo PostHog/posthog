@@ -197,6 +197,7 @@ export class IngestionConsumer {
             consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             fetchBatchSize: this.pluginsServer.INGESTION_BATCH_SIZE,
             topicCreationTimeoutMs: this.pluginsServer.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
+            topicMetadataRefreshInterval: this.pluginsServer.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: (payload) => this.eachBatchConsumer(payload),
         })
         this.consumerReady = true

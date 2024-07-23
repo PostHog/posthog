@@ -33,6 +33,7 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataJob,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
@@ -70,6 +71,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
+    RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
     RoleType,
@@ -646,6 +648,13 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
 
+    public surveyActivity(id: Survey['id'] | undefined, teamId?: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.survey(id, teamId).addPathComponent('activity')
+        }
+        return this.surveys(teamId).addPathComponent('activity')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -726,7 +735,7 @@ class ApiRequest {
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
-            return apiRequest.withQueryString('showProgress=true')
+            return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
     }
@@ -880,6 +889,12 @@ const api = {
                 )
                 .get()
         },
+        async create(data: any): Promise<InsightModel> {
+            return await new ApiRequest().insights().create({ data })
+        },
+        async update(id: number, data: any): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data })
+        },
     },
 
     featureFlags: {
@@ -1011,6 +1026,9 @@ const api = {
                 },
                 [ActivityScope.TEAM]: () => {
                     return new ApiRequest().projectsDetail().withAction('activity')
+                },
+                [ActivityScope.SURVEY]: (props) => {
+                    return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
             }
 
@@ -1625,7 +1643,7 @@ const api = {
             data: {
                 configuration: Partial<HogFunctionType>
                 mock_async_functions: boolean
-                event: any
+                globals: any
             }
         ): Promise<any> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
@@ -1642,7 +1660,7 @@ const api = {
         },
         async update(
             annotationId: RawAnnotationType['id'],
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
@@ -1656,7 +1674,7 @@ const api = {
                 .get()
         },
         async create(
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
@@ -1866,7 +1884,7 @@ const api = {
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
-        ): Promise<PaginatedResponse<BatchExportRun>> {
+        ): Promise<PaginatedResponse<RawBatchExportRun>> {
             return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
         },
         async createBackfill(
@@ -1972,10 +1990,12 @@ const api = {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
     },
-
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
             return await new ApiRequest().externalDataSources().get(options)
+        },
+        async get(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataStripeSource> {
+            return await new ApiRequest().externalDataSource(sourceId).get()
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
@@ -2010,6 +2030,9 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
+        async jobs(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataJob[]> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('jobs').get()
+        },
     },
 
     externalDataSchemas: {
@@ -2027,6 +2050,16 @@ const api = {
         },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
+        },
+        async logs(
+            schemaId: ExternalDataSourceSchema['id'],
+            params: LogEntryRequestParams = {}
+        ): Promise<PaginatedResponse<LogEntry>> {
+            return await new ApiRequest()
+                .externalDataSourceSchema(schemaId)
+                .withAction('logs')
+                .withQueryString(params)
+                .get()
         },
     },
 
@@ -2096,6 +2129,9 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
+        },
+        authorizeUrl(params: { kind: string; next?: string }): string {
+            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()

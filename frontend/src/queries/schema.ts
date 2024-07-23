@@ -64,6 +64,7 @@ export enum NodeKind {
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
+    ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -107,6 +108,7 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebTopClicksQuery
     | SessionAttributionExplorerQuery
+    | ErrorTrackingQuery
 
 /**
  * @discriminator kind
@@ -130,6 +132,7 @@ export type QuerySchema =
     | WebStatsTableQuery
     | WebTopClicksQuery
     | SessionAttributionExplorerQuery
+    | ErrorTrackingQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -341,6 +344,7 @@ export interface HogQLAutocompleteResponse {
 
 export enum HogLanguage {
     hog = 'hog',
+    hogJson = 'hogJson',
     hogQL = 'hogQL',
     hogQLExpr = 'hogQLExpr',
     hogTemplate = 'hogTemplate',
@@ -516,6 +520,7 @@ export interface DataTableNode
                     | WebStatsTableQuery
                     | WebTopClicksQuery
                     | SessionAttributionExplorerQuery
+                    | ErrorTrackingQuery
                 )['response']
             >
         >,
@@ -532,7 +537,7 @@ export interface DataTableNode
         | WebStatsTableQuery
         | WebTopClicksQuery
         | SessionAttributionExplorerQuery
-
+        | ErrorTrackingQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1057,9 +1062,19 @@ export type QueryStatus = {
      */
     query_async: true
     team_id: integer
-    /**  @default false */
+    insight_id?: integer
+    dashboard_id?: integer
+    /**
+     * If the query failed, this will be set to true.
+     * More information can be found in the error_message field.
+     * @default false
+     */
     error: boolean
-    /**  @default false */
+    /**
+     * Whether the query is still running. Will be true if the query is complete, even if it errored.
+     * Either result or error will be set.
+     * @default false
+     */
     complete: boolean
     /**  @default null */
     error_message: string | null
@@ -1151,6 +1166,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
@@ -1192,8 +1208,6 @@ export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<un
 }
 
 export type CachedWebTopClicksQueryResponse = CachedQueryResponse<WebTopClicksQueryResponse>
-
-export type ErrorTrackingOrder = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -1262,6 +1276,45 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
     columns?: unknown[]
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
+
+export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
+    kind: NodeKind.ErrorTrackingQuery
+    fingerprint?: string
+    select?: HogQLExpression[]
+    eventColumns?: string[]
+    order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    dateRange: DateRange
+    filterGroup?: PropertyGroupFilter
+    filterTestAccounts?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export interface ErrorTrackingGroup {
+    fingerprint: string
+    merged_fingerprints: string[]
+    occurrences: number
+    sessions: number
+    users: number
+    description: string | null
+    /**  @format date-time */
+    first_seen: string
+    /**  @format date-time */
+    last_seen: string
+    // Sparkline data handled by the DataTable
+    volume?: any
+    assignee: number | null
+    status: 'archived' | 'active' | 'resolved' | 'pending_release'
+    events?: Record<string, any>[]
+}
+
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -1551,7 +1604,7 @@ export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    value: string
+    property: string
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin

@@ -39,7 +39,7 @@ export function TaxonomicBreakdownFilter({
         updateBreakdownFilter,
         updateDisplay,
     }
-    const { breakdownArray, maxBreakdownsSelected, breakdownOptionsOpened, isMultipleBreakdownsEnabled } = useValues(
+    const { breakdownArray, isAddBreakdownDisabled, breakdownOptionsOpened, isMultipleBreakdownsEnabled } = useValues(
         taxonomicBreakdownFilterLogic(logicProps)
     )
     const { toggleBreakdownOptions } = useActions(taxonomicBreakdownFilterLogic(logicProps))
@@ -47,8 +47,8 @@ export function TaxonomicBreakdownFilter({
     const tags = breakdownArray.map((breakdown) =>
         typeof breakdown === 'object' ? (
             <EditableBreakdownTag
-                key={breakdown.value}
-                breakdown={breakdown.value}
+                key={breakdown.property}
+                breakdown={breakdown.property}
                 breakdownType={breakdown.type ?? 'event'}
                 isTrends={isTrends}
             />
@@ -85,7 +85,7 @@ export function TaxonomicBreakdownFilter({
             </div>
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!maxBreakdownsSelected && <TaxonomicBreakdownButton disabledReason={disabledReason} />}
+                {!isAddBreakdownDisabled && <TaxonomicBreakdownButton disabledReason={disabledReason} />}
             </div>
         </BindLogic>
     )

@@ -49,11 +49,6 @@ TableColumn = Literal[
     "group_properties",  # for groups table
     # all below are for person&groups on events table
     "person_properties",
-    "group0_properties",
-    "group1_properties",
-    "group2_properties",
-    "group3_properties",
-    "group4_properties",
 ]
 OperatorType = Literal[
     "exact",

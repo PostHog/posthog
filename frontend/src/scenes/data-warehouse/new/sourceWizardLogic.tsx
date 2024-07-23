@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import {
     Breadcrumb,
+    DataWarehouseTab,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
@@ -49,7 +50,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 name: 'account_id',
                 label: 'Account id',
                 type: 'text',
-                required: true,
+                required: false,
                 placeholder: 'acct_...',
             },
             {
@@ -336,6 +337,7 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
     'cloudflare-r2': 'Cloudflare R2',
+    azure: 'Azure',
 }
 
 export interface SourceWizardLogicProps {
@@ -545,7 +547,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     if (onComplete) {
                         return 'Next'
                     }
-                    return 'Return to settings'
+                    return 'Return to sources'
                 }
 
                 return 'Next'
@@ -712,7 +714,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.cancelWizard()
 
             if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
-                router.actions.push(urls.dataWarehouseSettings())
+                router.actions.push(urls.dataWarehouse(DataWarehouseTab.ManagedSources))
             } else if (router.values.location.pathname.includes(urls.pipelineNodeDataWarehouseNew())) {
                 router.actions.push(urls.pipeline(PipelineTab.DataImport))
             }
@@ -779,6 +781,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
+
+                if (((e.data?.message as string | undefined) ?? '').indexOf('Invalid credentials') != -1) {
+                    posthog.capture('warehouse credentials invalid', { sourceType: values.selectedConnector.name })
+                }
             }
 
             actions.setIsLoading(false)

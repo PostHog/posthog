@@ -15,6 +15,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -25,7 +26,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes } from '~/types'
+import { AvailableFeature, EntityTypes } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
@@ -45,7 +46,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         loaded,
         hogFunction,
         willReEnableOnSave,
-        invocationGlobals,
+        exampleInvocationGlobalsWithInputs,
+        showPaygate,
+        hasAddon,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -125,6 +128,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
             </LemonButton>
         </>
     )
+
+    if (showPaygate) {
+        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+    }
 
     return (
         <div className="space-y-3">
@@ -334,7 +341,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                             language="hog"
                                                             value={value ?? ''}
                                                             onChange={(v) => onChange(v ?? '')}
-                                                            globals={invocationGlobals}
+                                                            globals={exampleInvocationGlobalsWithInputs}
                                                             options={{
                                                                 minimap: {
                                                                     enabled: false,
@@ -359,6 +366,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 size="xsmall"
                                                 type="secondary"
                                                 onClick={() => setShowSource(true)}
+                                                disabledReason={
+                                                    !hasAddon
+                                                        ? 'Editing the source code requires the Data Pipelines addon'
+                                                        : undefined
+                                                }
                                             >
                                                 Show function source code
                                             </LemonButton>

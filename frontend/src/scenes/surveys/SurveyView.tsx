@@ -4,6 +4,7 @@ import { TZLabel } from '@posthog/apps-common'
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
@@ -16,7 +17,15 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { InsightType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    ActivityScope,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
 import { SURVEY_EVENT_NAME } from './constants'
 import { SurveyDisplaySummary } from './Survey'
@@ -395,6 +404,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 ),
                                 key: 'overview',
                                 label: 'Overview',
+                            },
+                            {
+                                label: 'History',
+                                key: 'History',
+                                content: <ActivityLog scope={ActivityScope.SURVEY} id={survey.id} />,
                             },
                         ]}
                     />

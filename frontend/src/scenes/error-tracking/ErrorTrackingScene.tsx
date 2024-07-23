@@ -7,6 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
@@ -76,32 +77,22 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { value, record } = props
-
-    const properties = JSON.parse(value as string)
-
-    const FirstAndLastSeen = ({ record }: { record: any[] }): JSX.Element => {
-        const [last_seen, first_seen] = record.slice(-2) as [string, string]
-
-        return (
-            <div className="space-x-1">
-                <TZLabel time={first_seen} className="border-dotted border-b" />
-                <span>|</span>
-                <TZLabel time={last_seen} className="border-dotted border-b" />
-            </div>
-        )
-    }
+    const record = props.record as ErrorTrackingGroup
 
     return (
         <LemonTableLink
-            title={properties.$exception_type}
+            title={record.fingerprint}
             description={
                 <div className="space-y-1">
-                    <div className="line-clamp-1">{properties.$exception_message}</div>
-                    <FirstAndLastSeen record={record as any[]} />
+                    <div className="line-clamp-1">{record.description}</div>
+                    <div className="space-x-1">
+                        <TZLabel time={record.first_seen} className="border-dotted border-b" />
+                        <span>|</span>
+                        <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                    </div>
                 </div>
             }
-            to={urls.errorTrackingGroup(properties.$exception_type)}
+            to={urls.errorTrackingGroup(record.fingerprint)}
         />
     )
 }
