@@ -1,9 +1,8 @@
 import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
-import { dayjs } from 'lib/dayjs'
 
-import { DateRange, ErrorTrackingGroup } from '~/queries/schema'
+import { DateRange } from '~/queries/schema'
 import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
@@ -30,22 +29,6 @@ const customOptions: Record<string, SparklineOption[]> = {
 const DEFAULT_FILTER_GROUP = {
     type: FilterLogicalOperator.And,
     values: [{ type: FilterLogicalOperator.And, values: [] }],
-}
-
-export const getDefaultErrorGroup = (fingerprint: string): ErrorTrackingGroup => {
-    const now = dayjs().toString()
-    return {
-        fingerprint,
-        merged_fingerprints: [],
-        occurrences: 0,
-        sessions: 0,
-        users: 0,
-        description: null,
-        first_seen: now,
-        last_seen: now,
-        assignee: null,
-        status: 'active',
-    }
 }
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([

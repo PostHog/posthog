@@ -6,18 +6,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.error_tracking import ErrorTrackingGroup
 
 
-def depluralize(string: str | None) -> str | None:
-    if not string:
-        return None
-
-    if string.endswith("ies"):
-        return string[:-3] + "y"
-    elif string.endswith("s"):
-        return string[:-1]
-    else:
-        return string
-
-
 class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingGroup
@@ -43,5 +31,5 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if groups:
             return groups.first()
 
-        # create group from fingerprint if it does not already exist
+        # lazily creates error group if it does not already exist
         return ErrorTrackingGroup.objects.create(team=self.team, fingerprint=fingerprint)
