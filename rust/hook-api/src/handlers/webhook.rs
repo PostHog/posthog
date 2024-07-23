@@ -95,6 +95,19 @@ pub async fn post_hoghook(
 ) -> Result<Json<WebhookPostResponse>, (StatusCode, Json<WebhookPostResponse>)> {
     debug!("received payload: {:?}", payload);
 
+    // We use these fields for metrics in the janitor, but we don't actually need to do anything
+    // with them now.
+    payload
+        .get("teamId")
+        .ok_or_else(|| bad_request("missing required field 'teamId'"))?
+        .as_number()
+        .ok_or_else(|| bad_request("'teamId' is not a number"))?;
+    payload
+        .get("hogFunctionId")
+        .ok_or_else(|| bad_request("missing required field 'hogFunctionId'"))?
+        .as_str()
+        .ok_or_else(|| bad_request("'hogFunctionId' is not a string"))?;
+
     // We deserialize a copy of the `asyncFunctionRequest` field here because we want to leave
     // the original payload unmodified so that it can be passed through exactly as it came to us.
     let async_function_request = payload
@@ -379,23 +392,23 @@ mod tests {
 
         let valid_payloads = vec![
             (
-                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com"]}}"#,
+                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com"]}, "teamId": 1, "hogFunctionId": "abc"}"#,
                 r#"{"body": "", "headers": {}, "method": "POST", "url": "http://example.com"}"#,
             ),
             (
-                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"method": "GET"}]}}"#,
+                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"method": "GET"}]}, "teamId": 1, "hogFunctionId": "abc"}"#,
                 r#"{"body": "", "headers": {}, "method": "GET", "url": "http://example.com"}"#,
             ),
             (
-                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"body": "hello, world"}]}}"#,
+                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"body": "hello, world"}]}, "teamId": 1, "hogFunctionId": "abc"}"#,
                 r#"{"body": "hello, world", "headers": {}, "method": "POST", "url": "http://example.com"}"#,
             ),
             (
-                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"headers": {"k": "v"}}]}}"#,
+                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"headers": {"k": "v"}}]}, "teamId": 1, "hogFunctionId": "abc"}"#,
                 r#"{"body": "", "headers": {"k": "v"}, "method": "POST", "url": "http://example.com"}"#,
             ),
             (
-                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"method": "GET", "body": "hello, world", "headers": {"k": "v"}}]}, "otherField": true}"#,
+                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"method": "GET", "body": "hello, world", "headers": {"k": "v"}}]}, "otherField": true, "teamId": 1, "hogFunctionId": "abc"}"#,
                 r#"{"body": "hello, world", "headers": {"k": "v"}, "method": "GET", "url": "http://example.com"}"#,
             ),
         ];
@@ -454,18 +467,22 @@ mod tests {
 
         let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
 
-        let valid_payloads = vec![
+        let invalid_payloads = vec![
             r#"{}"#,
-            r#"{"asyncFunctionRequest":{}"#,
-            r#"{"asyncFunctionRequest":{"name":"not-fetch","args":[]}}"#,
-            r#"{"asyncFunctionRequest":{"name":"fetch"}}"#,
-            r#"{"asyncFunctionRequest":{"name":"fetch","args":{}}}"#,
-            r#"{"asyncFunctionRequest":{"name":"fetch","args":[]}}"#,
-            r#"{"asyncFunctionRequest":{"name":"fetch","args":["not-url"]}}"#,
-            r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"method": "not-method"}]}}"#,
+            r#"{"asyncFunctionRequest":{"teamId": 1, "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"not-fetch","args":[]}, "teamId": 1, "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch"}, "teamId": 1, "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch","args":{}}, "teamId": 1, "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch","args":[]}, "teamId": 1, "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch","args":["not-url"]}, "teamId": 1, "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"method": "not-method"}]}, "teamId": 1, "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com"]}, "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com"]}, "teamId": "string", "hogFunctionId": "abc"}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com"]}, "teamId": 1}"#,
+            r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com"]}, "teamId": 1, "hogFunctionId": 1}"#,
         ];
 
-        for payload in valid_payloads {
+        for payload in invalid_payloads {
             let mut headers = collections::HashMap::new();
             headers.insert("Content-Type".to_owned(), "application/json".to_owned());
             let response = app
