@@ -73,7 +73,7 @@ def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
+def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str] | list[int]:
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{cache_key.value}{resource.value}", min=now.timestamp(), max="+inf")
@@ -275,7 +275,7 @@ def get_team_attribute_by_quota_resource(organization: Organization, resource: Q
         return team_tokens
 
     if resource == QuotaResource.ROWS_SYNCED:
-        team_ids: list[str] = [x for x in list(organization.teams.values_list("id", flat=True)) if x]
+        team_ids: list[int] = [x for x in list(organization.teams.values_list("id", flat=True)) if x]
 
         if not team_ids:
             capture_exception(Exception(f"quota_limiting: No team ids found for organization: {organization.id}"))
