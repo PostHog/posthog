@@ -524,6 +524,7 @@ describe('hogvm execute', () => {
                 bytecode,
                 asyncSteps: 1,
                 callStack: [],
+                throwStack: [],
                 declaredFunctions: {},
                 ip: 8,
                 maxMemUsed: 16,

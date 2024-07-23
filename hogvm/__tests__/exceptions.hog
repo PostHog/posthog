@@ -5,6 +5,7 @@ try {
   print(f'{e} was the exception')
 }
 
+
 print('------------------')
 
 print('start')
@@ -18,7 +19,7 @@ print('------------------')
 
 try {
   print('try again')
-  throw 'Error'
+  throw Error()
 } catch (e) {
   print(f'{e} was the exception')
 }
@@ -27,7 +28,7 @@ print('------------------')
 
 try {
   print('try again')
-  throw 'Error'
+  throw Error()
 } catch {
   print('No var for error')
 }
@@ -36,7 +37,7 @@ print('------------------')
 
 fn third() {
   print('Throwing in third')
-  throw 'Threw in third'
+  throw Error('Threw in third')
 }
 
 fn second() {

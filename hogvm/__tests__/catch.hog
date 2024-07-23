@@ -1,8 +1,8 @@
 fn FishError(message) {
-  return Error('FishError', message)
+  return HogError('FishError', message)
 }
 fn FoodError(message) {
-  return Error('FoodError', message)
+  return HogError('FoodError', message)
 }
 
 try {

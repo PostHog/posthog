@@ -6,6 +6,7 @@ from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.debugger import debugger, color_bytecode
+from hogvm.python.objects import is_hog_error
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
@@ -39,7 +40,7 @@ def execute_bytecode(
     stack: list = []
     mem_stack: list = []
     call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
-    throw_stack: list[tuple[int, int, int, bool]] = []  # (call_stack_length, stack_length, catch_ip, use_local_var)
+    throw_stack: list[tuple[int, int, int]] = []  # (call_stack_length, stack_length, catch_ip)
     declared_functions: dict[str, tuple[int, int]] = {}
     mem_used = 0
     max_mem_used = 0
@@ -263,7 +264,7 @@ def execute_bytecode(
 
                     push_stack(STL[name](args, team, stdout, timeout.total_seconds()))
             case Operation.TRY:
-                throw_stack.append((len(call_stack), len(stack), ip + next_token(), next_token()))
+                throw_stack.append((len(call_stack), len(stack), ip + next_token()))
             case Operation.POP_TRY:
                 if throw_stack:
                     throw_stack.pop()
@@ -272,13 +273,14 @@ def execute_bytecode(
             case Operation.THROW:
                 if throw_stack:
                     exception = pop_stack()
-                    call_stack_len, stack_len, catch_ip, use_var = throw_stack.pop()
+                    if not is_hog_error(exception):
+                        raise HogVMException("Can not throw: value is not of type Error")
+                    call_stack_len, stack_len, catch_ip = throw_stack.pop()
                     stack = stack[0:stack_len]
                     mem_used -= sum(mem_stack[stack_len:])
                     mem_stack = mem_stack[0:stack_len]
                     call_stack = call_stack[0:call_stack_len]
-                    if use_var:
-                        push_stack(exception)
+                    push_stack(exception)
                     ip = catch_ip
                 else:
                     # TODO: add Hog exception name/payload

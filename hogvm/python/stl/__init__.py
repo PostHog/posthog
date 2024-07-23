@@ -22,22 +22,14 @@ from .date import (
     is_hog_date,
 )
 from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
+from ..objects import is_hog_error, new_hog_error
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
 
 def concat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    def _to_concat_arg(arg) -> str:
-        if arg is None:
-            return ""
-        if arg is True:
-            return "true"
-        if arg is False:
-            return "false"
-        return str(arg)
-
-    return "".join([_to_concat_arg(arg) for arg in args])
+    return "".join([print_hog_string_output(arg) if arg is not None else "" for arg in args])
 
 
 def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -55,6 +47,12 @@ def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
         month = args[0]["month"]
         day = args[0]["day"]
         return f"{year}-{month:02d}-{day:02d}"
+    elif isinstance(args[0], dict) and is_hog_error(args[0]):
+        return (
+            f"{args[0]['name']}({toString(args[0]['message'], team, stdout, timeout)}"
+            + (f", {toString(args[0]['payload'], team, stdout, timeout)}" if "payload" in args[0] else "")
+            + ")"
+        )
     elif args[0] is True:
         return "true"
     elif args[0] is False:
@@ -375,6 +373,22 @@ def _formatDateTime(args: list[Any], team: Optional["Team"], stdout: Optional[li
     return formatDateTime(args[0], args[1], args[2] if len(args) > 2 else None)
 
 
+def _HogError(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+    return new_hog_error(args[0], args[1], args[2] if len(args) > 2 else None)
+
+
+def _Error(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+    return new_hog_error("Error", args[0], args[1] if len(args) > 1 else None)
+
+
+def _RetryError(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+    return new_hog_error("RetryError", args[0], args[1] if len(args) > 1 else None)
+
+
+def _NotImplementedError(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+    return new_hog_error("NotImplementedError", args[0], args[1] if len(args) > 1 else None)
+
+
 STL: dict[str, Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]] = {
     "concat": concat,
     "match": match,
@@ -428,4 +442,14 @@ STL: dict[str, Callable[[list[Any], Optional["Team"], list[str] | None, float], 
     "toDate": _toDate,
     "toDateTime": _toDateTime,
     "formatDateTime": _formatDateTime,
+    "HogError": _HogError,
+    "Error": _Error,
+    "RetryError": _RetryError,
+    "NotImplementedError": _NotImplementedError,
+}
+
+MIN_ARGS_INCLUDING_OPTIONAL = {
+    "Error": 3,
+    "RetryError": 2,
+    "NotImplementedError": 2,
 }

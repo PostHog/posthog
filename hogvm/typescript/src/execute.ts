@@ -3,6 +3,7 @@ import RE2 from 're2'
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
 import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
+import { isHogError } from './objects'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
@@ -17,7 +18,7 @@ export interface VMState {
     /** Call stack of the VM */
     callStack: [number, number, number][]
     /** Throw stack of the VM */
-    throwStack: [number, number, number, boolean][]
+    throwStack: [number, number, number][]
     /** Declared functions of the VM */
     declaredFunctions: Record<string, [number, number]>
     /** Instruction pointer of the VM */
@@ -116,7 +117,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const stack: any[] = vmState ? vmState.stack : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: [number, number, number][] = vmState ? vmState.callStack : []
-    const throwStack: [number, number, number, boolean][] = vmState ? vmState.throwStack : []
+    const throwStack: [number, number, number][] = vmState ? vmState.throwStack : []
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
     let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
@@ -434,7 +435,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             }
             case Operation.TRY:
-                throwStack.push([callStack.length, stack.length, ip + next(), !!next()])
+                throwStack.push([callStack.length, stack.length, ip + next()])
                 break
             case Operation.POP_TRY:
                 if (throwStack.length > 0) {
@@ -446,13 +447,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             case Operation.THROW: {
                 if (throwStack.length > 0) {
                     const exception = popStack()
-                    const [callStackLen, stackLen, catchIp, useVar] = throwStack.pop()!
+                    if (!isHogError(exception)) {
+                        throw new Error('Can not throw: value is not of type Error')
+                    }
+                    const [callStackLen, stackLen, catchIp] = throwStack.pop()!
                     spliceStack1(stackLen)
                     memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
                     callStack.splice(callStackLen)
-                    if (useVar) {
-                        pushStack(exception)
-                    }
+                    pushStack(exception)
                     ip = catchIp
                 } else {
                     throw new Error('No catch block to throw to')
