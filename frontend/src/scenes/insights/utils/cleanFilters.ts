@@ -160,7 +160,7 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
             cleanedParams['breakdown_type'] = undefined
             cleanedParams['breakdowns'] = filters.breakdowns.map((b) => ({
                 property: b.property,
-                type: b.type || filters.breakdown_type,
+                type: b.type || filters.breakdown_type || 'event',
                 histogram_bin_count: b.histogram_bin_count,
                 group_type_index: b.group_type_index,
                 normalize_url:
