@@ -2357,6 +2357,17 @@ class TestSurveysRecurringIterations(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_200_OK
+        survey.refresh_from_db()
+        assert survey.current_iteration is None
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 3,
+                "iteration_frequency_days": 30,
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_can_turn_off_recurring_schedule(self):
         survey = self._create_recurring_survey()

@@ -176,7 +176,12 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     iteration_count = 0 if instance.iteration_count is None else instance.iteration_count
     iteration_frequency_dates = 0 if instance.iteration_frequency_days is None else instance.iteration_frequency_days
 
-    if instance.iteration_count == 0 or instance.iteration_frequency_days == 0:
+    if (
+        instance.iteration_count is None
+        or instance.iteration_frequency_days is None
+        or instance.iteration_count == 0
+        or instance.iteration_frequency_days == 0
+    ):
         instance.iteration_start_dates = []
         instance.current_iteration = None
         instance.current_iteration_start_date = None
