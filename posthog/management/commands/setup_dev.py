@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
+from django.conf import settings
 
 from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import (
@@ -13,34 +14,12 @@ from posthog.models import (
     User,
     OrganizationDomain,
     Organization,
+    Project,
 )
 from posthog.models.event_definition import EventDefinition
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.property_definition import PropertyDefinition
 
-
-domain = "zlwaterfield.com"
-saml_entity_id = "http://www.okta.com/exkfso4f5a5yoH2u9697"
-saml_acs_url = "https://trial-4372086.okta.com/app/trial-4372086_posthogdev_1/exkfso4f5a5yoH2u9697/sso/saml"
-saml_x509_cert = """-----BEGIN CERTIFICATE-----
-MIIDqjCCApKgAwIBAgIGAZBLKqqTMA0GCSqGSIb3DQEBCwUAMIGVMQswCQYDVQQGEwJVUzETMBEG
-A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
-MBIGA1UECwwLU1NPUHJvdmlkZXIxFjAUBgNVBAMMDXRyaWFsLTQzNzIwODYxHDAaBgkqhkiG9w0B
-CQEWDWluZm9Ab2t0YS5jb20wHhcNMjQwNjI0MTY1MjI1WhcNMzQwNjI0MTY1MzI1WjCBlTELMAkG
-A1UEBhMCVVMxEzARBgNVBAgMCkNhbGlmb3JuaWExFjAUBgNVBAcMDVNhbiBGcmFuY2lzY28xDTAL
-BgNVBAoMBE9rdGExFDASBgNVBAsMC1NTT1Byb3ZpZGVyMRYwFAYDVQQDDA10cmlhbC00MzcyMDg2
-MRwwGgYJKoZIhvcNAQkBFg1pbmZvQG9rdGEuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB
-CgKCAQEAyu0MtzvMc2PGntBiQco1NnQ4579mhX4yzkDEyYpu0d8B/+5D5z28vJUdwlNeUhGWDtLp
-Ihkm1lQmAQcC7mNn1jlkeKVnD+O3hqkNV/0PBcbXqdOQt2gkLpj5sVL00MOWkeMDFl8ri+dRMOXI
-xUNWwAEWwXO4EUbNKwtAtTj/ljj5kp/HtVT7urOuPI+KZ5QYt0YSqGwx7QpM4lWzGrgkyjjzynXh
-sJAJSp7hs7hvOj4aGAPGrGFcI65Dcelk3xAAanWuV90nBtkBDwQFP8WZ88WEdGEcaveiN/7fRDQH
-wrq07N5F/+mGKz3x/NVruWYut9sHXBLyG0QZwys3Ggn59QIDAQABMA0GCSqGSIb3DQEBCwUAA4IB
-AQBEprZUQnbUM5p5z2PX2ha5rkkDle7gccDS2WHljI+a7dRSoSMZHY0r7mxmG4pFwdwagSAC/lsu
-7RFT32SCx3Mwyqny6hcH7AXlL30E1uyigoH7lazO2l3wyuua+7K6CwILXLr/6ScER1x81BjgVmhS
-tjFgjwkc2ctYxN64kNoKqaFl1F+gAuECDQRJhSZICOwbVw1U1qSwCL4wdAS8W38tw1AcVU3KAHAC
-X3vH90EFur/PknsPfdTURSm/n4RV3u/MJ3Ps/VGmXYY2ABoe7cwAWgzqecgXnrK5mnY3ryCg6VBT
-Nh4dhjP5ATQ7YSgOcL5AR4TJ0J/08PDosZTMYxKB
------END CERTIFICATE-----"""
 
 class Command(BaseCommand):
     help = "Set up the instance for development/review with demo data"
@@ -94,21 +73,27 @@ class Command(BaseCommand):
             saml_organization = Organization.objects.create(
                 name="saml org",
                 available_product_features=[
-                    {"key": "saml", "name": "SAML"}, 
+                    {"key": "saml", "name": "SAML"},
                     {"key": "sso_enforcement", "name": "SSO Enforcement"},
                     {"key": "automatic_provisioning", "name": "Automatic Provisioning"},
-                    {"key": "social_sso", "name": "Social SSO"}
+                    {"key": "social_sso", "name": "Social SSO"},
                 ],
             )
+            _, team = Project.objects.create_with_team(
+                organization=saml_organization,
+                name="saml project",
+                team_fields={"name": "saml team"},
+            )
+
             OrganizationDomain.objects.create(
                 organization=saml_organization,
-                domain=domain,
+                domain=settings.E2E_SAML_DOMAIN,
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
                 sso_enforcement="saml",
-                saml_entity_id=saml_entity_id,
-                saml_acs_url=saml_acs_url,
-                saml_x509_cert=saml_x509_cert,
+                saml_entity_id=settings.E2E_SAML_ENTITY_ID,
+                saml_acs_url=settings.E2E_SAML_ACS_URL,
+                saml_x509_cert=settings.E2E_SAML_X509_CERT,
             )
 
     @staticmethod
