@@ -311,6 +311,44 @@ export const fetchGroups = async (teamId: number) => {
     return queryResult.data.map((group) => ({ ...group, group_properties: JSON.parse(group.group_properties) }))
 }
 
+export const createGroupType = async (teamId: number, index: number, groupType: string) => {
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `
+        INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
+        VALUES ($1, $2, $3)
+        `,
+        [teamId, groupType, index],
+        'insertGroupType'
+    )
+}
+
+export const createGroup = async (
+    teamId: number,
+    groupTypeIndex: number,
+    groupKey: string,
+    groupProperties: Record<string, any>
+) => {
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `,
+        [
+            teamId,
+            groupKey,
+            groupTypeIndex,
+            JSON.stringify(groupProperties),
+            new Date().toISOString(),
+            JSON.stringify({}),
+            JSON.stringify({}),
+            1,
+        ],
+        'upsertGroup'
+    )
+}
+
 export const fetchPostgresPersons = async (teamId: number) => {
     const { rows } = await postgres.query(
         PostgresUse.COMMON_WRITE,

@@ -5,7 +5,8 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, EventType } from '~/types'
+import { ErrorTrackingGroup } from '~/queries/schema'
+import { Breadcrumb } from '~/types'
 
 import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -15,11 +16,21 @@ export interface ErrorTrackingGroupSceneLogicProps {
     id: string
 }
 
-export type ExceptionEventType = Pick<EventType, 'id' | 'properties' | 'timestamp' | 'person'>
-
 export enum ErrorGroupTab {
     Overview = 'overview',
     Breakdowns = 'breakdowns',
+}
+
+export type ErrorTrackingGroupEvent = {
+    uuid: string
+    properties: string
+    timestamp: string
+    person: {
+        distinct_id: string
+        uuid?: string
+        created_at?: string
+        properties?: string
+    }
 }
 
 export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
@@ -44,10 +55,10 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     })),
 
     loaders(({ props, values }) => ({
-        events: [
-            [] as ExceptionEventType[],
+        group: [
+            null as ErrorTrackingGroup | null,
             {
-                loadEvents: async () => {
+                loadGroup: async () => {
                     const response = await api.query(
                         errorTrackingGroupQuery({
                             fingerprint: props.id,
@@ -57,12 +68,9 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         })
                     )
 
-                    return response.results.map((r) => ({
-                        id: r[0],
-                        properties: JSON.parse(r[1]),
-                        timestamp: r[2],
-                        person: r[3],
-                    }))
+                    // ErrorTrackingQuery returns a list of groups
+                    // when a fingerprint is supplied there will only be a single group
+                    return response.results[0]
                 },
             },
         ],
@@ -85,6 +93,8 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                 ]
             },
         ],
+
+        events: [(s) => [s.group], (group) => (group?.events || []) as ErrorTrackingGroupEvent[]],
     }),
 
     actionToUrl(({ values }) => ({
@@ -108,6 +118,6 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     })),
 
     afterMount(({ actions }) => {
-        actions.loadEvents()
+        actions.loadGroup()
     }),
 ])
