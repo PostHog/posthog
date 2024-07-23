@@ -68,7 +68,7 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
                 return `Date(${obj.year}, ${obj.month}, ${obj.day})`
             }
             if (isHogError(obj)) {
-                return `${String(obj.name)}(${escapeString(obj.message)}${
+                return `${String(obj.type)}(${escapeString(obj.message)}${
                     obj.payload ? `, ${printHogValue(obj.payload, marked)}` : ''
                 })`
             }

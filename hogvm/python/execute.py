@@ -291,7 +291,7 @@ def execute_bytecode(
                     ip = catch_ip
                 else:
                     raise UncaughtHogVMException(
-                        name=exception.get("name"),
+                        type=exception.get("type"),
                         message=exception.get("message"),
                         payload=exception.get("payload"),
                     )

@@ -351,8 +351,8 @@ class BytecodeBuilder(Visitor):
         catches_bytecode = []
         self._start_scope()
         self._declare_local("e")  # common error var for all blocks
-        catches_bytecode.extend(self.visit(ast.Field(chain=["e", "name"])))
-        self._declare_local("name")  # common error var for all blocks
+        catches_bytecode.extend(self.visit(ast.Field(chain=["e", "type"])))
+        self._declare_local("type")  # common error var for all blocks
         # catches_bytecode.extend(self.visit(ast.Field(chain=['e'])))
         for catch in node.catches:
             catch_var = catch[0] or "e"
@@ -377,7 +377,7 @@ class BytecodeBuilder(Visitor):
                 compare_bytecode = self.visit(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["name"]),
+                        left=ast.Field(chain=["type"]),
                         right=ast.Constant(value=catch_type),
                     )
                 )
@@ -410,7 +410,7 @@ class BytecodeBuilder(Visitor):
         # re-raise if nothing matched
         catches_bytecode.extend(
             [
-                Operation.POP,  # pop the name
+                Operation.POP,  # pop the type
                 Operation.THROW,  # throw the error
             ]
         )

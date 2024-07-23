@@ -14,7 +14,7 @@ export interface HogDateTime {
 
 export interface HogError {
     __hogError__: true
-    name: string
+    type: string
     message: string
     payload?: Record<string, any>
 }
@@ -28,13 +28,13 @@ export function isHogDateTime(obj: any): obj is HogDateTime {
 }
 
 export function isHogError(obj: any): obj is HogError {
-    return obj && typeof obj === 'object' && '__hogError__' in obj && 'name' in obj && 'message' in obj
+    return obj && typeof obj === 'object' && '__hogError__' in obj && 'type' in obj && 'message' in obj
 }
 
-export function newHogError(name: string, message: string, payload?: Record<string, any>): HogError {
+export function newHogError(type: string, message: string, payload?: Record<string, any>): HogError {
     return {
         __hogError__: true,
-        name: name || 'Error',
+        type: type || 'Error',
         message: message || 'An error occurred',
         payload,
     }

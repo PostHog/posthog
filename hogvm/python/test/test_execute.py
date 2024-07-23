@@ -960,7 +960,7 @@ class TestBytecodeExecute:
             self._run_program("throw Error('Not a good day')")
         except UncaughtHogVMException as e:
             assert str(e) == "Error('Not a good day')"
-            assert e.name == "Error"
+            assert e.type == "Error"
             assert e.message == "Not a good day"
             assert e.payload is None
         else:
@@ -970,7 +970,7 @@ class TestBytecodeExecute:
             self._run_program("throw RetryError('Not a good day', {'key': 'value'})")
         except UncaughtHogVMException as e:
             assert str(e) == "RetryError('Not a good day')"
-            assert e.name == "RetryError"
+            assert e.type == "RetryError"
             assert e.message == "Not a good day"
             assert e.payload == {"key": "value"}
         else:

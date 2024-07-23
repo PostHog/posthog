@@ -10,13 +10,13 @@ def is_hog_datetime(obj: Any) -> bool:
 
 
 def is_hog_error(obj: Any) -> bool:
-    return isinstance(obj, dict) and "__hogError__" in obj and "name" in obj and "message" in obj
+    return isinstance(obj, dict) and "__hogError__" in obj and "type" in obj and "message" in obj
 
 
-def new_hog_error(name: str, message: Any, payload: Any = None) -> dict:
+def new_hog_error(type: str, message: Any, payload: Any = None) -> dict:
     return {
         "__hogError__": True,
-        "name": name or "Error",
+        "type": type or "Error",
         "message": message or "An error occurred",
         "payload": payload,
     }

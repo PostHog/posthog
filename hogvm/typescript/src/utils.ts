@@ -8,17 +8,18 @@ export class HogVMException extends Error {
 }
 
 export class UncaughtHogVMException extends HogVMException {
+    type: any
     payload: any
 
-    constructor(name: string, message: string, payload: any = null) {
+    constructor(type: string, message: string, payload: any = null) {
         super(message)
-        this.name = name
+        this.type = type
         this.payload = payload
     }
 
     toString(): string {
         const msg = this.message.replace("'", "\\'")
-        return `${this.name}('${msg}')`
+        return `${this.type}('${msg}')`
     }
 }
 

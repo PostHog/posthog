@@ -466,7 +466,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     pushStack(exception)
                     ip = catchIp
                 } else {
-                    throw new UncaughtHogVMException(exception.name, exception.message, exception.payload)
+                    throw new UncaughtHogVMException(exception.type, exception.message, exception.payload)
                 }
                 break
             }

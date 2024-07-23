@@ -42,8 +42,8 @@ def print_hog_value(obj, marked: set | None = None):
         return f"Date({obj['year']}, {obj['month']}, {obj['day']})"
     if isinstance(obj, dict) and is_hog_error(obj):
         return (
-            f"{obj['name']}({print_hog_value(obj['message'])}"
-            + (f", {print_hog_value(obj['data'])}" if "data" in obj else "")
+            f"{obj['type']}({print_hog_value(obj['message'])}"
+            + (f", {print_hog_value(obj['payload'])}" if "payload" in obj and obj["payload"] is not None else "")
             + ")"
         )
 
