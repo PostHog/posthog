@@ -1,5 +1,6 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
@@ -138,24 +139,24 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
     }),
+    urlToAction(({ cache, actions }) => ({
+        '/data-warehouse/managed-sources': () => {
+            clearTimeout(cache.refreshTimeout)
+
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadSources(null)
+            }, REFRESH_INTERVAL)
+        },
+        '*': () => {
+            if (cache.refreshTimeout && router.values.location.pathname !== '/data-warehouse/managed-sources') {
+                clearTimeout(cache.refreshTimeout)
+            }
+        },
+    })),
     listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
             actions.loadDatabase()
-        },
-        loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
-
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadSources(null)
-            }, REFRESH_INTERVAL)
-        },
-        loadSourcesFailure: () => {
-            clearTimeout(cache.refreshTimeout)
-
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadSources(null)
-            }, REFRESH_INTERVAL)
         },
         deleteSource: async ({ source }) => {
             await api.externalDataSources.delete(source.id)
@@ -213,5 +214,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSources(null)
+    }),
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.refreshTimeout)
     }),
 ])
