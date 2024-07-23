@@ -1,5 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconPerson } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -35,8 +36,9 @@ export function ErrorTrackingScene(): JSX.Element {
                 width: '50%',
                 render: CustomGroupTitleColumn,
             },
+            occurrences: { align: 'center' },
             volume: { renderTitle: CustomVolumeColumnHeader },
-            assignee: { render: AssigneeColumn },
+            assignee: { render: AssigneeColumn, align: 'center' },
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
@@ -108,6 +110,19 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
                 const assigneeId = user?.id || null
                 assignGroup(props.recordIndex, assigneeId)
             }}
-        />
+        >
+            {(user) => (
+                <LemonButton
+                    tooltip={user?.first_name}
+                    icon={
+                        user ? (
+                            <ProfilePicture size="md" user={user} />
+                        ) : (
+                            <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />
+                        )
+                    }
+                />
+            )}
+        </MemberSelect>
     )
 }
