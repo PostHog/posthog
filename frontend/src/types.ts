@@ -1814,6 +1814,7 @@ export enum PluginInstallationType {
     Custom = 'custom',
     Repository = 'repository',
     Source = 'source',
+    Inline = 'inline',
 }
 
 export interface PluginType {
@@ -1977,6 +1978,7 @@ export interface PluginLogEntry {
 
 export enum AnnotationScope {
     Insight = 'dashboard_item',
+    Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
 }
@@ -1992,6 +1994,9 @@ export interface RawAnnotationType {
     dashboard_item?: number | null
     insight_short_id?: InsightModel['short_id'] | null
     insight_name?: InsightModel['name'] | null
+    insight_derived_name?: InsightModel['derived_name'] | null
+    dashboard_id?: DashboardBasicType['id'] | null
+    dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
 }
@@ -3535,16 +3540,17 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot'
 
 export interface IntegrationType {
     id: number
     kind: IntegrationKind
-    name: string
+    display_name: string
     icon_url: string
     config: any
     created_by?: UserBasicType | null
     created_at: string
+    errors?: string
 }
 
 export interface SlackChannelType {
@@ -3824,7 +3830,7 @@ export interface DataWarehouseViewLink {
 
 export enum DataWarehouseSettingsTab {
     Managed = 'managed',
-    SelfManaged = 'self_managed',
+    SelfManaged = 'self-managed',
 }
 
 export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
@@ -4366,4 +4372,10 @@ export interface AlertType {
     insight?: number
     target_value: string
     anomaly_condition: AnomalyCondition
+}
+
+export enum DataWarehouseTab {
+    Explore = 'explore',
+    ManagedSources = 'managed-sources',
+    SelfManagedSources = 'self-managed-sources',
 }

@@ -79,22 +79,8 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                     data-attr="invite-email-input"
                 />
             </div>
-            <div className="flex-1 flex gap-1 items-center justify-between">
-                {!preflight?.email_service_available ? (
-                    <LemonButton
-                        type="secondary"
-                        className="flex-1"
-                        disabled={!isEmail(invitesToSend[index].target_email)}
-                        onClick={() => {
-                            inviteTeamMembers()
-                        }}
-                        fullWidth
-                        center
-                        data-attr="invite-generate-invite-link"
-                    >
-                        Submit
-                    </LemonButton>
-                ) : (
+            {preflight?.email_service_available && (
+                <div className="flex-1 flex gap-1 items-center justify-between">
                     <LemonInput
                         placeholder={name}
                         className="flex-1"
@@ -107,8 +93,8 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                             }
                         }}
                     />
-                )}
-            </div>
+                </div>
+            )}
             {allowedLevelsOptions.length > 1 && (
                 <div className="flex-1 flex gap-1 items-center justify-between">
                     <LemonSelect
@@ -120,6 +106,23 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                             updateInviteAtIndex({ level: v }, index)
                         }}
                     />
+                </div>
+            )}
+            {!preflight?.email_service_available && (
+                <div className="flex-1 flex gap-1 items-center justify-between">
+                    <LemonButton
+                        type="primary"
+                        className="flex-1"
+                        disabled={!isEmail(invitesToSend[index].target_email)}
+                        onClick={() => {
+                            inviteTeamMembers()
+                        }}
+                        fullWidth
+                        center
+                        data-attr="invite-generate-invite-link"
+                    >
+                        Submit
+                    </LemonButton>
                 </div>
             )}
 
@@ -162,8 +165,10 @@ export function InviteTeamMatesComponent(): JSX.Element {
             <div className="space-y-2">
                 <div className="flex gap-2">
                     <b className="flex-2">Email address</b>
-                    <b className="flex-1">{preflight?.email_service_available ? 'Name (optional)' : 'Invite link'}</b>
+                    {preflight?.email_service_available && <b className="flex-1">Name (optional)</b>}
                     {allowedLevelsOptions.length > 1 && <b className="flex-1">Level</b>}
+                    {!preflight?.email_service_available && <b className="flex-1" />}
+                    {areInvitesDeletable && <b className="w-12" />}
                 </div>
 
                 {invitesToSend.map((_, index) => (
