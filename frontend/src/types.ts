@@ -4374,6 +4374,28 @@ export interface AlertType {
     anomaly_condition: AnomalyCondition
 }
 
+export type AppMetricsV2Response = {
+    labels: string[]
+    series: {
+        name: string
+        values: number[]
+    }[]
+}
+
+export type AppMetricsTotalsV2Response = {
+    totals: Record<string, number>
+}
+
+export type AppMetricsV2RequestParams = {
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    name?: string
+    kind?: string
+    interval?: 'hour' | 'day' | 'week'
+    breakdown_by?: 'name' | 'kind'
+}
+
 export enum DataWarehouseTab {
     Explore = 'explore',
     ManagedSources = 'managed-sources',
