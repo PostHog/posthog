@@ -4275,7 +4275,7 @@ export type HogFunctionType = {
     created_at: string
     updated_at: string
     enabled: boolean
-    hog?: string
+    hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
