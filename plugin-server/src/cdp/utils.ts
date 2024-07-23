@@ -2,7 +2,7 @@
 
 import { DateTime } from 'luxon'
 
-import { GroupTypeToColumnIndex, RawClickHouseEvent, Team } from '../types'
+import { RawClickHouseEvent, Team } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import {
@@ -67,8 +67,7 @@ export function convertToParsedClickhouseEvent(event: RawClickHouseEvent): Parse
 export function convertToHogFunctionInvocationGlobals(
     event: ParsedClickhouseEvent,
     team: Team,
-    siteUrl: string,
-    groupTypes?: GroupTypeToColumnIndex
+    siteUrl: string
 ): HogFunctionInvocationGlobals {
     const projectUrl = `${siteUrl}/project/${team.id}`
     const properties = event.properties
@@ -87,29 +86,6 @@ export function convertToHogFunctionInvocationGlobals(
         }
     }
 
-    let groups: HogFunctionInvocationGlobals['groups'] = undefined
-
-    if (groupTypes) {
-        groups = {}
-
-        for (const [groupType, columnIndex] of Object.entries(groupTypes)) {
-            const groupKey = (properties[`$groups`] || {})[groupType]
-            const groupProperties = event[`group${columnIndex}_properties`]
-
-            // TODO: Check that groupProperties always exist if the event is in that group
-            if (groupKey && groupProperties) {
-                const properties = groupProperties
-
-                groups[groupType] = {
-                    id: groupKey,
-                    index: columnIndex,
-                    type: groupType,
-                    url: `${projectUrl}/groups/${columnIndex}/${encodeURIComponent(groupKey)}`,
-                    properties,
-                }
-            }
-        }
-    }
     const context: HogFunctionInvocationGlobals = {
         project: {
             id: team.id,
@@ -125,7 +101,6 @@ export function convertToHogFunctionInvocationGlobals(
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(event.timestamp)}`,
         },
         person,
-        groups,
     }
 
     return context

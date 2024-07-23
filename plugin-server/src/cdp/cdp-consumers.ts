@@ -13,13 +13,14 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { GroupTypeToColumnIndex, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
+import { Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
+import { GroupsManager } from './groups-manager'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher } from './hog-watcher/hog-watcher'
@@ -76,6 +77,7 @@ abstract class CdpConsumerBase {
     asyncFunctionExecutor: AsyncFunctionExecutor
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
+    groupsManager: GroupsManager
     appMetrics?: AppMetrics
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
@@ -93,6 +95,7 @@ abstract class CdpConsumerBase {
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
+        this.groupsManager = new GroupsManager(this.hub)
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -269,6 +272,8 @@ abstract class CdpConsumerBase {
             statsKey: `cdpConsumer.handleEachBatch.executeMatchingFunctions`,
             func: async () => {
                 const invocations: { globals: HogFunctionInvocationGlobals; hogFunction: HogFunctionType }[] = []
+
+                await this.groupsManager.enrichGroups(invocationGlobals)
 
                 invocationGlobals.forEach((globals) => {
                     const { functions, total, matching } = this.hogExecutor.findMatchingFunctions(globals)
@@ -461,18 +466,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                         return
                     }
 
-                    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
-
-                    if (
-                        await this.hub.organizationManager.hasAvailableFeature(
-                            clickHouseEvent.team_id,
-                            'group_analytics'
-                        )
-                    ) {
-                        // If the organization has group analytics enabled then we enrich the event with group data
-                        groupTypes = await this.hub.groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
-                    }
-
                     const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
                     if (!team) {
                         return
@@ -481,8 +474,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                         convertToHogFunctionInvocationGlobals(
                             convertToParsedClickhouseEvent(clickHouseEvent),
                             team,
-                            this.hub.SITE_URL ?? 'http://localhost:8000',
-                            groupTypes
+                            this.hub.SITE_URL ?? 'http://localhost:8000'
                         )
                     )
                 } catch (e) {
