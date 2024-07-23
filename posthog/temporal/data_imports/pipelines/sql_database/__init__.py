@@ -66,9 +66,7 @@ def sql_source_for_type(
             f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
         )
     elif source_type == ExternalDataSource.Type.MYSQL:
-        credentials = ConnectionStringCredentials(
-            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
-        )
+        credentials = ConnectionStringCredentials(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
     else:
         raise Exception("Unsupported source_type")
 
