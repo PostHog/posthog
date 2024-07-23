@@ -153,10 +153,7 @@ abstract class CdpConsumerBase {
     }
 
     protected logAppMetrics(
-        metric: Pick<
-            AppMetric2Type,
-            'team_id' | 'app_source_id' | 'instance_id' | 'metric_kind' | 'metric_name' | 'count'
-        >
+        metric: Pick<AppMetric2Type, 'team_id' | 'app_source_id' | 'metric_kind' | 'metric_name' | 'count'>
     ) {
         const appMetric: AppMetric2Type = {
             app_source: 'hog_function',
@@ -186,7 +183,6 @@ abstract class CdpConsumerBase {
                         this.logAppMetrics({
                             team_id: result.teamId,
                             app_source_id: result.hogFunctionId,
-                            instance_id: result.id,
                             metric_kind: result.error ? 'failure' : 'success',
                             metric_name: result.error ? 'failed' : 'succeeded',
                             count: 1,
@@ -275,7 +271,6 @@ abstract class CdpConsumerBase {
                         this.logAppMetrics({
                             team_id: item.teamId,
                             app_source_id: item.hogFunctionId,
-                            instance_id: item.id,
                             metric_kind: 'failure',
                             metric_name:
                                 functionState === HogWatcherState.disabledForPeriod
