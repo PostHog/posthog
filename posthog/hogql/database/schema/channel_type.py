@@ -150,11 +150,13 @@ multiIf(
 POSSIBLE_CHANNEL_TYPES = [
     "Cross Network",
     "Paid Search",
+    "Paid Social",
     "Paid Video",
     "Paid Shopping",
     "Paid Unknown",
     "Direct",
     "Organic Search",
+    "Organic Social",
     "Organic Video",
     "Organic Shopping",
     "Push",

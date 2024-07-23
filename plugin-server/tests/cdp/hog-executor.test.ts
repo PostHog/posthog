@@ -270,8 +270,11 @@ describe('Hog Executor', () => {
             const asyncResult2 = executor.executeAsyncResponse(simulateMockFetchAsyncResponse(asyncResult1))
             // This time we should see an error for hitting the loop limit
             expect(asyncResult2.finished).toBe(false)
-            expect(asyncResult2.error).toEqual('Function exceeded maximum async steps')
-            expect(asyncResult2.logs.map((log) => log.message)).toEqual(['Function exceeded maximum async steps'])
+            expect(asyncResult2.error).toEqual('Exceeded maximum number of async steps: 2')
+            expect(asyncResult2.logs.map((log) => log.message)).toEqual([
+                'Resuming function',
+                'Error executing function: Error: Exceeded maximum number of async steps: 2',
+            ])
         })
     })
 

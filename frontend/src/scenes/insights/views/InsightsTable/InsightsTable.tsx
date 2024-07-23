@@ -1,7 +1,7 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
+import { getTrendLikeSeriesColor } from 'lib/colors'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -104,7 +104,6 @@ export function InsightsTable({
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
-                    compare={!!compareFilter?.compare}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                 />
@@ -256,6 +255,8 @@ export function InsightsTable({
         columns.push(...valueColumns)
     }
 
+    const totalItems = indexedResults.length
+
     return (
         <LemonTable
             id={isInDashboardContext ? queryBasedInsight.short_id : undefined}
@@ -271,7 +272,15 @@ export function InsightsTable({
             emptyState="No insight results"
             data-attr="insights-table-graph"
             useURLForSorting={insightMode !== ItemMode.Edit}
-            rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, !!compareFilter?.compare) : undefined}
+            rowRibbonColor={
+                isLegend
+                    ? (item) => {
+                          const isPrevious = !!item.compare && item.compare_label === 'previous'
+                          const adjustedIndex = isPrevious ? item.seriesIndex - totalItems / 2 : item.seriesIndex
+                          return getTrendLikeSeriesColor(adjustedIndex, isPrevious)
+                      }
+                    : undefined
+            }
             firstColumnSticky
             maxHeaderWidth="20rem"
         />
