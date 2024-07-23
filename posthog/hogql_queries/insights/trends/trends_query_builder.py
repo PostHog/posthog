@@ -22,15 +22,15 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode
-from posthog.schema import Breakdown as BreakdownSchema
 from posthog.schema import (
+    ActionsNode,
     ChartDisplayType,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
 )
+from posthog.schema import Breakdown as BreakdownSchema
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
@@ -225,7 +225,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             if (
                 self._aggregation_operation.is_total_value
                 and not self._aggregation_operation.is_count_per_actor_variant()
-            ) or self._aggregation_operation.is_first_time_ever_math():
+            ) or (
+                not self._aggregation_operation.is_total_value and self._aggregation_operation.is_first_time_ever_math()
+            ):
                 orchestrator.parent_select_query_builder.extend_group_by(breakdown.field_exprs)
 
             return orchestrator.build()

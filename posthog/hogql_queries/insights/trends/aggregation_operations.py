@@ -486,18 +486,24 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         query = ast.SelectQuery(
             select=[
                 ast.Alias(expr=aggregation_type, alias="total"),
+            ],
+            select_from=ast.JoinExpr(table=inner_query),
+            where=start_date,
+        )
+        query.group_by = []
+
+        if not self.is_total_value:
+            query.select.append(
                 ast.Alias(
                     expr=ast.Call(
                         name="toStartOfDay",
                         args=[ast.Field(chain=["min_timestamp"])],
                     ),
                     alias="day_start",
-                ),
-            ],
-            select_from=ast.JoinExpr(table=inner_query),
-            where=start_date,
-            group_by=[ast.Field(chain=["day_start"])],
-        )
+                )
+            )
+            query.group_by.append(ast.Field(chain=["day_start"]))
+
         return query
 
     def _first_time_inner_select_query(self, events_query: ast.SelectQuery):
