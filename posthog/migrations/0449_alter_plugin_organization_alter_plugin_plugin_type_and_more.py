@@ -38,9 +38,25 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="url",
-            field=models.CharField(blank=True, max_length=800, null=True, unique=True),
+        migrations.SeperateDatabaseAndState(
+            state_operations=[
+                migrations.AlterField(
+                    model_name="plugin",
+                    name="url",
+                    field=models.CharField(blank=True, max_length=800, null=True, unique=True),
+                )
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_url_bccac89d_uniq" UNIQUE ("url");
+                    CREATE INDEX "posthog_plugin_url_bccac89d_like" ON "posthog_plugin" ("url" varchar_pattern_ops); -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "posthog_plugin_url_bccac89d_like";
+                        ALTER TABLE "posthog_plugin" DROP CONSTRAINT IF EXISTS "posthog_plugin_url_bccac89d_uniq"; -- existing-table-constraint-ignore
+                    """,
+                )
+            ],
         ),
     ]
