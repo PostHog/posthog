@@ -93,7 +93,7 @@ services:
             - kafka
             - objectstorage
         ports:
-            - '8002:80'
+            - '8002:8000'
 
     plugins:
         extends:
