@@ -87,7 +87,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                 <div className="flex items-center gap-2" key={index}>
                     <LemonInput
                         value={key}
-                        className="flex-1"
+                        className="flex-1 min-w-60"
                         onChange={(key) => {
                             const newEntries = [...entries]
                             newEntries[index] = [key, newEntries[index][1]]
@@ -97,7 +97,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                     />
 
                     <HogFunctionTemplateInput
-                        className="flex-2"
+                        className="flex-2 max-w-full"
                         value={val}
                         language="hogTemplate"
                         onChange={(val) => {
@@ -273,6 +273,7 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                         options={[
                             { label: 'Slack', value: 'slack' },
                             { label: 'Salesforce', value: 'salesforce' },
+                            { label: 'Hubspot', value: 'hubspot' },
                         ]}
                         placeholder="Choose kind"
                     />

@@ -1814,6 +1814,7 @@ export enum PluginInstallationType {
     Custom = 'custom',
     Repository = 'repository',
     Source = 'source',
+    Inline = 'inline',
 }
 
 export interface PluginType {
@@ -2081,15 +2082,10 @@ export enum RetentionPeriod {
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
 /**
- * Legacy multiple breakdowns had `property` and `type` fields.
- * Mirroring the legacy fields here for backwards compatibility with multiple breakdowns.
+ * Legacy breakdown.
  */
 export interface Breakdown {
-    value?: string
-    /**
-     * Legacy breakdown has a `property` field that is `value` now.
-     */
-    property?: string | number
+    property: string | number
     type: BreakdownType
     normalize_url?: boolean
     histogram_bin_count?: number
@@ -3539,16 +3535,17 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot'
 
 export interface IntegrationType {
     id: number
     kind: IntegrationKind
-    name: string
+    display_name: string
     icon_url: string
     config: any
     created_by?: UserBasicType | null
     created_at: string
+    errors?: string
 }
 
 export interface SlackChannelType {
@@ -4287,13 +4284,18 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status'>
+export type HogFunctionConfigurationType = Omit<
+    HogFunctionType,
+    'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
+> & {
+    hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
+}
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
     'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
 > & {
-    status: 'alpha' | 'beta' | 'stable'
+    status: 'alpha' | 'beta' | 'stable' | 'free'
 }
 
 export type HogFunctionIconResponse = {

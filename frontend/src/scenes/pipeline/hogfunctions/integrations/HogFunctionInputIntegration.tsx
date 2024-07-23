@@ -50,7 +50,7 @@ function HogFunctionIntegrationChoice({
                                   icon: <img src={integration.icon_url} className="w-6 h-6 rounded" />,
                                   onClick: () => onChange?.(integration.id),
                                   active: integration.id === value,
-                                  label: integration.name,
+                                  label: integration.display_name,
                               })) || []),
                           ],
                       }

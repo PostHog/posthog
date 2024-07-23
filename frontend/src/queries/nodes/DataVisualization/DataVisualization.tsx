@@ -1,11 +1,13 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
+import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema'
@@ -114,26 +116,15 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     return (
         <div className="DataVisualization flex flex-1 gap-2">
-            <div className="flex max-sm:hidden">
-                <DatabaseTableTreeWithItems inline />
-            </div>
+            {!readOnly && showEditingUI && (
+                <div className="flex max-sm:hidden">
+                    <DatabaseTableTreeWithItems inline />
+                </div>
+            )}
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
                 {!readOnly && showEditingUI && (
                     <>
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
-                        {sourceFeatures.has(QueryFeature.dateRangePicker) && (
-                            <div className="flex gap-4 items-center flex-wrap">
-                                <DateRange
-                                    key="date-range"
-                                    query={query.source}
-                                    setQuery={(query) => {
-                                        if (query.kind === NodeKind.HogQLQuery) {
-                                            setQuerySource(query)
-                                        }
-                                    }}
-                                />
-                            </div>
-                        )}
                     </>
                 )}
                 {!readOnly && showResultControls && (
@@ -145,6 +136,20 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 <ElapsedTime />
                             </div>
                             <div className="flex gap-4 items-center">
+                                {sourceFeatures.has(QueryFeature.dateRangePicker) &&
+                                    !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene
+                                        <div className="flex gap-4 items-center flex-wrap">
+                                            <DateRange
+                                                key="date-range"
+                                                query={query.source}
+                                                setQuery={(query) => {
+                                                    if (query.kind === NodeKind.HogQLQuery) {
+                                                        setQuerySource(query)
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    )}
                                 <TableDisplay />
                             </div>
                         </div>
