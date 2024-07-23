@@ -449,7 +449,8 @@ STL: dict[str, Callable[[list[Any], Optional["Team"], list[str] | None, float], 
 }
 
 MIN_ARGS_INCLUDING_OPTIONAL = {
-    "Error": 3,
+    "HogError": 3,
+    "Error": 2,
     "RetryError": 2,
     "NotImplementedError": 2,
 }
