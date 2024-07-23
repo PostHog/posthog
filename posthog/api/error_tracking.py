@@ -43,4 +43,5 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if groups:
             return groups.first()
 
+        # create group from fingerprint if it does not already exist
         return ErrorTrackingGroup.objects.create(team=self.team, fingerprint=fingerprint)

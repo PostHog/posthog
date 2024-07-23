@@ -5,10 +5,11 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ErrorTrackingGroup } from '~/queries/schema'
 import { Breadcrumb } from '~/types'
 
 import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
-import { errorTrackingLogic, getDefaultErrorGroup } from './errorTrackingLogic'
+import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingGroupQuery } from './queries'
 
 export interface ErrorTrackingGroupSceneLogicProps {
@@ -38,7 +39,6 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     connect({
         values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
-        actions: [errorTrackingLogic, ['assignGroup']],
     }),
 
     actions({
@@ -54,9 +54,9 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
         ],
     })),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values }) => ({
         group: [
-            getDefaultErrorGroup(props.fingerprint),
+            null as ErrorTrackingGroup | null,
             {
                 loadGroup: async () => {
                     const response = await api.query(
@@ -71,13 +71,6 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                     // ErrorTrackingQuery returns a list of groups
                     // when a fingerprint is supplied there will only be a single group
                     return response.results[0]
-                },
-                reassignGroup: async ({ assigneeId }) => {
-                    const newGroup = { ...values.group, assignee: assigneeId }
-
-                    actions.assignGroup(assigneeId, values.group.fingerprint)
-
-                    return newGroup
                 },
             },
         ],
@@ -106,7 +99,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     actionToUrl(({ values }) => ({
         setErrorGroupTab: () => {
-            const searchParams = {}
+            const searchParams = router.values.searchParams
 
             if (values.errorGroupTab != ErrorGroupTab.Overview) {
                 searchParams['tab'] = values.errorGroupTab

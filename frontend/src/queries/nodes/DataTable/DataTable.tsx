@@ -100,7 +100,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         dataNodeCollectionId: dataKey,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
-
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: vizKey,

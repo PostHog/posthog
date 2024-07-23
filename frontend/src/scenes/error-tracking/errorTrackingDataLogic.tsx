@@ -26,10 +26,10 @@ export const errorTrackingDataLogic = kea<errorTrackingDataLogicType>([
             assigneeId,
         }),
     }),
+
     listeners(({ values, actions }) => ({
         assignGroup: async ({ recordIndex, assigneeId }) => {
             const response = values.response
-
             if (response) {
                 const results = values.response?.results as ErrorTrackingGroup[]
                 const group = { ...results[recordIndex], assignee: assigneeId }
