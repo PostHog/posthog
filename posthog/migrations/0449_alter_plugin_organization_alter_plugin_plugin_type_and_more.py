@@ -32,7 +32,13 @@ class Migration(migrations.Migration):
                     ALTER TABLE "posthog_plugin" DROP CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o"; -- existing-table-constraint-ignore
                     ALTER TABLE "posthog_plugin" ALTER COLUMN "organization_id" DROP NOT NULL;
                     ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" FOREIGN KEY ("organization_id") REFERENCES "posthog_organization" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
-                    """
+                    """,
+                    reverse_sql="""
+                        SET CONSTRAINTS "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" IMMEDIATE; -- existing-table-constraint-ignore
+                        ALTER TABLE "posthog_plugin" DROP CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o"; -- existing-table-constraint-ignore
+                        ALTER TABLE "posthog_plugin" ALTER COLUMN "organization_id" SET NOT NULL;
+                        ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" FOREIGN KEY ("organization_id") REFERENCES "posthog_organization" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                        """,
                 ),
             ],
         ),
@@ -65,13 +71,19 @@ class Migration(migrations.Migration):
                 migrations.RunSQL(
                     """
                     ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_url_bccac89d_uniq" UNIQUE ("url");  -- existing-table-constraint-ignore
-                    """
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_plugin" DROP CONSTRAINT IF EXISTS "posthog_plugin_url_bccac89d_uniq";
+                    """,
                 ),
                 # We add the index seperately
                 migrations.RunSQL(
                     """
                     CREATE INDEX CONCURRENTLY "posthog_plugin_url_bccac89d_like" ON "posthog_plugin" ("url" varchar_pattern_ops);
-                    """
+                    """,
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "posthog_plugin_url_bccac89d_like";
+                    """,
                 ),
             ],
         ),
