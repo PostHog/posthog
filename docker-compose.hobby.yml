@@ -92,6 +92,8 @@ services:
             - clickhouse
             - kafka
             - objectstorage
+        ports:
+            - '8002:80'
 
     plugins:
         extends:
@@ -108,19 +110,6 @@ services:
             - clickhouse
             - kafka
             - objectstorage
-
-    caddy:
-        image: caddy:2.6.1
-        restart: unless-stopped
-        ports:
-            - '80:80'
-            - '443:443'
-        volumes:
-            - ./Caddyfile:/etc/caddy/Caddyfile
-            - caddy-data:/data
-            - caddy-config:/config
-        depends_on:
-            - web
     objectstorage:
         extends:
             file: docker-compose.base.yml
@@ -201,7 +190,5 @@ volumes:
     objectstorage:
     postgres-data:
     clickhouse-data:
-    caddy-data:
-    caddy-config:
     redis-data:
     kafka-data:
