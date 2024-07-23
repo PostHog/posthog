@@ -158,7 +158,7 @@ services:
             file: docker-compose.base.yml
             service: temporal-ui
         ports:
-            - 8081:8080
+            - 8003:8080
         depends_on:
             temporal:
                 condition: service_started
