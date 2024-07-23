@@ -27,7 +27,8 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     """
-                    SET CONSTRAINTS "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" IMMEDIATE; ALTER TABLE "posthog_plugin" DROP CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o";
+                    SET CONSTRAINTS "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" IMMEDIATE; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_plugin" DROP CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o"; -- existing-table-constraint-ignore
                     ALTER TABLE "posthog_plugin" ALTER COLUMN "organization_id" DROP NOT NULL;
                     ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" FOREIGN KEY ("organization_id") REFERENCES "posthog_organization" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
                     """
