@@ -175,17 +175,17 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             await breakpoint(100)
             LemonDialog.openForm({
                 title: 'What destination would you like to see?',
-                initialValues: { name: values.filters.search },
+                initialValues: { destination_name: values.filters.search },
                 errors: {
-                    name: (x) => (!x ? 'Required' : undefined),
+                    destination_name: (x) => (!x ? 'Required' : undefined),
                 },
                 description: undefined,
                 content: (
                     <div className="space-y-2">
-                        <LemonField name="name" label="Destination">
+                        <LemonField name="destination_name" label="Destination">
                             <LemonInput placeholder="What destination would you like to see?" autoFocus />
                         </LemonField>
-                        <LemonField name="details" label="Additional information" showOptional>
+                        <LemonField name="destination_details" label="Additional information" showOptional>
                             <LemonTextArea placeholder="Any extra details about what you would need this destination to do or your overall goal" />
                         </LemonField>
                     </div>
