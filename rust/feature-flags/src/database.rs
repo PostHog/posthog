@@ -10,7 +10,7 @@ use sqlx::{
 use thiserror::Error;
 use tokio::time::timeout;
 
-use crate::config::Config;
+use crate::{config::Config, flag_definitions::FeatureFlagRow};
 
 const DATABASE_TIMEOUT_MILLISECS: u64 = 1000;
 
@@ -37,7 +37,7 @@ pub trait Client {
         query: String,
         parameters: Vec<String>,
         timeout_ms: Option<u64>,
-    ) -> Result<Vec<PgRow>, CustomDatabaseError>;
+    ) -> Result<Vec<FeatureFlagRow>, CustomDatabaseError>;
 }
 
 pub struct PgClient {

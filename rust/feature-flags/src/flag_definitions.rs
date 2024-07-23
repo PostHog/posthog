@@ -424,7 +424,7 @@ mod tests {
                 query: String,
                 parameters: Vec<String>,
                 timeout_ms: Option<u64>,
-            ) -> Result<Vec<sqlx::postgres::PgRow>, crate::database::CustomDatabaseError>;
+            ) -> Result<Vec<FeatureFlagRow>, crate::database::CustomDatabaseError>;
         }
     }
 
