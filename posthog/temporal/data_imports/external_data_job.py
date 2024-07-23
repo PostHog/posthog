@@ -177,7 +177,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 import_data_activity,
                 job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=1),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
 
