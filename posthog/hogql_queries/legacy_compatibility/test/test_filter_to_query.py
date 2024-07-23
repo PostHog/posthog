@@ -1667,12 +1667,12 @@ class TestFilterToQuery(BaseTest):
             ),
         )
 
-    def test_legacy_multiple_breakdowns(self):
+    def test_funnels_multiple_breakdowns(self):
         filter = {
+            "insight": "FUNNELS",
             "breakdowns": [
-                {"type": "event", "property": "$url"},
                 {"type": "session", "property": "$session_duration"},
-            ]
+            ],
         }
 
         query = filter_to_query(filter)
@@ -1681,10 +1681,27 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.breakdownFilter,
             BreakdownFilter(
-                breakdowns=[
-                    Breakdown(type=BreakdownType.EVENT, property="$url"),
-                    Breakdown(type=BreakdownType.SESSION, property="$session_duration"),
-                ]
+                breakdown="$session_duration",
+                breakdown_type=BreakdownType.SESSION,
+            ),
+        )
+
+    def test_funnels_multiple_breakdowns_no_breakdown_type(self):
+        filter = {
+            "insight": "FUNNELS",
+            "breakdowns": [
+                {"property": "prop"},
+            ],
+        }
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, TrendsQuery)
+        self.assertEqual(
+            query.breakdownFilter,
+            BreakdownFilter(
+                breakdown="prop",
+                breakdown_type=BreakdownType.EVENT,
             ),
         )
 
