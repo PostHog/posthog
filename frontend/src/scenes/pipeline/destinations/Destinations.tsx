@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
-import { AppMetricSparkLine } from '../AppMetricSparkLine'
+import { AppMetricSparkLine, AppMetricSparkLineV2 } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
@@ -156,7 +156,11 @@ export function DestinationsTable(props: PipelineDestinationsLogicProps): JSX.El
                                             PipelineNodeTab.Metrics
                                         )}
                                     >
-                                        <AppMetricSparkLine pipelineNode={destination} />
+                                        {destination.backend === PipelineBackend.HogFunction ? (
+                                            <AppMetricSparkLineV2 pipelineNode={destination} />
+                                        ) : (
+                                            <AppMetricSparkLine pipelineNode={destination} />
+                                        )}
                                     </Link>
                                 )
                             },

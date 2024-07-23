@@ -24,14 +24,19 @@ const METRICS_INFO = {
 export function PipelineNodeMetricsV2(): JSX.Element {
     const { node } = useValues(pipelineNodeLogic)
 
+    const logic = pipelineNodeMetricsV2Logic({ id: `${node.id}` })
+
+    const { filters } = useValues(logic)
+    const { setFilters, loadMetrics, loadMetricsTotals } = useActions(logic)
+
+    useEffect(() => {
+        loadMetrics()
+        loadMetricsTotals()
+    }, [])
+
     if (node.backend !== PipelineBackend.HogFunction) {
         return <div>Metrics not available for this node</div>
     }
-
-    const logic = pipelineNodeMetricsV2Logic({ id: node.id })
-
-    const { filters } = useValues(logic)
-    const { setFilters } = useActions(logic)
 
     return (
         <BindLogic logic={pipelineNodeMetricsV2Logic} props={{ id: node.id }}>
@@ -100,7 +105,7 @@ function AppMetricsTotals(): JSX.Element {
                         {appMetricsTotalsLoading ? (
                             <LemonSkeleton className="h-full w-full" />
                         ) : (
-                            <AppMetricBigNumber label={key} value={appMetricsTotals.totals?.[key]} tooltip={value} />
+                            <AppMetricBigNumber label={key} value={appMetricsTotals?.totals?.[key]} tooltip={value} />
                         )}
                     </div>
                 ))}

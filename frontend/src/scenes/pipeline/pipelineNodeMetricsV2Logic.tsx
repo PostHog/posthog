@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -60,12 +60,9 @@ export const pipelineNodeMetricsV2Logic = kea<pipelineNodeMetricsV2LogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setFilters: () => {
+        setFilters: async (_, breakpoint) => {
+            await breakpoint(100)
             actions.loadMetrics()
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadMetrics()
-        actions.loadMetricsTotals()
-    }),
 ])
