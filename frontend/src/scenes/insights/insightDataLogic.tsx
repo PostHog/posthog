@@ -80,8 +80,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
-        saveAs: true,
-        saveAsNamingSuccess: (name: string) => ({ name }),
+        saveAs: (redirectToViewMode?: boolean) => ({ redirectToViewMode }),
+        saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
         cancelChanges: true,
@@ -237,11 +237,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
-        saveAs: async () => {
+        saveAs: async ({ redirectToViewMode }) => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
-                    insightName: `${values.queryBasedInsight.name || values.queryBasedInsight.derived_name} (copy)`,
+                    insightName:
+                        values.queryBasedInsight.name || values.queryBasedInsight.derived_name
+                            ? `${values.queryBasedInsight.name || values.queryBasedInsight.derived_name} (copy)`
+                            : '',
                 },
                 content: (
                     <LemonField name="insightName">
@@ -251,10 +254,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 errors: {
                     insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ insightName }) => actions.saveAsNamingSuccess(insightName),
+                onSubmit: async ({ insightName }) => actions.saveAsNamingSuccess(insightName, redirectToViewMode),
             })
         },
-        saveAsNamingSuccess: ({ name }) => {
+        saveAsNamingSuccess: ({ name, redirectToViewMode }) => {
             let filters = values.legacyInsight.filters
             if (isInsightVizNode(values.query)) {
                 const querySource = values.query.source
@@ -277,7 +280,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 { overrideFilter: true, fromPersistentApi: false }
             )
 
-            actions.insightLogicSaveAsNamingSuccess(name)
+            actions.insightLogicSaveAsNamingSuccess(name, redirectToViewMode)
         },
         cancelChanges: () => {
             const savedFilters = values.savedInsight.filters
