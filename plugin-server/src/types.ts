@@ -395,7 +395,7 @@ export interface JobSpec {
 
 export interface Plugin {
     id: number
-    organization_id: string | undefined
+    organization_id?: string
     name: string
     plugin_type: 'local' | 'respository' | 'custom' | 'source' | 'inline'
     description?: string
