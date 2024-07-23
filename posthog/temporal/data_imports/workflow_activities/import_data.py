@@ -4,6 +4,7 @@ import uuid
 
 from temporalio import activity
 
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.data_imports.pipelines.helpers import aremove_reset_pipeline, aupdate_job_count
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
@@ -13,7 +14,6 @@ from posthog.warehouse.models import (
     get_external_data_job,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-import asyncio
 from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
@@ -252,15 +252,7 @@ async def _run(
     schema: ExternalDataSchema,
     reset_pipeline: bool,
 ):
-    # Temp background heartbeat for now
-    async def heartbeat() -> None:
-        while True:
-            await asyncio.sleep(10)
-            activity.heartbeat()
-
-    heartbeat_task = asyncio.create_task(heartbeat())
-
-    try:
+    async with Heartbeater():
         table_row_counts = await DataImportPipeline(
             job_inputs, source, logger, reset_pipeline, schema.is_incremental
         ).run()
@@ -268,6 +260,3 @@ async def _run(
 
         await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)
         await aremove_reset_pipeline(inputs.source_id)
-    finally:
-        heartbeat_task.cancel()
-        await asyncio.wait([heartbeat_task])

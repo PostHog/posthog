@@ -3,6 +3,10 @@ posthog/temporal/common/utils.py:0: note: This is likely because "from_activity"
 posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmethod" has incompatible type "type[HeartbeatType]"; expected "type[Never]"  [arg-type]
 posthog/warehouse/models/ssh_tunnel.py:0: error: Incompatible types in assignment (expression has type "NoEncryption", variable has type "BestAvailableEncryption")  [assignment]
 posthog/temporal/data_imports/pipelines/sql_database/helpers.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: error: No overload variant of "execute" of "Connection" matches argument types "str", "dict[str, str]"  [call-overload]
+posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: Possible overload variants:
+posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def [_T] execute(self, statement: TypedReturnsRows[_T], parameters: Sequence[Mapping[str, Any]] | Mapping[str, Any] | None = ..., *, execution_options: _CoreKnownExecutionOptions | Mapping[str, Any] | None = ...) -> CursorResult[_T]
+posthog/temporal/data_imports/pipelines/sql_database/__init__.py:0: note: def execute(self, statement: Executable, parameters: Sequence[Mapping[str, Any]] | Mapping[str, Any] | None = ..., *, execution_options: _CoreKnownExecutionOptions | Mapping[str, Any] | None = ...) -> CursorResult[Any]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Dict entry 2 has incompatible type "Literal['auto']": "None"; expected "Literal['json_response', 'header_link', 'auto', 'single_page', 'cursor', 'offset', 'page_number']": "type[BasePaginator]"  [dict-item]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "AuthConfigBase")  [assignment]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Argument 1 to "get_auth_class" has incompatible type "Literal['bearer', 'api_key', 'http_basic'] | None"; expected "Literal['bearer', 'api_key', 'http_basic']"  [arg-type]
