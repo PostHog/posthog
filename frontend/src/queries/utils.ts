@@ -449,7 +449,7 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
 hogql.identifier = hogQlIdentifier
 
 /**
- * Get the breakdown from a query
+ * Wether we have a valid `breakdownFilter` or not.
  */
 export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is BreakdownFilter {
     return !!(
