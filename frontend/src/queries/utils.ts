@@ -13,7 +13,6 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
-    ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -116,10 +115,6 @@ export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQu
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
-}
-
-export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
-    return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
