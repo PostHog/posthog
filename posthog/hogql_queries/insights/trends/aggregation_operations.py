@@ -1,11 +1,20 @@
-from typing import Optional, cast, Union
+from typing import Optional, Union, cast
+
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql_queries.insights.data_warehouse_mixin import (
+    DataWarehouseInsightQueryMixin,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
-from posthog.schema import BaseMathType, ChartDisplayType, EventsNode, ActionsNode, DataWarehouseNode
-from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
+from posthog.schema import (
+    ActionsNode,
+    BaseMathType,
+    ChartDisplayType,
+    DataWarehouseNode,
+    EventsNode,
+)
 
 
 class QueryAlternator:
@@ -444,17 +453,21 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return QueryOrchestrator()
 
     def get_first_time_ever_filter(self, table_expr: ast.JoinExpr, event_filter: ast.Expr | None = None):
-        first_occurrence_window = parse_expr(
-            """
-            any(uuid) OVER (PARTITION BY {person_field} ORDER BY timestamp ASC)
-            """,
-            placeholders={
-                "person_field": ast.Field(
-                    chain=["distinct_id"] if self.team.aggregate_users_by_distinct_id else ["person_id"]
-                ),
-            },
+        query = ast.SelectQuery(
+            select=[
+                ast.Call(
+                    name="argMin",
+                    args=[
+                        ast.Field(chain=["uuid"]),
+                        ast.Field(chain=["timestamp"]),
+                    ],
+                )
+            ],
+            select_from=table_expr,
+            where=event_filter,
+            group_by=[ast.Field(chain=["distinct_id" if self.team.aggregate_users_by_distinct_id else "person_id"])],
         )
-        query = ast.SelectQuery(select=[first_occurrence_window], select_from=table_expr, where=event_filter)
+
         return ast.CompareOperation(
             left=ast.Field(chain=["uuid"]),
             op=ast.CompareOperationOp.In,
