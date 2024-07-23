@@ -1,15 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
 import { payGateMiniLogic, PayGateMiniLogicProps } from './payGateMiniLogic'
 
-interface PayGateButtonProps extends PayGateMiniLogicProps {
-    onClick?: () => void
-}
-
-export const PayGateButton = ({ feature, currentUsage, onClick }: PayGateButtonProps): JSX.Element | null => {
+type PayGateButtonProps = PayGateMiniLogicProps & Partial<LemonButtonProps>
+export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGateButtonProps): JSX.Element | null => {
     const { productWithFeature, featureInfo, gateVariant, isAddonProduct, scrollToProduct } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
@@ -40,11 +37,11 @@ export const PayGateButton = ({ feature, currentUsage, onClick }: PayGateButtonP
 
     return (
         <LemonButton
-            to={ctaLink}
-            disableClientSideRouting={gateVariant === 'add-card' && !isAddonProduct}
             type="primary"
             center
-            onClick={onClick}
+            {...buttonProps}
+            to={ctaLink}
+            disableClientSideRouting={gateVariant === 'add-card' && !isAddonProduct}
         >
             {ctaLabel}
         </LemonButton>
