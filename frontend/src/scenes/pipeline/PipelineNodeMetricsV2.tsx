@@ -1,5 +1,5 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSkeleton, Popover, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
@@ -202,19 +202,24 @@ function AppMetricsGraph(): JSX.Element {
             }
         }
     }, [appMetrics])
+
     return (
         <div className="relative border rounded p-6 bg-bg-light h-[50vh]">
             {appMetricsLoading && <SpinnerOverlay />}
             {!!appMetrics && <canvas ref={canvasRef} />}
-            {tooltipState.visible ? (
+            <Popover
+                visible={tooltipState.visible}
+                overlay={popoverContent}
+                placement="top"
+                padded={false}
+                className="pointer-events-none"
+            >
                 <div
-                    className="fixed pointer-events-none z-50 border shadow-lg rounded overflow-hidden transition-all"
+                    className="fixed"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ left: tooltipState.x, top: tooltipState.y }}
-                >
-                    {popoverContent}
-                </div>
-            ) : null}
+                />
+            </Popover>
         </div>
     )
 }
