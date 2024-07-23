@@ -1,5 +1,27 @@
 import { toHogDate, toHogDateTime } from './stl/date'
 
+export class HogVMException extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = this.constructor.name
+    }
+}
+
+export class UncaughtHogVMException extends HogVMException {
+    payload: any
+
+    constructor(name: string, message: string, payload: any = null) {
+        super(message)
+        this.name = name
+        this.payload = payload
+    }
+
+    toString(): string {
+        const msg = this.message.replace("'", "\\'")
+        return `${this.name}('${msg}')`
+    }
+}
+
 /** Fixed cost per object in memory */
 const COST_PER_UNIT = 8
 

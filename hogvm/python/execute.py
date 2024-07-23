@@ -11,7 +11,14 @@ from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
 
-from hogvm.python.utils import HogVMException, get_nested_value, like, set_nested_value, calculate_cost
+from hogvm.python.utils import (
+    UncaughtHogVMException,
+    HogVMException,
+    get_nested_value,
+    like,
+    set_nested_value,
+    calculate_cost,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -271,10 +278,10 @@ def execute_bytecode(
                 else:
                     raise HogVMException("Invalid operation POP_TRY: no try block to pop")
             case Operation.THROW:
+                exception = pop_stack()
+                if not is_hog_error(exception):
+                    raise HogVMException("Can not throw: value is not of type Error")
                 if throw_stack:
-                    exception = pop_stack()
-                    if not is_hog_error(exception):
-                        raise HogVMException("Can not throw: value is not of type Error")
                     call_stack_len, stack_len, catch_ip = throw_stack.pop()
                     stack = stack[0:stack_len]
                     mem_used -= sum(mem_stack[stack_len:])
@@ -283,8 +290,11 @@ def execute_bytecode(
                     push_stack(exception)
                     ip = catch_ip
                 else:
-                    # TODO: add Hog exception name/payload
-                    raise HogVMException("No catch block to throw to")
+                    raise UncaughtHogVMException(
+                        name=exception.get("name"),
+                        message=exception.get("message"),
+                        payload=exception.get("payload"),
+                    )
 
         if ip == last_op:
             break
