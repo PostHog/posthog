@@ -129,7 +129,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
 
-            instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if "inputs_schema" in attrs:
             attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])

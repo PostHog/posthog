@@ -204,9 +204,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             submit: async (data) => {
                 const payload = sanitizeConfiguration(data)
 
-                if (props.templateId) {
-                    // Only sent on create
-                    ;(payload as any).template_id = props.templateId
+                // Only sent on create
+                ;(payload as any).template_id = props.templateId || values.hogFunction?.template?.id
+
+                if (!values.hasAddon) {
+                    // Remove the source field if the user doesn't have the addon
+                    delete payload.hog
+                    delete payload.inputs_schema
                 }
 
                 await asyncActions.upsertHogFunction(payload)
