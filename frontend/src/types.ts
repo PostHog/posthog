@@ -4289,13 +4289,18 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status'>
+export type HogFunctionConfigurationType = Omit<
+    HogFunctionType,
+    'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
+> & {
+    hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
+}
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
     'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
 > & {
-    status: 'alpha' | 'beta' | 'stable'
+    status: 'alpha' | 'beta' | 'stable' | 'free'
 }
 
 export type HogFunctionIconResponse = {

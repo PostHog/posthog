@@ -26,7 +26,7 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha'
+    status?: 'stable' | 'beta' | 'alpha' | 'free'
 }
 
 export type NewDestinationFilters = {
