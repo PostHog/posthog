@@ -114,7 +114,7 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                 } else if (x.__hogDate__) {
                     return toHogDate(x.year, x.month, x.day)
                 } else if (x.__hogError__) {
-                    return newHogError(x.name, x.message, x.payload)
+                    return newHogError(x.type, x.message, x.payload)
                 }
                 // All other objects will
                 const map = new Map()
