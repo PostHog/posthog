@@ -50,13 +50,15 @@ from django.db.models import Prefetch
 
 logger = structlog.get_logger(__name__)
 
+
 def get_generic_sql_error(source_type: ExternalDataSource.Type):
     if source_type == ExternalDataSource.Type.MYSQL:
-        name = 'MySQL'
+        name = "MySQL"
     else:
-        name = 'Postgres'
+        name = "Postgres"
 
     return f"Could not connect to {name}. Please check all connection details are valid."
+
 
 GenericSnowflakeError = "Could not connect to Snowflake. Please check all connection details are valid."
 PostgresErrors = {
@@ -415,9 +417,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
-    def _handle_sql_source(
-        self, request: Request, *args: Any, **kwargs: Any
-    ) -> tuple[ExternalDataSource, list[Any]]:
+    def _handle_sql_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list[Any]]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -706,7 +706,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if len(result.keys()) == 0:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": "Postgres schema doesn't exist"},
+                        data={"message": "Schema doesn't exist"},
                     )
             except OperationalError as e:
                 exposed_error = self._expose_postgres_error(e)

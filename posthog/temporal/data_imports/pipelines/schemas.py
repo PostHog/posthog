@@ -39,4 +39,5 @@ PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str
     ExternalDataSource.Type.ZENDESK: ZENDESK_INCREMENTAL_FIELDS,
     ExternalDataSource.Type.POSTGRES: {},
     ExternalDataSource.Type.SNOWFLAKE: {},
+    ExternalDataSource.Type.MYSQL: {},
 }
