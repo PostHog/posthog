@@ -9,6 +9,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -20,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
-import { AppMetricSparkLine } from '../AppMetricSparkLine'
+import { AppMetricSparkLine, AppMetricSparkLineV2 } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
@@ -33,7 +34,11 @@ export function Destinations(): JSX.Element {
 
     return (
         <>
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
+            <PageHeader
+                caption="Send your data in real time or in batches to destinations outside of PostHog."
+                buttons={<NewButton stage={PipelineStage.Destination} />}
+            />
+            <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
                 <ProductIntroduction
                     productName="Pipeline destinations"
                     thingName="destination"
@@ -156,7 +161,11 @@ export function DestinationsTable(props: PipelineDestinationsLogicProps): JSX.El
                                             PipelineNodeTab.Metrics
                                         )}
                                     >
-                                        <AppMetricSparkLine pipelineNode={destination} />
+                                        {destination.backend === PipelineBackend.HogFunction ? (
+                                            <AppMetricSparkLineV2 pipelineNode={destination} />
+                                        ) : (
+                                            <AppMetricSparkLine pipelineNode={destination} />
+                                        )}
                                     </Link>
                                 )
                             },

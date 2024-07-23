@@ -191,7 +191,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         '/data-warehouse/*': (_, __, { q }) => {
             actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
-            values.insightDataLogicRef?.logic.actions.setQuery(examples.DataVisualization)
+            values.insightDataLogicRef?.logic.actions.setQuery(examples.DataWarehouse)
             values.insightLogicRef?.logic.actions.setInsight(
                 {
                     ...createEmptyInsight('new', false),
