@@ -6,8 +6,12 @@ from datetime import datetime
 from itertools import groupby
 from typing import Optional
 from unittest.mock import MagicMock, patch
+
+import pytest
 from django.test import override_settings
 from freezegun import freeze_time
+from pydantic import ValidationError
+
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
@@ -17,15 +21,14 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner, BREAKDOWN_OTHER_DISPLAY
-from posthog.models.cohort.cohort import Cohort
+from posthog.hogql_queries.insights.trends.trends_query_runner import (
+    BREAKDOWN_OTHER_DISPLAY,
+    TrendsQueryRunner,
+)
 from posthog.models import GroupTypeMapping
-from posthog.models.property_definition import PropertyDefinition
-from pydantic import ValidationError
-import pytest
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-
-
+from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -34,14 +37,15 @@ from posthog.schema import (
     BreakdownItem,
     BreakdownType,
     ChartDisplayType,
+    CompareFilter,
     CompareItem,
     CountPerActorMathType,
-    EventPropertyFilter,
-    InsightDateRange,
     DayItem,
+    EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     InCohortVia,
+    InsightDateRange,
     IntervalType,
     MultipleBreakdownType,
     PersonPropertyFilter,
@@ -49,9 +53,7 @@ from posthog.schema import (
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
-    CompareFilter,
 )
-
 from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -4295,3 +4297,81 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert len(response.results) == 1
             assert response.results[0]["aggregated_value"] == 1
+
+    def test_trends_math_first_time_ever_handles_multiple_ids(self):
+        timestamp = "2020-01-11T12:00:00Z"
+
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon1", "p1"],
+                properties={},
+            )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon2", "p2"],
+                properties={},
+            )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon3"],
+                properties={},
+            )
+
+        # p1
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+
+        # p2
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon2",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-12T12:01:00Z",
+            properties={},
+        )
+
+        # anon3
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon3",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_EVER,
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [0, 0, 1, 2]
