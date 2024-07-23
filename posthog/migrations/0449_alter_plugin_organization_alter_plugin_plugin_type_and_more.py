@@ -38,7 +38,7 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.SeperateDatabaseAndState(
+        migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AlterField(
                     model_name="plugin",
