@@ -78,7 +78,7 @@ def snowflake_source(
     table_names: list[str],
     role: Optional[str] = None,
     incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[str] = None,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
     account_id = quote(account_id)
     user = quote(user)
@@ -87,10 +87,17 @@ def snowflake_source(
     warehouse = quote(warehouse)
     role = quote(role) if role else None
 
+    if incremental_field is not None and incremental_field_type is not None:
+        incremental: dlt.sources.incremental | None = dlt.sources.incremental(
+            cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
+        )
+    else:
+        incremental = None
+
     credentials = ConnectionStringCredentials(
         f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
     )
-    db_source = sql_database(credentials, schema=schema, table_names=table_names)
+    db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
 
     return db_source
 

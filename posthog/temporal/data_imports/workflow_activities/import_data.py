@@ -206,6 +206,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             warehouse=warehouse,
             role=role,
             table_names=endpoints,
+            incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+            if schema.is_incremental
+            else None,
         )
 
         return await _run(
