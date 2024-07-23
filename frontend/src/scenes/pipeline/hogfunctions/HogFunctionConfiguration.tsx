@@ -48,6 +48,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         willReEnableOnSave,
         exampleInvocationGlobalsWithInputs,
         showPaygate,
+        hasAddon,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -365,6 +366,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 size="xsmall"
                                                 type="secondary"
                                                 onClick={() => setShowSource(true)}
+                                                disabledReason={
+                                                    !hasAddon
+                                                        ? 'Editing the source code requires the Data Pipelines addon'
+                                                        : undefined
+                                                }
                                             >
                                                 Show function source code
                                             </LemonButton>

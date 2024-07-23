@@ -214,10 +214,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
+        hasAddon: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => {
+                return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+            },
+        ],
         showPaygate: [
-            (s) => [s.template, s.hasAvailableFeature],
-            (template, hasAvailableFeature) => {
-                return template && template.status !== 'free' && !hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+            (s) => [s.template, s.hasAddon],
+            (template, hasAddon) => {
+                return template && template.status !== 'free' && !hasAddon
             },
         ],
         defaultFormState: [

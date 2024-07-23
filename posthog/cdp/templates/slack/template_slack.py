@@ -45,8 +45,22 @@ if (res.status != 200 or not res.body.ok) {
             "secret": False,
             "required": True,
         },
-        {"key": "icon_emoji", "type": "string", "label": "Emoji icon", "default": ":hedgehog:", "required": False},
-        {"key": "username", "type": "string", "label": "Bot name", "defaukt": "PostHog", "required": False},
+        {
+            "key": "icon_emoji",
+            "type": "string",
+            "label": "Emoji icon",
+            "default": ":hedgehog:",
+            "required": False,
+            "secret": False,
+        },
+        {
+            "key": "username",
+            "type": "string",
+            "label": "Bot name",
+            "default": "PostHog",
+            "required": False,
+            "secret": False,
+        },
         {
             "key": "blocks",
             "type": "json",
@@ -84,6 +98,8 @@ if (res.status != 200 or not res.body.ok) {
             "type": "string",
             "label": "Plain text message",
             "description": "Optional fallback message if blocks are not provided or supported",
+            "secret": False,
+            "required": False,
         },
     ],
 )
