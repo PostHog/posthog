@@ -93,7 +93,12 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    <Query query={insight.query} cachedResults={insight} readOnly />
+                    <Query
+                        query={insight.query}
+                        cachedResults={insight}
+                        readOnly
+                        context={{ insightProps: insightLogicProps }}
+                    />
                     {showLegend && (
                         <div className="p-4">
                             <InsightLegend horizontal readOnly />
