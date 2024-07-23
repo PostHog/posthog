@@ -6,7 +6,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
-import { DataWarehouseBetaNotice } from '../DataWarehouseBetaNotice'
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
@@ -17,45 +16,11 @@ import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
-    component: NewSourceWizard,
+    component: NewSourceWizardScene,
     logic: sourceWizardLogic,
 }
-export function NewSourceWizard(): JSX.Element {
-    const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
-    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
-        useValues(sourceWizardLogic)
-    const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
-
-    const footer = useCallback(() => {
-        if (currentStep === 1) {
-            return null
-        }
-
-        return (
-            <div className="mt-2 flex flex-row justify-end gap-2">
-                <LemonButton
-                    type="secondary"
-                    center
-                    data-attr="source-modal-back-button"
-                    onClick={onBack}
-                    disabledReason={!canGoBack && 'You cant go back from here'}
-                >
-                    Back
-                </LemonButton>
-                <LemonButton
-                    loading={isLoading || manualLinkIsLoading}
-                    disabledReason={!canGoNext && 'You cant click next yet'}
-                    type="primary"
-                    center
-                    onClick={() => onSubmit()}
-                    data-attr="source-link"
-                >
-                    {nextButtonText}
-                </LemonButton>
-            </div>
-        )
-    }, [currentStep, isLoading, manualLinkIsLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
+export function NewSourceWizardScene(): JSX.Element {
+    const { closeWizard } = useActions(sourceWizardLogic)
 
     return (
         <>
@@ -73,8 +38,58 @@ export function NewSourceWizard(): JSX.Element {
                     </>
                 }
             />
-            <DataWarehouseBetaNotice />
-            <DataWarehouseInitialBillingLimitNotice />
+            <NewSourcesWizard />
+        </>
+    )
+}
+
+interface NewSourcesWizardProps {
+    onComplete?: () => void
+}
+
+export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Element {
+    const wizardLogic = sourceWizardLogic({ onComplete })
+
+    const { modalTitle, modalCaption, isWrapped } = useValues(wizardLogic)
+    const { onBack, onSubmit } = useActions(wizardLogic)
+    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } = useValues(wizardLogic)
+    const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
+
+    const footer = useCallback(() => {
+        if (currentStep === 1) {
+            return null
+        }
+
+        return (
+            <div className="mt-4 flex flex-row justify-end gap-2">
+                {canGoBack && (
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-modal-back-button"
+                        onClick={onBack}
+                        disabledReason={!canGoBack && 'You cant go back from here'}
+                    >
+                        Back
+                    </LemonButton>
+                )}
+                <LemonButton
+                    loading={isLoading || manualLinkIsLoading}
+                    disabledReason={!canGoNext && 'You cant click next yet'}
+                    type="primary"
+                    center
+                    onClick={() => onSubmit()}
+                    data-attr="source-link"
+                >
+                    {nextButtonText}
+                </LemonButton>
+            </div>
+        )
+    }, [currentStep, isLoading, manualLinkIsLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
+
+    return (
+        <>
+            {!isWrapped && <DataWarehouseInitialBillingLimitNotice />}
             <>
                 <h3>{modalTitle}</h3>
                 <p>{modalCaption}</p>

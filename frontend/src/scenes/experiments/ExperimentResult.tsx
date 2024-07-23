@@ -6,16 +6,14 @@ import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 
-import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
-import { NoResultsEmptyState } from './ExperimentView/components'
+import { LoadingState, NoResultsEmptyState } from './ExperimentView/components'
 import { getExperimentInsightColour } from './utils'
 
 interface ExperimentResultProps {
@@ -79,7 +77,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                                         ),
                                                     }}
                                                 >
-                                                    <b>{capitalizeFirstLetter(variant)}</b>
+                                                    <b>{variant}</b>
                                                 </div>,
                                             ])
                                         ),
@@ -129,7 +127,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                             columns={[
                                 { title: 'Header', dataIndex: 'header' },
                                 ...sortedExperimentResultVariants.map((variant) => ({
-                                    title: capitalizeFirstLetter(variant),
+                                    title: variant,
                                     dataIndex: variant,
                                 })),
                             ]}
@@ -146,7 +144,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                 .map((variant, idx) => (
                                     <div key={idx} className="pr-4">
                                         <div>
-                                            <b>{capitalizeFirstLetter(variant)}</b>
+                                            <b>{variant}</b>
                                         </div>
                                         {targetResultsInsightType === InsightType.TRENDS ? (
                                             <>

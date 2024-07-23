@@ -6,6 +6,12 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
 import psycopg2
+from posthog.warehouse.data_load.service import (
+    external_data_workflow_exists,
+    pause_external_data_schedule,
+    sync_external_data_job_workflow,
+    unpause_external_data_schedule,
+)
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
@@ -22,6 +28,11 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     class SyncType(models.TextChoices):
         FULL_REFRESH = "full_refresh", "full_refresh"
         INCREMENTAL = "incremental", "incremental"
+
+    class SyncFrequency(models.TextChoices):
+        DAILY = "day", "Daily"
+        WEEKLY = "week", "Weekly"
+        MONTHLY = "month", "Monthly"
 
     name: models.CharField = models.CharField(max_length=400)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -41,6 +52,9 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     sync_type_config: models.JSONField = models.JSONField(
         default=dict,
         blank=True,
+    )
+    sync_frequency: models.CharField = models.CharField(
+        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
     )
 
     __repr__ = sane_repr("name")
@@ -68,6 +82,26 @@ def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) 
 @database_sync_to_async
 def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None:
     return ExternalDataSchema.objects.prefetch_related("source").get(id=schema_id, team_id=team_id)
+
+
+@database_sync_to_async
+def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    schema.should_sync = should_sync
+    schema.save()
+
+    schedule_exists = external_data_workflow_exists(schema_id)
+
+    if schedule_exists:
+        if should_sync is False:
+            pause_external_data_schedule(schema_id)
+        elif should_sync is True:
+            unpause_external_data_schedule(schema_id)
+    else:
+        if should_sync is True:
+            sync_external_data_job_workflow(schema, create=True)
+
+    return schema
 
 
 @database_sync_to_async

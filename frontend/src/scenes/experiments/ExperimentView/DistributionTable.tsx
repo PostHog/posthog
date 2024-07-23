@@ -2,7 +2,6 @@ import '../Experiment.scss'
 
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { MultivariateFlagVariant } from '~/types'
@@ -20,7 +19,7 @@ export function DistributionTable(): JSX.Element {
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
                 if (!experimentResults || !experimentResults.insight) {
-                    return <span className="font-semibold">{capitalizeFirstLetter(item.key)}</span>
+                    return <span className="font-semibold">{item.key}</span>
                 }
                 return <VariantTag variantKey={item.key} />
             },

@@ -7,7 +7,7 @@ from posthog.models import PluginConfig
 
 class PluginConfigAdmin(admin.ModelAdmin):
     list_select_related = ("plugin", "team")
-    list_display = ("id", "plugin_name", "team_name", "enabled")
+    list_display = ("id", "plugin_name", "team_name", "enabled", "deleted")
     list_display_links = ("id", "plugin_name")
     list_filter = (
         ("enabled", admin.BooleanFieldListFilter),
@@ -16,10 +16,46 @@ class PluginConfigAdmin(admin.ModelAdmin):
         ("plugin", admin.RelatedOnlyFieldListFilter),
         "plugin__is_global",
     )
-    list_select_related = ("team", "plugin")
     search_fields = ("team__name", "team__organization__name", "plugin__name")
     ordering = ("-created_at",)
+
     inlines = [PluginAttachmentInline]
+    readonly_fields = [
+        "id",
+        "plugin",
+        "team",
+        "created_at",
+        "updated_at",
+    ]
+
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": ["id", "plugin", "team", "created_at", "updated_at"],
+            },
+        ),
+        (
+            "Common config",
+            {
+                "fields": ["enabled", "deleted", "order", "config"],
+            },
+        ),
+        (
+            "CDP (work in progress)",
+            {
+                "classes": ["collapse"],
+                "fields": ["filters"],
+            },
+        ),
+        (
+            "Frontend apps",
+            {
+                "classes": ["collapse"],
+                "fields": ["name", "description", "web_token"],
+            },
+        ),
+    ]
 
     def plugin_name(self, config: PluginConfig):
         return format_html(f"{config.plugin.name} ({config.plugin_id})")

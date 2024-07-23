@@ -1,5 +1,4 @@
 import django
-
 from django.core.management.base import BaseCommand
 
 from posthog.tasks.utils import CeleryQueue
@@ -26,9 +25,6 @@ class Command(BaseCommand):
             "posthog",
             "worker",
             "-B",
-            "-S",
-            "redbeat.RedBeatScheduler",
-            "--without-mingle",
             "--pool=threads",
             f"--queues={','.join(queues)}",
             "-Ofair",

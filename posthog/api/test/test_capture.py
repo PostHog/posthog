@@ -25,7 +25,7 @@ from django.test import override_settings
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
 from freezegun import freeze_time
-from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
+from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError, NoBrokersAvailable
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 from parameterized import parameterized
@@ -43,7 +43,7 @@ from posthog.api.capture import (
 )
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
-from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
+from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -580,6 +580,18 @@ class TestCapture(BaseTest):
 
         # signal that the client should not retry, we don't want endless retries for unprocessable entries
         assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_replay_capture_other_kafka_error(self, kafka_produce: MagicMock) -> None:
+        kafka_produce.side_effect = NoBrokersAvailable()
+
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=[
+                {"type": 2, "data": {"lots": "of data"}, "$window_id": "the window id", "timestamp": 1234567890}
+            ],
+        )
+
+        assert response.status_code == 503
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_from_android(self, _kafka_produce: MagicMock) -> None:
@@ -1742,6 +1754,7 @@ class TestCapture(BaseTest):
                 "highlight",
                 ["x-highlight-request"],
             ),
+            ("DateDome", ["x-datadome-clientid"]),
         ]
     )
     def test_cors_allows_tracing_headers(self, _: str, path: str, headers: list[str]) -> None:
@@ -1946,7 +1959,7 @@ class TestCapture(BaseTest):
             self._send_august_2023_version_session_recording_event(event_data=None)
 
             session_recording_producer_singleton_mock.assert_called_with(
-                compression_type=None,
+                compression_type="gzip",
                 kafka_hosts=[
                     "another-server:9092",
                     "a-fourth.server:9092",
@@ -1955,7 +1968,7 @@ class TestCapture(BaseTest):
                 max_request_size=1234,
             )
 
-    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.session_recording_kafka_producer")
     @patch("posthog.api.capture.KafkaProducer")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_can_redirect_session_recordings_to_alternative_kafka(
@@ -1972,7 +1985,7 @@ class TestCapture(BaseTest):
             ],
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
-            session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
+            session_recording_producer_factory_mock.return_value = session_recording_kafka_producer()
 
             session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
             # just a single thing to send (it should be an rrweb event but capture doesn't validate that)

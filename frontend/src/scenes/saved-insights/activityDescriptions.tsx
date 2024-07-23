@@ -219,6 +219,7 @@ const insightActionsMapping: Record<
     order: () => null,
     result: () => null,
     last_refresh: () => null,
+    cache_target_age: () => null,
     next_allowed_client_refresh: () => null,
     last_modified_by: () => null,
     next: () => null,

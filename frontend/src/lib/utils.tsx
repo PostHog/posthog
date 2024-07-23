@@ -297,6 +297,10 @@ export function isEmptyObject(candidate: unknown): boolean {
     return isObject(candidate) && Object.keys(candidate).length === 0
 }
 
+export function isNonEmptyObject(candidate: unknown): candidate is Record<string, unknown> {
+    return isObject(candidate) && !isEmptyObject(candidate)
+}
+
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
 export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
     const response = { ...obj }
