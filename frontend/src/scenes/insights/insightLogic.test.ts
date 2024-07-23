@@ -40,6 +40,8 @@ const Insight42 = '42' as InsightShortId
 const Insight43 = '43' as InsightShortId
 const Insight44 = '44' as InsightShortId
 
+const MOCK_DASHBOARD_ID = 34
+
 const partialInsight43 = {
     id: 43,
     short_id: Insight43,
@@ -61,6 +63,7 @@ const patchResponseFor = (
         description: id === '42' ? undefined : 'Lorem ipsum.',
         tags: id === '42' ? undefined : ['good'],
         dashboards: payload['dashboards'],
+        dashboard_tiles: id === '43' ? [{ dashboard_id: MOCK_DASHBOARD_ID }] : undefined,
     }
 }
 
@@ -185,6 +188,23 @@ describe('insightLogic', () => {
                             insight: {
                                 id: 42,
                                 short_id: Insight42,
+                                result: 'result!',
+                                filters: { insight: InsightType.TRENDS, interval: 'month' },
+                                tags: ['bla'],
+                            },
+                        },
+                    ],
+                },
+                '/api/projects/:team/dashboards/34/': {
+                    id: 33,
+                    filters: {},
+                    tiles: [
+                        {
+                            layouts: {},
+                            color: null,
+                            insight: {
+                                id: 42,
+                                short_id: Insight43,
                                 result: 'result!',
                                 filters: { insight: InsightType.TRENDS, interval: 'month' },
                                 tags: ['bla'],
@@ -513,14 +533,19 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight updates dashboards', async () => {
+        const dashLogic = dashboardLogic({ id: MOCK_DASHBOARD_ID })
+        dashLogic.mount()
+        await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
+
         savedInsightsLogic.mount()
+
         logic = insightLogic({
             dashboardItemId: Insight43,
         })
         logic.mount()
-
         logic.actions.saveInsight()
-        await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
+
+        await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
     })
 
     test('updateInsight updates dashboards', async () => {

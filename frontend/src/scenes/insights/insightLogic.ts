@@ -418,6 +418,8 @@ export const insightLogic = kea<insightLogicType>([
                 },
             })
 
+            dashboardsModel.actions.updateDashboardInsight(savedInsight)
+
             // reload dashboards with updated insight
             // since filters on dashboard might be different from filters on insight
             // we need to trigger dashboard reload to pick up results for updated insight
