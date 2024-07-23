@@ -7,14 +7,11 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
-import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
-import useResizeObserver from 'use-resize-observer'
 
 import { HogQLQuery } from '~/queries/schema'
 
@@ -31,13 +28,9 @@ export interface HogQLQueryEditorProps {
 let uniqueNode = 0
 
 const EDITOR_HEIGHT = 222
-const TABLE_PANEL_HEIGHT = EDITOR_HEIGHT + 78
 
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const artificialHogHeight = featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] ? 40 : 0
-    const [panelHeight, setPanelHeight] = useState<number>(TABLE_PANEL_HEIGHT + artificialHogHeight)
 
     const [key] = useState(() => uniqueNode++)
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -74,21 +67,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         }
     }, [])
 
-    useResizeObserver({
-        ref: editorRef,
-        onResize: () => {
-            if (editorRef.current) {
-                setPanelHeight(Math.max(TABLE_PANEL_HEIGHT, editorRef.current.clientHeight + 78 + artificialHogHeight))
-            }
-        },
-    })
-
     return (
         <div className="flex items-start gap-2">
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
-                <DatabaseTableTreeWithItems inline />
-            </div>
             <div
                 data-attr="hogql-query-editor"
                 className={clsx(
@@ -243,29 +223,17 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             : ''
                                     }
                                     data-attr="hogql-query-editor-save-as-view"
-                                >
-                                    Save as view
-                                </LemonButton>
-                            )}
-                            <LemonButtonWithDropdown
-                                className="ml-2"
-                                icon={<IconInfo />}
-                                type="secondary"
-                                size="small"
-                                dropdown={{
-                                    overlay: (
+                                    tooltip={
                                         <div>
                                             Save a query as a view that can be referenced in another query. This is
                                             useful for modeling data and organizing large queries into readable chunks.{' '}
                                             <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
                                         </div>
-                                    ),
-                                    placement: 'right-start',
-                                    fallbackPlacements: ['left-start'],
-                                    actionable: true,
-                                    closeParentPopoverOnClickInside: true,
-                                }}
-                            />
+                                    }
+                                >
+                                    Save as view
+                                </LemonButton>
+                            )}
                         </>
                     )}
                 </div>

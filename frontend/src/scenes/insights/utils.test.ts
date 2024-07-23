@@ -340,11 +340,11 @@ describe('formatBreakdownLabel()', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdowns: [
                 {
-                    value: 'demographic',
+                    property: 'demographic',
                     type: 'event',
                 },
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
             ],
@@ -362,11 +362,11 @@ describe('formatBreakdownLabel()', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdowns: [
                 {
-                    value: 'demographic',
+                    property: 'demographic',
                     type: 'event',
                 },
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
             ],
@@ -390,7 +390,7 @@ describe('formatBreakdownLabel()', () => {
         const breakdownFilter2: BreakdownFilter = {
             breakdowns: [
                 {
-                    value: '$session_duration',
+                    property: '$session_duration',
                     type: 'session',
                 },
             ],
@@ -410,7 +410,7 @@ describe('formatBreakdownLabel()', () => {
         const breakdownFilter2: BreakdownFilter = {
             breakdowns: [
                 {
-                    value: '$session_duration',
+                    property: '$session_duration',
                     type: 'session',
                 },
             ],
