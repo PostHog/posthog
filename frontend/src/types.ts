@@ -4280,7 +4280,7 @@ export type HogFunctionType = {
     created_at: string
     updated_at: string
     enabled: boolean
-    hog?: string
+    hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
@@ -4289,7 +4289,9 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status'>
+export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'> & {
+    hog?: HogFunctionType["hog"] // In the config it can be empty if using a template
+}
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
