@@ -33,7 +33,7 @@ import {
     TrendsFilter,
     TrendsFilterLegacy,
 } from '~/queries/schema'
-import { FunnelExclusionLegacy, NotebookNodeType, NotebookType } from '~/types'
+import { FunnelExclusionLegacy, NotebookNodeType, NotebookType, RecordingFilters } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
 // It will bust the cache on the localContent in the notebookLogic
@@ -61,7 +61,11 @@ function convertPlaylistFiltersToUniversalFilters(content: JSONContent[]): JSONC
             return node
         }
 
-        const { simpleFilters, filters, universalFilters } = node.attrs as NotebookNodePlaylistAttributes
+        // Legacy attrs on Notebook playlist nodes
+        const simpleFilters = node.attrs?.simpleFilters as RecordingFilters
+        const filters = node.attrs?.filters as RecordingFilters
+
+        const { universalFilters } = node.attrs as NotebookNodePlaylistAttributes
 
         if (universalFilters) {
             return node

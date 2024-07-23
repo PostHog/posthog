@@ -14,7 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
@@ -29,7 +29,7 @@ import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
+import { ExporterFormat, InsightLogicProps, ItemMode, NotebookNodeType } from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -41,7 +41,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightProps,
         canEditInsight,
         queryBasedInsight: insight,
-        legacyInsight,
+        queryBasedInsightSaving,
         insightChanged,
         insightSaving,
         hasDashboardItemId,
@@ -69,14 +69,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        closeModal={() => push(urls.insightView(insight.short_id))}
                         insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
                         title="Insight sharing"
                         isOpen={insightMode === ItemMode.Sharing}
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        closeModal={() => push(urls.insightView(insight.short_id))}
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
@@ -89,8 +89,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     />
                     <AlertsModal
                         isOpen={insightMode === ItemMode.Alerts}
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        insightShortId={insight.short_id as InsightShortId}
+                        closeModal={() => push(urls.insightView(insight.short_id))}
+                        insightShortId={insight.short_id}
                         alertId={subscriptionId}
                     />
                     <NewDashboardModal />
@@ -105,7 +105,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(legacyInsight as InsightModel, true)}
+                                                onClick={() => duplicateInsight(insight, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -216,12 +216,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
-                                                    void deleteWithUndo({
-                                                        object: legacyInsight,
+                                                    void deleteInsightWithUndo({
+                                                        object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()
                                                             push(urls.savedInsights())
+                                                        },
+                                                        options: {
+                                                            writeAsQuery: queryBasedInsightSaving,
+                                                            readAsQuery: true,
                                                         },
                                                     })
                                                 }

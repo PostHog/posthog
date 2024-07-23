@@ -27,7 +27,9 @@ class TestErrorTracking(BaseTest):
         matching_groups = ErrorTrackingGroup.objects.filter(merged_fingerprints__contains=["previously_merged"])
         assert len(matching_groups) == 1
 
-        matching_groups = ErrorTrackingGroup.find(fingerprints=["first_error", "previously_merged"])
+        matching_groups = ErrorTrackingGroup.filter_fingerprints(
+            queryset=ErrorTrackingGroup.objects, fingerprints=["first_error", "previously_merged"]
+        )
         assert len(matching_groups) == 2
 
     def test_merge(self):

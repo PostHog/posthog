@@ -5,6 +5,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -17,6 +18,7 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -154,7 +156,7 @@ export function Group(): JSX.Element {
                                         <SessionRecordingsPlaylist
                                             logicKey="groups-recordings"
                                             updateSearchParams
-                                            universalFilters={{
+                                            filters={{
                                                 duration: [
                                                     {
                                                         type: PropertyFilterType.Recording,
@@ -184,24 +186,12 @@ export function Group(): JSX.Element {
                                                     ],
                                                 },
                                             }}
-                                            advancedFilters={{
-                                                events: [
-                                                    {
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: 'All events',
-                                                        properties: [
-                                                            {
-                                                                key: `$group_${groupTypeIndex} = '${groupKey}'`,
-                                                                type: 'hogql',
-                                                            },
-                                                        ],
-                                                    },
-                                                ],
-                                            }}
-                                            onFiltersChange={(_, legacyFilters) => {
-                                                const stillHasGroupFilter = legacyFilters.events?.some((event) => {
-                                                    return event.properties.some(
+                                            onFiltersChange={(filters) => {
+                                                const eventFilters =
+                                                    filtersFromUniversalFilterGroups(filters).filter(isEventFilter)
+
+                                                const stillHasGroupFilter = eventFilters?.some((event) => {
+                                                    return event.properties?.some(
                                                         (prop: Record<string, any>) =>
                                                             prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
                                                     )
