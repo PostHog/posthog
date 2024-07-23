@@ -98,6 +98,7 @@ export function ExportedInsight({
                         cachedResults={insight}
                         readOnly
                         context={{ insightProps: insightLogicProps }}
+                        embedded
                     />
                     {showLegend && (
                         <div className="p-4">
