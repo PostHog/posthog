@@ -49,8 +49,8 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     """
-                    ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_url_bccac89d_uniq" UNIQUE ("url");
-                    CREATE INDEX "posthog_plugin_url_bccac89d_like" ON "posthog_plugin" ("url" varchar_pattern_ops); -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_url_bccac89d_uniq" UNIQUE ("url");  -- existing-table-constraint-ignore
+                    CREATE INDEX "posthog_plugin_url_bccac89d_like" ON "posthog_plugin" ("url" varchar_pattern_ops);
                     """,
                     reverse_sql="""
                         DROP INDEX IF EXISTS "posthog_plugin_url_bccac89d_like";
