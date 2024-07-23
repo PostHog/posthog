@@ -460,7 +460,6 @@ posthog/api/notebook.py:0: error: Incompatible types in assignment (expression h
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Incompatible types in assignment (expression has type "list[str]", variable has type "dict[str, list[tuple[str, str]]]")  [assignment]
 posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 1 has incompatible type "dict[str, list[tuple[str, str]]]"; expected "list[Any]"  [arg-type]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: "CreateExternalDataJobModelActivityInputs" has no attribute "external_data_source_id"  [attr-defined]
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Not all union combinations were tried because there are too many unions  [misc]
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Argument 2 to "source" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/temporal/data_imports/pipelines/rest_source/__init__.py:0: error: Argument 3 to "source" has incompatible type "str | None"; expected "str"  [arg-type]

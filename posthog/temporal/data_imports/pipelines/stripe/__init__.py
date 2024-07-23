@@ -1,3 +1,4 @@
+from typing import Optional
 import dlt
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from dlt.sources.helpers.requests import Response, Request
@@ -254,7 +255,7 @@ class StripePaginator(BasePaginator):
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str, account_id: str, endpoint: str, team_id: int, job_id: str, is_incremental: bool = False
+    api_key: str, account_id: Optional[str], endpoint: str, team_id: int, job_id: str, is_incremental: bool = False
 ):
     config: RESTAPIConfig = {
         "client": {
@@ -266,7 +267,9 @@ def stripe_source(
             },
             "headers": {
                 "Stripe-Account": account_id,
-            },
+            }
+            if account_id is not None and len(account_id) > 0
+            else None,
             "paginator": StripePaginator(),
         },
         "resource_defaults": {
