@@ -236,8 +236,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     return
                 }
 
-                const newBreakdown = {
-                    value: breakdown as string,
+                const newBreakdown: Breakdown = {
+                    property: breakdown as string,
                     type: breakdownType,
                     group_type_index: taxonomicGroup.groupTypeIndex,
                     histogram_bin_count: isHistogramable ? 10 : undefined,
@@ -258,7 +258,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                         breakdown_group_type_index: undefined,
                         breakdowns: [
                             {
-                                value: breakdownFilter.breakdown as string,
+                                property: breakdownFilter.breakdown as string,
                                 type: breakdownFilter.breakdown_type,
                                 group_type_index: breakdownFilter.breakdown_group_type_index,
                                 histogram_bin_count: breakdownFilter.breakdown_histogram_bin_count,
@@ -312,7 +312,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 }
             } else if (values.isMultipleBreakdownsEnabled) {
                 const breakdowns = props.breakdownFilter.breakdowns?.filter(
-                    (savedBreakdown) => !(savedBreakdown.value === breakdown && savedBreakdown.type === breakdownType)
+                    (savedBreakdown) =>
+                        !(savedBreakdown.property === breakdown && savedBreakdown.type === breakdownType)
                 )
 
                 props.updateBreakdownFilter({
@@ -381,7 +382,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     props.updateBreakdownFilter?.({
                         breakdowns: [
                             {
-                                value: breakdownValue,
+                                property: breakdownValue,
                                 type: breakdownType,
                                 group_type_index: newBreakdown.group.groupTypeIndex,
                                 histogram_bin_count: isHistogramable ? 10 : undefined,
@@ -397,12 +398,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 } else {
                     const breakdowns = values.breakdownFilter.breakdowns?.map((savedBreakdown) => {
                         if (
-                            savedBreakdown.value === previousBreakdown.value &&
+                            savedBreakdown.property === previousBreakdown.value &&
                             savedBreakdown.type === previousBreakdown.type
                         ) {
                             return {
                                 ...savedBreakdown,
-                                value: breakdownValue,
+                                property: breakdownValue,
                                 type: breakdownType,
                                 group_type_index: newBreakdown.group.groupTypeIndex,
                                 histogram_bin_count: isHistogramable
@@ -505,7 +506,7 @@ function updateNestedBreakdown(
     lookupType: string
 ): Breakdown[] | undefined {
     return breakdowns?.map((savedBreakdown) =>
-        savedBreakdown.value === lookupValue && savedBreakdown.type === lookupType
+        savedBreakdown.property === lookupValue && savedBreakdown.type === lookupType
             ? {
                   ...savedBreakdown,
                   ...breakdownUpdate,
@@ -520,7 +521,7 @@ function checkBreakdownExists(
     lookupType: string
 ): boolean {
     return !!breakdowns?.find(
-        (savedBreakdown) => savedBreakdown.value === lookupValue && savedBreakdown.type === lookupType
+        (savedBreakdown) => savedBreakdown.property === lookupValue && savedBreakdown.type === lookupType
     )
 }
 

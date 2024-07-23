@@ -287,6 +287,19 @@ limit 100`,
     },
 }
 
+const HogQLForDataWarehouse: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: `select toDate(timestamp) as timestamp, event as event
+    from events
+limit 100`,
+    explain: true,
+}
+
+const DataWarehouse: DataVisualizationNode = {
+    kind: NodeKind.DataVisualizationNode,
+    source: HogQLForDataWarehouse,
+}
+
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
@@ -344,6 +357,7 @@ export const examples: Record<string, Node> = {
     DataVisualization,
     Hog,
     Hoggonacci,
+    DataWarehouse,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

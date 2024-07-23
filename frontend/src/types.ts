@@ -2082,15 +2082,10 @@ export enum RetentionPeriod {
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
 /**
- * Legacy multiple breakdowns had `property` and `type` fields.
- * Mirroring the legacy fields here for backwards compatibility with multiple breakdowns.
+ * Legacy breakdown.
  */
 export interface Breakdown {
-    value?: string
-    /**
-     * Legacy breakdown has a `property` field that is `value` now.
-     */
-    property?: string | number
+    property: string | number
     type: BreakdownType
     normalize_url?: boolean
     histogram_bin_count?: number
@@ -4289,7 +4284,12 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status'>
+export type HogFunctionConfigurationType = Omit<
+    HogFunctionType,
+    'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
+> & {
+    hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
+}
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
