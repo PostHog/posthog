@@ -347,7 +347,7 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
             <section className="InsightDetails__breakdown">
                 {Array.isArray(breakdowns)
                     ? breakdowns.map((b) => (
-                          <BreakdownTag key={b.type + b.value} breakdown={b.value} breakdownType={b.type} />
+                          <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
                       ))
                     : breakdown &&
                       (Array.isArray(breakdown)
