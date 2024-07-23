@@ -1,5 +1,5 @@
-["_h", 41, "FishError", 1, 8, 36, 0, 32, "FishError", 2, "HogError", 2, 38, 41, "FoodError", 1, 8, 36, 0, 32,
-"FoodError", 2, "HogError", 2, 38, 50, 10, 32, "You forgot to feed your fish", 2, "FishError", 1, 49, 51, 39, 55, 36, 0,
+["_h", 41, "FishError", 1, 9, 31, 36, 0, 32, "FishError", 2, "HogError", 3, 38, 41, "FoodError", 1, 9, 31, 36, 0, 32,
+"FoodError", 2, "HogError", 3, 38, 50, 10, 32, "You forgot to feed your fish", 2, "FishError", 1, 49, 51, 39, 55, 36, 0,
 32, "type", 45, 32, "FoodError", 36, 1, 11, 40, 16, 36, 0, 32, "message", 45, 32, "Problem with your food: ", 2,
 "concat", 2, 2, "print", 1, 35, 39, 25, 32, "FishError", 36, 1, 11, 40, 16, 36, 0, 32, "message", 45, 32,
 "Problem with your fish: ", 2, "concat", 2, 2, "print", 1, 35, 39, 2, 35, 49, 35, 35, 50, 10, 32,
