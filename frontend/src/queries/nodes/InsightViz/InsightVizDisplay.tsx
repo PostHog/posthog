@@ -208,7 +208,7 @@ export function InsightVizDisplay({
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <div
                 className={clsx(
-                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture absolute right-0 left-0`,
+                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
                     !embedded && 'border rounded bg-bg-light'
                 )}
                 data-attr="insights-graph"
