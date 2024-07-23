@@ -323,8 +323,10 @@ abstract class CdpConsumerBase {
                     // Filter for overflowed and disabled functions
                     const hogFunctionsByState = matchingFunctions.reduce((acc, item) => {
                         const state = this.hogWatcher.getFunctionState(item.id)
-                        acc[state] = acc[state] || []
-                        acc[state].push(item)
+                        return {
+                            ...acc,
+                            [state]: [...(acc[state] ?? []), item],
+                        }
                         return acc
                     }, {} as Record<HogWatcherState, HogFunctionType[] | undefined>)
 
