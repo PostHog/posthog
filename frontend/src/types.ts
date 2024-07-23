@@ -3316,7 +3316,6 @@ export interface DateMappingOption {
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
     key: string | number | [scene: Scene, key: string | number]
-    /** Name to display. */
     name: string | null | undefined
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol?: React.ReactNode
