@@ -4063,7 +4063,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert response.results[0]["aggregated_value"] == 8
             assert response.results[1]["aggregated_value"] == 2
 
-    def test_trends_math_first_time_ever(self):
+    def test_trends_math_first_time_ever_basic(self):
         self._create_test_events()
         flush_persons_and_events()
 
@@ -4118,7 +4118,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 0
         assert response.results[0]["data"] == [0, 0, 0, 0, 0]
 
-    def test_trends_math_first_time_ever_breakdowns(self):
+    def test_trends_math_first_time_ever_breakdowns_basic(self):
         self._create_test_events()
         flush_persons_and_events()
 

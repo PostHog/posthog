@@ -64,6 +64,25 @@ class QueryAlternator:
         self._select_from = join_expr
 
 
+class QueryOrchestrator:
+    events_query_builder: QueryAlternator
+    inner_select_query_builder: QueryAlternator
+    parent_select_query_builder: QueryAlternator
+    _parent_select: ast.SelectQuery
+
+    def __init__(self, events_query: ast.SelectQuery, inner_select: ast.SelectQuery, parent_select: ast.SelectQuery):
+        self._parent_select = parent_select
+        self.events_query_builder = QueryAlternator(events_query)
+        self.inner_select_query_builder = QueryAlternator(inner_select)
+        self.parent_select_query_builder = QueryAlternator(parent_select)
+
+    def build(self):
+        self.events_query_builder.build()
+        self.inner_select_query_builder.build()
+        self.parent_select_query_builder.build()
+        return self._parent_select
+
+
 class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
@@ -130,6 +149,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         math_to_return_true = [
             "weekly_active",
             "monthly_active",
+            "first_time_ever",
         ]
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
@@ -207,7 +227,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=0)]),
         }
 
-    def _parent_select_query(
+    def _actors_parent_select_query(
         self, inner_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.is_count_per_actor_variant():
@@ -254,7 +274,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _inner_select_query(
+    def _actors_inner_select_query(
         self, cross_join_select_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.is_count_per_actor_variant():
@@ -329,7 +349,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _events_query(
+    def _actors_events_query(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         date_from_with_lookback = "{date_from} - {inclusive_lookback}"
@@ -428,48 +448,112 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             },
         )
 
-    def get_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
-        events_query = cast(ast.SelectQuery, self._events_query(events_where_clause, sample_value))
-        inner_select = cast(ast.SelectQuery, self._inner_select_query(events_query))
-        parent_select = cast(ast.SelectQuery, self._parent_select_query(inner_select))
+    def transform_breakdowns_for_query_orchestration(self, breakdown_aliases: list[ast.Alias]):
+        if not self.is_first_time_ever_math():
+            return breakdown_aliases
 
-        class QueryOrchestrator:
-            events_query_builder: QueryAlternator
-            inner_select_query_builder: QueryAlternator
-            parent_select_query_builder: QueryAlternator
+        transformed_aliases: list[ast.Alias] = []
+        for alias in breakdown_aliases:
+            transformed_aliases.append(
+                ast.Alias(
+                    expr=ast.Call(
+                        name="argMin",
+                        args=[
+                            alias.expr,
+                            ast.Field(chain=["timestamp"]),
+                        ],
+                    ),
+                    alias=alias.alias,
+                )
+            )
+        return transformed_aliases
 
-            def __init__(self):
-                self.events_query_builder = QueryAlternator(events_query)
-                self.inner_select_query_builder = QueryAlternator(inner_select)
-                self.parent_select_query_builder = QueryAlternator(parent_select)
+    def _first_time_parent_select_query(self, inner_query: ast.SelectQuery):
+        # SELECT
+        #     count() AS total,
+        #     toStartOfDay(min_timestamp) as day_start,
+        #     breakdown_value
+        # FROM (from)
+        # GROUP BY
+        #     day_start,
+        #     breakdown_value
+        start_date = parse_expr(
+            "min_timestamp >= {date_from_with_adjusted_start_of_interval}",
+            placeholders=self.query_date_range.to_placeholders(),
+        )
 
-            def build(self):
-                self.events_query_builder.build()
-                self.inner_select_query_builder.build()
-                self.parent_select_query_builder.build()
-
-                return parent_select
-
-        return QueryOrchestrator()
-
-    def get_first_time_ever_filter(self, table_expr: ast.JoinExpr, event_filter: ast.Expr | None = None):
+        aggregation_type = self.select_aggregation()
         query = ast.SelectQuery(
             select=[
-                ast.Call(
-                    name="argMin",
-                    args=[
-                        ast.Field(chain=["uuid"]),
-                        ast.Field(chain=["timestamp"]),
-                    ],
-                )
+                ast.Alias(expr=aggregation_type, alias="total"),
+                ast.Alias(
+                    expr=ast.Call(
+                        name="toStartOfDay",
+                        args=[ast.Field(chain=["min_timestamp"])],
+                    ),
+                    alias="day_start",
+                ),
             ],
-            select_from=table_expr,
-            where=event_filter,
-            group_by=[ast.Field(chain=["distinct_id" if self.team.aggregate_users_by_distinct_id else "person_id"])],
+            select_from=ast.JoinExpr(table=inner_query),
+            where=start_date,
+            group_by=[ast.Field(chain=["day_start"])],
         )
+        return query
 
-        return ast.CompareOperation(
-            left=ast.Field(chain=["uuid"]),
-            op=ast.CompareOperationOp.In,
-            right=query,
+    def _first_time_inner_select_query(self, events_query: ast.SelectQuery):
+        # SELECT
+        #     min(timestamp) as min_timestamp,
+        #     argMin(breakdown_value, timestamp) AS breakdown_value,
+        # FROM
+        #     {from}
+        # WHERE
+        #     greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-16 00:00:00'))))
+        # GROUP BY
+        #     person_id
+
+        query = ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    expr=ast.Call(
+                        name="min",
+                        args=[ast.Field(chain=["timestamp"])],
+                    ),
+                    alias="min_timestamp",
+                ),
+            ],
+            select_from=ast.JoinExpr(table=events_query),
+            group_by=[ast.Field(chain=["person_id"])],
         )
+        return query
+
+    def _first_time_events_query(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
+        # SELECT
+        #         person_id,
+        #         timestamp,
+        #         ifNull(nullIf(toString(person.properties.email), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+        #     FROM
+        #         events AS e SAMPLE 1
+        #     WHERE
+        #         and(lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-23 23:59:59'))), equals(properties.$browser, 'Safari'))
+        # First time events happened after the right boundary don't matter to this math type.
+        end_date = parse_expr("timestamp <= {date_to}", placeholders=self.query_date_range.to_placeholders())
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=["person_id"]), ast.Field(chain=["timestamp"])],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]), alias="e", sample=ast.SampleExpr(sample_value=sample_value)
+            ),
+            where=ast.And(exprs=[events_where_clause, end_date]),
+        )
+        return query
+
+    def get_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
+        if self.is_first_time_ever_math():
+            events_query = cast(ast.SelectQuery, self._first_time_events_query(events_where_clause, sample_value))
+            inner_select = cast(ast.SelectQuery, self._first_time_inner_select_query(events_query))
+            parent_select = cast(ast.SelectQuery, self._first_time_parent_select_query(inner_select))
+        else:
+            events_query = cast(ast.SelectQuery, self._actors_events_query(events_where_clause, sample_value))
+            inner_select = cast(ast.SelectQuery, self._actors_inner_select_query(events_query))
+            parent_select = cast(ast.SelectQuery, self._actors_parent_select_query(inner_select))
+
+        return QueryOrchestrator(events_query, inner_select, parent_select)

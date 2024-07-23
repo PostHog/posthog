@@ -1,6 +1,5 @@
 from typing import Optional, cast
 
-
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
@@ -13,8 +12,8 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_OTHER_STRING_LABEL,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
@@ -23,14 +22,14 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
+from posthog.schema import ActionsNode
+from posthog.schema import Breakdown as BreakdownSchema
 from posthog.schema import (
-    ActionsNode,
     ChartDisplayType,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
-    Breakdown as BreakdownSchema,
 )
 
 
@@ -159,27 +158,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             actors_query_time_frame=actors_query_time_frame,
         )
 
-        table_expr = ast.JoinExpr(
-            table=self._table_expr,
-            alias="e",
-            sample=(
-                ast.SampleExpr(sample_value=self._sample_value())
-                if not isinstance(self.series, DataWarehouseNode)
-                else None
-            ),
-        )
-
-        if self._aggregation_operation.is_first_time_ever_math():
-            events_filter = ast.And(
-                exprs=[
-                    events_filter,
-                    self._aggregation_operation.get_first_time_ever_filter(table_expr, self._event_name()),
-                ]
-            )
-
         default_query = ast.SelectQuery(
             select=[ast.Alias(alias="total", expr=self._aggregation_operation.select_aggregation())],
-            select_from=table_expr,
+            select_from=ast.JoinExpr(
+                table=self._table_expr,
+                alias="e",
+                sample=(
+                    ast.SampleExpr(sample_value=self._sample_value())
+                    if not isinstance(self.series, DataWarehouseNode)
+                    else None
+                ),
+            ),
             where=events_filter,
             group_by=[],
         )
@@ -223,17 +212,20 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             )
 
             orchestrator.events_query_builder.extend_select(breakdown.column_exprs)
-            orchestrator.events_query_builder.extend_group_by(breakdown.field_exprs)
+            orchestrator.inner_select_query_builder.extend_select(
+                self._aggregation_operation.transform_breakdowns_for_query_orchestration(breakdown.alias_exprs)
+            )
 
-            orchestrator.inner_select_query_builder.extend_select(breakdown.alias_exprs)
-            orchestrator.inner_select_query_builder.extend_group_by(breakdown.field_exprs)
+            if not self._aggregation_operation.is_first_time_ever_math():
+                orchestrator.events_query_builder.extend_group_by(breakdown.field_exprs)
+                orchestrator.inner_select_query_builder.extend_group_by(breakdown.field_exprs)
 
             orchestrator.parent_select_query_builder.extend_select(breakdown.alias_exprs)
 
             if (
                 self._aggregation_operation.is_total_value
                 and not self._aggregation_operation.is_count_per_actor_variant()
-            ):
+            ) or self._aggregation_operation.is_first_time_ever_math():
                 orchestrator.parent_select_query_builder.extend_group_by(breakdown.field_exprs)
 
             return orchestrator.build()
@@ -670,11 +662,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ]
             )
 
-        # Series
-        if not self._aggregation_operation.is_first_time_ever_math():
-            event_name = self._event_name()
-            if event_name is not None:
-                filters.append(event_name)
+        # Filter by event name
+        event_name = self._event_name()
+        if event_name is not None:
+            filters.append(event_name)
 
         # Filter Test Accounts
         if (
@@ -725,8 +716,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return ast.And(exprs=filters)
 
     def _event_name(self) -> ast.Expr | None:
+        # Series
         if series_event_name(self.series) is None:
             return None
+
         return parse_expr(
             "event = {event}",
             placeholders={"event": ast.Constant(value=series_event_name(self.series))},
