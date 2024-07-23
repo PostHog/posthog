@@ -1,5 +1,5 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect, LemonSkeleton, Popover, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
@@ -118,9 +118,8 @@ function AppMetricsTotals(): JSX.Element {
 function AppMetricsGraph(): JSX.Element {
     const { appMetrics, appMetricsLoading } = useValues(pipelineNodeMetricsV2Logic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
-    const tooltipRef = useRef<HTMLDivElement | null>(null)
+    const [tooltipState, setTooltipState] = useState({ x: 0, y: 0, visible: false })
 
     useEffect(() => {
         let chart: Chart
@@ -161,7 +160,6 @@ function AppMetricsGraph(): JSX.Element {
                         tooltip: {
                             enabled: false, // Using external tooltip
                             external({ tooltip, chart }) {
-                                setIsTooltipShown(tooltip.opacity > 0)
                                 setPopoverContent(
                                     <InsightTooltip
                                         embedded
@@ -181,11 +179,12 @@ function AppMetricsGraph(): JSX.Element {
                                     />
                                 )
 
-                                if (tooltipRef.current) {
-                                    const position = chart.canvas.getBoundingClientRect()
-                                    tooltipRef.current.style.left = position.left + tooltip.caretX + 'px'
-                                    tooltipRef.current.style.top = position.top + tooltip.caretY + 'px'
-                                }
+                                const position = chart.canvas.getBoundingClientRect()
+                                setTooltipState({
+                                    x: position.left + tooltip.caretX,
+                                    y: position.top + tooltip.caretY,
+                                    visible: tooltip.opacity > 0,
+                                })
                             },
                         },
                     },
@@ -203,14 +202,19 @@ function AppMetricsGraph(): JSX.Element {
             }
         }
     }, [appMetrics])
-
     return (
         <div className="relative border rounded p-6 bg-bg-light h-[50vh]">
             {appMetricsLoading && <SpinnerOverlay />}
             {!!appMetrics && <canvas ref={canvasRef} />}
-            <Popover visible={isTooltipShown} overlay={popoverContent} placement="top" padded={false}>
-                <div className="fixed" ref={tooltipRef} />
-            </Popover>
+            {tooltipState.visible ? (
+                <div
+                    className="fixed pointer-events-none z-50 border shadow-lg rounded overflow-hidden transition-all"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ left: tooltipState.x, top: tooltipState.y }}
+                >
+                    {popoverContent}
+                </div>
+            ) : null}
         </div>
     )
 }
