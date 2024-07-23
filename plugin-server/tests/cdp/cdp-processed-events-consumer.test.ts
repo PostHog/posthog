@@ -183,7 +183,6 @@ describe('CDP Processed Events Consuner', () => {
                     app_source: 'hog_function',
                     team_id: 2,
                     app_source_id: hogFunction.id,
-                    instance_id: expect.any(String),
                     metric_kind: 'success',
                     metric_name: 'succeeded',
                     count: 1,
