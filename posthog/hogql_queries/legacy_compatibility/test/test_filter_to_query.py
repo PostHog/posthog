@@ -1677,7 +1677,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query, TrendsQuery)
+        assert isinstance(query, FunnelsQuery)
         self.assertEqual(
             query.breakdownFilter,
             BreakdownFilter(
@@ -1696,7 +1696,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query, TrendsQuery)
+        assert isinstance(query, FunnelsQuery)
         self.assertEqual(
             query.breakdownFilter,
             BreakdownFilter(
