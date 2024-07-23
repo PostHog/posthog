@@ -1,6 +1,7 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconPerson } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -13,6 +14,7 @@ import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
+import { ErrorTrackingActions } from './ErrorTrackingActions'
 import { errorTrackingDataLogic } from './errorTrackingDataLogic'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -47,8 +49,10 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <BindLogic logic={errorTrackingDataLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
-            <div className="space-y-4">
+            <div className="space-y-2">
                 <ErrorTrackingFilters />
+                <LemonDivider />
+                <ErrorTrackingActions />
                 <Query query={query} context={context} />
             </div>
         </BindLogic>
@@ -77,23 +81,42 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
+    const { selectedRows } = useValues(errorTrackingSceneLogic)
+    const { setSelectedRows } = useActions(errorTrackingSceneLogic)
+
     const record = props.record as ErrorTrackingGroup
 
+    const checked = selectedRows.includes(record.fingerprint)
+
     return (
-        <LemonTableLink
-            title={record.fingerprint}
-            description={
-                <div className="space-y-1">
-                    <div className="line-clamp-1">{record.description}</div>
-                    <div className="space-x-1">
-                        <TZLabel time={record.first_seen} className="border-dotted border-b" />
-                        <span>|</span>
-                        <TZLabel time={record.last_seen} className="border-dotted border-b" />
+        <div className="flex items-start space-x-1.5 group">
+            <LemonCheckbox
+                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                checked={checked}
+                onChange={(checked) => {
+                    setSelectedRows(
+                        checked
+                            ? [...selectedRows, record.fingerprint]
+                            : selectedRows.filter((r) => r != record.fingerprint)
+                    )
+                }}
+            />
+            <LemonTableLink
+                title={record.fingerprint}
+                description={
+                    <div className="space-y-1">
+                        <div className="line-clamp-1">{record.description}</div>
+                        <div className="space-x-1">
+                            <TZLabel time={record.first_seen} className="border-dotted border-b" />
+                            <span>|</span>
+                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                        </div>
                     </div>
-                </div>
-            }
-            to={urls.errorTrackingGroup(record.fingerprint)}
-        />
+                }
+                className="flex-1"
+                to={urls.errorTrackingGroup(record.fingerprint)}
+            />
+        </div>
     )
 }
 
