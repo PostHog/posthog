@@ -185,8 +185,8 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         <LemonField name="name" label="Destination">
                             <LemonInput placeholder="What destination would you like to see?" autoFocus />
                         </LemonField>
-                        <LemonField name="details" label="Other information" showOptional>
-                            <LemonTextArea placeholder="(Optional) Any extra details about what you would want to send to this destination" />
+                        <LemonField name="details" label="Additional information" showOptional>
+                            <LemonTextArea placeholder="Any extra details about what you would need this destination to do or your overall goal" />
                         </LemonField>
                     </div>
                 ),
