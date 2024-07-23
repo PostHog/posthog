@@ -637,7 +637,7 @@ const handleQuerySourceUpdateSideEffects = (
             (mergedUpdate as TrendsQuery).interval !== interval
         ) {
             ;(mergedUpdate as TrendsQuery).trendsFilter = {
-                ...(mergedUpdate as TrendsQuery).trendsFilter,
+                ...(currentState as TrendsQuery).trendsFilter,
                 smoothingIntervals: undefined,
             }
         }

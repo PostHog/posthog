@@ -8,11 +8,13 @@ from enum import StrEnum
 from typing import Optional
 
 import aiohttp
+import structlog
 from django.core.management.base import BaseCommand
 
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 
 VALID_ENTRY_RE = re.compile(r"^[ a-z0-9.+_-]+$")
+logger = structlog.get_logger(__name__)
 
 # when we search for apps we use .well-known files, but companies usually include their dev apps in that list, so use this list to try to filter them out
 DEV_APP_STRINGS = [
@@ -151,7 +153,7 @@ class Command(BaseCommand):
             # from https://en.wikipedia.org/wiki/List_of_search_engines
             "www.ask.com",
             "search.brave.com",
-            # Baidu is included already
+            "www.baidu.com",
             "www.dogpile.com",
             "duckduckgo.com",
             "www.ecosia.org",
@@ -172,10 +174,11 @@ class Command(BaseCommand):
             # Yahoo already included
             # Yandex already included
             "you.com",
-            # some other popular search engines
+            # some other popular search engines and search engines used by our customers' users
             "www.kiddle.co",
             "www.egerin.com",
             "presearch.io",
+            "presearch.com",
             "perplexity.ai",
             "m.search.naver.com",
             "yep.com",
@@ -186,8 +189,60 @@ class Command(BaseCommand):
             "coccoc.com",
             "so.com",
             "seznam.cz",
+            "www.onesearch.com",
+            "www.searchlock.com",
+            "crowdsearch.net",
+            "tusksearch.com",
+            "search.lilo.org",
+            "www.juniorsafesearch.com",
+            "my-web-search.com",
+            "search.xyz",
+            "www.junosearch.net",
+            "search.aol.com",
+            "www.kidzsearch.com",
+            "directsearch.io",
+            "search-results-now.com"
+            # this showed up for some customers and after some head scratching, rot13(tbbtyf) = googls
+            # I also googled this and most of the results were people asking what this was
+            "tbbtyf",
         ):
             entries[(search_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
+
+        # add social domains
+        for social_domain in (
+            "bsky.app",
+            # we're never going to include all mastodon instances, but grab a few popular ones and a few tech ones
+            "mastodon.social",
+            "mstdn.jp",
+            "mastodon.cloud",
+            "mastodon.world",
+            "mstdn.social",
+            "mastodon.online",
+            "fosstodon.org",
+            "techhub.social",
+            "infosec.exchange",
+            "hachyderm.io",
+            "masto.ai",
+            # threads
+            "www.threads.net",
+            # telegram
+            "web.telegram.org",
+            "t.me",
+            # discord
+            "discord.com",
+            "discordapp.gg",
+        ):
+            entries[(social_domain, EntryKind.source)] = SourceEntry("Social", "Paid Social", "Organic Social")
+
+        for email_domain in (
+            "outlook.live.com",
+            "mail.google.com",
+            "mail.yahoo.com",
+            "mail.aol.com",
+            "mail.aol.co.uk",
+            "mail.proton.me",
+        ):
+            entries[(email_domain, EntryKind.source)] = SourceEntry("Email", None, "Email")
 
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
@@ -205,7 +260,7 @@ class Command(BaseCommand):
             entries[video_medium, EntryKind.medium] = SourceEntry(None, "Paid Video", "Organic Video")
         for referral_medium in ("referral", "app", "link"):
             entries[referral_medium, EntryKind.medium] = SourceEntry(None, None, "Referral")
-        for affiliate_medium in ("affiliate",):
+        for affiliate_medium in ("affiliate", "partnership", "partnerships"):
             entries[affiliate_medium, EntryKind.medium] = SourceEntry(None, None, "Affiliate")
         for audio_medium in ("audio",):
             entries[audio_medium, EntryKind.medium] = SourceEntry(None, None, "Audio")
@@ -266,7 +321,7 @@ class Command(BaseCommand):
 
         # add some well-known mobile apps
         # - google play: find package ids with the play store search
-        # - ios: find bundle ids with offcornerdev.com/bundleid.html
+        # - ios: find bundle ids with https://offcornerdev.com/bundleid.html
         for app in (
             # linkedin
             "com.linkedin.android",
@@ -303,6 +358,10 @@ class Command(BaseCommand):
             "com.yahoo.mobile.client.android.flickr",
             "com.flickr.android",
             "com.yahoo.mobile.client.android.fantasyfootball",
+            # telegram
+            "org.telegram.messenger",
+            "org.telegram.messenger.web",
+            "ph.telegra.Telegraph",
         ):
             entries[app.lower(), EntryKind.source] = SourceEntry(
                 "Social", "Paid Social", "Organic Social", is_reverse_dns=True
@@ -334,6 +393,47 @@ class Command(BaseCommand):
             entries[app.lower(), EntryKind.source] = SourceEntry(
                 "Search", "Paid Search", "Organic Search", is_reverse_dns=True
             )
+
+        for app in (
+            # apple
+            "com.apple.mobilemail",
+            # gmail
+            "com.google.android.gm",
+            "com.google.android.gm.lite",
+            "com.google.Gmail",
+            # superhuman
+            "com.superhuman.mail",
+            "com.superhuman.Superhuman",
+            # outlook
+            "com.microsoft.office.outlook",
+            "com.microsoft.outlooklite",
+            "com.microsoft.Office.Outlook",
+            # yahoo
+            "com.yahoo.mobile.client.android.mail",
+            "com.yahoo.Aerogram",
+            # samsung
+            "com.samsung.android.email.provider",
+            # edison
+            "com.easilydo.mail",
+            # protonmail
+            "ch.protonmail.android",
+            "ch.protonmail.protonmail",
+            # bluemail
+            "me.bluemail.mail",
+            # aqua
+            "org.kman.AquaMail",
+            # aol
+            "com.aol.mobile.aolapp",
+            # mail.ru
+            "ru.mail.mailapp",
+            "ru.mail.mail",
+            # yandex
+            "ru.yandex.mail",
+            # spike
+            "com.pingapp.app",
+            "com.readdle.smartemail",
+        ):
+            entries[app.lower(), EntryKind.source] = SourceEntry("Email", None, "Email", is_reverse_dns=True)
 
         # add without www. for all entries
         without_www = {
@@ -387,16 +487,23 @@ async def parallel_lookup_up_apple_apps(url_entries):
         except:
             # If we get an error, ignore it. The domain might not have an applinks file, and may not even exist at all,
             # it just means that we won't be able to get any bundle ids from it.
-            pass
+            return
         app_ids = []
         if not isinstance(body, dict):
             return
         for app in body.get("applinks", {}).get("details", []):
+            if not isinstance(app, dict):
+                logger.info("Unexpected shape for app, expected dict", app)
+                continue
             app_id = app.get("appID")
-            if app_id:
-                bundle_id = app_id.split(".", 1)[1].lower()
-                if VALID_ENTRY_RE.match(bundle_id):
-                    app_ids.append(bundle_id)
+            try:
+                if app_id:
+                    bundle_id = app_id.split(".", 1)[1].lower()
+                    if VALID_ENTRY_RE.match(bundle_id):
+                        app_ids.append(bundle_id)
+            except IndexError:
+                logger.info("Failed to parse applinks appID", app_id)
+                pass
         return app_ids, entry
 
     async with aiohttp.ClientSession(read_timeout=60, conn_timeout=60) as session:

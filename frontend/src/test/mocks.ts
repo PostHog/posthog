@@ -219,7 +219,7 @@ export const mockIntegration: IntegrationType = {
         },
     },
     icon_url: '',
-    name: '',
+    display_name: '',
     created_at: '2022-01-01T00:09:00',
     created_by: mockBasicUser,
 }

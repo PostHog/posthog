@@ -88,6 +88,10 @@ async def validate_schema_and_update_table(
 
     logger = await bind_temporal_worker_logger(team_id=team_id)
 
+    if row_count == 0:
+        logger.warn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
+        return
+
     job: ExternalDataJob = await get_external_data_job(job_id=run_id)
 
     credential: DataWarehouseCredential = await get_or_create_datawarehouse_credential(
