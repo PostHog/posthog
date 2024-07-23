@@ -16,6 +16,7 @@ from dlt.sources.credentials import ConnectionStringCredentials
 from urllib.parse import quote
 
 from posthog.warehouse.types import IncrementalFieldType
+from sqlalchemy.sql import text
 
 from .helpers import (
     table_rows,
@@ -150,13 +151,12 @@ def sql_database(
 
 def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[str, TColumnSchema]:
     with engine.connect() as conn:
-        execute_result: CursorResult | None = conn.execute(
-            "SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = %(schema_name)s AND table_name = %(table_name)s",
+        execute_result: CursorResult = conn.execute(
+            text(
+                "SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = :schema_name AND table_name = :table_name"
+            ),
             {"schema_name": schema_name, "table_name": table_name},
         )
-
-        if execute_result is None:
-            return {}
 
         cursor_result = cast(CursorResult, execute_result)
         results = cursor_result.fetchall()
