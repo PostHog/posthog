@@ -379,9 +379,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             instance.targeting_flag.save()
 
         iteration_count = validated_data.get("iteration_count")
-        if iteration_count is None:
-            iteration_count = 0
-
         if (
             instance.current_iteration is not None
             and iteration_count is not None

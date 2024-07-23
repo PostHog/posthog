@@ -2346,7 +2346,7 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Cannot change survey recurrence to 1, should be at least 2"
 
-    def test_can_set_recurrence_if_previously_disabled(self):
+    def test_guards_for_nil_iteration_count(self):
         survey = self._create_recurring_survey()
         survey.current_iteration = 2
         survey.save()
@@ -2356,24 +2356,7 @@ class TestSurveysRecurringIterations(APIBaseTest):
                 "start_date": datetime.now() - timedelta(days=1),
             },
         )
-        response_data = response.json()
-        survey.refresh_from_db()
-        survey.current_iteration = 2
-        survey.save()
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
-            data={
-                "start_date": datetime.now() - timedelta(days=1),
-                "iteration_count": 2,
-                "iteration_frequency_days": 30,
-            },
-        )
-
         assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-        assert response_data["iteration_start_dates"] is not None
-        assert len(response_data["iteration_start_dates"]) == 2
-        assert response_data["current_iteration"] == 1
 
     def test_can_turn_off_recurring_schedule(self):
         survey = self._create_recurring_survey()
