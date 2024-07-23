@@ -111,6 +111,6 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
         return str(run.id), schema_model.is_incremental
     except Exception as e:
         logger.exception(
-            f"External data job failed on create_external_data_job_model_activity for {inputs.external_data_source_id} with error: {e}"
+            f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"
         )
         raise

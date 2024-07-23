@@ -78,6 +78,14 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         width = context.columns[key].width
     }
 
+    if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
+        const Component = queryContextColumn.renderTitle
+        title = Component ? <Component columnName={queryContextColumnName} query={query} /> : queryContextColumn.title
+    } else if (context?.columns?.[key]?.title || context?.columns?.[key]?.renderTitle) {
+        const Component = context?.columns?.[key]?.renderTitle
+        title = Component ? <Component columnName={key} query={query} /> : context?.columns?.[key]?.title
+    }
+
     if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && !query.allowSorting) {
         const sortKey = queryFeatures.has(QueryFeature.selectAndOrderByColumns)
             ? (query.source as EventsQuery)?.orderBy?.[0]
