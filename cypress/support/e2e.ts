@@ -30,6 +30,7 @@ beforeEach(() => {
 
     Cypress.env('E2E_SAML_LOGIN_EMAIL', process.env.E2E_SAML_LOGIN_EMAIL)
     Cypress.env('E2E_SAML_LOGIN_PASSWORD', process.env.E2E_SAML_LOGIN_PASSWORD)
+    Cypress.env('E2E_SAML_ACS_URL', process.env.E2E_SAML_ACS_URL)
 
     cy.useSubscriptionStatus('subscribed')
 

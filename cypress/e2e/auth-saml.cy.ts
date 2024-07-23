@@ -14,7 +14,7 @@ describe('SAML Auth', () => {
         cy.get('[data-attr=password]').should('not.be.visible')
         cy.get('button[data-attr=sso-login]').should('have.text', 'Log in with Single sign-on (SAML)').click()
 
-        cy.origin('https://trial-4372086.okta.com/app/trial-4372086_posthogdev_1/exkfso4f5a5yoH2u9697/sso/saml', () => {
+        cy.origin(Cypress.env('E2E_SAML_ACS_URL'), () => {
             cy.get('input[name=identifier]')
                 .type(Cypress.env('E2E_SAML_LOGIN_EMAIL'))
                 .should('have.value', Cypress.env('E2E_SAML_LOGIN_EMAIL'))
