@@ -223,6 +223,7 @@ KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bo
 KAFKA_PRODUCER_SETTINGS = {
     key: value
     for key, value in {
+        "client_id": get_from_env("KAFKA_PRODUCER_CLIENT_ID", optional=True),
         "metadata_max_age_ms": get_from_env("KAFKA_PRODUCER_METADATA_MAX_AGE_MS", optional=True, type_cast=int),
         "batch_size": get_from_env("KAFKA_PRODUCER_BATCH_SIZE", optional=True, type_cast=int),
         "max_request_size": get_from_env("KAFKA_PRODUCER_MAX_REQUEST_SIZE", optional=True, type_cast=int),

@@ -53,8 +53,8 @@ export function DataWarehouseSourceSettingsScene(): JSX.Element {
         <div>
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.dataWarehouseSettings(parentSettingsTab)}>
-                        Cancel
+                    <LemonButton type="primary" to={urls.dataWarehouse(parentSettingsTab)}>
+                        Return to sources
                     </LemonButton>
                 }
             />

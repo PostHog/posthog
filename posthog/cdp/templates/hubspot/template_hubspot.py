@@ -45,7 +45,7 @@ if (res.status == 409) {
     }
     print('Contact updated successfully!')
     return
-} else if (res.status != 200 or res.body.status == 'error') {
+} else if (res.status >= 300 or res.body.status == 'error') {
     print('Error creating contact:', res.body)
     return
 } else {
