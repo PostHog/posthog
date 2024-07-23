@@ -344,8 +344,9 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         schema_id=str(schema.pk),
         team_id=team.id,
     )
+    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
+        await activity_environment.run(update_external_data_job_model, inputs)
 
-    await activity_environment.run(update_external_data_job_model, inputs)
     await sync_to_async(new_job.refresh_from_db)()
     await sync_to_async(schema.refresh_from_db)()
 
