@@ -91,7 +91,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
-            settings={"max_query_size": MAX_QUERY_SIZE},
+            settings={"max_query_size": MAX_QUERY_SIZE, "max_execution_time": 30 * 60},
         )
         return {tuple(row) for row in clickhouse_result}
 
