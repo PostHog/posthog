@@ -22,15 +22,15 @@ class TestErrorTracking(BaseTest):
         )
 
         matching_groups = ErrorTrackingGroup.objects.filter(fingerprint__in=["first_error", "second_error"])
-        assert len(matching_groups) == 2
+        assert matching_groups.count() == 2
 
         matching_groups = ErrorTrackingGroup.objects.filter(merged_fingerprints__contains=["previously_merged"])
-        assert len(matching_groups) == 1
+        assert matching_groups.count() == 1
 
         matching_groups = ErrorTrackingGroup.filter_fingerprints(
             queryset=ErrorTrackingGroup.objects, fingerprints=["first_error", "previously_merged"]
         )
-        assert len(matching_groups) == 2
+        assert matching_groups.count() == 2
 
     def test_merge(self):
         root_group = ErrorTrackingGroup.objects.create(
@@ -59,4 +59,4 @@ class TestErrorTracking(BaseTest):
         ]
 
         # deletes the old groups
-        assert len(ErrorTrackingGroup.objects.filter(fingerprint="new_fingerprint")) == 0
+        assert ErrorTrackingGroup.objects.count() == 1
