@@ -3,7 +3,7 @@ from typing import Optional
 from django.db import models
 import snowflake.connector
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
+from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
 import psycopg2
 import pymysql
@@ -19,7 +19,7 @@ from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
 
 
-class ExternalDataSchema(CreatedMetaFields, UUIDModel):
+class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"

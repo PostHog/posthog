@@ -2,7 +2,7 @@ import encrypted_fields
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
+from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 from posthog.warehouse.util import database_sync_to_async
 from uuid import UUID
 
@@ -12,7 +12,7 @@ import temporalio
 logger = structlog.get_logger(__name__)
 
 
-class ExternalDataSource(CreatedMetaFields, UUIDModel):
+class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class Type(models.TextChoices):
         STRIPE = "Stripe", "Stripe"
         HUBSPOT = "Hubspot", "Hubspot"
