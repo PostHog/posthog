@@ -4190,7 +4190,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-            BreakdownFilter(breakdowns=[Breakdown(value="prop", type=BreakdownType.EVENT, histogram_bin_count=2)]),
+            BreakdownFilter(breakdowns=[Breakdown(property="prop", type=BreakdownType.EVENT, histogram_bin_count=2)]),
         )
 
         assert len(response.results) == 2
