@@ -88,7 +88,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
-        elif self.series.math == "total" or self.series.math == "first_time_ever":
+        elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")
         elif self.series.math == "dau":
             actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
@@ -130,7 +130,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         math_to_return_true = [
             "weekly_active",
             "monthly_active",
-            "first_time_ever",
+            "first_time_for_user",
         ]
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
@@ -153,7 +153,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return self.series.math in ["weekly_active", "monthly_active"]
 
     def is_first_time_ever_math(self):
-        return self.series.math == "first_time_ever"
+        return self.series.math == "first_time_for_user"
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
