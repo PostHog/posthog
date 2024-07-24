@@ -41,13 +41,6 @@
         }
     }
 
-    /** :HACKY: Fix height for exported insights */
-    .ExportedInsight & {
-        position: absolute;
-        right: 0;
-        left: 0;
-    }
-
     .InsightVizDisplay__content {
         position: relative;
         display: flex;
