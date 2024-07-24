@@ -121,7 +121,7 @@ export const PlanComparison = ({
     const fullyFeaturedPlan = plans[plans.length - 1]
     const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { reportBillingUpgradeClicked, reportBillingDowngradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey, billingProductLoading } = useValues(
         billingProductLogic({ product })
