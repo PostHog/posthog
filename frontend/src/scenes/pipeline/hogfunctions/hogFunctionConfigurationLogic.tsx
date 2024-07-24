@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -183,6 +184,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const res = props.id
                         ? await api.hogFunctions.update(props.id, configuration)
                         : await api.hogFunctions.create(configuration)
+
+                    posthog.capture('hog function saved', {
+                        id: res.id,
+                        template_id: res.template?.id,
+                        template_name: res.template?.name,
+                    })
 
                     lemonToast.success('Configuration saved')
 
