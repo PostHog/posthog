@@ -135,11 +135,12 @@ def bulk_create_events(
         # Format for ClickHouse
         timestamp = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
 
-        elements_chain = ""
         if event.get("elements_chain"):
             elements_chain = event.get("elements_chain")
         elif event.get("elements") and len(event["elements"]) > 0:
             elements_chain = elements_to_string(elements=event.get("elements"))  # type: ignore
+        else:
+            elements_chain = ""
 
         inserts.append(
             """(
