@@ -95,16 +95,16 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         category: MathCategory.SessionCount,
     },
     [BaseMathType.FirstTimeEver]: {
-        name: 'First time ever',
+        name: 'First time for user',
         shortName: 'first time ever',
         description: (
             <>
-                Count the event if a user does it for a first time ever.
+                Only count events if users do it for the first time.
                 <br />
                 <br />
                 <i>
-                    Example: If a single user performs an event for the first time ever in a given period, it counts as
-                    1. Subsequent events by the same user will not be counted.
+                    Example: If a single user performs an event for the first time ever within a given period, it counts
+                    as 1. Subsequent events by the same user will not be counted.
                 </i>
             </>
         ),
