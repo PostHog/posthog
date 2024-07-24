@@ -20,7 +20,7 @@ class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
 
 
 class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    scope_object = "error_tracking_group"
+    scope_object = "INTERNAL"
     queryset = ErrorTrackingGroup.objects.all()
     serializer_class = ErrorTrackingGroupSerializer
 
