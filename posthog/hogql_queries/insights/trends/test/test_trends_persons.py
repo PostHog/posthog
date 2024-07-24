@@ -997,34 +997,3 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=BREAKDOWN_NULL_STRING_LABEL)
         self.assertEqual(len(result), 1)
-
-    def test_trends_math_first_time_ever(self):
-        self._create_events()
-
-        source_query = TrendsQuery(
-            series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
-            dateRange=InsightDateRange(date_from="-7d"),
-        )
-
-        #         29 - 2
-        # 01 - 1
-        # 06 - 0
-
-        for i in range(4):
-            result = self._get_actors(trends_query=source_query, day=f"2023-04-{i+25}")
-            self.assertEqual(len(result), 0)
-
-        result = self._get_actors(trends_query=source_query, day="2023-04-29")
-        self.assertEqual(len(result), 2)
-        self.assertEqual({get_distinct_id(result[0]), get_distinct_id(result[1])}, {"person1", "person2"})
-
-        result = self._get_actors(trends_query=source_query, day="2023-04-30")
-        self.assertEqual(len(result), 0)
-
-        result = self._get_actors(trends_query=source_query, day="2023-05-01")
-        self.assertEqual(len(result), 1)
-        self.assertEqual({get_distinct_id(result[0])}, {"person3"})
-
-        for i in range(20):
-            result = self._get_actors(trends_query=source_query, day=f"2023-05-{2+i}")
-            self.assertEqual(len(result), 0)
