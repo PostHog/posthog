@@ -44,7 +44,6 @@ def get_materialized_columns(
         WHERE database = %(database)s
           AND table = %(table)s
           AND comment LIKE '%%column_materializer::%%'
-          AND comment not LIKE '%%column_materializer::elements_chain::%%'
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )

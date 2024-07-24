@@ -102,8 +102,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
-    elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
-        from posthog.temporal.data_imports.pipelines.sql_database import postgres_source
+    elif model.pipeline.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
         host = model.pipeline.job_inputs.get("host")
         port = model.pipeline.job_inputs.get("port")
@@ -137,7 +137,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
 
-                source = postgres_source(
+                source = sql_source_for_type(
+                    source_type=model.pipeline.source_type,
                     host=tunnel.local_bind_host,
                     port=tunnel.local_bind_port,
                     user=user,
@@ -163,7 +164,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                     reset_pipeline=reset_pipeline,
                 )
 
-        source = postgres_source(
+        source = sql_source_for_type(
+            source_type=model.pipeline.source_type,
             host=host,
             port=port,
             user=user,
@@ -206,6 +208,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             warehouse=warehouse,
             role=role,
             table_names=endpoints,
+            incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+            if schema.is_incremental
+            else None,
         )
 
         return await _run(

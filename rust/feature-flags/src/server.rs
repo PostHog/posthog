@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 
 use crate::config::Config;
-
+use crate::database::PgClient;
 use crate::redis::RedisClient;
 use crate::router;
 
@@ -13,13 +13,25 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let redis_client =
-        Arc::new(RedisClient::new(config.redis_url).expect("failed to create redis client"));
+    let redis_client = match RedisClient::new(config.redis_url.clone()) {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            tracing::error!("Failed to create Redis client: {}", e);
+            return;
+        }
+    };
 
-    let app = router::router(redis_client);
+    let read_postgres_client = match PgClient::new_read_client(&config).await {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            tracing::error!("Failed to create read Postgres client: {}", e);
+            return;
+        }
+    };
 
-    // run our app with hyper
-    // `axum::Server` is a re-export of `hyper::Server`
+    // You can decide which client to pass to the router, or pass both if needed
+    let app = router::router(redis_client, read_postgres_client);
+
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
     axum::serve(
         listener,

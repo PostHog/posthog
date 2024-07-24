@@ -1,6 +1,6 @@
 from typing import Any
 
-from rest_framework import filters, request, response, serializers, status, viewsets
+from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -89,11 +89,17 @@ class TableSerializer(serializers.ModelSerializer):
         return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
 
     def create(self, validated_data):
-        validated_data["team_id"] = self.context["team_id"]
+        team_id = self.context["team_id"]
+
+        table_name_exists = DataWarehouseTable.objects.filter(team_id=team_id, name=validated_data["name"]).exists()
+        if table_name_exists:
+            raise exceptions.ValidationError("Table name already exists.")
+
+        validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
         if validated_data.get("credential"):
             validated_data["credential"] = DataWarehouseCredential.objects.create(
-                team_id=self.context["team_id"],
+                team_id=team_id,
                 access_key=validated_data["credential"]["access_key"],
                 access_secret=validated_data["credential"]["access_secret"],
             )
