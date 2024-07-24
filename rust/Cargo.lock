@@ -1049,10 +1049,12 @@ dependencies = [
  "serde-pickle",
  "serde_json",
  "sha1",
+ "sqlx",
  "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
