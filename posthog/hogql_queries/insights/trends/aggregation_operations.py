@@ -537,7 +537,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 self.inner_select_query_builder.build()
                 return self.parent_select_query_builder.build()
 
-        return QueryOrchestrator(events_query, inner_select, parent_select)
+        return QueryOrchestrator()
 
     def get_first_time_math_query_orchestrator(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr, event_name_filter: ast.Expr | None = None

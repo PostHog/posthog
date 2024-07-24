@@ -216,6 +216,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             )
 
             orchestrator.events_query_builder.extend_select(breakdown.column_exprs)
+            orchestrator.events_query_builder.extend_group_by(breakdown.field_exprs)
+
             orchestrator.inner_select_query_builder.extend_select(breakdown.alias_exprs)
             orchestrator.inner_select_query_builder.extend_group_by(breakdown.field_exprs)
 
