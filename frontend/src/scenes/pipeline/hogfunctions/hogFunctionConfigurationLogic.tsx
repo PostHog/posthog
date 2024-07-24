@@ -304,6 +304,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         exampleInvocationGlobals: [
             (s) => [s.configuration, s.currentTeam, s.groupTypes],
             (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
+                const currentUrl = window.location.href.split('#')[0]
                 const globals: HogFunctionInvocationGlobals = {
                     event: {
                         uuid: uuid(),
@@ -312,7 +313,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         timestamp: dayjs().toISOString(),
                         url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                         properties: {
-                            $current_url: window.location.href,
+                            $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
                     },
@@ -332,7 +333,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                     source: {
                         name: configuration?.name ?? 'Unnamed',
-                        url: window.location.href,
+                        url: currentUrl,
                     },
                 }
 
