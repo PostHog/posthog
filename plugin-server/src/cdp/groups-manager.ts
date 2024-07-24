@@ -20,12 +20,25 @@ type Group = {
 export class GroupsManager {
     constructor(private hub: Hub) {}
 
+    private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {
+        const teamIds = await Promise.all(
+            teams.map(async (teamId) => {
+                if (await this.hub.organizationManager.hasAvailableFeature(teamId, 'group_analytics')) {
+                    return teamId
+                }
+            })
+        )
+
+        return teamIds.filter((x) => x !== undefined) as Team['id'][]
+    }
+
     private async fetchGroupTypesMapping(teams: Team['id'][]): Promise<GroupIndexByTeamType> {
-        // TODO: check for group analytics addon
+        const teamsWithGroupAnalytics = await this.filterTeamsWithGroups(teams)
+
         const result = await this.hub.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
-            [teams],
+            [teamsWithGroupAnalytics],
             'fetchGroupTypes'
         )
 
