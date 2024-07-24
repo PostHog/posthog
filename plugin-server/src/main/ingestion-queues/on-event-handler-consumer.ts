@@ -101,7 +101,8 @@ export const startAsyncWebhooksHandlerConsumer = async ({
                 hookCannon,
                 concurrency,
                 groupTypeManager,
-                organizationManager
+                organizationManager,
+                postgres
             ),
     })
 

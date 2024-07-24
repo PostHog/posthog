@@ -20,6 +20,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        waitForSelector: '.InsightCard',
     },
 }
 export default meta

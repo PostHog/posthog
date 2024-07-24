@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { InsightModel, InsightType } from '~/types'
+import { InsightModel, InsightType, QueryBasedInsightModel } from '~/types'
 
 import { INSIGHTS_PER_PAGE, InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 
@@ -198,24 +198,26 @@ describe('savedInsightsLogic', () => {
     })
 
     it('can duplicate and does not use derived name for name', async () => {
-        const sourceInsight = createInsight(123, 'hello')
+        const sourceInsight = createInsight(123, 'hello') as QueryBasedInsightModel
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
         await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: '' })
+            expect.objectContaining({ name: '' }),
+            expect.objectContaining({})
         )
     })
 
     it('can duplicate using name', async () => {
-        const sourceInsight = createInsight(123, 'hello')
+        const sourceInsight = createInsight(123, 'hello') as QueryBasedInsightModel
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
         await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: 'should be copied (copy)' })
+            expect.objectContaining({ name: 'should be copied (copy)' }),
+            expect.objectContaining({})
         )
     })
 

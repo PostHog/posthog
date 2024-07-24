@@ -24,10 +24,11 @@ from posthog.warehouse.data_load.service import (
     delete_data_import_folder,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
-    get_postgres_schemas,
     get_snowflake_schemas,
+    get_sql_schemas_for_source_type,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
@@ -253,7 +254,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         source: ExternalDataSource = instance.source
         incremental_columns: list[IncrementalField] = []
 
-        if source.source_type == ExternalDataSource.Type.POSTGRES:
+        if source.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
             # TODO(@Gilbert09): Move all this into a util and replace elsewhere
             host = source.job_inputs.get("host")
             port = source.job_inputs.get("port")
@@ -282,7 +283,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 private_key=ssh_tunnel_auth_type_private_key,
             )
 
-            pg_schemas = get_postgres_schemas(
+            db_schemas = get_sql_schemas_for_source_type(
+                source.source_type,
                 host=host,
                 port=port,
                 database=database,
@@ -292,10 +294,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 ssh_tunnel=ssh_tunnel,
             )
 
-            columns = pg_schemas.get(instance.name, [])
+            columns = db_schemas.get(instance.name, [])
+            if source.source_type == ExternalDataSource.Type.POSTGRES:
+                incremental_fields_func = filter_postgres_incremental_fields
+            else:
+                incremental_fields_func = filter_mysql_incremental_fields
+
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_postgres_incremental_fields(columns)
+                for name, field_type in incremental_fields_func(columns)
             ]
         elif source.source_type == ExternalDataSource.Type.SNOWFLAKE:
             # TODO(@Gilbert09): Move all this into a util and replace elsewhere

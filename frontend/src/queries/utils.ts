@@ -13,7 +13,6 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
-    ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -116,10 +115,6 @@ export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQu
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
-}
-
-export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
-    return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
@@ -452,3 +447,14 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
     return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
 }
 hogql.identifier = hogQlIdentifier
+
+/**
+ * Wether we have a valid `breakdownFilter` or not.
+ */
+export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is BreakdownFilter {
+    return !!(
+        breakdownFilter &&
+        ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
+            (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
+    )
+}

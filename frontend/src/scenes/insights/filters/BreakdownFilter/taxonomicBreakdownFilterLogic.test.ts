@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { initKeaTests } from '~/test/init'
-import { InsightLogicProps } from '~/types'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import * as breakdownLogic from './taxonomicBreakdownFilterLogic'
 
@@ -138,6 +138,32 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
+        it('resets the map view when adding a next breakdown', async () => {
+            logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdown: '$geoip_country_code',
+                    breakdown_type: 'person',
+                },
+                isTrends: true,
+                display: ChartDisplayType.WorldMap,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            logic.mount()
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: 'event',
+                breakdown: 'c',
+            })
+        })
+
         it('sets a limit', async () => {
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
@@ -237,7 +263,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdownFilter: {
                     breakdowns: [
                         {
-                            value: 'prop1',
+                            property: 'prop1',
                             type: 'event',
                         },
                     ],
@@ -256,11 +282,11 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdownFilter: {
                     breakdowns: [
                         {
-                            value: 'prop1',
+                            property: 'prop1',
                             type: 'event',
                         },
                         {
-                            value: 'prop2',
+                            property: 'prop2',
                             type: 'event',
                         },
                     ],
@@ -282,15 +308,15 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdownFilter: {
                     breakdowns: [
                         {
-                            value: 'prop1',
+                            property: 'prop1',
                             type: 'event',
                         },
                         {
-                            value: 'prop2',
+                            property: 'prop2',
                             type: 'event',
                         },
                         {
-                            value: 'prop3',
+                            property: 'prop3',
                             type: 'event',
                         },
                     ],
@@ -397,7 +423,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_type: undefined,
                 breakdowns: [
                     {
-                        value: 'c',
+                        property: 'c',
                         type: 'event',
                     },
                 ],
@@ -412,7 +438,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdownFilter: {
                     breakdowns: [
                         {
-                            value: 'c',
+                            property: 'c',
                             type: 'event',
                         },
                     ],
@@ -455,7 +481,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_type: undefined,
                 breakdowns: [
                     {
-                        value: 'height',
+                        property: 'height',
                         type: 'person',
                     },
                 ],
@@ -486,7 +512,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdowns: [
                     {
                         type: 'group',
-                        value: '$lib_version',
+                        property: '$lib_version',
                         group_type_index: 0,
                     },
                 ],
@@ -501,7 +527,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdownFilter: {
                     breakdowns: [
                         {
-                            value: 'c',
+                            property: 'c',
                             type: 'event',
                         },
                     ],
@@ -533,7 +559,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdowns: [
                     {
                         type: 'event',
-                        value: 'a',
+                        property: 'a',
                     },
                 ],
                 breakdown_group_type_index: undefined,
@@ -547,11 +573,11 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdownFilter: {
                     breakdowns: [
                         {
-                            value: 'c',
+                            property: 'c',
                             type: 'event',
                         },
                         {
-                            value: 'duplicate',
+                            property: 'duplicate',
                             type: 'event',
                         },
                     ],
@@ -562,14 +588,13 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
             mockFeatureFlag(logic)
             logic.mount()
-            const changedBreakdown = 'c'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
 
             await expectLogic(logic, () => {
                 logic.actions.replaceBreakdown(
                     {
                         type: 'event',
-                        value: changedBreakdown,
+                        value: 'c',
                     },
                     {
                         group: group,
@@ -613,7 +638,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdowns: [
                     {
                         type: 'event',
-                        value: 'prop2',
+                        property: 'prop2',
                     },
                 ],
             })
@@ -665,7 +690,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     breakdowns: [
                         {
                             type: 'event',
-                            value: 'prop',
+                            property: 'prop',
                         },
                     ],
                 },
@@ -700,6 +725,35 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
 
             expect(updateBreakdownFilter.mock.calls[0][0]).toHaveProperty('breakdowns', undefined)
+        })
+
+        it('resets the map view when adding a next breakdown', async () => {
+            const logic = taxonomicBreakdownFilterLogic({
+                insightProps,
+                breakdownFilter: {
+                    breakdowns: [{ property: '$geoip_country_code', type: 'person' }],
+                },
+                isTrends: true,
+                display: ChartDisplayType.WorldMap,
+                updateBreakdownFilter,
+                updateDisplay,
+            })
+            mockFeatureFlag(logic)
+            logic.mount()
+            const changedBreakdown = 'c'
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown(changedBreakdown, group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdowns: [
+                    { property: '$geoip_country_code', type: 'person' },
+                    { property: 'c', type: 'event' },
+                ],
+            })
+            expect(updateDisplay).toHaveBeenCalledWith(undefined)
         })
     })
 
@@ -736,14 +790,14 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_normalize_url: undefined,
                 breakdowns: [
                     {
-                        value: 'prop',
+                        property: 'prop',
                         type: 'event',
                         normalize_url: true,
                         group_type_index: 0,
                         histogram_bin_count: 10,
                     },
                     {
-                        value: 'c',
+                        property: 'c',
                         type: 'event',
                     },
                 ],
@@ -893,7 +947,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdowns: [
                     {
                         type: 'person',
-                        value: 'new_prop',
+                        property: 'new_prop',
                     },
                 ],
             })
@@ -927,7 +981,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdowns: [
                     {
                         type: 'group',
-                        value: '$lib_version',
+                        property: '$lib_version',
                         group_type_index: 0,
                     },
                 ],
@@ -1002,7 +1056,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 breakdown_group_type_index: undefined,
                 breakdowns: [
                     {
-                        value: 'c',
+                        property: 'c',
                         type: 'person',
                     },
                 ],

@@ -148,7 +148,8 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return values.pluginConfig
                     }
-                    const { enabled, order, name, description, filters, ...config } = formdata
+                    const { enabled, order, name, description, ...config } = formdata
+                    const { filters } = formdata // This is to make sure the config object includes the filters field
 
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
@@ -160,7 +161,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     formData.append('description', description)
 
                     const sanitizedFilters = sanitizeFilters(filters)
-                    if (filters) {
+                    if (filters && !formData.has('add_attachment[filters]')) {
                         formData.append('filters', sanitizedFilters ? JSON.stringify(sanitizedFilters) : '')
                     }
 

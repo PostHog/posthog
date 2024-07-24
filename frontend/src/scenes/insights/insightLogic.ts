@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -22,11 +23,18 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getInsightFilterOrQueryForPersistance } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
-import { FilterType, InsightLogicProps, InsightModel, InsightShortId, ItemMode, SetInsightOptions } from '~/types'
+import {
+    FilterType,
+    InsightLogicProps,
+    InsightModel,
+    InsightShortId,
+    ItemMode,
+    QueryBasedInsightModel,
+    SetInsightOptions,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
@@ -86,7 +94,7 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAsNamingSuccess: (name: string) => ({ name }),
+        saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
         cancelChanges: true,
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -315,7 +323,10 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
         ],
-        queryBasedInsight: [(s) => [s.legacyInsight], (legacyInsight) => getQueryBasedInsightModel(legacyInsight)],
+        queryBasedInsight: [
+            (s) => [s.legacyInsight],
+            (legacyInsight) => getQueryBasedInsightModel(legacyInsight) as QueryBasedInsightModel,
+        ],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
@@ -368,14 +379,10 @@ export const insightLogic = kea<insightLogicType>([
             const { name, description, favorited, deleted, dashboards, tags } = values.legacyInsight
 
             let savedInsight: InsightModel
-            let filters
-            let query
-
-            if (!values.queryBasedInsightSaving && isInsightVizNode(values.queryBasedInsight.query)) {
-                filters = queryNodeToFilter(values.queryBasedInsight.query.source)
-            } else {
-                query = values.queryBasedInsight.query
-            }
+            const { filters, query } = getInsightFilterOrQueryForPersistance(
+                values.queryBasedInsight,
+                values.queryBasedInsightSaving
+            )
 
             try {
                 // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
@@ -419,6 +426,16 @@ export const insightLogic = kea<insightLogicType>([
 
             dashboardsModel.actions.updateDashboardInsight(savedInsight)
 
+            // reload dashboards with updated insight
+            // since filters on dashboard might be different from filters on insight
+            // we need to trigger dashboard reload to pick up results for updated insight
+            savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
+                dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
+                    action: 'update',
+                    refresh: 'lazy_async',
+                })
+            )
+
             const mountedInsightSceneLogic = insightSceneLogic.findMounted()
             if (redirectToViewMode) {
                 if (!insightNumericId && dashboards?.length === 1) {
@@ -435,15 +452,11 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAsNamingSuccess: async ({ name }) => {
-            let filters
-            let query
-            if (!values.queryBasedInsightSaving && isInsightVizNode(values.queryBasedInsight.query)) {
-                filters = queryNodeToFilter(values.queryBasedInsight.query.source)
-            } else {
-                query = values.queryBasedInsight.query
-            }
-
+        saveAsNamingSuccess: async ({ name, redirectToViewMode }) => {
+            const { filters, query } = getInsightFilterOrQueryForPersistance(
+                values.queryBasedInsight,
+                values.queryBasedInsightSaving
+            )
             const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
                 name,
                 filters,
@@ -452,12 +465,17 @@ export const insightLogic = kea<insightLogicType>([
             })
             lemonToast.info(
                 `You're now working on a copy of ${
-                    values.queryBasedInsight.name || values.queryBasedInsight.derived_name
+                    values.queryBasedInsight.name || values.queryBasedInsight.derived_name || name
                 }`
             )
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
-            router.actions.push(urls.insightEdit(insight.short_id))
+
+            if (redirectToViewMode) {
+                router.actions.push(urls.insightView(insight.short_id))
+            } else {
+                router.actions.push(urls.insightEdit(insight.short_id))
+            }
         },
         cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})
