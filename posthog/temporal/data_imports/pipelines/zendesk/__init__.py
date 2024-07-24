@@ -1,6 +1,6 @@
 import base64
 import dlt
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from dlt.sources.helpers.rest_client.paginators import BasePaginator, JSONLinkPaginator
 from dlt.sources.helpers.requests import Response, Request
 import requests
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
@@ -24,10 +24,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "brands",
                 "path": "/api/v2/brands",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     "page[size]": 100,
                 },
@@ -48,10 +45,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "organizations",
                 "path": "/api/v2/organizations",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     "page[size]": 100,
                 },
@@ -72,10 +66,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "groups",
                 "path": "/api/v2/groups",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "exclude_deleted": "OPTIONAL_CONFIG",
@@ -98,10 +89,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "sla_policies",
                 "path": "/api/v2/slas/policies",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
             },
             "table_format": "delta",
         },
@@ -119,10 +107,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "users",
                 "path": "/api/v2/users",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "role": "OPTIONAL_CONFIG",
@@ -148,10 +133,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "endpoint": {
                 "data_selector": "ticket_fields",
                 "path": "/api/v2/ticket_fields",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "locale": "OPTIONAL_CONFIG",
