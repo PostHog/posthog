@@ -1,6 +1,6 @@
 import base64
 import dlt
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from dlt.sources.helpers.rest_client.paginators import BasePaginator, JSONLinkPaginator
 from dlt.sources.helpers.requests import Response, Request
 import requests
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
@@ -14,15 +14,17 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "brands",
             "table_name": "brands",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_brands"),  # type: ignore
             "endpoint": {
                 "data_selector": "brands",
                 "path": "/api/v2/brands",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     "page[size]": 100,
                 },
@@ -33,15 +35,17 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "organizations",
             "table_name": "organizations",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_organizations"),  # type: ignore
             "endpoint": {
                 "data_selector": "organizations",
                 "path": "/api/v2/organizations",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     "page[size]": 100,
                 },
@@ -52,15 +56,17 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "groups",
             "table_name": "groups",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_groups"),  # type: ignore
             "endpoint": {
                 "data_selector": "groups",
                 "path": "/api/v2/groups",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "exclude_deleted": "OPTIONAL_CONFIG",
@@ -73,15 +79,17 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "sla_policies",
             "table_name": "sla_policies",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_sla_policies"),  # type: ignore
             "endpoint": {
                 "data_selector": "sla_policies",
                 "path": "/api/v2/slas/policies",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
             },
             "table_format": "delta",
         },
@@ -89,15 +97,17 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "users",
             "table_name": "users",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_users"),  # type: ignore
             "endpoint": {
                 "data_selector": "users",
                 "path": "/api/v2/users",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "role": "OPTIONAL_CONFIG",
@@ -113,15 +123,17 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "ticket_fields",
             "table_name": "ticket_fields",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_ticket_fields"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_fields",
                 "path": "/api/v2/ticket_fields",
-                "paginator": {
-                    "type": "json_response",
-                    "next_url_path": "links.next",
-                },
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
                 "params": {
                     # the parameters below can optionally be configured
                     # "locale": "OPTIONAL_CONFIG",
@@ -135,7 +147,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "ticket_events",
             "table_name": "ticket_events",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_ticket_events"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_events",
@@ -159,7 +176,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "tickets",
             "table_name": "tickets",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_tickets"),  # type: ignore
             "endpoint": {
                 "data_selector": "tickets",
@@ -182,7 +204,12 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             "name": "ticket_metric_events",
             "table_name": "ticket_metric_events",
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "columns": get_dlt_mapping_for_external_table("zendesk_ticket_metric_events"),  # type: ignore
             "endpoint": {
                 "data_selector": "ticket_metric_events",
@@ -274,7 +301,12 @@ def zendesk_source(
         },
         "resource_defaults": {
             "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
         },
         "resources": [get_resource(endpoint, is_incremental)],
     }

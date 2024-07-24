@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -424,6 +425,16 @@ export const insightLogic = kea<insightLogicType>([
             })
 
             dashboardsModel.actions.updateDashboardInsight(savedInsight)
+
+            // reload dashboards with updated insight
+            // since filters on dashboard might be different from filters on insight
+            // we need to trigger dashboard reload to pick up results for updated insight
+            savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
+                dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
+                    action: 'update',
+                    refresh: 'lazy_async',
+                })
+            )
 
             const mountedInsightSceneLogic = insightSceneLogic.findMounted()
             if (redirectToViewMode) {

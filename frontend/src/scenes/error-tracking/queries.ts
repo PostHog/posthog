@@ -47,7 +47,7 @@ export const errorTrackingQuery = ({
 }): DataTableNode => {
     const select: string[] = []
 
-    const columns = ['error', 'occurrences', 'sessions', 'users']
+    const columns = ['error', 'occurrences', 'sessions', 'users', 'assignee']
 
     if (sparklineSelectedPeriod) {
         const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
