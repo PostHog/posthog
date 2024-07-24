@@ -1,4 +1,6 @@
 from typing import Union, cast, Optional, Any, Literal
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 from unittest.mock import MagicMock, patch
 
 from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -23,7 +25,7 @@ from posthog.models import (
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, RetentionEntity, EmptyPropertyFilter
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, _create_event
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -472,7 +474,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("a[href='boo']"),
             clear_locations(
                 parse_expr(
-                    "{regex} and hasAll(elements_chain_elements, ['a'])",
+                    "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
                     {
                         "regex": elements_chain_match(
                             '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
@@ -532,6 +534,9 @@ class TestProperty(BaseTest):
         )
 
     def test_action_to_expr(self):
+        _create_event(
+            event="$autocapture", team=self.team, distinct_id="some_id", elements_chain="a.active.nav-link:text='text'"
+        )
         action1 = Action.objects.create(
             team=self.team,
             steps_json=[
@@ -556,12 +561,16 @@ class TestProperty(BaseTest):
                                     )
                                 },
                             ),
-                            self._parse_expr("hasAll(elements_chain_elements, ['a'])"),
+                            self._parse_expr("arrayCount(x -> x IN ['a'], elements_chain_elements) > 0"),
                         ]
                     ),
                 },
             ),
         )
+        resp = execute_hogql_query(
+            parse_select("select count() from events where {prop}", {"prop": action_to_expr(action1)}), self.team
+        )
+        self.assertEqual(resp.results[0][0], 1)
 
         action2 = Action.objects.create(
             team=self.team,

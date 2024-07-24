@@ -632,7 +632,10 @@ def selector_to_expr(selector_string: str):
             )
     if len(useful_elements) > 0:
         exprs.append(
-            parse_expr("hasAll(elements_chain_elements, {value})", {"value": ast.Array(exprs=useful_elements)})
+            parse_expr(
+                "arrayCount(x -> x IN {value}, elements_chain_elements) > 0",
+                {"value": ast.Array(exprs=useful_elements)},
+            )
         )
 
     if len(exprs) == 1:
