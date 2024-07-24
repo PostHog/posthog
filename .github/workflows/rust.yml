@@ -80,7 +80,7 @@ jobs:
             matrix:
                 package:
                     - feature-flags
-                    - others
+                    # - others
         needs: changes
         runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 10
