@@ -4,7 +4,9 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
@@ -42,7 +44,7 @@ export interface Fuse extends FuseClass<NewDestinationItemType> {}
 
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
     connect({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     }),
     path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
     actions({
@@ -104,10 +106,26 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             },
         ],
         destinations: [
-            (s) => [s.plugins, s.hogFunctionTemplates, s.batchExportServiceNames, router.selectors.hashParams],
-            (plugins, hogFunctionTemplates, batchExportServiceNames, hashParams): NewDestinationItemType[] => {
+            (s) => [
+                s.plugins,
+                s.hogFunctionTemplates,
+                s.batchExportServiceNames,
+                s.featureFlags,
+                router.selectors.hashParams,
+            ],
+            (
+                plugins,
+                hogFunctionTemplates,
+                batchExportServiceNames,
+                featureFlags,
+                hashParams
+            ): NewDestinationItemType[] => {
+                const hogTemplates = featureFlags[FEATURE_FLAGS.HOG_FUNCTIONS]
+                    ? Object.values(hogFunctionTemplates)
+                    : []
+
                 return [
-                    ...Object.values(hogFunctionTemplates).map((hogFunction) => ({
+                    ...hogTemplates.map((hogFunction) => ({
                         icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
                         name: hogFunction.name,
                         description: hogFunction.description,
