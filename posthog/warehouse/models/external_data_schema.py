@@ -1,6 +1,8 @@
 from collections import defaultdict
+from datetime import timedelta
 from typing import Optional
 from django.db import models
+from django_deprecate_fields import deprecate_field
 import snowflake.connector
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
@@ -55,9 +57,11 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
         default=dict,
         blank=True,
     )
-    sync_frequency: models.CharField = models.CharField(
-        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
+    # Deprecated in favour of `sync_frequency_interval`
+    sync_frequency = deprecate_field(
+        models.CharField(max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True)
     )
+    sync_frequency_interval: models.DurationField = models.DurationField(default=timedelta(hours=6), blank=True)
 
     __repr__ = sane_repr("name")
 
@@ -123,6 +127,48 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
 
     for schema in schemas_to_create:
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
+
+
+def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta:
+    if frequency == "5min":
+        return timedelta(minutes=5)
+    if frequency == "30min":
+        return timedelta(minutes=30)
+    if frequency == "1hour":
+        return timedelta(hours=1)
+    if frequency == "6hour":
+        return timedelta(hours=6)
+    if frequency == "12hour":
+        return timedelta(hours=12)
+    if frequency == "24hour":
+        return timedelta(hours=24)
+    if frequency == "7day":
+        return timedelta(days=7)
+    if frequency == "30day":
+        return timedelta(days=30)
+
+    raise ValueError(f"Frequency {frequency} is not supported")
+
+
+def sync_frequency_interval_to_sync_frequency(schema: ExternalDataSchema) -> str:
+    if schema.sync_frequency_interval == timedelta(minutes=5):
+        return "5min"
+    if schema.sync_frequency_interval == timedelta(minutes=30):
+        return "30min"
+    if schema.sync_frequency_interval == timedelta(hours=1):
+        return "1hour"
+    if schema.sync_frequency_interval == timedelta(hours=6):
+        return "6hour"
+    if schema.sync_frequency_interval == timedelta(hours=12):
+        return "12hour"
+    if schema.sync_frequency_interval == timedelta(hours=24):
+        return "24hour"
+    if schema.sync_frequency_interval == timedelta(days=7):
+        return "7day"
+    if schema.sync_frequency_interval == timedelta(days=30):
+        return "30day"
+
+    raise ValueError(f"Frequency interval {schema.sync_frequency_interval} is not supported")
 
 
 def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
