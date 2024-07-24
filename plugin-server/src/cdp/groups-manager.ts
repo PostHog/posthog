@@ -119,8 +119,6 @@ export class GroupsManager {
             })
 
             item.groups = groups
-
-            console.log(item)
         })
         const groupsFromDatabase = await this.fetchGroupProperties(Object.values(groupsByTeamTypeId))
 
@@ -134,8 +132,6 @@ export class GroupsManager {
                 delete group.teamId // We don't want it in the final payload
             }
         })
-
-        console.log(items)
 
         return items
     }
