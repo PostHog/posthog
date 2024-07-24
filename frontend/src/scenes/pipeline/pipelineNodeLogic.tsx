@@ -107,8 +107,8 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             setCurrentTab: () => [urls.pipelineNode(props.stage as PipelineStage, props.id, values.currentTab)],
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        '/pipeline/:stage/:id/:nodeTab': ({ nodeTab }) => {
+    urlToAction(({ props, actions, values }) => ({
+        [urls.pipelineNode(props.stage as PipelineStage, props.id, ':nodeTab')]: ({ nodeTab }) => {
             if (nodeTab !== values.currentTab && Object.values(PipelineNodeTab).includes(nodeTab as PipelineNodeTab)) {
                 actions.setCurrentTab(nodeTab as PipelineNodeTab)
             }
