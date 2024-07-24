@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 use uuid::Uuid;
 
 use super::{deserialize_datetime, serialize_datetime};
@@ -118,22 +119,25 @@ where
     Ok(category)
 }
 
+impl fmt::Display for ErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ErrorType::ConnectionError => write!(f, "Connection Error"),
+            ErrorType::TimeoutError => write!(f, "Timeout Error"),
+            ErrorType::BadHttpStatus(s) => write!(f, "Bad HTTP Status: {}", s),
+            ErrorType::ParseError => write!(f, "Parse Error"),
+        }
+    }
+}
+
 fn serialize_error_type<S>(error_type: &Option<ErrorType>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    let error_type = match error_type {
-        Some(error_type) => error_type,
-        None => return serializer.serialize_none(),
-    };
-
-    let error_type = match error_type {
-        ErrorType::ConnectionError => "Connection Error".to_owned(),
-        ErrorType::TimeoutError => "Timeout Error".to_owned(),
-        ErrorType::BadHttpStatus(s) => format!("Bad HTTP Status: {}", s),
-        ErrorType::ParseError => "Parse Error".to_owned(),
-    };
-    serializer.serialize_str(&error_type)
+    match error_type {
+        Some(error_type) => serializer.collect_str(error_type),
+        None => serializer.serialize_none(),
+    }
 }
 
 fn deserialize_error_type<'de, D>(deserializer: D) -> Result<Option<ErrorType>, D::Error>

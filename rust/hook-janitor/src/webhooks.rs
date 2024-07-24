@@ -158,7 +158,7 @@ impl From<HoghookCompletedRow> for AppMetric2 {
             app_source_id: row.app_source_id,
             instance_id: None,
             metric_kind: app_metrics2::Kind::Success,
-            metric_name: "".to_owned(),
+            metric_name: "Fetch".to_owned(),
             count: row.count,
         }
     }
@@ -175,6 +175,8 @@ struct HoghookFailedRow {
     #[sqlx(try_from = "i64")]
     team_id: u32,
     app_source_id: String,
+    #[sqlx(json)]
+    last_error: WebhookJobError,
     #[sqlx(try_from = "i64")]
     count: u32,
 }
@@ -188,7 +190,7 @@ impl From<HoghookFailedRow> for AppMetric2 {
             app_source_id: row.app_source_id,
             instance_id: None,
             metric_kind: app_metrics2::Kind::Failure,
-            metric_name: "".to_owned(),
+            metric_name: row.last_error.r#type.to_string(),
             count: row.count,
         }
     }
@@ -446,14 +448,13 @@ impl WebhookCleaner {
             SELECT DATE_TRUNC('hour', last_attempt_finished_at) AS hour,
                 (metadata->>'teamId')::bigint AS team_id,
                 (metadata->>'hogFunctionId') AS app_source_id,
+                errors[array_upper(errors, 1)] AS last_error,
                 count(*) as count
             FROM job_queue
             WHERE status = 'failed'
-            GROUP BY hour, team_id, app_source_id
-            ORDER BY hour, team_id, app_source_id;
+            GROUP BY hour, team_id, app_source_id, last_error
+            ORDER BY hour, team_id, app_source_id, last_error;
         "#;
-
-        // TODO: Store and extract more error information, such as the HTTP response code.
 
         let rows = sqlx::query_as::<_, HoghookFailedRow>(base_query)
             .fetch_all(&mut *tx.0)
@@ -927,7 +928,7 @@ mod tests {
                 app_source_id: "2".to_owned(),
                 instance_id: None,
                 metric_kind: app_metrics2::Kind::Success,
-                metric_name: "".to_owned(),
+                metric_name: "Fetch".to_owned(),
                 count: 3,
             },
             AppMetric2 {
@@ -937,7 +938,7 @@ mod tests {
                 app_source_id: "3".to_owned(),
                 instance_id: None,
                 metric_kind: app_metrics2::Kind::Success,
-                metric_name: "".to_owned(),
+                metric_name: "Fetch".to_owned(),
                 count: 1,
             },
             AppMetric2 {
@@ -947,7 +948,7 @@ mod tests {
                 app_source_id: "4".to_owned(),
                 instance_id: None,
                 metric_kind: app_metrics2::Kind::Success,
-                metric_name: "".to_owned(),
+                metric_name: "Fetch".to_owned(),
                 count: 1,
             },
             AppMetric2 {
@@ -957,7 +958,7 @@ mod tests {
                 app_source_id: "2".to_owned(),
                 instance_id: None,
                 metric_kind: app_metrics2::Kind::Success,
-                metric_name: "".to_owned(),
+                metric_name: "Fetch".to_owned(),
                 count: 1,
             },
             AppMetric2 {
@@ -967,8 +968,18 @@ mod tests {
                 app_source_id: "2".to_owned(),
                 instance_id: None,
                 metric_kind: app_metrics2::Kind::Failure,
-                metric_name: "".to_owned(),
-                count: 4,
+                metric_name: "Connection Error".to_owned(),
+                count: 1,
+            },
+            AppMetric2 {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                app_source: app_metrics2::Source::Hoghooks,
+                app_source_id: "2".to_owned(),
+                instance_id: None,
+                metric_kind: app_metrics2::Kind::Failure,
+                metric_name: "Timeout Error".to_owned(),
+                count: 3,
             },
             AppMetric2 {
                 timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
@@ -977,7 +988,7 @@ mod tests {
                 app_source_id: "3".to_owned(),
                 instance_id: None,
                 metric_kind: app_metrics2::Kind::Failure,
-                metric_name: "".to_owned(),
+                metric_name: "Timeout Error".to_owned(),
                 count: 1,
             },
             AppMetric2 {
@@ -987,7 +998,7 @@ mod tests {
                 app_source_id: "4".to_owned(),
                 instance_id: None,
                 metric_kind: app_metrics2::Kind::Failure,
-                metric_name: "".to_owned(),
+                metric_name: "Timeout Error".to_owned(),
                 count: 1,
             },
             AppMetric2 {
@@ -997,7 +1008,7 @@ mod tests {
                 app_source_id: "2".to_owned(),
                 instance_id: None,
                 metric_kind: app_metrics2::Kind::Failure,
-                metric_name: "".to_owned(),
+                metric_name: "Timeout Error".to_owned(),
                 count: 1,
             },
         ];
