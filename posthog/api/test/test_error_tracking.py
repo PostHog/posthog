@@ -29,11 +29,11 @@ class TestErrorTracking(APIBaseTest):
     def test_can_only_update_allowed_fields(self):
         fingerprint = "CustomFingerprint"
         other_team = Team.objects.create(organization=self.organization)
-        ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=other_team)
+        group = ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=other_team)
 
         self.client.patch(
             f"/api/projects/{self.team.id}/error_tracking/{fingerprint}",
             data={"fingerprint": "NewFingerprint", "assignee": self.user.id},
         )
-        group = ErrorTrackingGroup.objects.first()
+        group.refresh_from_db()
         self.assertEqual(group.fingerprint, "CustomFingerprint")
