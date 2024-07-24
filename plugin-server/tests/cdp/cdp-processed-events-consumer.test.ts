@@ -253,7 +253,7 @@ describe('CDP Processed Events Consuner', () => {
                                         timestamp: null,
                                         url: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
                                     },
-                                    groups: null,
+                                    groups: {},
                                     nested: {
                                         foo: 'http://localhost:8000/project/2/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/null',
                                     },
