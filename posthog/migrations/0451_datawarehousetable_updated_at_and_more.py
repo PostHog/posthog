@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0449_alter_plugin_organization_alter_plugin_plugin_type_and_more"),
+        ("posthog", "0450_externaldataschema_sync_frequency_interval_and_more"),
     ]
 
     operations = [
