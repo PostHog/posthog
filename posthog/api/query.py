@@ -62,6 +62,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
         client_query_id = data.client_query_id or uuid.uuid4().hex
+        client_query_metadata = data.client_query_metadata or {}
         execution_mode = execution_mode_from_refresh(data.refresh)
         response_status: int = status.HTTP_200_OK
 
@@ -81,6 +82,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 data.query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
+                insight_id=client_query_metadata.get("insight_id"),
+                dashboard_id=client_query_metadata.get("dashboard_id"),
                 user=request.user,
             )
             if isinstance(result, BaseModel):

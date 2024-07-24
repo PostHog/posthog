@@ -61,6 +61,11 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
         onData: insightProps.onData,
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId: insightVizDataCollectionId(insightProps, vizKey),
+        queryMetadata: {
+            insight_id: insightProps.cachedInsight?.id,
+            insight_short_id: insightProps.dashboardItemId,
+            dashboard_id: insightProps.dashboardId,
+        },
     }
 
     const { insightMode } = useValues(insightSceneLogic)

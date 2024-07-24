@@ -56,6 +56,8 @@ import type { dataNodeLogicType } from './dataNodeLogicType'
 export interface DataNodeLogicProps {
     key: string
     query: DataNode
+    /** Query metadata. Can be used to add information required when processing and/or debugging the query. */
+    queryMetadata?: Record<string, any>
     /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
     /** Disabled data fetching and only allow cached results. */
@@ -209,6 +211,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             methodOptions,
                                             refresh,
                                             queryId,
+                                            props.queryMetadata,
                                             actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now
@@ -249,7 +252,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.newQuery, props.modifiers),
                                 undefined,
-                                props.alwaysRefresh
+                                props.alwaysRefresh,
+                                undefined,
+                                props.queryMetadata
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (newResponse?.results) {
@@ -278,7 +283,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.alwaysRefresh
+                                props.alwaysRefresh,
+                                undefined,
+                                props.queryMetadata
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as EventsQueryResponse | ActorsQueryResponse
@@ -292,7 +299,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.alwaysRefresh
+                                props.alwaysRefresh,
+                                undefined,
+                                props.queryMetadata
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {
