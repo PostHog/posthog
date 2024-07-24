@@ -522,6 +522,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     flush_counter: int,
                     last_inserted_at,
                     last: bool,
+                    error: Exception | None,
                 ):
                     logger.debug(
                         "Copying %s records of size %s bytes",

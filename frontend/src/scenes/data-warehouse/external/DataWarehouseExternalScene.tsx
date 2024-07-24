@@ -32,9 +32,9 @@ export const humanFriendlyDataWarehouseTabName = (tab: DataWarehouseTab): string
         case DataWarehouseTab.Explore:
             return 'Explore'
         case DataWarehouseTab.ManagedSources:
-            return 'Managed Sources'
+            return 'Managed sources'
         case DataWarehouseTab.SelfManagedSources:
-            return 'Self-Managed Sources'
+            return 'Self-Managed sources'
     }
 }
 
