@@ -273,6 +273,7 @@ abstract class CdpConsumerBase {
             func: async () => {
                 const invocations: { globals: HogFunctionInvocationGlobals; hogFunction: HogFunctionType }[] = []
 
+                // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals)
 
                 invocationGlobals.forEach((globals) => {
