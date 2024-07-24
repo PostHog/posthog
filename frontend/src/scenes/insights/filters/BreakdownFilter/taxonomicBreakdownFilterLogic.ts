@@ -277,6 +277,15 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                         breakdowns,
                     })
                 }
+
+                // Make sure we are no longer in map view after removing the Country Code breakdown
+                if (
+                    props.isTrends &&
+                    props.display === ChartDisplayType.WorldMap &&
+                    (breakdowns.length !== 1 || breakdowns[0].property !== '$geoip_country_code')
+                ) {
+                    props.updateDisplay?.(undefined)
+                }
             } else {
                 props.updateBreakdownFilter({
                     breakdowns: undefined,

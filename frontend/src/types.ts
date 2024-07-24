@@ -3828,7 +3828,7 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'MySQL', 'Zendesk', 'Snowflake'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
@@ -4012,7 +4012,7 @@ export type BatchExportService =
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
-export type DataWarehouseSyncInterval = 'day' | 'week' | 'month'
+export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
