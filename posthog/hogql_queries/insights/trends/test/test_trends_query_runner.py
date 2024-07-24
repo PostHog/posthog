@@ -4482,3 +4482,92 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["count"] == 0
         assert response.results[0]["data"] == [0, 0, 0]
+
+    def test_trends_math_first_time_ever_prioritizes_first_event(self):
+        timestamp = "2020-01-11T12:00:00Z"
+
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={},
+            )
+
+        # p1
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={"$browser": "Firefox"},
+        )
+
+        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type="String")
+
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_EVER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 1, 0]
+
+        # Tricky: events with the same timestamp but different properties will still be considered as a first-time appearance.
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_EVER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 1, 0]
+
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-12",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_EVER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 0

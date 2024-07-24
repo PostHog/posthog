@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Literal, Union, cast
 
 import pytest
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
@@ -69,6 +70,7 @@ class TestQueryAlternator:
         [BaseMathType.WEEKLY_ACTIVE, None],
         [BaseMathType.MONTHLY_ACTIVE, None],
         [BaseMathType.UNIQUE_SESSION, None],
+        [BaseMathType.FIRST_TIME_EVER, None],
         [PropertyMathType.AVG, "$browser"],
         [PropertyMathType.SUM, "$browser"],
         [PropertyMathType.MIN, "$browser"],
@@ -115,6 +117,7 @@ def test_all_cases_return(
         [BaseMathType.WEEKLY_ACTIVE, True],
         [BaseMathType.MONTHLY_ACTIVE, True],
         [BaseMathType.UNIQUE_SESSION, False],
+        [BaseMathType.FIRST_TIME_EVER, True],
         [PropertyMathType.AVG, False],
         [PropertyMathType.SUM, False],
         [PropertyMathType.MIN, False],
