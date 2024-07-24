@@ -96,7 +96,7 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         ),
         category: MathCategory.SessionCount,
     },
-    [BaseMathType.FirstTimeEver]: {
+    [BaseMathType.FirstTimeForUser]: {
         name: 'First time for user',
         shortName: 'first time',
         description: (
@@ -380,7 +380,7 @@ export function filterMathTypesUnderFeatureFlags(
 ): Record<string, MathDefinition> {
     const copy = { ...mathDefinitions }
     if (!featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]) {
-        delete copy[BaseMathType.FirstTimeEver]
+        delete copy[BaseMathType.FirstTimeForUser]
     }
     return copy
 }

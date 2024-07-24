@@ -4071,7 +4071,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         )
 
@@ -4084,7 +4084,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-10",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         )
 
@@ -4097,7 +4097,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-12",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         )
 
@@ -4110,7 +4110,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-16",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         )
 
@@ -4127,7 +4127,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             BreakdownFilter(breakdown="$browser"),
         )
@@ -4154,7 +4154,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             BreakdownFilter(breakdowns=[Breakdown(value="$browser")]),
         )
@@ -4179,7 +4179,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             BreakdownFilter(breakdown="prop", breakdown_type=BreakdownType.EVENT, breakdown_histogram_bin_count=2),
         )
@@ -4204,7 +4204,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_EVER)],
+            [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             BreakdownFilter(breakdowns=[Breakdown(value="prop", type=BreakdownType.EVENT, histogram_bin_count=2)]),
         )
@@ -4231,7 +4231,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                     properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
                 )
             ],
@@ -4249,7 +4249,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                     properties=[PersonPropertyFilter(key="name", operator=PropertyOperator.EXACT, value="p4")],
                 )
             ],
@@ -4277,7 +4277,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [
                     EventsNode(
                         event="$pageview",
-                        math=BaseMathType.FIRST_TIME_EVER,
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
                     )
                 ],
                 TrendsFilter(display=display),
@@ -4293,7 +4293,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [
                     EventsNode(
                         event="$pageview",
-                        math=BaseMathType.FIRST_TIME_EVER,
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
                     )
                 ],
                 TrendsFilter(display=display),
@@ -4370,7 +4370,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                 )
             ],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
@@ -4417,7 +4417,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                     properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
                 )
             ],
@@ -4435,7 +4435,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                 )
             ],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
@@ -4454,7 +4454,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                     properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
                 )
             ],
@@ -4472,7 +4472,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                 )
             ],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
@@ -4525,7 +4525,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                     properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
                 )
             ],
@@ -4544,7 +4544,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                     properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
                 )
             ],
@@ -4562,7 +4562,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 EventsNode(
                     event="$pageview",
-                    math=BaseMathType.FIRST_TIME_EVER,
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
                     properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
                 )
             ],

@@ -3423,7 +3423,7 @@ export enum BaseMathType {
     WeeklyActiveUsers = 'weekly_active',
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
-    FirstTimeEver = 'first_time_ever',
+    FirstTimeForUser = 'first_time_for_user',
 }
 
 export enum PropertyMathType {
