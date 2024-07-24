@@ -515,7 +515,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     }
                     events.push(
                         convertToHogFunctionInvocationGlobals(
-                            convertToParsedClickhouseEvent(clickHouseEvent),
+                            clickHouseEvent,
                             team,
                             this.hub.SITE_URL ?? 'http://localhost:8000'
                         )

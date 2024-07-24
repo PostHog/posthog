@@ -126,7 +126,6 @@ export class GroupsManager {
         groupsFromDatabase.forEach((row) => {
             const group = groupsByTeamTypeId[`${row.team_id}:${row.group_type_index}:${row.group_key}`]
 
-            console.log(row, group)
             if (group) {
                 group.properties = row.group_properties
                 delete group.teamId // We don't want it in the final payload
