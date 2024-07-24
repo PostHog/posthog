@@ -1,5 +1,4 @@
 from .webhook.template_webhook import template as webhook
-from .helloworld.template_helloworld import template as hello_world
 from .slack.template_slack import template as slack
 from .hubspot.template_hubspot import template as hubspot
 from .customerio.template_customerio import template as customerio
@@ -12,9 +11,8 @@ from .salesforce.template_salesforce import template_create as salesforce_create
 
 
 HOG_FUNCTION_TEMPLATES = [
-    webhook,
-    hello_world,
     slack,
+    webhook,
     hubspot,
     customerio,
     intercom,

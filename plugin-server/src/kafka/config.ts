@@ -17,7 +17,7 @@ export const createRdConnectionConfigFromEnvVars = (kafkaConfig: KafkaConfig): G
     // convert those vars into connection settings that node-rdkafka can use. We
     // also set the client.id to the hostname of the machine. This is useful for debugging.
     const config: GlobalConfig = {
-        'client.id': hostname(),
+        'client.id': kafkaConfig.KAFKA_CLIENT_ID || hostname(),
         'metadata.broker.list': kafkaConfig.KAFKA_HOSTS,
         'security.protocol': kafkaConfig.KAFKA_SECURITY_PROTOCOL
             ? (kafkaConfig.KAFKA_SECURITY_PROTOCOL.toLowerCase() as GlobalConfig['security.protocol'])

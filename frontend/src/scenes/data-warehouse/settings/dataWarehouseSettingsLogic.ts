@@ -1,15 +1,13 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
-import { Breadcrumb, DataWarehouseSettingsTab, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
+import { DataWarehouseSettingsTab, DataWarehouseTab, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -38,7 +36,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         sourceLoadingFinished: (source: ExternalDataStripeSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         abortAnyRunningQuery: true,
-        setCurrentTab: (tab: DataWarehouseSettingsTab = DataWarehouseSettingsTab.Managed) => ({ tab }),
+        setCurrentTab: (tab: DataWarehouseTab = DataWarehouseTab.ManagedSources) => ({ tab }),
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
     }),
     loaders(({ cache, actions, values }) => ({
@@ -132,29 +130,8 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }),
             },
         ],
-        currentTab: [
-            DataWarehouseSettingsTab.Managed as DataWarehouseSettingsTab,
-            {
-                setCurrentTab: (_, { tab }) => tab,
-            },
-        ],
     })),
     selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.DataWarehouse,
-                    name: 'Data Warehouse',
-                    path: urls.dataWarehouse(),
-                },
-                {
-                    key: Scene.DataWarehouseSettings,
-                    name: 'Data Warehouse Settings',
-                    path: urls.dataWarehouseSettings(),
-                },
-            ],
-        ],
         selfManagedTables: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
@@ -162,24 +139,24 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
     }),
+    urlToAction(({ cache, actions }) => ({
+        '/data-warehouse/managed-sources': () => {
+            clearTimeout(cache.refreshTimeout)
+
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadSources(null)
+            }, REFRESH_INTERVAL)
+        },
+        '*': () => {
+            if (cache.refreshTimeout && router.values.location.pathname !== '/data-warehouse/managed-sources') {
+                clearTimeout(cache.refreshTimeout)
+            }
+        },
+    })),
     listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
             actions.loadDatabase()
-        },
-        loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
-
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadSources(null)
-            }, REFRESH_INTERVAL)
-        },
-        loadSourcesFailure: () => {
-            clearTimeout(cache.refreshTimeout)
-
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadSources(null)
-            }, REFRESH_INTERVAL)
         },
         deleteSource: async ({ source }) => {
             await api.externalDataSources.delete(source.id)
@@ -238,16 +215,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     afterMount(({ actions }) => {
         actions.loadSources(null)
     }),
-    actionToUrl(({ values }) => {
-        return {
-            setCurrentTab: () => [urls.dataWarehouseSettings(values.currentTab)],
-        }
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.refreshTimeout)
     }),
-    urlToAction(({ actions, values }) => ({
-        '/data-warehouse/settings/:tab': ({ tab }) => {
-            if (tab !== values.currentTab) {
-                actions.setCurrentTab(tab as DataWarehouseSettingsTab)
-            }
-        },
-    })),
 ])

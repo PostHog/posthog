@@ -423,6 +423,9 @@
                 "normalize_url": {
                     "type": "boolean"
                 },
+                "property": {
+                    "type": "string"
+                },
                 "type": {
                     "anyOf": [
                         {
@@ -432,12 +435,9 @@
                             "type": "null"
                         }
                     ]
-                },
-                "value": {
-                    "type": "string"
                 }
             },
-            "required": ["value"],
+            "required": ["property"],
             "type": "object"
         },
         "BreakdownAttributionType": {
@@ -695,7 +695,9 @@
                     "type": "string"
                 },
                 "columns": {
-                    "items": {},
+                    "items": {
+                        "type": "string"
+                    },
                     "type": "array"
                 },
                 "error": {
@@ -735,7 +737,9 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingGroup"
+                    },
                     "type": "array"
                 },
                 "timezone": {
@@ -2503,7 +2507,9 @@
                             "additionalProperties": false,
                             "properties": {
                                 "columns": {
-                                    "items": {},
+                                    "items": {
+                                        "type": "string"
+                                    },
                                     "type": "array"
                                 },
                                 "error": {
@@ -2528,7 +2534,9 @@
                                     "type": "integer"
                                 },
                                 "results": {
-                                    "items": {},
+                                    "items": {
+                                        "$ref": "#/definitions/ErrorTrackingGroup"
+                                    },
                                     "type": "array"
                                 },
                                 "timings": {
@@ -3252,11 +3260,78 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
+        "ErrorTrackingGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "type": ["number", "null"]
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "events": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "first_seen": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "last_seen": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "merged_fingerprints": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "occurrences": {
+                    "type": "number"
+                },
+                "sessions": {
+                    "type": "number"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "type": "string"
+                },
+                "users": {
+                    "type": "number"
+                },
+                "volume": {}
+            },
+            "required": [
+                "fingerprint",
+                "merged_fingerprints",
+                "occurrences",
+                "sessions",
+                "users",
+                "description",
+                "first_seen",
+                "last_seen",
+                "assignee",
+                "status"
+            ],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "eventColumns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
@@ -3295,14 +3370,16 @@
                     "type": "array"
                 }
             },
-            "required": ["dateRange", "kind", "select"],
+            "required": ["dateRange", "kind"],
             "type": "object"
         },
         "ErrorTrackingQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "columns": {
-                    "items": {},
+                    "items": {
+                        "type": "string"
+                    },
                     "type": "array"
                 },
                 "error": {
@@ -3327,7 +3404,9 @@
                     "type": "integer"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingGroup"
+                    },
                     "type": "array"
                 },
                 "timings": {
@@ -6764,7 +6843,9 @@
                     "additionalProperties": false,
                     "properties": {
                         "columns": {
-                            "items": {},
+                            "items": {
+                                "type": "string"
+                            },
                             "type": "array"
                         },
                         "error": {
@@ -6789,7 +6870,9 @@
                             "type": "integer"
                         },
                         "results": {
-                            "items": {},
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingGroup"
+                            },
                             "type": "array"
                         },
                         "timings": {
@@ -7165,7 +7248,9 @@
                     "additionalProperties": false,
                     "properties": {
                         "columns": {
-                            "items": {},
+                            "items": {
+                                "type": "string"
+                            },
                             "type": "array"
                         },
                         "error": {
@@ -7190,7 +7275,9 @@
                             "type": "integer"
                         },
                         "results": {
-                            "items": {},
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingGroup"
+                            },
                             "type": "array"
                         },
                         "timings": {
@@ -8904,6 +8991,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "WebOverviewQuery",
                     "type": "string"
@@ -9013,6 +9103,9 @@
                 "doPathCleaning": {
                     "type": "boolean"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "includeBounceRate": {
                     "type": "boolean"
                 },
@@ -9111,6 +9204,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "WebTopClicksQuery",

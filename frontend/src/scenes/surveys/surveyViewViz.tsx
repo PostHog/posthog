@@ -301,7 +301,6 @@ export function NPSSurveyResultsBarChart({
                                     data-attr="survey-rating"
                                     type={GraphType.Line}
                                     hideAnnotations={false}
-                                    compare={false}
                                     formula="-"
                                     tooltip={{
                                         showHeader: true,

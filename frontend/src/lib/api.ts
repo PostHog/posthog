@@ -13,6 +13,9 @@ import {
     ActionType,
     ActivityScope,
     AlertType,
+    AppMetricsTotalsV2Response,
+    AppMetricsV2RequestParams,
+    AppMetricsV2Response,
     BatchExportConfiguration,
     BatchExportRun,
     CohortType,
@@ -889,6 +892,12 @@ const api = {
                 )
                 .get()
         },
+        async create(data: any): Promise<InsightModel> {
+            return await new ApiRequest().insights().create({ data })
+        },
+        async update(id: number, data: any): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data })
+        },
     },
 
     featureFlags: {
@@ -1620,6 +1629,18 @@ const api = {
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
         },
+        async metrics(
+            id: HogFunctionType['id'],
+            params: AppMetricsV2RequestParams = {}
+        ): Promise<AppMetricsV2Response> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics').withQueryString(params).get()
+        },
+        async metricsTotals(
+            id: HogFunctionType['id'],
+            params: Partial<AppMetricsV2RequestParams> = {}
+        ): Promise<AppMetricsTotalsV2Response> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
+        },
 
         async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             return await new ApiRequest().hogFunctionTemplates().get()
@@ -1654,7 +1675,7 @@ const api = {
         },
         async update(
             annotationId: RawAnnotationType['id'],
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
@@ -1668,7 +1689,7 @@ const api = {
                 .get()
         },
         async create(
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },

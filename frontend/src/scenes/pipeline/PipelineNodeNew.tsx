@@ -96,21 +96,13 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     }
 
     if (hogFunctionId) {
-        const res = <HogFunctionConfiguration templateId={hogFunctionId} />
-        if (stage === PipelineStage.Destination) {
-            return <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>{res}</PayGateMini>
-        }
-        return res
+        return <HogFunctionConfiguration templateId={hogFunctionId} />
     }
 
     if (stage === PipelineStage.Transformation) {
         return <TransformationOptionsTable />
     } else if (stage === PipelineStage.Destination) {
-        return (
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
-                <DestinationOptionsTable />
-            </PayGateMini>
-        )
+        return <DestinationOptionsTable />
     } else if (stage === PipelineStage.SiteApp) {
         return <SiteAppOptionsTable />
     }

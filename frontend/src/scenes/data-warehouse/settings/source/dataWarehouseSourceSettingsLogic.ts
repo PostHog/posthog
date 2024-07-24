@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import {
     Breadcrumb,
     DataWarehouseSettingsTab,
+    DataWarehouseTab,
     ExternalDataJob,
     ExternalDataSourceSchema,
     ExternalDataStripeSource,
@@ -35,7 +36,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     key(({ id }) => id),
     actions({
         setCurrentTab: (tab: DataWarehouseSourceSettingsTabs) => ({ tab }),
-        setParentSettingsTab: (tab: DataWarehouseSettingsTab) => ({ tab }),
+        setParentSettingsTab: (tab: DataWarehouseTab) => ({ tab }),
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -82,7 +83,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         ],
         parentSettingsTab: [
-            DataWarehouseSettingsTab.Managed as DataWarehouseSettingsTab,
+            DataWarehouseTab.ManagedSources as DataWarehouseTab,
             {
                 setParentSettingsTab: (_, { tab }) => tab,
             },
@@ -106,7 +107,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 {
                     key: Scene.DataWarehouseSettings,
                     name: 'Data Warehouse Settings',
-                    path: urls.dataWarehouseSettings(parentSettingsTab),
+                    path: urls.dataWarehouse(parentSettingsTab),
                 },
                 {
                     key: Scene.dataWarehouseSourceSettings,
@@ -118,17 +119,31 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     }),
     listeners(({ values, actions, cache }) => ({
         loadSourceSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
+            clearTimeout(cache.sourceRefreshTimeout)
 
-            cache.refreshTimeout = setTimeout(() => {
+            cache.sourceRefreshTimeout = setTimeout(() => {
                 actions.loadSource()
             }, REFRESH_INTERVAL)
         },
         loadSourceFailure: () => {
-            clearTimeout(cache.refreshTimeout)
+            clearTimeout(cache.sourceRefreshTimeout)
 
-            cache.refreshTimeout = setTimeout(() => {
+            cache.sourceRefreshTimeout = setTimeout(() => {
                 actions.loadSource()
+            }, REFRESH_INTERVAL)
+        },
+        loadJobsSuccess: () => {
+            clearTimeout(cache.jobsRefreshTimeout)
+
+            cache.jobsRefreshTimeout = setTimeout(() => {
+                actions.loadJobs()
+            }, REFRESH_INTERVAL)
+        },
+        loadJobsFailure: () => {
+            clearTimeout(cache.jobsRefreshTimeout)
+
+            cache.jobsRefreshTimeout = setTimeout(() => {
+                actions.loadJobs()
             }, REFRESH_INTERVAL)
         },
         reloadSchema: async ({ schema }) => {
@@ -181,7 +196,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             }
 
             if (parentTab !== values.parentSettingsTab) {
-                actions.setParentSettingsTab(parentTab as DataWarehouseSettingsTab)
+                actions.setParentSettingsTab(parentTab as DataWarehouseTab)
             }
         },
     })),

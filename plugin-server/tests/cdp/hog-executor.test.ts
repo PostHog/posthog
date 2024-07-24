@@ -65,7 +65,7 @@ describe('Hog Executor', () => {
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())
-                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+                .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
             expect(results[0]).toMatchObject({
                 id: expect.any(String),
@@ -77,7 +77,7 @@ describe('Hog Executor', () => {
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())
-                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+                .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0].logs).toMatchObject([
                 {
                     team_id: 1,
@@ -134,7 +134,7 @@ describe('Hog Executor', () => {
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())
-                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+                .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0]).toMatchObject({
                 id: results[0].id,
                 globals: {
@@ -193,7 +193,7 @@ describe('Hog Executor', () => {
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())
-                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+                .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             const splicedLogs = results[0].logs.splice(0, 100)
             logs.push(...splicedLogs)
 
@@ -223,9 +223,8 @@ describe('Hog Executor', () => {
             mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals())
-            expect(resultsShouldntMatch.functions).toHaveLength(0)
-            expect(resultsShouldntMatch.total).toBe(1)
-            expect(resultsShouldntMatch.matching).toBe(0)
+            expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
+            expect(resultsShouldntMatch.nonMatchingFunctions).toHaveLength(1)
 
             const resultsShouldMatch = executor.findMatchingFunctions(
                 createHogExecutionGlobals({
@@ -237,9 +236,8 @@ describe('Hog Executor', () => {
                     } as any,
                 })
             )
-            expect(resultsShouldMatch.functions).toHaveLength(1)
-            expect(resultsShouldMatch.total).toBe(1)
-            expect(resultsShouldMatch.matching).toBe(1)
+            expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
+            expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
         })
     })
 
@@ -257,7 +255,7 @@ describe('Hog Executor', () => {
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())
-                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+                .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
 
             // Run the result one time simulating a successful fetch
@@ -270,8 +268,11 @@ describe('Hog Executor', () => {
             const asyncResult2 = executor.executeAsyncResponse(simulateMockFetchAsyncResponse(asyncResult1))
             // This time we should see an error for hitting the loop limit
             expect(asyncResult2.finished).toBe(false)
-            expect(asyncResult2.error).toEqual('Function exceeded maximum async steps')
-            expect(asyncResult2.logs.map((log) => log.message)).toEqual(['Function exceeded maximum async steps'])
+            expect(asyncResult2.error).toEqual('Exceeded maximum number of async steps: 2')
+            expect(asyncResult2.logs.map((log) => log.message)).toEqual([
+                'Resuming function',
+                'Error executing function: Error: Exceeded maximum number of async steps: 2',
+            ])
         })
     })
 
@@ -292,7 +293,7 @@ describe('Hog Executor', () => {
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())
-                .functions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+                .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
             expect(results[0].error).toContain('Execution timed out after 0.1 seconds. Performed ')
 
