@@ -277,13 +277,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             })
             actions.setSurveyID('')
         },
-        deactivateProductSuccess: () => {
+        deactivateProductSuccess: async (_, breakpoint) => {
             if (!values.unsubscribeError) {
                 const textAreaNotEmpty = values.surveyResponse['$survey_response']?.length > 0
                 textAreaNotEmpty
                     ? actions.reportSurveySent(values.surveyID, values.surveyResponse)
                     : actions.reportSurveyDismissed(values.surveyID)
             }
+            await breakpoint(200)
             location.reload()
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
