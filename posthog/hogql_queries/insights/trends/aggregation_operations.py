@@ -542,25 +542,6 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def get_first_time_math_query_orchestrator(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr, event_name_filter: ast.Expr | None = None
     ):
-        """
-        SELECT
-            count() AS total,
-            toStartOfDay(min_timestamp) AS day_start
-        FROM
-            (SELECT
-                min(timestamp) AS min_timestamp,
-                minIf(timestamp, and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2020-01-09 00:00:00')))), equals(person.properties.name, 'p4'))) AS min_timestamp_with_condition
-            FROM
-                events AS e SAMPLE 1
-            WHERE
-                and(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-20 23:59:59'))), equals(event, '$pageview'))
-            GROUP BY
-                person_id
-            HAVING
-                equals(min_timestamp, min_timestamp_with_condition))
-        GROUP BY
-            day_start
-        """
         events_query = self._first_time_events_query(events_where_clause, sample_value, event_name_filter)
         parent_select = self._first_time_parent_query(events_query)
 
