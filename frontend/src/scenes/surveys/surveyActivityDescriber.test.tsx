@@ -255,7 +255,9 @@ describe('describeQuestionChanges', () => {
         )
         expect(getTextContent(changes[1])).toBe('made question optional')
         expect(getTextContent(changes[2])).toBe('changed button text from "Next" to "Continue"')
-        expect(getTextContent(changes[3])).toBe('changed question type from single_choice to multiple_choice')
+        expect(getTextContent(changes[3])).toBe(
+            'changed question type from Single choice select to Multiple choice select'
+        )
         expect(getTextContent(changes[4])).toBe('added choices: Maybe')
         expect(getTextContent(changes[5])).toBe('updated branching logic')
     })
