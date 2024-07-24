@@ -167,13 +167,14 @@ export const PlanComparison = ({
                     }
                     onClick={() => {
                         if (!plan.current_plan) {
-                            // TODO: add current plan key and new plan key
-                            reportBillingUpgradeClicked(product.type)
                             setBillingProductLoading(product.type)
-                        }
-                        if (!plan.included_if && !plan.current_plan && i < currentPlanIndex) {
-                            setSurveyResponse(product.type, '$survey_response_1')
-                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                            if (i < currentPlanIndex) {
+                                setSurveyResponse(product.type, '$survey_response_1')
+                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                reportBillingDowngradeClicked(product.type)
+                            } else {
+                                reportBillingUpgradeClicked(product.type)
+                            }
                         }
                     }}
                     loading={billingProductLoading === product.type && !plan.current_plan && !plan.contact_support}
