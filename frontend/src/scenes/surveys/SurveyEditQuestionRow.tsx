@@ -225,7 +225,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         { label: 'Number', value: 'number' },
                                         { label: 'Emoji', value: 'emoji' },
                                     ]}
-                                    onChange={(val: 'number' | 'emoji') => {
+                                    onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], display: val, scale: 5 }
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
@@ -242,13 +242,18 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 <LemonSelect
                                     options={[
                                         ...(question.display === 'emoji' ? [{ label: '1 - 3', value: 3 }] : []),
-                                        { label: '1 - 5', value: 5 },
-                                        { label: '1 - 7', value: 7 },
+                                        {
+                                            label: '1 - 5',
+                                            value: 5,
+                                        },
                                         ...(question.display === 'number'
-                                            ? [{ label: '0 - 10 (Net Promoter Score)', value: 10 }]
+                                            ? [
+                                                  { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
+                                                  { label: '0 - 10 (Net Promoter Score)', value: 10 },
+                                              ]
                                             : []),
                                     ]}
-                                    onChange={(val: 3 | 5 | 7 | 10) => {
+                                    onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
@@ -260,26 +265,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         </div>
                         <div className="flex flex-row gap-4">
                             <LemonField name="lowerBoundLabel" label="Lower bound label" className="w-1/2">
-                                <LemonInput
-                                    value={question.lowerBoundLabel || ''}
-                                    onChange={(val) => {
-                                        const newQuestion = { ...survey.questions[index], lowerBoundLabel: val }
-                                        const newQuestions = [...survey.questions]
-                                        newQuestions[index] = newQuestion
-                                        setSurveyValue('questions', newQuestions)
-                                    }}
-                                />
+                                <LemonInput value={question.lowerBoundLabel || ''} />
                             </LemonField>
                             <LemonField name="upperBoundLabel" label="Upper bound label" className="w-1/2">
-                                <LemonInput
-                                    value={question.upperBoundLabel || ''}
-                                    onChange={(val) => {
-                                        const newQuestion = { ...survey.questions[index], upperBoundLabel: val }
-                                        const newQuestions = [...survey.questions]
-                                        newQuestions[index] = newQuestion
-                                        setSurveyValue('questions', newQuestions)
-                                    }}
-                                />
+                                <LemonInput value={question.upperBoundLabel || ''} />
                             </LemonField>
                         </div>
                     </div>
