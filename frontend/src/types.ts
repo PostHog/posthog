@@ -2082,15 +2082,10 @@ export enum RetentionPeriod {
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
 /**
- * Legacy multiple breakdowns had `property` and `type` fields.
- * Mirroring the legacy fields here for backwards compatibility with multiple breakdowns.
+ * Legacy breakdown.
  */
 export interface Breakdown {
-    value?: string
-    /**
-     * Legacy breakdown has a `property` field that is `value` now.
-     */
-    property?: string | number
+    property: string | number
     type: BreakdownType
     normalize_url?: boolean
     histogram_bin_count?: number
@@ -3833,7 +3828,7 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'MySQL', 'Zendesk', 'Snowflake'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
@@ -4377,6 +4372,28 @@ export interface AlertType {
     insight?: number
     target_value: string
     anomaly_condition: AnomalyCondition
+}
+
+export type AppMetricsV2Response = {
+    labels: string[]
+    series: {
+        name: string
+        values: number[]
+    }[]
+}
+
+export type AppMetricsTotalsV2Response = {
+    totals: Record<string, number>
+}
+
+export type AppMetricsV2RequestParams = {
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    name?: string
+    kind?: string
+    interval?: 'hour' | 'day' | 'week'
+    breakdown_by?: 'name' | 'kind'
 }
 
 export enum DataWarehouseTab {

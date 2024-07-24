@@ -958,7 +958,6 @@ class TestSurvey(APIBaseTest):
         response_data = list.json()
         assert list.status_code == status.HTTP_200_OK, response_data
         survey = Survey.objects.get(team_id=self.team.id)
-
         assert response_data == {
             "count": 1,
             "next": None,
@@ -1019,7 +1018,7 @@ class TestSurvey(APIBaseTest):
                     "responses_limit": None,
                     "iteration_count": None,
                     "iteration_frequency_days": None,
-                    "iteration_start_dates": None,
+                    "iteration_start_dates": [],
                     "current_iteration": None,
                     "current_iteration_start_date": None,
                 }
@@ -2233,6 +2232,27 @@ class TestSurveysRecurringIterations(APIBaseTest):
         survey = Survey.objects.get(id=response_data["id"])
         return survey
 
+    def _create_non_recurring_survey(self) -> Survey:
+        random_id = generate("1234567890abcdef", 10)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": f"Recurring NPS Survey {random_id}",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                    }
+                ],
+            },
+        )
+
+        response_data = response.json()
+        survey = Survey.objects.get(id=response_data["id"])
+        return survey
+
     def test_can_create_recurring_survey(self):
         survey = self._create_recurring_survey()
         response = self.client.patch(
@@ -2345,6 +2365,41 @@ class TestSurveysRecurringIterations(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Cannot change survey recurrence to 1, should be at least 2"
+
+    def test_can_handle_non_nil_current_iteration(self):
+        survey = self._create_non_recurring_survey()
+        survey.current_iteration = 2
+        survey.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_guards_for_nil_iteration_count(self):
+        survey = self._create_recurring_survey()
+        survey.current_iteration = 2
+        survey.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        survey.refresh_from_db()
+        self.assertIsNone(survey.current_iteration)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 3,
+                "iteration_frequency_days": 30,
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_can_turn_off_recurring_schedule(self):
         survey = self._create_recurring_survey()

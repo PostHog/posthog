@@ -2,6 +2,7 @@ import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import {
+    KAFKA_APP_METRICS_2,
     KAFKA_CDP_FUNCTION_CALLBACKS,
     KAFKA_CDP_FUNCTION_OVERFLOW,
     KAFKA_EVENTS_JSON,
@@ -13,7 +14,7 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../kafka/producer'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
+import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
@@ -154,6 +155,24 @@ abstract class CdpConsumerBase {
         )
     }
 
+    protected logAppMetrics(
+        metric: Pick<AppMetric2Type, 'team_id' | 'app_source_id' | 'metric_kind' | 'metric_name' | 'count'>
+    ) {
+        const appMetric: AppMetric2Type = {
+            app_source: 'hog_function',
+            ...metric,
+            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+        }
+
+        this.messagesToProduce.push({
+            topic: KAFKA_APP_METRICS_2,
+            value: appMetric,
+            key: appMetric.app_source_id,
+        })
+
+        counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
+    }
+
     protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
         await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
@@ -164,8 +183,12 @@ abstract class CdpConsumerBase {
                         const logs = result.logs
                         result.logs = []
 
-                        counterFunctionInvocation.inc({
-                            outcome: result.error ? 'failed' : 'succeeded',
+                        this.logAppMetrics({
+                            team_id: result.teamId,
+                            app_source_id: result.hogFunctionId,
+                            metric_kind: result.error ? 'failure' : 'success',
+                            metric_name: result.error ? 'failed' : 'succeeded',
+                            count: 1,
                         })
 
                         logs.forEach((x) => {
@@ -245,10 +268,19 @@ abstract class CdpConsumerBase {
                             },
                             key: item.id,
                         })
+                        // We don't report overflowed metric to appmetrics as it is sort of a meta-metric
                         counterFunctionInvocation.inc({ outcome: 'overflowed' })
                     } else if (functionState > HogWatcherState.disabledForPeriod) {
-                        // TODO: Report to AppMetrics 2 when it is ready
-                        counterFunctionInvocation.inc({ outcome: 'disabled' })
+                        this.logAppMetrics({
+                            team_id: item.teamId,
+                            app_source_id: item.hogFunctionId,
+                            metric_kind: 'failure',
+                            metric_name:
+                                functionState === HogWatcherState.disabledForPeriod
+                                    ? 'disabled_temporarily'
+                                    : 'disabled_permanently',
+                            count: 1,
+                        })
                         continue
                     } else {
                         asyncResponsesToRun.push(item)
@@ -277,34 +309,32 @@ abstract class CdpConsumerBase {
                 await this.groupsManager.enrichGroups(invocationGlobals)
 
                 invocationGlobals.forEach((globals) => {
-                    const { functions, total, matching } = this.hogExecutor.findMatchingFunctions(globals)
+                    const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
 
-                    counterFunctionInvocation.inc({ outcome: 'filtered' }, total - matching)
-
-                    // Filter for overflowed and disabled functions
-                    const [healthy, overflowed, disabled] = functions.reduce(
-                        (acc, item) => {
-                            const state = this.hogWatcher.getFunctionState(item.id)
-                            if (state >= HogWatcherState.disabledForPeriod) {
-                                acc[2].push(item)
-                            } else if (state >= HogWatcherState.overflowed) {
-                                acc[1].push(item)
-                            } else {
-                                acc[0].push(item)
-                            }
-
-                            return acc
-                        },
-                        [[], [], []] as [HogFunctionType[], HogFunctionType[], HogFunctionType[]]
+                    nonMatchingFunctions.forEach((item) =>
+                        this.logAppMetrics({
+                            team_id: item.team_id,
+                            app_source_id: item.id,
+                            metric_kind: 'other',
+                            metric_name: 'filtered',
+                            count: 1,
+                        })
                     )
 
-                    if (overflowed.length) {
+                    // Filter for overflowed and disabled functions
+                    const hogFunctionsByState = matchingFunctions.reduce((acc, item) => {
+                        const state = this.hogWatcher.getFunctionState(item.id)
+                        return {
+                            ...acc,
+                            [state]: [...(acc[state] ?? []), item],
+                        }
+                        return acc
+                    }, {} as Record<HogWatcherState, HogFunctionType[] | undefined>)
+
+                    if (hogFunctionsByState[HogWatcherState.overflowed]?.length) {
+                        const overflowed = hogFunctionsByState[HogWatcherState.overflowed]!
                         // Group all overflowed functions into one event
                         counterFunctionInvocation.inc({ outcome: 'overflowed' }, overflowed.length)
-                        // TODO: Report to AppMetrics 2 when it is ready
-                        status.debug('🔁', `Oveflowing functions`, {
-                            count: overflowed.length,
-                        })
 
                         this.messagesToProduce.push({
                             topic: KAFKA_CDP_FUNCTION_OVERFLOW,
@@ -319,18 +349,30 @@ abstract class CdpConsumerBase {
                         })
                     }
 
-                    if (disabled.length) {
-                        counterFunctionInvocation.inc({ outcome: 'disabled' }, disabled.length)
-                        // TODO: Report to AppMetrics 2 when it is ready
-                        status.debug('🔁', `Disabled functions skipped`, {
-                            count: disabled.length,
+                    hogFunctionsByState[HogWatcherState.disabledForPeriod]?.forEach((item) => {
+                        this.logAppMetrics({
+                            team_id: item.team_id,
+                            app_source_id: item.id,
+                            metric_kind: 'failure',
+                            metric_name: 'disabled_temporarily',
+                            count: 1,
                         })
-                    }
+                    })
 
-                    healthy.forEach((x) => {
+                    hogFunctionsByState[HogWatcherState.disabledIndefinitely]?.forEach((item) => {
+                        this.logAppMetrics({
+                            team_id: item.team_id,
+                            app_source_id: item.id,
+                            metric_kind: 'failure',
+                            metric_name: 'disabled_permanently',
+                            count: 1,
+                        })
+                    })
+
+                    hogFunctionsByState[HogWatcherState.healthy]?.forEach((item) => {
                         invocations.push({
                             globals,
-                            hogFunction: x,
+                            hogFunction: item,
                         })
                     })
                 })
@@ -578,7 +620,16 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
                     await this.runManyWithHeartbeat(invocations, (item) => {
                         const state = this.hogWatcher.getFunctionState(item.hogFunctionId)
                         if (state >= HogWatcherState.disabledForPeriod) {
-                            counterFunctionInvocation.inc({ outcome: 'disabled' })
+                            this.logAppMetrics({
+                                team_id: item.globals.project.id,
+                                app_source_id: item.hogFunctionId,
+                                metric_kind: 'failure',
+                                metric_name:
+                                    state === HogWatcherState.disabledForPeriod
+                                        ? 'disabled_temporarily'
+                                        : 'disabled_permanently',
+                                count: 1,
+                            })
                             return
                         }
                         return this.hogExecutor.executeFunction(item.globals, item.hogFunctionId)
