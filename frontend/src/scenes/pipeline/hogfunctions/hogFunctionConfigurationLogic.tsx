@@ -10,9 +10,11 @@ import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
+    AvailableFeature,
     FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
@@ -121,12 +123,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         return id ?? templateId ?? 'new'
     }),
     connect({
-        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes'], userLogic, ['hasAvailableFeature']],
     }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
-    connect({
-        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
-    }),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
@@ -205,9 +204,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             submit: async (data) => {
                 const payload = sanitizeConfiguration(data)
 
-                if (props.templateId) {
-                    // Only sent on create
-                    ;(payload as any).template_id = props.templateId
+                // Only sent on create
+                ;(payload as any).template_id = props.templateId || values.hogFunction?.template?.id
+
+                if (!values.hasAddon) {
+                    // Remove the source field if the user doesn't have the addon
+                    delete payload.hog
+                    delete payload.inputs_schema
                 }
 
                 await asyncActions.upsertHogFunction(payload)
@@ -215,6 +218,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
+        hasAddon: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => {
+                return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+            },
+        ],
+        showPaygate: [
+            (s) => [s.template, s.hasAddon],
+            (template, hasAddon) => {
+                return template && template.status !== 'free' && !hasAddon
+            },
+        ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
             (template, hogFunction): HogFunctionConfigurationType => {
@@ -289,6 +304,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         exampleInvocationGlobals: [
             (s) => [s.configuration, s.currentTeam, s.groupTypes],
             (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
+                const currentUrl = window.location.href.split('#')[0]
                 const globals: HogFunctionInvocationGlobals = {
                     event: {
                         uuid: uuid(),
@@ -297,7 +313,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         timestamp: dayjs().toISOString(),
                         url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                         properties: {
-                            $current_url: window.location.href,
+                            $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
                     },
@@ -317,7 +333,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                     source: {
                         name: configuration?.name ?? 'Unnamed',
-                        url: window.location.href,
+                        url: currentUrl,
                     },
                 }
 

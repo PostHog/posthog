@@ -290,7 +290,10 @@ class PluginSerializer(serializers.ModelSerializer):
         return None
 
     def get_organization_name(self, plugin: Plugin) -> str:
-        return plugin.organization.name
+        if plugin.organization:
+            return plugin.organization.name
+        else:
+            return "posthog-inline"
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)

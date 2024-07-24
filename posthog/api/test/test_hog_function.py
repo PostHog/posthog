@@ -1,12 +1,15 @@
 import json
+from typing import Optional
 from unittest.mock import ANY, patch
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
+from posthog.cdp.templates.slack.template_slack import template as template_slack
 
 
 EXAMPLE_FULL = {
@@ -55,7 +58,75 @@ EXAMPLE_FULL = {
 }
 
 
+class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def create_slack_function(self, data: Optional[dict] = None):
+        payload = {
+            "name": "Slack",
+            "template_id": template_slack.id,
+            "inputs": {
+                "slack_workspace": {"value": 1},
+                "channel": {"value": "#general"},
+            },
+        }
+
+        payload.update(data or {})
+
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data=payload,
+        )
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled")
+    def test_create_hog_function_works_for_free_template(self, mock_feature_enabled):
+        response = self.create_slack_function()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["created_by"]["id"] == self.user.id
+        assert response.json()["hog"] == template_slack.hog
+        assert response.json()["inputs_schema"] == template_slack.inputs_schema
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled")
+    def test_free_users_cannot_override_hog_or_schema(self, mock_feature_enabled):
+        response = self.create_slack_function(
+            {
+                "hog": "fetch(inputs.url);",
+                "inputs_schema": [
+                    {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+                ],
+            }
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled")
+    def test_free_users_cannot_use_without_template(self, mock_feature_enabled):
+        response = self.create_slack_function({"template_id": None})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled")
+    def test_free_users_cannot_use_non_free_templates(self, mock_feature_enabled):
+        response = self.create_slack_function(
+            {
+                "template_id": template_webhook.id,
+            }
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "The Data Pipelines addon is required for this template."
+
+
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
+        ]
+        self.organization.save()
+
     @patch("posthog.permissions.posthoganalytics.feature_enabled")
     def test_create_hog_function_forbidden_if_not_in_flag(self, mock_feature_enabled):
         mock_feature_enabled.return_value = False

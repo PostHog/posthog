@@ -9,9 +9,9 @@ import {
     PluginConfigVMResponse,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginMethods,
     PluginTask,
     PluginTaskType,
-    VMMethods,
 } from '../../types'
 import { processError } from '../../utils/db/error'
 import { disablePlugin, getPlugin, setPluginCapabilities } from '../../utils/db/sql'
@@ -20,6 +20,7 @@ import { getNextRetryMs } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
+import { constructInlinePluginInstance } from './inline/inline'
 import { createPluginConfigVM } from './vm'
 
 export const VM_INIT_MAX_RETRIES = 5
@@ -44,7 +45,33 @@ const pluginDisabledBySystemCounter = new Counter({
     labelNames: ['plugin_id'],
 })
 
-export class LazyPluginVM {
+export function constructPluginInstance(hub: Hub, pluginConfig: PluginConfig): PluginInstance {
+    if (pluginConfig.plugin?.plugin_type == 'inline') {
+        return constructInlinePluginInstance(hub, pluginConfig)
+    }
+    return new LazyPluginVM(hub, pluginConfig)
+}
+
+export interface PluginInstance {
+    // These are "optional", but if they're not set, loadPlugin will fail
+    initialize?: (indexJs: string, logInfo: string) => Promise<void>
+    failInitialization?: () => void
+
+    getTeardown: () => Promise<PluginMethods['teardownPlugin'] | null>
+    getTask: (name: string, type: PluginTaskType) => Promise<PluginTask | null>
+    getScheduledTasks: () => Promise<Record<string, PluginTask>>
+    getPluginMethod: <T extends keyof PluginMethods>(method_name: T) => Promise<PluginMethods[T] | null>
+    clearRetryTimeoutIfExists: () => void
+    setupPluginIfNeeded: () => Promise<boolean>
+
+    createLogEntry: (message: string, logType?: PluginLogEntryType) => Promise<void>
+
+    // This is only used for metrics, and can probably be dropped as we start to care less about
+    // what imports are used by plugins (or as inlining more plugins makes imports irrelevant)
+    usedImports: Set<string> | undefined
+}
+
+export class LazyPluginVM implements PluginInstance {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
@@ -68,15 +95,7 @@ export class LazyPluginVM {
         this.initVm()
     }
 
-    public async getOnEvent(): Promise<PluginConfigVMResponse['methods']['onEvent'] | null> {
-        return await this.getVmMethod('onEvent')
-    }
-
-    public async getProcessEvent(): Promise<PluginConfigVMResponse['methods']['processEvent'] | null> {
-        return await this.getVmMethod('processEvent')
-    }
-
-    public async getTeardownPlugin(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
+    public async getTeardown(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
         // if we never ran `setupPlugin`, there's no reason to run `teardownPlugin` - it's essentially "tore down" already
         if (!this.ready) {
             return null
@@ -112,15 +131,15 @@ export class LazyPluginVM {
         return tasks || {}
     }
 
-    public async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
-        let vmMethod = (await this.resolveInternalVm)?.methods[method] || null
-        if (!this.ready && vmMethod) {
+    public async getPluginMethod<T extends keyof PluginMethods>(method_name: T): Promise<PluginMethods[T] | null> {
+        let method = (await this.resolveInternalVm)?.methods[method_name] || null
+        if (!this.ready && method) {
             const pluginReady = await this.setupPluginIfNeeded()
             if (!pluginReady) {
-                vmMethod = null
+                method = null
             }
         }
-        return vmMethod
+        return method
     }
 
     public clearRetryTimeoutIfExists(): void {
@@ -207,6 +226,7 @@ export class LazyPluginVM {
         return true
     }
 
+    // TODO - this is only called in tests, try to remove at some point.
     public async _setupPlugin(vm?: VM): Promise<void> {
         const logInfo = this.pluginConfig.plugin
             ? pluginDigest(this.pluginConfig.plugin)

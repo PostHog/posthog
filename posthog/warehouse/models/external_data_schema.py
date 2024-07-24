@@ -6,6 +6,14 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
 import psycopg2
+import pymysql
+from .external_data_source import ExternalDataSource
+from posthog.warehouse.data_load.service import (
+    external_data_workflow_exists,
+    pause_external_data_schedule,
+    sync_external_data_job_workflow,
+    unpause_external_data_schedule,
+)
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
@@ -76,6 +84,26 @@ def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) 
 @database_sync_to_async
 def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None:
     return ExternalDataSchema.objects.prefetch_related("source").get(id=schema_id, team_id=team_id)
+
+
+@database_sync_to_async
+def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    schema.should_sync = should_sync
+    schema.save()
+
+    schedule_exists = external_data_workflow_exists(schema_id)
+
+    if schedule_exists:
+        if should_sync is False:
+            pause_external_data_schedule(schema_id)
+        elif should_sync is True:
+            unpause_external_data_schedule(schema_id)
+    else:
+        if should_sync is True:
+            sync_external_data_job_workflow(schema, create=True)
+
+    return schema
 
 
 @database_sync_to_async
@@ -196,3 +224,83 @@ def get_postgres_schemas(
             return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
 
     return get_schemas(host, int(port))
+
+
+def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type.startswith("timestamp"):
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "datetime":
+            results.append((column_name, IncrementalFieldType.DateTime))
+        elif type == "tinyint" or type == "smallint" or type == "mediumint" or type == "int" or type == "bigint":
+            results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
+
+
+def get_mysql_schemas(
+    host: str,
+    port: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    ssh_tunnel: SSHTunnel,
+) -> dict[str, list[tuple[str, str]]]:
+    def get_schemas(mysql_host: str, mysql_port: int):
+        connection = pymysql.connect(
+            host=mysql_host,
+            port=mysql_port,
+            database=database,
+            user=user,
+            password=password,
+            connect_timeout=5,
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": schema},
+            )
+            result = cursor.fetchall()
+
+            schema_list = defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+        connection.close()
+
+        return schema_list
+
+    if ssh_tunnel.enabled:
+        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return get_schemas(host, int(port))
+
+
+def get_sql_schemas_for_source_type(
+    source_type: ExternalDataSource.Type,
+    host: str,
+    port: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    ssh_tunnel: SSHTunnel,
+) -> dict[str, list[tuple[str, str]]]:
+    if source_type == ExternalDataSource.Type.POSTGRES:
+        schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+    elif source_type == ExternalDataSource.Type.MYSQL:
+        schemas = get_mysql_schemas(host, port, database, user, password, schema, ssh_tunnel)
+    else:
+        raise Exception("Unsupported source_type")
+
+    return schemas

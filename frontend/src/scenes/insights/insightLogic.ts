@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -93,7 +94,7 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAsNamingSuccess: (name: string) => ({ name }),
+        saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
         cancelChanges: true,
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -425,6 +426,16 @@ export const insightLogic = kea<insightLogicType>([
 
             dashboardsModel.actions.updateDashboardInsight(savedInsight)
 
+            // reload dashboards with updated insight
+            // since filters on dashboard might be different from filters on insight
+            // we need to trigger dashboard reload to pick up results for updated insight
+            savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
+                dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
+                    action: 'update',
+                    refresh: 'lazy_async',
+                })
+            )
+
             const mountedInsightSceneLogic = insightSceneLogic.findMounted()
             if (redirectToViewMode) {
                 if (!insightNumericId && dashboards?.length === 1) {
@@ -441,7 +452,7 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAsNamingSuccess: async ({ name }) => {
+        saveAsNamingSuccess: async ({ name, redirectToViewMode }) => {
             const { filters, query } = getInsightFilterOrQueryForPersistance(
                 values.queryBasedInsight,
                 values.queryBasedInsightSaving
@@ -454,12 +465,17 @@ export const insightLogic = kea<insightLogicType>([
             })
             lemonToast.info(
                 `You're now working on a copy of ${
-                    values.queryBasedInsight.name || values.queryBasedInsight.derived_name
+                    values.queryBasedInsight.name || values.queryBasedInsight.derived_name || name
                 }`
             )
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
-            router.actions.push(urls.insightEdit(insight.short_id))
+
+            if (redirectToViewMode) {
+                router.actions.push(urls.insightView(insight.short_id))
+            } else {
+                router.actions.push(urls.insightEdit(insight.short_id))
+            }
         },
         cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})
