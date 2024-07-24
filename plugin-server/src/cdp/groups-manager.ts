@@ -65,7 +65,7 @@ export class GroupsManager {
             },
             [[], [], []] as [number[], number[], string[]]
         )
-        // Load the group properties
+
         return (
             await this.hub.postgres.query(
                 PostgresUse.COMMON_READ,
@@ -122,7 +122,6 @@ export class GroupsManager {
 
             console.log(item)
         })
-        // Load the group properties
         const groupsFromDatabase = await this.fetchGroupProperties(Object.values(groupsByTeamTypeId))
 
         // Add the properties to all the groups
