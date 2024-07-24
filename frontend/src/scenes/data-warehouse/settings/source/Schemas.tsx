@@ -70,14 +70,19 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             return (
                                 <LemonSelect
                                     className="my-1"
-                                    value={schema.sync_frequency || 'day'}
+                                    value={schema.sync_frequency || '6hour'}
                                     onChange={(value) =>
                                         updateSchema({ ...schema, sync_frequency: value as DataWarehouseSyncInterval })
                                     }
                                     options={[
-                                        { value: 'day' as DataWarehouseSyncInterval, label: 'Daily' },
-                                        { value: 'week' as DataWarehouseSyncInterval, label: 'Weekly' },
-                                        { value: 'month' as DataWarehouseSyncInterval, label: 'Monthly' },
+                                        { value: '5min' as DataWarehouseSyncInterval, label: '5 mins' },
+                                        { value: '30min' as DataWarehouseSyncInterval, label: '30 mins' },
+                                        { value: '1hour' as DataWarehouseSyncInterval, label: '1 hour' },
+                                        { value: '6hour' as DataWarehouseSyncInterval, label: '6 hours' },
+                                        { value: '12hour' as DataWarehouseSyncInterval, label: '12 hours' },
+                                        { value: '24hour' as DataWarehouseSyncInterval, label: 'Daily' },
+                                        { value: '7day' as DataWarehouseSyncInterval, label: 'Weekly' },
+                                        { value: '30day' as DataWarehouseSyncInterval, label: 'Monthly' },
                                     ]}
                                 />
                             )

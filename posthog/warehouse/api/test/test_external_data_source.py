@@ -15,6 +15,7 @@ from rest_framework import status
 
 
 from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -415,7 +416,7 @@ class TestExternalDataSource(APIBaseTest):
                     "status": schema.status,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
-                    "sync_frequency": schema.sync_frequency,
+                    "sync_frequency": sync_frequency_interval_to_sync_frequency(schema),
                 }
             ],
         )

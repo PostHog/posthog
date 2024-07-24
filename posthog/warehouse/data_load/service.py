@@ -48,7 +48,7 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
         external_data_source_id=external_data_schema.source_id,
     )
 
-    sync_frequency = get_sync_frequency(external_data_schema)
+    sync_frequency, jitter = get_sync_frequency(external_data_schema)
 
     return Schedule(
         action=ScheduleActionStartWorkflow(
@@ -58,27 +58,21 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
             task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
         ),
         spec=ScheduleSpec(
-            intervals=[
-                ScheduleIntervalSpec(every=sync_frequency, offset=timedelta(hours=external_data_schema.created_at.hour))
-            ],
-            jitter=timedelta(hours=2),
+            intervals=[ScheduleIntervalSpec(every=sync_frequency)],
+            jitter=jitter,
         ),
         state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
 
-def get_sync_frequency(external_data_schema: "ExternalDataSchema"):
-    from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+def get_sync_frequency(external_data_schema: "ExternalDataSchema") -> tuple[timedelta, timedelta]:
+    if external_data_schema.sync_frequency_interval <= timedelta(hours=1):
+        return (external_data_schema.sync_frequency_interval, timedelta(minutes=1))
+    if external_data_schema.sync_frequency_interval <= timedelta(hours=12):
+        return (external_data_schema.sync_frequency_interval, timedelta(minutes=30))
 
-    if external_data_schema.sync_frequency == ExternalDataSchema.SyncFrequency.DAILY:
-        return timedelta(days=1)
-    elif external_data_schema.sync_frequency == ExternalDataSchema.SyncFrequency.WEEKLY:
-        return timedelta(weeks=1)
-    elif external_data_schema.sync_frequency == ExternalDataSchema.SyncFrequency.MONTHLY:
-        return timedelta(days=30)
-    else:
-        raise ValueError(f"Unknown sync frequency: {external_data_schema.source.sync_frequency}")
+    return (external_data_schema.sync_frequency_interval, timedelta(hours=1))
 
 
 def sync_external_data_job_workflow(
