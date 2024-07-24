@@ -562,6 +562,8 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeOverflowedFunctions`,
             func: async () => {
+                await this.groupsManager.enrichGroups(invocationGlobals.map((x) => x.globals))
+
                 const invocations = invocationGlobals
                     .map((item) =>
                         item.hogFunctionIds.map((hogFunctionId) => ({
