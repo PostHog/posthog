@@ -1,12 +1,12 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconInfo, IconMagicWand } from '@posthog/icons'
+import { IconMagicWand, IconPlus } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable } from 'monaco-editor'
@@ -56,7 +56,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         language: 'hogQL',
         metadataFilters: props.query.filters,
     }
-    const { hasErrors, error, isValidView } = useValues(codeEditorLogic(codeEditorLogicProps))
+    const { hasErrors, error, isValidView, activeModelUri, allModels } = useValues(
+        codeEditorLogic(codeEditorLogicProps)
+    )
+    const { createModel, setModel } = useActions(codeEditorLogic(codeEditorLogicProps))
 
     const { editingView } = useValues(dataWarehouseSceneLogic)
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -66,6 +69,17 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
     }, [])
+
+    useEffect(() => {
+        if (monaco && activeModelUri) {
+            const _model = monaco.editor.getModel(activeModelUri)
+            const val = _model?.getValue()
+            if (val) {
+                setQueryInput(val)
+                saveQuery()
+            }
+        }
+    }, [activeModelUri])
 
     return (
         <div className="flex items-start gap-2">
@@ -110,29 +124,29 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     </div>
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
-                <div className="relative flex-1 overflow-hidden">
-                    <span className="absolute top-0 right-0 mt-1 mr-5 z-10 bg-bg-light">
-                        <LemonButtonWithDropdown
-                            icon={<IconInfo />}
-                            type="secondary"
-                            size="small"
-                            dropdown={{
-                                overlay: (
-                                    <div>
-                                        Run SQL queries with{' '}
-                                        <Link to="https://posthog.com/manual/hogql" target="_blank">
-                                            HogQL
-                                        </Link>
-                                        , our wrapper around ClickHouse SQL
-                                    </div>
-                                ),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
+                <div className="relative flex-1 overflow-hidden flex-col">
+                    <div className="flex flex-row gap-2 my-1">
+                        {allModels.map((model) => (
+                            <LemonButton
+                                size="small"
+                                active={model === activeModelUri}
+                                type={model === activeModelUri ? 'secondary' : 'tertiary'}
+                                key={model.path}
+                                onClick={() => {
+                                    setModel(model)
+                                }}
+                            >
+                                New query
+                            </LemonButton>
+                        ))}
+                        <LemonButton
+                            onClick={() => {
+                                createModel()
                             }}
+                            icon={<IconPlus fontSize={14} />}
+                            size="small"
                         />
-                    </span>
+                    </div>
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor

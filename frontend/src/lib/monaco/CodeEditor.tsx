@@ -46,6 +46,11 @@ function initEditor(
     const model = editor.getModel()
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
 
+    if (model) {
+        builtCodeEditorLogic.actions.addModel(model.uri)
+        builtCodeEditorLogic.actions.setModel(model.uri)
+    }
+
     if (editorProps?.language === 'hog') {
         if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
             monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })

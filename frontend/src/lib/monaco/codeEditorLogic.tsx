@@ -1,5 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
-import { actions, kea, key, path, props, propsChanged, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
@@ -8,7 +8,7 @@ import { loaders } from 'kea-loaders'
 // JS context, and that's exactly what happens on auto-reload when the new script chunks are loaded. Unfortunately
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
-import { editor, MarkerSeverity } from 'monaco-editor'
+import { editor, MarkerSeverity, Uri } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -48,6 +48,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     key((props) => props.key),
     actions({
         reloadMetadata: true,
+        createModel: true,
+        addModel: (modelName: Uri) => ({ modelName }),
+        setModel: (modelName: Uri) => ({ modelName }),
     }),
     loaders(({ props }) => ({
         metadata: [
@@ -118,6 +121,43 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 },
             },
         ],
+    })),
+    reducers({
+        modelCount: [
+            1,
+            {
+                createModel: (state) => state + 1,
+            },
+        ],
+        activeModelUri: [
+            null as null | Uri,
+            {
+                setModel: (_, { modelName }) => modelName,
+            },
+        ],
+        allModels: [
+            [] as Uri[],
+            {
+                addModel: (state, { modelName }) => [...state, modelName],
+            },
+        ],
+    }),
+    listeners(({ props, values, actions }) => ({
+        createModel: () => {
+            if (props.monaco) {
+                const uri = props.monaco.Uri.parse((values.modelCount + 1).toString())
+                const model = props.monaco.editor.createModel('SELECT event FROM events LIMIT 100', props.language, uri)
+                props.editor?.setModel(model)
+                actions.setModel(uri)
+                actions.addModel(uri)
+            }
+        },
+        setModel: ({ modelName }) => {
+            if (props.monaco) {
+                const model = props.monaco.editor.getModel(modelName)
+                props.editor?.setModel(model)
+            }
+        },
     })),
     selectors({
         isValidView: [(s) => [s.metadata], (metadata) => !!(metadata && metadata[1]?.isValidView)],
