@@ -26,10 +26,4 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
     def safely_get_object(self, queryset) -> QuerySet:
         fingerprint = self.kwargs["pk"]
-        groups = ErrorTrackingGroup.filter_fingerprints(queryset=queryset, fingerprints=[fingerprint])
-
-        if groups:
-            return groups.first()
-
-        # lazily creates error group if it does not already exist
-        return ErrorTrackingGroup.objects.create(team=self.team, fingerprint=fingerprint)
+        return queryset.get_or_create(fingerprint=fingerprint, team=self.team)
