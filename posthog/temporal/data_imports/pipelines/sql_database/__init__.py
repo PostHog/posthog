@@ -16,6 +16,7 @@ from dlt.sources.credentials import ConnectionStringCredentials
 from urllib.parse import quote
 
 from posthog.warehouse.types import IncrementalFieldType
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 from sqlalchemy.sql import text
 
 from .helpers import (
@@ -35,7 +36,8 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> Any:
         return date(1970, 1, 1)
 
 
-def postgres_source(
+def sql_source_for_type(
+    source_type: ExternalDataSource.Type,
     host: str,
     port: int,
     user: str,
@@ -53,16 +55,21 @@ def postgres_source(
     database = quote(database)
     sslmode = quote(sslmode)
 
-    credentials = ConnectionStringCredentials(
-        f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
-    )
-
     if incremental_field is not None and incremental_field_type is not None:
         incremental: dlt.sources.incremental | None = dlt.sources.incremental(
             cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
         )
     else:
         incremental = None
+
+    if source_type == ExternalDataSource.Type.POSTGRES:
+        credentials = ConnectionStringCredentials(
+            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
+        )
+    elif source_type == ExternalDataSource.Type.MYSQL:
+        credentials = ConnectionStringCredentials(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
+    else:
+        raise Exception("Unsupported source_type")
 
     db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
 
@@ -138,7 +145,12 @@ def sql_database(
             name=table.name,
             primary_key=get_primary_key(table),
             merge_key=get_primary_key(table),
-            write_disposition="merge" if incremental else "replace",
+            write_disposition={
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if incremental
+            else "replace",
             spec=SqlDatabaseTableConfiguration,
             table_format="delta",
             columns=get_column_hints(engine, schema or "", table.name),

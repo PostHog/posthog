@@ -18,7 +18,6 @@ import { AppMetric2Type, GroupTypeToColumnIndex, Hub, RawClickHouseEvent, TeamId
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
-import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { HogExecutor } from './hog-executor'
@@ -77,7 +76,6 @@ abstract class CdpConsumerBase {
     asyncFunctionExecutor: AsyncFunctionExecutor
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
-    appMetrics?: AppMetrics
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
 
@@ -399,13 +397,6 @@ abstract class CdpConsumerBase {
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
         )
 
-        this.appMetrics =
-            this.hub?.appMetrics ??
-            new AppMetrics(
-                this.kafkaProducer,
-                this.hub.APP_METRICS_FLUSH_FREQUENCY_MS,
-                this.hub.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-            )
         this.kafkaProducer.producer.connect()
 
         this.batchConsumer = await startBatchConsumer({

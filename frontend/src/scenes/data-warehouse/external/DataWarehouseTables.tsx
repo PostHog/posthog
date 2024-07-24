@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -97,6 +98,15 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
 
     const dropdownOverlay = (table: DatabaseSchemaTable): JSX.Element => (
         <>
+            <LemonButton
+                onClick={() => {
+                    void copyToClipboard(table.name, table.name)
+                }}
+                fullWidth
+                data-attr="schema-list-item-copy"
+            >
+                Copy table name
+            </LemonButton>
             <LemonButton
                 onClick={() => {
                     selectRow(table)

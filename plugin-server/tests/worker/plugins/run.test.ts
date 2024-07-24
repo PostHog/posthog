@@ -20,7 +20,7 @@ describe('runPluginTask()', () => {
                     {
                         team_id: 2,
                         enabled: true,
-                        vm: {
+                        instance: {
                             getTask,
                         },
                     },
@@ -30,7 +30,7 @@ describe('runPluginTask()', () => {
                     {
                         team_id: 2,
                         enabled: false,
-                        vm: {
+                        instance: {
                             getTask,
                         },
                     },
@@ -142,8 +142,8 @@ describe('runOnEvent', () => {
                             plugin_id: 100,
                             team_id: 2,
                             enabled: false,
-                            vm: {
-                                getVmMethod: () => onEvent,
+                            instance: {
+                                getPluginMethod: () => onEvent,
                             },
                         },
 
@@ -151,8 +151,8 @@ describe('runOnEvent', () => {
                             plugin_id: 101,
                             team_id: 2,
                             enabled: false,
-                            vm: {
-                                getVmMethod: () => onEvent,
+                            instance: {
+                                getPluginMethod: () => onEvent,
                             },
                         },
                     ],
@@ -264,8 +264,8 @@ describe('runComposeWebhook', () => {
             plugin_id: 100,
             team_id: 2,
             enabled: false,
-            vm: {
-                getVmMethod: () => composeWebhook,
+            instance: {
+                getPluginMethod: () => composeWebhook,
             } as any,
         }
         mockActionManager = {
