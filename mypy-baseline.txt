@@ -596,6 +596,7 @@ posthog/api/plugin_log_entry.py:0: error: Name "timezone.datetime" is not define
 posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/warehouse/api/external_data_source.py:0: error: Incompatible return value type (got "tuple[ExternalDataSource, dict[str, list[tuple[str, str]]]]", expected "tuple[ExternalDataSource, list[Any]]")  [return-value]
 posthog/warehouse/api/external_data_source.py:0: error: Incompatible return value type (got "tuple[ExternalDataSource, dict[str, list[tuple[str, str]]]]", expected "tuple[ExternalDataSource, list[Any]]")  [return-value]
+posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_calls" (hint: "_execute_calls: list[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_async_calls" (hint: "_execute_async_calls: list[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_cursors" (hint: "_cursors: list[<type>] = ...")  [var-annotated]
