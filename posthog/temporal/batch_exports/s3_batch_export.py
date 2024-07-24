@@ -485,7 +485,16 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 flush_counter: int,
                 last_inserted_at: dt.datetime,
                 last: bool,
+                error: Exception | None,
             ):
+                if error is not None:
+                    logger.debug("Error while writing part %d", s3_upload.part_number + 1, exc_info=error)
+                    logger.warn(
+                        "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
+                        s3_upload.part_number + 1,
+                    )
+                    return
+
                 logger.debug(
                     "Uploading %s part %s containing %s records with size %s bytes",
                     "last " if last else "",
