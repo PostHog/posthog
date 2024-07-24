@@ -584,9 +584,10 @@ class TestExternalDataSource(APIBaseTest):
                 assert table in table_names
 
     @patch(
-        "posthog.warehouse.api.external_data_source.get_postgres_schemas", return_value={"table_1": [("id", "integer")]}
+        "posthog.warehouse.api.external_data_source.get_sql_schemas_for_source_type",
+        return_value={"table_1": [("id", "integer")]},
     )
-    def test_internal_postgres(self, patch_get_postgres_schemas):
+    def test_internal_postgres(self, patch_get_sql_schemas_for_source_type):
         # This test checks handling of project ID 2 in Cloud US and project ID 1 in Cloud EU,
         # so let's make sure there are no projects with these IDs in the test DB
         Project.objects.filter(id__in=[1, 2]).delete()
