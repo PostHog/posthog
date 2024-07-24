@@ -4140,7 +4140,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-            BreakdownFilter(breakdowns=[Breakdown(value="$browser")]),
+            BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
         )
 
         assert len(response.results) == 4
@@ -4555,3 +4555,27 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["count"] == 0
+
+    def test_trends_math_first_time_ever_date_ranges(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert len(response.results[0]["days"]) == 12
+        assert response.results[0]["days"][0] == "2020-01-09"
+        assert response.results[0]["days"][11] == "2020-01-20"
