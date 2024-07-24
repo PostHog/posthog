@@ -9,14 +9,7 @@ from posthog.models.error_tracking import ErrorTrackingGroup
 class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingGroup
-        fields = [
-            "assignee",
-        ]
-
-    def update(self, instance: ErrorTrackingGroup, validated_data: dict, **kwargs) -> ErrorTrackingGroup:
-        instance.assignee = validated_data["assignee"]
-        instance.save()
-        return instance
+        fields = ["assignee"]
 
 
 class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -26,4 +19,5 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
     def safely_get_object(self, queryset) -> QuerySet:
         fingerprint = self.kwargs["pk"]
-        return queryset.get_or_create(fingerprint=fingerprint, team=self.team)
+        group, _ = queryset.get_or_create(fingerprint=fingerprint, team=self.team)
+        return group
