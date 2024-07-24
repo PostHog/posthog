@@ -61,7 +61,9 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     sync_frequency = deprecate_field(
         models.CharField(max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True)
     )
-    sync_frequency_interval: models.DurationField = models.DurationField(default=timedelta(hours=6), blank=True)
+    sync_frequency_interval: models.DurationField = models.DurationField(
+        default=timedelta(hours=6), null=True, blank=True
+    )
 
     __repr__ = sane_repr("name")
 

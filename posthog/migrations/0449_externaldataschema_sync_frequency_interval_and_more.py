@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="externaldataschema",
             name="sync_frequency_interval",
-            field=models.DurationField(blank=True, default=datetime.timedelta(seconds=21600)),
+            field=models.DurationField(blank=True, null=True, default=datetime.timedelta(seconds=21600)),
         ),
         migrations.RunSQL(
             sql="""
