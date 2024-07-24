@@ -147,7 +147,7 @@ class CreatedMetaFields(models.Model):
 
 
 class UpdatedMetaFields(models.Model):
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         abstract = True

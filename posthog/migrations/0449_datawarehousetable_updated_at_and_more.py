@@ -12,21 +12,21 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="datawarehousetable",
             name="updated_at",
-            field=models.DateTimeField(auto_now=True),
+            field=models.DateTimeField(auto_now=True, null=True, blank=True),
         ),
         migrations.AddField(
             model_name="externaldatajob",
             name="updated_at",
-            field=models.DateTimeField(auto_now=True),
+            field=models.DateTimeField(auto_now=True, null=True, blank=True),
         ),
         migrations.AddField(
             model_name="externaldataschema",
             name="updated_at",
-            field=models.DateTimeField(auto_now=True),
+            field=models.DateTimeField(auto_now=True, null=True, blank=True),
         ),
         migrations.AddField(
             model_name="externaldatasource",
             name="updated_at",
-            field=models.DateTimeField(auto_now=True),
+            field=models.DateTimeField(auto_now=True, null=True, blank=True),
         ),
     ]
