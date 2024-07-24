@@ -605,6 +605,7 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeOverflowedFunctions`,
             func: async () => {
+                // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals.map((x) => x.globals))
 
                 const invocations = invocationGlobals
