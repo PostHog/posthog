@@ -19,6 +19,7 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
         POSTGRES = "Postgres", "Postgres"
         ZENDESK = "Zendesk", "Zendesk"
         SNOWFLAKE = "Snowflake", "Snowflake"
+        MYSQL = "MySQL", "MySQL"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
@@ -39,7 +40,7 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     destination_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
 
-    # Deprecated, use `ExternalDataSchema.sync_frequency`
+    # Deprecated, use `ExternalDataSchema.sync_frequency_interval`
     sync_frequency: models.CharField = models.CharField(
         max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
     )
