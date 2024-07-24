@@ -8,6 +8,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.schema import DatabaseSerializedFieldType
+from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
@@ -104,9 +105,7 @@ class TableSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(str(err))
         table.save()
 
-        for column in table.columns.keys():
-            table.columns[column]["valid"] = table.validate_column_type(column)
-        table.save()
+        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))  # type: ignore
 
         return table
 
