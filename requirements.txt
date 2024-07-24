@@ -204,7 +204,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.5.1
+dlt==0.5.2a1
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -414,6 +414,7 @@ psycopg-binary==3.1.18
     # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
+PyMySQL==1.1.1
 py==1.11.0
     # via retry
 pyarrow==15.0.0
@@ -570,7 +571,7 @@ snowflake-connector-python==3.6.0
     # via
     #   -r requirements.in
     #   snowflake-sqlalchemy
-snowflake-sqlalchemy==1.5.3
+snowflake-sqlalchemy==1.6.1
     # via -r requirements.in
 social-auth-app-django==5.0.0
     # via -r requirements.in
@@ -582,7 +583,7 @@ sortedcontainers==2.4.0
     # via
     #   snowflake-connector-python
     #   trio
-sqlalchemy==1.4.52
+sqlalchemy==2.0.31
     # via
     #   -r requirements.in
     #   snowflake-sqlalchemy
@@ -641,6 +642,7 @@ typing-extensions==4.7.1
     #   pydantic-core
     #   qrcode
     #   snowflake-connector-python
+    #   sqlalchemy
     #   stripe
     #   temporalio
 tzdata==2023.3

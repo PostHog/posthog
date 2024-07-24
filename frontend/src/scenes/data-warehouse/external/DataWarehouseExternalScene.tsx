@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,23 +32,23 @@ export const humanFriendlyDataWarehouseTabName = (tab: DataWarehouseTab): string
         case DataWarehouseTab.Explore:
             return 'Explore'
         case DataWarehouseTab.ManagedSources:
-            return 'Managed Sources'
+            return 'Managed sources'
         case DataWarehouseTab.SelfManagedSources:
-            return 'Self-Managed Sources'
+            return 'Self-Managed sources'
     }
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
     const { currentTab } = useValues(dataWarehouseSceneLogic)
 
-    const { insightProps, insightChanged, insightSaving, hasDashboardItemId } = useValues(
+    const { insightProps, insightSaving } = useValues(
         insightLogic({
             dashboardItemId: 'new',
             cachedInsight: null,
         })
     )
 
-    const { saveInsight, saveAs } = useActions(insightDataLogic(insightProps))
+    const { saveAs } = useActions(insightDataLogic(insightProps))
 
     return (
         <div>
@@ -57,14 +56,14 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 buttons={
                     <>
                         {currentTab === DataWarehouseTab.Explore && (
-                            <InsightSaveButton
-                                saveAs={saveAs}
-                                saveInsight={saveInsight}
-                                isSaved={hasDashboardItemId}
-                                addingToDashboard={false}
-                                insightSaving={insightSaving}
-                                insightChanged={insightChanged}
-                            />
+                            <LemonButton
+                                type="primary"
+                                data-attr="save-exploration"
+                                onClick={() => saveAs(true)}
+                                loading={insightSaving}
+                            >
+                                Save as insight
+                            </LemonButton>
                         )}
 
                         <LemonButton

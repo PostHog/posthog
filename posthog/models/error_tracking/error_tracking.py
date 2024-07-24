@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.postgres.fields import ArrayField
 from posthog.models.utils import UUIDModel
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 
 class ErrorTrackingGroup(UUIDModel):
@@ -27,7 +27,7 @@ class ErrorTrackingGroup(UUIDModel):
     )
 
     @classmethod
-    def filter_fingerprints(cls, queryset, fingerprints: list[str]):
+    def filter_fingerprints(cls, queryset, fingerprints: list[str]) -> QuerySet:
         query = Q(fingerprint__in=fingerprints)
 
         for fp in fingerprints:

@@ -10,6 +10,7 @@ import Iconazure from 'public/services/azure.png'
 import IconCloudflare from 'public/services/cloudflare.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
+import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconStripe from 'public/services/stripe.png'
@@ -187,6 +188,7 @@ export function RenderDataWarehouseSourceIcon({
         Hubspot: IconHubspot,
         Zendesk: IconZendesk,
         Postgres: IconPostgres,
+        MySQL: IconMySQL,
         Snowflake: IconSnowflake,
         aws: IconAwsS3,
         'google-cloud': IconGoogleCloudStorage,

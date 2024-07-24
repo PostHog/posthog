@@ -232,3 +232,49 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["message"] == "Can not parse type another_type for column id - type does not exist"
         assert table.columns == columns
+
+    @patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+        return_value={
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+        },
+    )
+    @patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        return_value=True,
+    )
+    def test_table_name_duplicate(self, patch_get_columns, patch_validate_column_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "whatever",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "credential": {
+                    "access_key": "_accesskey",
+                    "access_secret": "_accesssecret",
+                },
+                "format": "Parquet",
+            },
+        )
+        assert response.status_code == 201
+        data: dict[str, Any] = response.json()
+
+        table = DataWarehouseTable.objects.get(id=data["id"])
+
+        assert table is not None
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "whatever",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "credential": {
+                    "access_key": "_accesskey",
+                    "access_secret": "_accesssecret",
+                },
+                "format": "Parquet",
+            },
+        )
+        assert response.status_code == 400
+        assert DataWarehouseTable.objects.count() == 1

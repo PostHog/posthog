@@ -13,7 +13,7 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingGroupQuery } from './queries'
 
 export interface ErrorTrackingGroupSceneLogicProps {
-    id: string
+    fingerprint: string
 }
 
 export enum ErrorGroupTab {
@@ -61,7 +61,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                 loadGroup: async () => {
                     const response = await api.query(
                         errorTrackingGroupQuery({
-                            fingerprint: props.id,
+                            fingerprint: props.fingerprint,
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
@@ -78,8 +78,8 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     selectors({
         breadcrumbs: [
-            (_, p) => [p.id],
-            (id): Breadcrumb[] => {
+            (_, p) => [p.fingerprint],
+            (fingerprint): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.ErrorTracking,
@@ -87,8 +87,8 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         path: urls.errorTracking(),
                     },
                     {
-                        key: [Scene.ErrorTrackingGroup, id],
-                        name: id,
+                        key: [Scene.ErrorTrackingGroup, fingerprint],
+                        name: fingerprint,
                     },
                 ]
             },
@@ -99,7 +99,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     actionToUrl(({ values }) => ({
         setErrorGroupTab: () => {
-            const searchParams = {}
+            const searchParams = router.values.searchParams
 
             if (values.errorGroupTab != ErrorGroupTab.Overview) {
                 searchParams['tab'] = values.errorGroupTab

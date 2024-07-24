@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,11 +12,9 @@ import { Destinations } from './destinations/Destinations'
 import { FrontendApps } from './FrontendApps'
 import { ImportApps } from './ImportApps'
 import { importAppsLogic } from './importAppsLogic'
-import { NewButton } from './NewButton'
 import { Overview } from './Overview'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
-import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
@@ -46,14 +43,8 @@ export function Pipeline(): JSX.Element {
         }
     }
 
-    const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
-
     return (
         <div className="pipeline-scene">
-            <PageHeader
-                caption="Add transformations to the events sent to PostHog or export them to other tools."
-                buttons={maybeKind ? <NewButton stage={maybeKind} /> : undefined}
-            />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}

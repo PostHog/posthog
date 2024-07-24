@@ -8,11 +8,20 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse, RefreshType } from '~/queries/schema'
+import {
+    DatabaseSerializedFieldType,
+    ErrorTrackingGroup,
+    QuerySchema,
+    QueryStatusResponse,
+    RefreshType,
+} from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
     AlertType,
+    AppMetricsTotalsV2Response,
+    AppMetricsV2RequestParams,
+    AppMetricsV2Response,
     BatchExportConfiguration,
     BatchExportRun,
     CohortType,
@@ -653,6 +662,15 @@ class ApiRequest {
             return this.survey(id, teamId).addPathComponent('activity')
         }
         return this.surveys(teamId).addPathComponent('activity')
+    }
+
+    // Error tracking
+    public errorTracking(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('error_tracking')
+    }
+
+    public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent(fingerprint)
     }
 
     // # Warehouse
@@ -1626,6 +1644,18 @@ const api = {
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
         },
+        async metrics(
+            id: HogFunctionType['id'],
+            params: AppMetricsV2RequestParams = {}
+        ): Promise<AppMetricsV2Response> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics').withQueryString(params).get()
+        },
+        async metricsTotals(
+            id: HogFunctionType['id'],
+            params: Partial<AppMetricsV2RequestParams> = {}
+        ): Promise<AppMetricsTotalsV2Response> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
+        },
 
         async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             return await new ApiRequest().hogFunctionTemplates().get()
@@ -1680,6 +1710,15 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().annotations().assembleEndpointUrl()
+        },
+    },
+
+    errorTracking: {
+        async update(
+            fingerprint: ErrorTrackingGroup['fingerprint'],
+            data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
+        ): Promise<ErrorTrackingGroup> {
+            return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
         },
     },
 
