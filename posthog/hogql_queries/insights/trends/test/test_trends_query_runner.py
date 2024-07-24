@@ -4418,7 +4418,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 EventsNode(
                     event="$pageview",
                     math=BaseMathType.FIRST_TIME_EVER,
-                    properties=[PersonPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
                 )
             ],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
@@ -4426,7 +4426,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["count"] == 1
-        assert response.results[0]["data"] == [0, 0, 1]
+        assert response.results[0]["data"] == [0, 1, 0]
 
         response = self._run_trends_query(
             "2020-01-10",
@@ -4439,12 +4439,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-            properties=[PersonPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+            properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
         )
 
         assert len(response.results) == 1
         assert response.results[0]["count"] == 1
-        assert response.results[0]["data"] == [0, 0, 1]
+        assert response.results[0]["data"] == [0, 1, 0]
 
         # no data
         response = self._run_trends_query(
@@ -4455,7 +4455,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 EventsNode(
                     event="$pageview",
                     math=BaseMathType.FIRST_TIME_EVER,
-                    properties=[PersonPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
                 )
             ],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
@@ -4476,7 +4476,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-            properties=[PersonPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
+            properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
         )
 
         assert len(response.results) == 1

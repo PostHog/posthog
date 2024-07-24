@@ -205,31 +205,39 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ) or no_modifications is True:
             return default_query
         # Both breakdowns and complex series aggregation
-        elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
-            orchestrator = self._aggregation_operation.get_query_orchestrator(
+        elif (
+            breakdown.enabled
+            and self._aggregation_operation.requires_query_orchestration()
+            and not self._aggregation_operation.is_first_time_ever_math()
+        ):
+            orchestrator = self._aggregation_operation.get_actors_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
             )
 
             orchestrator.events_query_builder.extend_select(breakdown.column_exprs)
-            orchestrator.inner_select_query_builder.extend_select(
-                self._aggregation_operation.transform_breakdowns_for_query_orchestration(breakdown.alias_exprs)
-            )
-
-            if not self._aggregation_operation.is_first_time_ever_math():
-                orchestrator.events_query_builder.extend_group_by(breakdown.field_exprs)
-                orchestrator.inner_select_query_builder.extend_group_by(breakdown.field_exprs)
+            orchestrator.inner_select_query_builder.extend_select(breakdown.alias_exprs)
+            orchestrator.inner_select_query_builder.extend_group_by(breakdown.field_exprs)
 
             orchestrator.parent_select_query_builder.extend_select(breakdown.alias_exprs)
-
             if (
                 self._aggregation_operation.is_total_value
                 and not self._aggregation_operation.is_count_per_actor_variant()
-            ) or (
-                not self._aggregation_operation.is_total_value and self._aggregation_operation.is_first_time_ever_math()
             ):
                 orchestrator.parent_select_query_builder.extend_group_by(breakdown.field_exprs)
 
+            return orchestrator.build()
+        elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
+            orchestrator = self._aggregation_operation.get_first_time_math_query_orchestrator(
+                events_where_clause=events_filter,
+                sample_value=self._sample_value(),
+                event_name_filter=self._event_name(),
+            )
+            orchestrator.events_query_builder.extend_select(
+                self._aggregation_operation.transform_breakdowns_for_query_orchestration(breakdown.column_exprs)
+            )
+            orchestrator.parent_query_builder.extend_select(breakdown.alias_exprs)
+            orchestrator.parent_query_builder.extend_group_by(breakdown.field_exprs)
             return orchestrator.build()
         # Breakdowns and session duration math property
         elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
@@ -285,8 +293,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return wrapper
         # Just complex series aggregation
+        elif (
+            self._aggregation_operation.requires_query_orchestration()
+            and self._aggregation_operation.is_first_time_ever_math()
+        ):
+            return self._aggregation_operation.get_first_time_math_query_orchestrator(
+                events_where_clause=events_filter,
+                sample_value=self._sample_value(),
+                event_name_filter=self._event_name(),
+            ).build()
         elif self._aggregation_operation.requires_query_orchestration():
-            return self._aggregation_operation.get_query_orchestrator(
+            return self._aggregation_operation.get_actors_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
             ).build()
@@ -665,9 +682,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             )
 
         # Filter by event name
-        event_name = self._event_name()
-        if event_name is not None:
-            filters.append(event_name)
+        if not self._aggregation_operation.is_first_time_ever_math():
+            event_name = self._event_name()
+            if event_name is not None:
+                filters.append(event_name)
 
         # Filter Test Accounts
         if (
