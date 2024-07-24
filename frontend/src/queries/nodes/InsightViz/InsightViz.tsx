@@ -91,7 +91,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
                             <EditorFilters query={query.source} showing={showingFilters} embedded={isEmbedded} />
                         )}
 
-                        <div className="flex-1 h-full overflow-x-hidden">
+                        <div className="flex-1 h-full overflow-auto">
                             <InsightVizDisplay
                                 insightMode={insightMode}
                                 context={context}
