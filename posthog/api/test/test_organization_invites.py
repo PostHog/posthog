@@ -134,6 +134,25 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertListEqual(mail.outbox[0].to, [email])
         self.assertEqual(mail.outbox[0].reply_to, [self.user.email])  # Reply-To is set to the inviting user
 
+    @patch("posthoganalytics.capture")
+    def test_add_organization_invite_with_email_on_instance_but_send_email_prop_false(self, mock_capture):
+        """
+        Email is available on the instance, but the user creating the invite does not want to send an email to the invitee.
+        """
+        set_instance_setting("EMAIL_HOST", "localhost")
+        email = "x@x.com"
+
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/", {"target_email": email, "send_email": False}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(OrganizationInvite.objects.exists())
+
+        # Assert invite email is not sent
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_can_create_invites_for_the_same_email_multiple_times(self):
         email = "x@posthog.com"
         count = OrganizationInvite.objects.count()

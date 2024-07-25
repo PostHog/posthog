@@ -539,6 +539,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
+        reportBillingDowngradeClicked: (plan: string) => ({ plan }),
         reportRoleCreated: (role: string) => ({ role }),
         reportResourceAccessLevelUpdated: (resourceType: Resource, roleName: string, accessLevel: AccessLevel) => ({
             resourceType,
@@ -1176,6 +1177,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportBillingUpgradeClicked: ({ plan }) => {
             posthog.capture('billing upgrade button clicked', {
+                plan,
+            })
+        },
+        reportBillingDowngradeClicked: ({ plan }) => {
+            posthog.capture('billing downgrade button clicked', {
                 plan,
             })
         },
