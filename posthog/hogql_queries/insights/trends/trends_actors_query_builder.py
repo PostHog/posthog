@@ -202,7 +202,7 @@ class TrendsActorsQueryBuilder:
                 date_to,
                 filters=self._events_where_expr(with_date_range_expr=False, with_event_or_action_expr=False),
                 event_or_action_filter=self._event_or_action_where_expr(),
-                ratio=self._sample_expr(),
+                ratio=self._ratio_expr(),
             )
             query_builder.append_select(actor_col)
             query_builder.extend_select(columns, aggregate=True)
@@ -257,21 +257,29 @@ class TrendsActorsQueryBuilder:
         with_event_or_action_expr: bool = True,
     ) -> ast.And | None:
         exprs: list[ast.Expr] = [
-            *([self._event_or_action_where_expr()] if with_event_or_action_expr else []),
             *self._entity_where_expr(),
             *self._prop_where_expr(),
             *(self._date_where_expr() if with_date_range_expr else []),
             *(self._breakdown_where_expr() if with_breakdown_expr else []),
             *self._filter_empty_actors_expr(),
         ]
+        event_or_action_filter = self._event_or_action_where_expr()
+        if with_event_or_action_expr and event_or_action_filter:
+            exprs.append(event_or_action_filter)
         if exprs:
             return ast.And(exprs=exprs)
+        return None
 
-    def _sample_expr(self) -> ast.SampleExpr | None:
+    def _ratio_expr(self) -> ast.RatioExpr | None:
         if self.trends_query.samplingFactor is None:
             return None
+        return ast.RatioExpr(left=ast.Constant(value=self.trends_query.samplingFactor))
 
-        return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self.trends_query.samplingFactor)))
+    def _sample_expr(self) -> ast.SampleExpr | None:
+        sample_value = self._ratio_expr()
+        if sample_value is None:
+            return None
+        return ast.SampleExpr(sample_value=sample_value)
 
     def _entity_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
