@@ -17,9 +17,9 @@ export const humanFriendlyTabName = (tab: PipelineTab): string => {
         case PipelineTab.Destinations:
             return 'Destinations'
         case PipelineTab.DataImport:
-            return 'Data Import'
+            return 'Data import'
         case PipelineTab.SiteApps:
-            return 'Site Apps'
+            return 'Site apps'
         case PipelineTab.ImportApps:
             return 'Legacy sources'
         case PipelineTab.AppsManagement:

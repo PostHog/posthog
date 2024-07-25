@@ -73,7 +73,7 @@ def fetch_app_metrics_trends(
         SELECT
             toStartOfInterval(timestamp, INTERVAL 1 {interval}) as timestamp,
             metric_{breakdown_by} as breakdown,
-            count(breakdown) as count
+            sum(count) as count
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
@@ -179,7 +179,7 @@ def fetch_app_metric_totals(
     clickhouse_query = f"""
         SELECT
             metric_{breakdown_by} as breakdown,
-            count(breakdown) as count
+            sum(count) as count
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s

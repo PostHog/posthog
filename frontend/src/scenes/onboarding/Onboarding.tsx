@@ -1,3 +1,4 @@
+import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -87,7 +88,15 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         setAllSteps(steps)
     }
 
-    return (currentOnboardingStep as JSX.Element) || <></>
+    if (!currentOnboardingStep) {
+        return (
+            <div className="flex items-center justify-center my-20">
+                <Spinner className="text-2xl text-muted w-10 h-10" />
+            </div>
+        )
+    }
+
+    return currentOnboardingStep || <></>
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {

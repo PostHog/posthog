@@ -204,7 +204,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.5.1
+dlt==0.5.2a1
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -271,7 +271,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.29
+hogql-parser==1.0.30
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -414,6 +414,7 @@ psycopg-binary==3.1.18
     # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
+PyMySQL==1.1.1
 py==1.11.0
     # via retry
 pyarrow==15.0.0
@@ -600,7 +601,7 @@ structlog==23.2.0
     # via
     #   -r requirements.in
     #   django-structlog
-temporalio==1.4.0
+temporalio==1.6.0
     # via -r requirements.in
 tenacity==8.2.3
     # via

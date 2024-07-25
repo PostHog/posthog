@@ -7,6 +7,7 @@ import posixpath
 import typing
 
 import aioboto3
+import botocore.exceptions
 import pyarrow as pa
 from django.conf import settings
 from temporalio import activity, workflow
@@ -115,6 +116,18 @@ class NoUploadInProgressError(Exception):
 
     def __init__(self):
         super().__init__("No multi-part upload is in progress. Call 'create' to start one.")
+
+
+class IntermittentUploadPartTimeoutError(Exception):
+    """Exception raised when an S3 upload part times out.
+
+    This is generally a transient or intermittent error that can be handled by a retry.
+    However, it's wrapped by a `botocore.exceptions.ClientError` that generally includes
+    non-retryable errors. So, we can re-raise our own exception in those cases.
+    """
+
+    def __init__(self, part_number: int):
+        super().__init__(f"An intermittent `RequestTimeout` was raised while attempting to upload part {part_number}")
 
 
 class S3MultiPartUploadState(typing.NamedTuple):
@@ -274,13 +287,22 @@ class S3MultiPartUpload:
         reader = io.BufferedReader(body)  # type: ignore
 
         async with self.s3_client() as s3_client:
-            response = await s3_client.upload_part(
-                Bucket=self.bucket_name,
-                Key=self.key,
-                PartNumber=next_part_number,
-                UploadId=self.upload_id,
-                Body=reader,
-            )
+            try:
+                response = await s3_client.upload_part(
+                    Bucket=self.bucket_name,
+                    Key=self.key,
+                    PartNumber=next_part_number,
+                    UploadId=self.upload_id,
+                    Body=reader,
+                )
+            except botocore.exceptions.ClientError as err:
+                error_code = err.response.get("Error", {}).get("Code", None)
+
+                if error_code is not None and error_code == "RequestTimeout":
+                    raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
+                else:
+                    raise
+
         reader.detach()  # BufferedReader closes the file otherwise.
 
         self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
@@ -485,7 +507,16 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 flush_counter: int,
                 last_inserted_at: dt.datetime,
                 last: bool,
+                error: Exception | None,
             ):
+                if error is not None:
+                    logger.debug("Error while writing part %d", s3_upload.part_number + 1, exc_info=error)
+                    logger.warn(
+                        "An error was detected while writing part %d. Partial part will not be uploaded in case it can be retried.",
+                        s3_upload.part_number + 1,
+                    )
+                    return
+
                 logger.debug(
                     "Uploading %s part %s containing %s records with size %s bytes",
                     "last " if last else "",
@@ -564,7 +595,7 @@ def get_batch_export_writer(
     return writer
 
 
-@workflow.defn(name="s3-export")
+@workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
 class S3BatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into S3.
 
