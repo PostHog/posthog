@@ -18,7 +18,7 @@ from posthog.schema import (
 
 
 class QueryAlternator:
-    """Allows query_builder to modify the query without having to expost the whole AST interface"""
+    """Allows query_builder to modify the query without having to expose the whole AST interface"""
 
     _query: ast.SelectQuery
     _selects: list[ast.Expr]
@@ -62,6 +62,70 @@ class QueryAlternator:
 
     def replace_select_from(self, join_expr: ast.JoinExpr) -> None:
         self._select_from = join_expr
+
+
+class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
+    def __init__(
+        self,
+        query: ast.SelectQuery,
+        filters: ast.Expr,
+        date_from: ast.Expr,
+        date_to: ast.Expr,
+        event_name_filter: ast.Expr | None = None,
+        ratio: ast.RatioExpr | None = None,
+    ):
+        where_filters = [date_to]
+        if event_name_filter is not None:
+            where_filters.append(event_name_filter)
+
+        if len(where_filters) > 0:
+            where_filters_expr = cast(ast.Expr, ast.And(exprs=where_filters))
+        else:
+            where_filters_expr = where_filters[0]
+
+        sample_value = ast.SampleExpr(sample_value=ratio) if ratio is not None else None
+
+        query.select = [
+            ast.Alias(
+                alias="min_timestamp",
+                expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]),
+            ),
+            ast.Alias(
+                alias="min_timestamp_with_condition",
+                expr=ast.Call(
+                    name="minIf",
+                    args=[ast.Field(chain=["timestamp"]), ast.And(exprs=[date_from, filters])],
+                ),
+            ),
+        ]
+        query.select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e", sample=sample_value)
+        query.where = where_filters_expr
+        query.group_by = [ast.Field(chain=["person_id"])]
+        query.having = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["min_timestamp"]),
+            right=ast.Field(chain=["min_timestamp_with_condition"]),
+        )
+
+        super().__init__(query)
+
+    def _transform_column(self, column: ast.Expr):
+        return ast.Call(
+            name="argMin",
+            args=[column, ast.Field(chain=["timestamp"])],
+        )
+
+    def append_select(self, expr: ast.Expr, aggregate: bool = False):
+        if aggregate:
+            if isinstance(expr, ast.Alias):
+                expr = ast.Alias(expr=self._transform_column(expr.expr), alias=expr.alias)
+            else:
+                expr = self._transform_column(expr)
+        super().append_select(expr)
+
+    def extend_select(self, exprs: list[ast.Expr], aggregate: bool = False) -> None:
+        for expr in exprs:
+            self.append_select(expr, aggregate)
 
 
 class AggregationOperations(DataWarehouseInsightQueryMixin):
@@ -431,25 +495,27 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             },
         )
 
-    def transform_breakdowns_for_query_orchestration(self, breakdown_aliases: list[ast.Alias]):
-        if not self.is_first_time_ever_math():
-            return breakdown_aliases
+    def get_actors_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
+        events_query = cast(ast.SelectQuery, self._actors_events_query(events_where_clause, sample_value))
+        inner_select = cast(ast.SelectQuery, self._actors_inner_select_query(events_query))
+        parent_select = cast(ast.SelectQuery, self._actors_parent_select_query(inner_select))
 
-        transformed_aliases: list[ast.Alias] = []
-        for alias in breakdown_aliases:
-            transformed_aliases.append(
-                ast.Alias(
-                    expr=ast.Call(
-                        name="argMin",
-                        args=[
-                            alias.expr,
-                            ast.Field(chain=["timestamp"]),
-                        ],
-                    ),
-                    alias=alias.alias,
-                )
-            )
-        return transformed_aliases
+        class QueryOrchestrator:
+            events_query_builder: QueryAlternator
+            inner_select_query_builder: QueryAlternator
+            parent_select_query_builder: QueryAlternator
+
+            def __init__(self):
+                self.events_query_builder = QueryAlternator(events_query)
+                self.inner_select_query_builder = QueryAlternator(inner_select)
+                self.parent_select_query_builder = QueryAlternator(parent_select)
+
+            def build(self):
+                self.events_query_builder.build()
+                self.inner_select_query_builder.build()
+                return self.parent_select_query_builder.build()
+
+        return QueryOrchestrator()
 
     def _first_time_parent_query(self, inner_query: ast.SelectQuery):
         aggregation_type = self.select_aggregation()
@@ -475,84 +541,35 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _first_time_events_query(
+    def get_first_time_math_query_orchestrator(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr, event_name_filter: ast.Expr | None = None
     ):
         date_placeholders = self.query_date_range.to_placeholders()
-        start_date = parse_expr(
+        date_from = parse_expr(
             "timestamp >= {date_from_with_adjusted_start_of_interval}",
             placeholders=date_placeholders,
         )
-        end_date = parse_expr(
+        date_to = parse_expr(
             "timestamp <= {date_to}",
             placeholders=date_placeholders,
         )
 
-        filters: list[ast.Expr] = [end_date]
-        if event_name_filter is not None:
-            filters.append(event_name_filter)
-
-        query = ast.SelectQuery(
-            select=[
-                ast.Alias(
-                    alias="min_timestamp",
-                    expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]),
-                ),
-                ast.Alias(
-                    alias="min_timestamp_with_condition",
-                    expr=ast.Call(
-                        name="minIf",
-                        args=[ast.Field(chain=["timestamp"]), ast.And(exprs=[start_date, events_where_clause])],
-                    ),
-                ),
-            ],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]), alias="e", sample=ast.SampleExpr(sample_value=sample_value)
-            ),
-            where=ast.And(exprs=filters) if len(filters) > 0 else filters[0],
-            group_by=[ast.Field(chain=["person_id"])],
-            having=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["min_timestamp"]),
-                right=ast.Field(chain=["min_timestamp_with_condition"]),
-            ),
-        )
-        return query
-
-    def get_actors_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
-        events_query = cast(ast.SelectQuery, self._actors_events_query(events_where_clause, sample_value))
-        inner_select = cast(ast.SelectQuery, self._actors_inner_select_query(events_query))
-        parent_select = cast(ast.SelectQuery, self._actors_parent_select_query(inner_select))
-
-        class QueryOrchestrator:
-            events_query_builder: QueryAlternator
-            inner_select_query_builder: QueryAlternator
-            parent_select_query_builder: QueryAlternator
-
-            def __init__(self):
-                self.events_query_builder = QueryAlternator(events_query)
-                self.inner_select_query_builder = QueryAlternator(inner_select)
-                self.parent_select_query_builder = QueryAlternator(parent_select)
-
-            def build(self):
-                self.events_query_builder.build()
-                self.inner_select_query_builder.build()
-                return self.parent_select_query_builder.build()
-
-        return QueryOrchestrator()
-
-    def get_first_time_math_query_orchestrator(
-        self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr, event_name_filter: ast.Expr | None = None
-    ):
-        events_query = self._first_time_events_query(events_where_clause, sample_value, event_name_filter)
+        events_query = ast.SelectQuery(select=[])
         parent_select = self._first_time_parent_query(events_query)
 
         class QueryOrchestrator:
-            events_query_builder: QueryAlternator
+            events_query_builder: FirstTimeForUserEventsQueryAlternator
             parent_query_builder: QueryAlternator
 
             def __init__(self):
-                self.events_query_builder = QueryAlternator(events_query)
+                self.events_query_builder = FirstTimeForUserEventsQueryAlternator(
+                    events_query,
+                    events_where_clause,
+                    date_from,
+                    date_to,
+                    event_name_filter,
+                    sample_value,
+                )
                 self.parent_query_builder = QueryAlternator(parent_select)
 
             def build(self):

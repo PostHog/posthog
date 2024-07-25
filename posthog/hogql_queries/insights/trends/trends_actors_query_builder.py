@@ -11,7 +11,10 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
+from posthog.hogql_queries.insights.trends.aggregation_operations import (
+    AggregationOperations,
+    FirstTimeForUserEventsQueryAlternator,
+)
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -22,12 +25,12 @@ from posthog.schema import (
     ActionsNode,
     BaseMathType,
     Compare,
+    CompareFilter,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
     TrendsFilter,
     TrendsQuery,
-    CompareFilter,
 )
 
 
@@ -176,21 +179,47 @@ class TrendsActorsQueryBuilder:
         )
 
     def _get_events_query(self) -> ast.SelectQuery:
-        query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="actor_id", expr=self._actor_id_expr()),
-                ast.Field(chain=["e", "timestamp"]),
-                ast.Field(chain=["e", "uuid"]),
-                *([ast.Field(chain=["e", "$session_id"])] if self.include_recordings else []),
-                *([ast.Field(chain=["e", "$window_id"])] if self.include_recordings else []),
-            ],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-                alias="e",
-                sample=self._sample_expr(),
+        columns: list[ast.Expr] = [
+            ast.Alias(alias="uuid", expr=ast.Field(chain=["e", "uuid"])),
+            *(
+                [ast.Alias(alias="$session_id", expr=ast.Field(chain=["e", "$session_id"]))]
+                if self.include_recordings
+                else []
             ),
-            where=self._events_where_expr(),
-        )
+            *(
+                [ast.Alias(alias="$window_id", expr=ast.Field(chain=["e", "$window_id"]))]
+                if self.include_recordings
+                else []
+            ),
+        ]
+
+        if self.trends_aggregation_operations.is_first_time_ever_math():
+            date_from, date_to = self._date_where_expr()
+            filters = self._events_where_expr(with_date_range=False)
+            query_builder = FirstTimeForUserEventsQueryAlternator(
+                ast.SelectQuery(select=[]),
+                filters,
+                date_from,
+                date_to,
+                None,
+                self._sample_expr(),
+            )
+            query = query_builder.build()
+        else:
+            query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="actor_id", expr=self._actor_id_expr()),
+                    ast.Alias(alias="timestamp", expr=ast.Field(chain=["e", "timestamp"])),
+                    *columns,
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    alias="e",
+                    sample=self._sample_expr(),
+                ),
+                where=self._events_where_expr(),
+            )
+
         return query
 
     def _get_actor_value_expr(self) -> ast.Expr:
@@ -206,12 +235,12 @@ class TrendsActorsQueryBuilder:
             return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
         return ast.Field(chain=["e", "person_id"])
 
-    def _events_where_expr(self, with_breakdown_expr: bool = True) -> ast.And:
+    def _events_where_expr(self, with_breakdown_expr: bool = True, with_date_range: bool = True) -> ast.And:
         return ast.And(
             exprs=[
                 *self._entity_where_expr(),
                 *self._prop_where_expr(),
-                *self._date_where_expr(),
+                *(self._date_where_expr() if with_date_range else []),
                 *(self._breakdown_where_expr() if with_breakdown_expr else []),
                 *self._filter_empty_actors_expr(),
             ]
@@ -270,7 +299,7 @@ class TrendsActorsQueryBuilder:
 
         return conditions
 
-    def _date_where_expr(self) -> list[ast.Expr]:
+    def _date_where_expr(self) -> tuple[ast.Expr, ast.Expr]:
         # types
         date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange
         if self.is_compare_previous:
@@ -284,8 +313,6 @@ class TrendsActorsQueryBuilder:
         actors_to: datetime
         actors_to_expr: ast.Expr
         actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
-
-        conditions: list[ast.Expr] = []
 
         if self.is_total_value:
             assert (
@@ -357,22 +384,18 @@ class TrendsActorsQueryBuilder:
             actors_from_expr = ast.Constant(value=actors_from)
             actors_to_expr = ast.Constant(value=actors_to)
 
-        conditions.extend(
-            [
-                ast.CompareOperation(
-                    left=ast.Field(chain=["timestamp"]),
-                    op=ast.CompareOperationOp.GtEq,
-                    right=actors_from_expr,
-                ),
-                ast.CompareOperation(
-                    left=ast.Field(chain=["timestamp"]),
-                    op=actors_to_op,
-                    right=actors_to_expr,
-                ),
-            ]
+        return (
+            ast.CompareOperation(
+                left=ast.Field(chain=["timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=actors_from_expr,
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["timestamp"]),
+                op=actors_to_op,
+                right=actors_to_expr,
+            ),
         )
-
-        return conditions
 
     def _breakdown_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
