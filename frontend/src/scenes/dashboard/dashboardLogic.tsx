@@ -430,7 +430,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 newTiles[tileIndex] = {
                                     ...newTiles[tileIndex],
                                     insight: insight,
-                                    last_refresh: insight.last_refresh,
                                 }
                             } else if (!insight.dashboards?.includes(props.id)) {
                                 newTiles.splice(tileIndex, 1)
@@ -972,7 +971,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     uuid(),
                     'force_async'
                 )
-                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
+                dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                 // Start polling for results
                 tile.insight = refreshedInsight
                 actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
@@ -1035,11 +1034,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             'async',
                             methodOptions
                         )
-                        dashboardsModel.actions.updateDashboardInsight(
-                            polledInsight,
-                            [],
-                            props.id ? [props.id] : undefined
-                        )
+                        dashboardsModel.actions.updateDashboardInsight(polledInsight)
                         actions.setRefreshStatus(insight.short_id)
                     }
                 } catch (e: any) {
@@ -1137,7 +1132,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const dashboard = values.dashboard
             const { action, dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
-            const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
+            const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.insight?.last_refresh || null))
 
             const initialLoad = action === 'initial_load'
             const allLoaded = false // TODO: Check this
