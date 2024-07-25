@@ -436,9 +436,23 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     if (stack.length > 1) {
         throw new Error('Invalid bytecode. More than one value left on stack')
-    } else if (stack.length === 0) {
-        return { result: null, finished: true } satisfies ExecResult
     }
 
-    return { result: popStack() ?? null, finished: true } satisfies ExecResult
+    const finishedState: VMState = {
+        bytecode: [],
+        stack: [],
+        callStack: [],
+        declaredFunctions: {},
+        ip: -1,
+        ops,
+        asyncSteps,
+        syncDuration: syncDuration + (Date.now() - startTime),
+        maxMemUsed,
+    }
+
+    if (stack.length === 0) {
+        return { result: null, finished: true, state: finishedState } satisfies ExecResult
+    }
+
+    return { result: popStack() ?? null, finished: true, state: finishedState } satisfies ExecResult
 }

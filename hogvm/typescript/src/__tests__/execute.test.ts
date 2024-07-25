@@ -545,6 +545,17 @@ describe('hogvm execute', () => {
         expect(exec(bytecode)).toEqual({
             finished: true,
             result: '0.002',
+            state: {
+                asyncSteps: 0,
+                bytecode: [],
+                callStack: [],
+                declaredFunctions: {},
+                ip: -1,
+                maxMemUsed: 13,
+                ops: 2,
+                stack: [],
+                syncDuration: 0,
+            },
         })
     })
     test('test bytecode dicts', () => {
