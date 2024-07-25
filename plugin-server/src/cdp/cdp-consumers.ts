@@ -33,12 +33,7 @@ import {
     HogFunctionOverflowedGlobals,
     HogFunctionType,
 } from './types'
-import {
-    BUCKETS_KB_WRITTEN,
-    convertToCaptureEvent,
-    convertToHogFunctionInvocationGlobals,
-    convertToParsedClickhouseEvent,
-} from './utils'
+import { convertToCaptureEvent, convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -52,7 +47,7 @@ const histogramKafkaBatchSize = new Histogram({
 const histogramKafkaBatchSizeKb = new Histogram({
     name: 'cdp_function_executor_batch_size_kb',
     help: 'The size in kb of the batches we are receiving from Kafka',
-    buckets: BUCKETS_KB_WRITTEN,
+    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
 const counterFunctionInvocation = new Counter({

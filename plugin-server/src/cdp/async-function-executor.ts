@@ -6,7 +6,8 @@ import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult } from './types'
-import { BUCKETS_KB_WRITTEN } from './utils'
+
+export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
 const histogramFetchPayloadSize = new Histogram({
     name: 'cdp_async_function_fetch_payload_size_kb',
