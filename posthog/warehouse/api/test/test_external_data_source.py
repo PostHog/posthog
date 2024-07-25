@@ -635,7 +635,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
+            self.assertEqual(response.json(), {"message": "Cannot use internal database"})
 
         with override_settings(CLOUD_DEPLOYMENT="EU"):
             team_1 = Team.objects.create(id=1, organization=self.team.organization)
@@ -679,7 +679,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
+            self.assertEqual(response.json(), {"message": "Cannot use internal database"})
 
     def test_source_jobs(self):
         source = self._create_external_data_source()

@@ -674,7 +674,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 return writer.records_total
 
 
-@workflow.defn(name="snowflake-export")
+@workflow.defn(name="snowflake-export", failure_exception_types=[workflow.NondeterminismError])
 class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into Snowflake.
 
