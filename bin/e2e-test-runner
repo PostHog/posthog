@@ -46,15 +46,14 @@ do
     fi
 done
 
-export DEBUG=1
 export NO_RESTART_LOOP=1
 export CYPRESS_BASE_URL=http://localhost:8080
 export SECURE_COOKIES=0
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
 export KAFKA_HOSTS=kafka:9092
 export CLICKHOUSE_DATABASE=posthog_test
-export TEST=1 # Plugin server and kafka revert to 'default' Clickhouse database if TEST is not set
 export CLICKHOUSE_SECURE=0
+export JS_URL=http://localhost:8234
 export E2E_TESTING=1
 export SECRET_KEY=e2e_test
 export EMAIL_HOST=email.test.posthog.net
