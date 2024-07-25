@@ -82,7 +82,6 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
-from posthog.utils import get_instance_region
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -249,9 +248,7 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion == SessionTableVersion.V2 or (
-        get_instance_region() == "EU" and modifiers.sessionTableVersion == SessionTableVersion.AUTO
-    ):
+    if modifiers.sessionTableVersion == SessionTableVersion.V2:
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
         sessions = SessionsTableV2()
