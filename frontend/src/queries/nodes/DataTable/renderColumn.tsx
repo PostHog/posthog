@@ -37,7 +37,7 @@ export function renderColumn(
     if (value === loadingColumn) {
         return <Spinner />
     } else if (value === errorColumn) {
-        return <LemonTag color="red">Error</LemonTag>
+        return <LemonTag className="text-danger">Error</LemonTag>
     } else if (queryContextColumnName && queryContextColumn?.render) {
         const Component = queryContextColumn?.render
         return (

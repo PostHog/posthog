@@ -2229,6 +2229,119 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             self.assertEqual(program, expected)
 
+        def test_program_exceptions_throw_simple(self):
+            code = "return"
+            program = self._program(code)
+            expected = Program(
+                declarations=[ast.ReturnStatement(expr=None)],
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_blocks(self):
+            code = "try { 1 } catch (e) { 2 }"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[("e", None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))],
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_finally_simple(self):
+            code = "try {1 } finally { 2 }"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[],
+                        finally_stmt=ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_finally(self):
+            code = "try {1} catch (e) {2} finally {3}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[("e", None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))],
+                        finally_stmt=ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))]),
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_alone(self):
+            # This parses, but will throw later when printing bytecode.
+            code = "try {1}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]), catches=[]
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_type(self):
+            code = "try {1} catch (e: DodgyError) {2}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[
+                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))
+                        ],
+                        finally_stmt=None,
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_multiple(self):
+            code = "try {1} catch (e: DodgyError) {2}  catch (e: FishyError) {3}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[
+                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))])),
+                            ("e", "FishyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))])),
+                        ],
+                        finally_stmt=None,
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
+        def test_program_exceptions_try_catch_multiple_plain(self):
+            code = "try {1} catch (e: DodgyError) {2}  catch (e: FishyError) {3} catch {4}"
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    ast.TryCatchStatement(
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[
+                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))])),
+                            ("e", "FishyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))])),
+                            (None, None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=4))])),
+                        ],
+                        finally_stmt=None,
+                    )
+                ]
+            )
+            self.assertEqual(program, expected)
+
         def test_pop_empty_stack(self):
             with self.assertRaises(SyntaxError) as e:
                 self._select("select } from events")

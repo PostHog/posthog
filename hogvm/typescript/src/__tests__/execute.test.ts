@@ -1,5 +1,6 @@
 import { exec, execAsync, execSync } from '../execute'
 import { Operation as op } from '../operation'
+import { UncaughtHogVMException } from '../utils'
 
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
@@ -524,6 +525,7 @@ describe('hogvm execute', () => {
                 bytecode,
                 asyncSteps: 1,
                 callStack: [],
+                throwStack: [],
                 declaredFunctions: {},
                 ip: 8,
                 maxMemUsed: 16,
@@ -1795,5 +1797,31 @@ describe('hogvm execute', () => {
         ]
         expect(execSync(bytecode, { functions })).toEqual('no')
         expect(values).toEqual(['no'])
+    })
+
+    test('uncaught exceptions', () => {
+        // throw Error('Not a good day')
+        const bytecode1 = ['_h', op.NULL, op.NULL, op.STRING, 'Not a good day', op.CALL, 'Error', 3, op.THROW]
+        expect(() => execSync(bytecode1)).toThrow(new UncaughtHogVMException('Error', 'Not a good day', null))
+
+        // throw RetryError('Not a good day', {'key': 'value'})
+        const bytecode2 = [
+            '_h',
+            op.STRING,
+            'key',
+            op.STRING,
+            'value',
+            op.DICT,
+            1,
+            op.STRING,
+            'Not a good day',
+            op.CALL,
+            'RetryError',
+            2,
+            op.THROW,
+        ]
+        expect(() => execSync(bytecode2)).toThrow(
+            new UncaughtHogVMException('RetryError', 'Not a good day', { key: 'value' })
+        )
     })
 })

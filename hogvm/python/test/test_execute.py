@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+from hogvm.python.utils import UncaughtHogVMException
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
 
@@ -643,7 +644,7 @@ class TestBytecodeExecute:
         try:
             self._run_program("return [1, 2, 3][0]")
         except Exception as e:
-            assert str(e) == "Hog arrays start from index 1"
+            assert str(e) == "Array access starts from 1"
         else:
             raise AssertionError("Expected Exception not raised")
 
@@ -953,3 +954,24 @@ class TestBytecodeExecute:
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.d") == 2
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['c']") is None
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['d']") == 2
+
+    def test_bytecode_uncaught_errors(self):
+        try:
+            self._run_program("throw Error('Not a good day')")
+        except UncaughtHogVMException as e:
+            assert str(e) == "Error('Not a good day')"
+            assert e.type == "Error"
+            assert e.message == "Not a good day"
+            assert e.payload is None
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            self._run_program("throw RetryError('Not a good day', {'key': 'value'})")
+        except UncaughtHogVMException as e:
+            assert str(e) == "RetryError('Not a good day')"
+            assert e.type == "RetryError"
+            assert e.message == "Not a good day"
+            assert e.payload == {"key": "value"}
+        else:
+            raise AssertionError("Expected Exception not raised")

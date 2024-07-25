@@ -12,12 +12,12 @@ import {
     AppMetricsUrlParams,
     DashboardType,
     DataWarehouseTab,
-    FilterType,
     InsightShortId,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
+    RecordingUniversalFilters,
     ReplayTabs,
     SDKKey,
 } from '~/types'
@@ -108,13 +108,11 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
+    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
-    replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
-    replaySingle: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
-    replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+    replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
+    replaySingle: (id: string): string => `/replay/${id}`,
+    replayFilePlayback: (): string => '/replay/file-playback',
 
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
