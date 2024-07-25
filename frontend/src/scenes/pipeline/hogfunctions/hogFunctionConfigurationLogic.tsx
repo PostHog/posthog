@@ -15,9 +15,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema'
+import { performQuery } from '~/queries/query'
+import { ActionsNode, EventsNode, NodeKind, TrendsQuery } from '~/queries/schema'
 import {
     AvailableFeature,
+    BaseMathType,
     ChartDisplayType,
     FilterType,
     HogFunctionConfigurationType,
@@ -138,6 +140,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
     }),
     reducers({
         showSource: [
@@ -147,7 +150,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -197,6 +200,25 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     lemonToast.success('Configuration saved')
 
                     return res
+                },
+            },
+        ],
+
+        sparkline: [
+            null as null | { data: number[]; total: number; labels: string[] },
+            {
+                sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
+                    if (values.sparkline === null) {
+                        await breakpoint(100)
+                    } else {
+                        await breakpoint(1000)
+                    }
+                    const result = await performQuery(sparklineQuery)
+                    breakpoint()
+                    const data = result?.results?.[0]?.data
+                    const total = result?.results?.[0]?.count
+                    const labels = result?.results?.[0]?.labels
+                    return { data, total, labels }
                 },
             },
         ],
@@ -379,38 +401,47 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
         ],
-        trendsQuery: [
+        sparklineQuery: [
             (s) => [s.configuration],
-            (configuration) => ({
+            (configuration): TrendsQuery => ({
                 kind: NodeKind.TrendsQuery,
                 filterTestAccounts: configuration.filters?.filter_test_accounts,
                 series:
                     (configuration.filters?.events?.length ?? 0) + (configuration.filters?.actions?.length ?? 0)
                         ? [
-                              ...(configuration.filters?.events?.map((event) => ({
-                                  kind: NodeKind.EventsNode,
-                                  event: event.id,
-                                  name: event.name,
-                                  math: 'total',
-                                  properties: event.properties,
-                              })) ?? []),
-                              ...(configuration.filters?.actions?.map((action) => ({
-                                  kind: NodeKind.ActionsNode,
-                                  action: action.id,
-                                  name: action.name,
-                                  math: 'total',
-                                  properties: action.properties,
-                              })) ?? []),
+                              ...(configuration.filters?.events?.map(
+                                  (event) =>
+                                      ({
+                                          kind: NodeKind.EventsNode,
+                                          event: event.id,
+                                          name: event.name ?? undefined,
+                                          math: BaseMathType.TotalCount,
+                                          properties: event.properties,
+                                      } satisfies EventsNode)
+                              ) ?? []),
+                              ...(configuration.filters?.actions?.map(
+                                  (action) =>
+                                      ({
+                                          kind: NodeKind.ActionsNode,
+                                          id: parseInt(action.id),
+                                          name: action.name ?? undefined,
+                                          math: BaseMathType.TotalCount,
+                                          properties: action.properties,
+                                      } satisfies ActionsNode)
+                              ) ?? []),
                           ]
                         : [
                               {
                                   kind: NodeKind.EventsNode,
                                   event: null,
                                   name: 'All Events',
-                                  math: 'total',
-                              },
+                                  math: BaseMathType.TotalCount,
+                              } satisfies EventsNode,
                           ],
                 interval: 'day',
+                dateRange: {
+                    date_from: '-7d',
+                },
                 trendsFilter: {
                     display: ChartDisplayType.ActionsBar,
                 },
@@ -564,7 +595,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         }
     }),
 
-    subscriptions(({ props, cache }) => ({
+    subscriptions(({ props, cache, actions }) => ({
         configuration: (configuration) => {
             if (!Object.keys(configuration).length) {
                 return
@@ -586,6 +617,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`, PipelineNodeTab.Configuration)
                 )
             }
+        },
+
+        sparklineQuery: async (sparklineQuery) => {
+            actions.sparklineQueryChanged(sparklineQuery)
         },
     })),
 ])
