@@ -1,4 +1,4 @@
-import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
+import { convertHogToJS, convertJSToHog, exec, ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 

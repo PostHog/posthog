@@ -1,6 +1,5 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
-import { Invocation } from 'node-schedule'
 
 import {
     AppMetric2Type,
