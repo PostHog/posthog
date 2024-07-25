@@ -20,7 +20,7 @@ export type LemonTagType =
     | 'none'
     | 'breakdown'
 
-export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface LemonTagProps {
     type?: LemonTagType
     children: React.ReactNode
     size?: 'small' | 'medium'
@@ -28,12 +28,29 @@ export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     icon?: JSX.Element
     closable?: boolean
     onClose?: () => void
+    onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
     popover?: LemonButtonDropdown
+    className?: string
+    disabledReason?: string | null
+    title?: string
+    'data-attr'?: string
 }
 
 export const LemonTag: React.FunctionComponent<LemonTagProps & React.RefAttributes<HTMLDivElement>> = forwardRef(
     function LemonTag(
-        { type = 'default', children, className, size = 'medium', weight, icon, closable, onClose, popover, ...props },
+        {
+            type = 'default',
+            children,
+            className,
+            size = 'medium',
+            weight,
+            icon,
+            closable,
+            onClose,
+            popover,
+            disabledReason,
+            ...props
+        },
         ref
     ): JSX.Element {
         return (
@@ -42,11 +59,14 @@ export const LemonTag: React.FunctionComponent<LemonTagProps & React.RefAttribut
                 className={clsx(
                     'LemonTag',
                     `LemonTag--size-${size}`,
-                    !!props.onClick && 'cursor-pointer',
+                    disabledReason ? 'cursor-not-allowed' : props.onClick ? 'cursor-pointer' : undefined,
                     `LemonTag--${type}`,
                     weight && `LemonTag--${weight}`,
                     className
                 )}
+                role={props.onClick ? 'button' : undefined}
+                title={disabledReason || undefined}
+                aria-disabled={disabledReason ? true : undefined}
                 {...props}
             >
                 {icon && <span className="LemonTag__icon">{icon}</span>}

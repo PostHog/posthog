@@ -673,6 +673,10 @@ class ApiRequest {
         return this.errorTracking(teamId).addPathComponent(fingerprint)
     }
 
+    public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
+        return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -895,16 +899,14 @@ const api = {
     insights: {
         loadInsight(
             shortId: InsightModel['short_id'],
-            basic?: boolean,
-            refresh?: RefreshType
+            basic?: boolean
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        basic,
-                        refresh,
+                        basic: basic,
                     })
                 )
                 .get()
@@ -1721,6 +1723,15 @@ const api = {
             data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
         ): Promise<ErrorTrackingGroup> {
             return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
+        },
+
+        async merge(
+            primaryFingerprint: ErrorTrackingGroup['fingerprint'],
+            mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingMerge(primaryFingerprint)
+                .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
     },
 

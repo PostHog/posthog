@@ -53,16 +53,14 @@ export interface ParsedClickhouseEvent {
     properties: Record<string, any>
     person_created_at?: string
     person_properties: Record<string, any>
-    group0_properties: Record<string, any>
-    group1_properties: Record<string, any>
-    group2_properties: Record<string, any>
-    group3_properties: Record<string, any>
-    group4_properties: Record<string, any>
-    group0_created_at?: string
-    group1_created_at?: string
-    group2_created_at?: string
-    group3_created_at?: string
-    group4_created_at?: string
+}
+
+export type GroupType = {
+    id: string // the "key" of the group
+    type: string
+    index: number
+    url: string
+    properties: Record<string, any>
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -89,16 +87,7 @@ export type HogFunctionInvocationGlobals = {
         url: string
         properties: Record<string, any>
     }
-    groups?: Record<
-        string,
-        {
-            id: string // the "key" of the group
-            type: string
-            index: number
-            url: string
-            properties: Record<string, any>
-        }
-    >
+    groups?: Record<string, GroupType>
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
