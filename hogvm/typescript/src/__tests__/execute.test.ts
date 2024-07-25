@@ -531,7 +531,7 @@ describe('hogvm execute', () => {
                 maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
-                syncDuration: 0,
+                syncDuration: expect.any(Number),
             },
         })
     })
@@ -557,7 +557,7 @@ describe('hogvm execute', () => {
                 ops: 2,
                 stack: [],
                 throwStack: [],
-                syncDuration: 0,
+                syncDuration: expect.any(Number),
             },
         })
     })
@@ -584,7 +584,7 @@ describe('hogvm execute', () => {
                 ops: 3,
                 stack: [],
                 throwStack: [],
-                syncDuration: 0,
+                syncDuration: expect.any(Number),
             },
         })
     })

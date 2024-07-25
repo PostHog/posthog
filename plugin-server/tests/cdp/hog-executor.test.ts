@@ -125,7 +125,7 @@ describe('Hog Executor', () => {
                   "{\\"foo\\":\\"***REDACTED***\\"}",
                   "substring: ***REDACTED***",
                   "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\"},\\"secret_input_3\\":\\"***REDACTED***\\"}",
-                  "Function completed in 0ms",
+                  "Function completed in 0ms.",
                 ]
             `)
         })
@@ -207,7 +207,7 @@ describe('Hog Executor', () => {
                 "Suspending function due to async function call 'fetch'",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":"success"}',
-                'Function completed in 100ms',
+                'Function completed in 100ms.',
             ])
         })
     })
