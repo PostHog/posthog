@@ -51,6 +51,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "hog",
             "filters",
             "icon_url",
+            "template",
         ]
         read_only_fields = fields
 
