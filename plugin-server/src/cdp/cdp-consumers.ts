@@ -33,13 +33,15 @@ import {
     HogFunctionOverflowedGlobals,
     HogFunctionType,
 } from './types'
-import { convertToCaptureEvent, convertToHogFunctionInvocationGlobals, convertToParsedClickhouseEvent } from './utils'
+import {
+    BUCKETS_KB_WRITTEN,
+    convertToCaptureEvent,
+    convertToHogFunctionInvocationGlobals,
+    convertToParsedClickhouseEvent,
+} from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
-
-// WARNING: Do not change this - it will essentially reset the consumer
-const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
 const histogramKafkaBatchSize = new Histogram({
     name: 'cdp_function_executor_batch_size',
