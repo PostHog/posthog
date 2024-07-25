@@ -27,6 +27,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InsightActorsQuery,
     InsightDateRange,
+    IntervalType,
     MathGroupTypeIndex,
     MultipleBreakdownType,
     PersonPropertyFilter,
@@ -1288,12 +1289,12 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2020-01-11")
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
+        self.assertEqual(set(result[0][0]["distinct_ids"]), {"anon1", "p1"})
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0][0]["distinct_ids"], ["anon2", "p2"])
-        self.assertEqual(result[1][0]["distinct_ids"], ["anon3"])
+        self.assertEqual(set(result[0][0]["distinct_ids"]), {"anon2", "p2"})
+        self.assertEqual(set(result[1][0]["distinct_ids"]), {"anon3"})
 
     def test_trends_math_first_time_for_user_matches_first_event_only(self):
         timestamp = "2020-01-11T12:00:00Z"
@@ -1416,4 +1417,170 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
+        self.assertEqual(len(result), 0)
+
+    def test_trends_math_first_time_for_user_month_interval(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            interval=IntervalType.MONTH,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-180d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-03-01")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-01")
+        self.assertEqual(len(result), 2)
+        self.assertEqual(
+            {get_distinct_id(result[0]), get_distinct_id(result[1])},
+            {"person1", "person2"},
+        )
+        self.assertEqual((get_event_count(result[0]), get_event_count(result[1])), (1, 1))
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+    def test_trends_math_first_time_for_user_day_interval(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29")
+        self.assertEqual(len(result), 2)
+        self.assertEqual(
+            {get_distinct_id(result[0]), get_distinct_id(result[1])},
+            {"person1", "person2"},
+        )
+        self.assertEqual((get_event_count(result[0]), get_event_count(result[1])), (1, 1))
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-30")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+    def test_trends_math_first_time_for_user_week_interval(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            interval=IntervalType.WEEK,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-90d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-24")
+        self.assertEqual(len(result), 2)
+        self.assertEqual(
+            {get_distinct_id(result[0]), get_distinct_id(result[1])},
+            {"person1", "person2"},
+        )
+        self.assertEqual((get_event_count(result[0]), get_event_count(result[1])), (1, 1))
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-17")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+    def test_trends_math_first_time_for_user_hour_interval(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            interval=IntervalType.HOUR,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29T16:00:00Z")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29T17:00:00Z")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29T18:00:00Z")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01T16:00:00Z")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01T17:00:00Z")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01T18:00:00Z")
+        self.assertEqual(len(result), 0)
+
+    def test_trends_math_first_time_for_user_minute_interval(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            interval=IntervalType.MINUTE,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-1h"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29T16:00:00Z")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29T16:01:00Z")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29T17:00:00Z")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01T16:00:00Z")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01T17:00:00Z")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01T18:00:00Z")
         self.assertEqual(len(result), 0)
