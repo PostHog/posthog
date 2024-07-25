@@ -7,7 +7,7 @@ import React, { useContext } from 'react'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
-import { PopoverReferenceContext } from '../Popover'
+import { PopoverOverlayContext, PopoverReferenceContext } from '../Popover'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
 
@@ -139,6 +139,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             ref
         ): JSX.Element => {
             const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
+            const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
             const within3000PageHeader = useContext(WithinPageHeaderContext)
 
             if (!active && popoverVisibility) {
@@ -169,8 +170,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 icon = <Spinner textColored />
                 disabled = true // Cannot interact with a loading button
             }
-            if (within3000PageHeader) {
-                size = 'small'
+            if (within3000PageHeader && parentPopoverLevel === -1) {
+                size = 'small' // Ensure that buttons in the page header are small (but NOT inside dropdowns!)
             }
 
             let tooltipContent: TooltipProps['title']

@@ -6,13 +6,14 @@ use serde_json::{json, Value};
 
 use crate::common::*;
 
+use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::test_utils::{insert_new_team_in_redis, setup_redis_client};
 
 pub mod common;
 
 #[tokio::test]
 async fn it_sends_flag_request() -> Result<()> {
-    let config = DEFAULT_CONFIG.clone();
+    let config = DEFAULT_TEST_CONFIG.clone();
 
     let distinct_id = "user_distinct_id".to_string();
 
@@ -50,7 +51,7 @@ async fn it_sends_flag_request() -> Result<()> {
 
 #[tokio::test]
 async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
-    let config = DEFAULT_CONFIG.clone();
+    let config = DEFAULT_TEST_CONFIG.clone();
 
     let distinct_id = "user_distinct_id".to_string();
 

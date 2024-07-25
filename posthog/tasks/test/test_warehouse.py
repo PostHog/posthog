@@ -1,9 +1,15 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch, MagicMock
-from posthog.tasks.warehouse import check_synced_row_limits_of_team, capture_workspace_rows_synced_by_team
+from posthog.tasks.warehouse import (
+    check_synced_row_limits_of_team,
+    capture_workspace_rows_synced_by_team,
+    validate_data_warehouse_table_columns,
+)
 from posthog.warehouse.models import ExternalDataSource, ExternalDataJob
 from freezegun import freeze_time
 import datetime
+
+from posthog.warehouse.models.table import DataWarehouseTable
 
 
 class TestWarehouse(APIBaseTest):
@@ -144,3 +150,24 @@ class TestWarehouse(APIBaseTest):
             self.team.external_data_workspace_last_synced_at,
             datetime.datetime(2023, 11, 7, 16, 50, 49, tzinfo=datetime.UTC),
         )
+
+    @patch("posthog.tasks.warehouse.get_ph_client")
+    def test_validate_data_warehouse_table_columns(self, mock_get_ph_client: MagicMock) -> None:
+        mock_ph_client = MagicMock()
+        mock_get_ph_client.return_value = mock_ph_client
+
+        table = DataWarehouseTable.objects.create(
+            name="table_name",
+            format="Parquet",
+            team=self.team,
+            columns={"some_columns": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"}},
+        )
+
+        with patch.object(DataWarehouseTable, "validate_column_type", return_value=True):
+            validate_data_warehouse_table_columns(self.team.pk, str(table.id))
+
+        table.refresh_from_db()
+
+        assert table.columns.get("some_columns").get("valid") is True
+        mock_ph_client.capture.assert_called_once()
+        mock_ph_client.shutdown.assert_called_once()

@@ -56,6 +56,19 @@ class ReturnStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class ThrowStatement(Statement):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
+class TryCatchStatement(Statement):
+    try_stmt: Statement
+    # var name (e), error type (RetryError), stmt ({})  # (e: RetryError) {}
+    catches: list[tuple[Optional[str], Optional[str], Statement]]
+    finally_stmt: Optional[Statement] = None
+
+
+@dataclass(kw_only=True)
 class IfStatement(Statement):
     expr: Expr
     then: Statement
