@@ -1,11 +1,12 @@
 import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -32,6 +33,8 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { tags } = useValues(tagsModel)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
+
+    const hogFunctionsEnabled = useFeatureFlag('HOG_FUNCTIONS')
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -203,70 +206,80 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </LemonField>
                 </div>
 
-                <div className="my-4 space-y-2">
-                    <h2 className="subtitle">Webhook delivery</h2>
-                    <LemonField name="post_to_slack">
-                        {({ value, onChange }) => (
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <LemonCheckbox
-                                    id="webhook-checkbox"
-                                    bordered
-                                    checked={action.bytecode_error ? false : !!value}
-                                    onChange={onChange}
-                                    disabledReason={
-                                        !slackEnabled
-                                            ? 'Configure webhooks in project settings'
-                                            : action.bytecode_error ?? null
-                                    }
-                                    label={
-                                        <>
-                                            <span>Post to webhook when this action is triggered.</span>
-                                            {action.bytecode_error ? (
-                                                <IconWarning className="text-warning text-xl ml-1" />
-                                            ) : null}
-                                        </>
-                                    }
-                                />
-                                <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
-                                    {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
-                                </Link>
-                            </div>
+                {!hogFunctionsEnabled || action.post_to_slack ? (
+                    <div className="my-4 space-y-2">
+                        <h2 className="subtitle">Webhook delivery</h2>
+
+                        {hogFunctionsEnabled && (
+                            <LemonBanner type="warning">
+                                The Webhook integration has been replaced with our new <b>Pipeline Destinations</b>
+                                allowing for much greater customization and visibility into their execution.
+                            </LemonBanner>
                         )}
-                    </LemonField>
-                    {action.post_to_slack && (
-                        <>
-                            {!action.bytecode_error && action.post_to_slack && (
-                                <>
-                                    <LemonField name="slack_message_format">
-                                        {({ value, onChange }) => (
+
+                        <LemonField name="post_to_slack">
+                            {({ value, onChange }) => (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <LemonCheckbox
+                                        id="webhook-checkbox"
+                                        bordered
+                                        checked={action.bytecode_error ? false : !!value}
+                                        onChange={onChange}
+                                        disabledReason={
+                                            !slackEnabled
+                                                ? 'Configure webhooks in project settings'
+                                                : action.bytecode_error ?? null
+                                        }
+                                        label={
                                             <>
-                                                <LemonLabel showOptional>Slack message format</LemonLabel>
-                                                <LemonTextArea
-                                                    placeholder="Default: [action.name] triggered by [person]"
-                                                    value={value}
-                                                    onChange={onChange}
-                                                    disabled={!slackEnabled || !action.post_to_slack}
-                                                    data-attr="edit-slack-message-format"
-                                                    maxLength={
-                                                        1200 /** Must be same as in posthog/models/action/action.py */
-                                                    }
-                                                />
-                                                <small>
-                                                    <Link
-                                                        to="https://posthog.com/docs/webhooks#message-formatting"
-                                                        target="_blank"
-                                                    >
-                                                        See documentation on how to format webhook messages.
-                                                    </Link>
-                                                </small>
+                                                <span>Post to webhook when this action is triggered.</span>
+                                                {action.bytecode_error ? (
+                                                    <IconWarning className="text-warning text-xl ml-1" />
+                                                ) : null}
                                             </>
-                                        )}
-                                    </LemonField>
-                                </>
+                                        }
+                                    />
+                                    <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
+                                        {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
+                                    </Link>
+                                </div>
                             )}
-                        </>
-                    )}
-                </div>
+                        </LemonField>
+                        {action.post_to_slack && (
+                            <>
+                                {!action.bytecode_error && action.post_to_slack && (
+                                    <>
+                                        <LemonField name="slack_message_format">
+                                            {({ value, onChange }) => (
+                                                <>
+                                                    <LemonLabel showOptional>Slack message format</LemonLabel>
+                                                    <LemonTextArea
+                                                        placeholder="Default: [action.name] triggered by [person]"
+                                                        value={value}
+                                                        onChange={onChange}
+                                                        disabled={!slackEnabled || !action.post_to_slack}
+                                                        data-attr="edit-slack-message-format"
+                                                        maxLength={
+                                                            1200 /** Must be same as in posthog/models/action/action.py */
+                                                        }
+                                                    />
+                                                    <small>
+                                                        <Link
+                                                            to="https://posthog.com/docs/webhooks#message-formatting"
+                                                            target="_blank"
+                                                        >
+                                                            See documentation on how to format webhook messages.
+                                                        </Link>
+                                                    </small>
+                                                </>
+                                            )}
+                                        </LemonField>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </div>
+                ) : undefined}
             </Form>
         </div>
     )

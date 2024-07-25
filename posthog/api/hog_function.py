@@ -1,9 +1,10 @@
+import json
 from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
 
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -212,6 +213,13 @@ class HogFunctionViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
+
+        if self.request.GET.get("filters"):
+            try:
+                filters = json.loads(self.request.GET["filters"])
+                queryset = queryset.filter(filters__contains=filters)
+            except Exception:
+                raise exceptions.ValidationError({"filter": f"Invalid filter"})
 
         return queryset
 
