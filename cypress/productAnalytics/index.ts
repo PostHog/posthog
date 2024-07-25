@@ -192,11 +192,17 @@ export const dashboard = {
     },
 }
 
-export function createInsight(insightName: string): void {
-    savedInsights.createNewInsightOfType('TRENDS')
-    insight.applyFilter()
-    insight.editName(insightName)
-    insight.save()
+export function createInsight(insightName: string): Promise<string> {
+    return new Promise((resolve) => {
+        savedInsights.createNewInsightOfType('TRENDS')
+        insight.applyFilter()
+        insight.editName(insightName)
+        insight.save()
+        // return insight id from the url
+        cy.url().then((url) => {
+            resolve(url.split('/').at(-1))
+        })
+    })
 }
 
 export function duplicateDashboardFromMenu(duplicateTiles = false): void {
