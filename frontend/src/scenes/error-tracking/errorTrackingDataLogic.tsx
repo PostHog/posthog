@@ -5,6 +5,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { ErrorTrackingGroup } from '~/queries/schema'
 
 import type { errorTrackingDataLogicType } from './errorTrackingDataLogicType'
+import { mergeGroups } from './utils'
 
 export interface ErrorTrackingDataLogicProps {
     query: DataNodeLogicProps['query']

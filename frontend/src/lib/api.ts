@@ -1731,7 +1731,7 @@ const api = {
         ): Promise<{ content: string }> {
             return await new ApiRequest()
                 .errorTrackingMerge(primaryFingerprint)
-                .create({ data: { mergingFingerprints } })
+                .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
     },
 

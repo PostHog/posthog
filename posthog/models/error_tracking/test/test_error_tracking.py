@@ -49,13 +49,15 @@ class TestErrorTracking(BaseTest):
             merged_fingerprints=["merged_fingerprint"],
         )
 
-        root_group.merge([merge_group_1, merge_group_2])
+        merging_fingerprints = [merge_group_1.fingerprint, merge_group_2.fingerprint, "no_group_fingerprint"]
+        root_group.merge(merging_fingerprints)
 
         assert sorted(root_group.merged_fingerprints) == [
             "already_merged_fingerprint",
             "another_fingerprint",
             "merged_fingerprint",
             "new_fingerprint",
+            "no_group_fingerprint",
         ]
 
         # deletes the old groups
