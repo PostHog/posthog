@@ -198,6 +198,12 @@ export const billingLogic = kea<billingLogicType>([
                 },
 
                 deactivateProduct: async (key: string) => {
+                    // clear upgrade params from URL
+                    const currentURL = new URL(window.location.href)
+                    currentURL.searchParams.delete('upgraded')
+                    currentURL.searchParams.delete('products')
+                    router.actions.push(currentURL.pathname + currentURL.search)
+
                     actions.resetUnsubscribeError()
                     try {
                         const response = await api.getResponse('api/billing/deactivate?products=' + key)
