@@ -7,14 +7,13 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.models import InsightCachingState, Team, User
 from posthog.models.activity_logging.activity_log import (
@@ -34,49 +33,15 @@ from posthog.models.team.team import set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT, generate_random_token_project
 from posthog.permissions import (
-    CREATE_METHODS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_ip_address, get_week_start_for_country_code
-
-
-class PremiumMultiProjectPermissions(BasePermission):
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
-
-    message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
-
-    def has_permission(self, request: request.Request, view) -> bool:
-        if request.method in CREATE_METHODS:
-            try:
-                organization = get_organization_from_view(view)
-            except ValueError:
-                return False
-
-            if not request.data.get("is_demo"):
-                # if we're not requesting to make a demo project
-                # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
-                # and the org isn't allowed to make multiple projects
-                if organization.teams.exclude(is_demo=True).count() >= 1 and not organization.is_feature_available(
-                    AvailableFeature.ORGANIZATIONS_PROJECTS
-                ):
-                    return False
-            else:
-                # if we ARE requesting to make a demo project
-                # but the org already has a demo project
-                if organization.teams.filter(is_demo=True).count() > 0:
-                    return False
-
-            # in any other case, we're good to go
-            return True
-        else:
-            return True
 
 
 class CachingTeamSerializer(serializers.ModelSerializer):
@@ -432,7 +397,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
-            PremiumMultiProjectPermissions,
             *self.permission_classes,
         ]
 
