@@ -98,7 +98,7 @@ export function DestinationOptionsTable(): JSX.Element {
                         width: 100,
                         align: 'right',
                         render: function RenderActions(_, target) {
-                            return canEnableNewDestinations(target) ? (
+                            return canEnableDestination(target) ? (
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
