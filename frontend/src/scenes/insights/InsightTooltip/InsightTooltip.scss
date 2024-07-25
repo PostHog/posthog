@@ -7,9 +7,9 @@
 
 .InsightTooltip {
     max-width: 30rem;
-    overflow: hidden;
+    overflow: visible;
     font-size: 0.8125rem;
-    pointer-events: none;
+    pointer-events: auto;
     background: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
