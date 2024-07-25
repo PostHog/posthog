@@ -103,7 +103,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             reset_pipeline=reset_pipeline,
         )
     elif model.pipeline.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
-        from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
+        from posthog.temporal.data_imports.pipelines.sql_database2 import sql_source_for_type
 
         host = model.pipeline.job_inputs.get("host")
         port = model.pipeline.job_inputs.get("port")
@@ -189,7 +189,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             reset_pipeline=reset_pipeline,
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-        from posthog.temporal.data_imports.pipelines.sql_database import snowflake_source
+        from posthog.temporal.data_imports.pipelines.sql_database2 import snowflake_source
 
         account_id = model.pipeline.job_inputs.get("account_id")
         user = model.pipeline.job_inputs.get("user")

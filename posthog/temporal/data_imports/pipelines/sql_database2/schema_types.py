@@ -105,6 +105,8 @@ def sqla_col_to_column_schema(
         col["data_type"] = "complex"
     elif isinstance(sql_t, sqltypes.Boolean):
         col["data_type"] = "bool"
+    elif isinstance(sql_t, sqltypes.UUID):
+        col["data_type"] = "text"
     else:
         logger.warning(
             f"A column with name {sql_col.name} contains unknown data type {sql_t} which cannot be mapped to `dlt` data type. When using sqlalchemy backend such data will be passed to the normalizer. In case of `pyarrow` and `pandas` backend, data types are detected from numpy ndarrays. In case of other backends, the behavior is backend-specific."
@@ -115,8 +117,15 @@ def sqla_col_to_column_schema(
 
 def get_primary_key(table: Table) -> Optional[list[str]]:
     """Create primary key or return None if no key defined"""
-    primary_key = [c.name for c in table.primary_key]
-    return primary_key if len(primary_key) > 0 else None
+    primary_keys = [c.name for c in table.primary_key]
+    if len(primary_keys) > 0:
+        return primary_keys
+
+    column_names = [c.name for c in table.columns]
+    if "id" in column_names:
+        return ["id"]
+
+    return []
 
 
 def table_to_columns(

@@ -1,15 +1,20 @@
 """Source that loads tables form any SQLAlchemy supported database, supports batching requests and incremental loads."""
 
+from datetime import datetime, date
 from typing import Optional, Union, Any
 from collections.abc import Callable, Iterable
+from zoneinfo import ZoneInfo
 from sqlalchemy import MetaData, Table
 from sqlalchemy.engine import Engine
 
 import dlt
-from dlt.sources import DltResource
+from dlt.sources import DltResource, DltSource
 
+from posthog.warehouse.types import IncrementalFieldType
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 from dlt.sources.credentials import ConnectionStringCredentials
+from urllib.parse import quote
 
 from .helpers import (
     table_rows,
@@ -24,6 +29,93 @@ from .schema_types import (
     ReflectionLevel,
     TTypeAdapter,
 )
+
+
+def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> Any:
+    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+        return 0
+    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        return datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+    if field_type == IncrementalFieldType.Date:
+        return date(1970, 1, 1)
+
+
+def sql_source_for_type(
+    source_type: ExternalDataSource.Type,
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    database: str,
+    sslmode: str,
+    schema: str,
+    table_names: list[str],
+    incremental_field: Optional[str] = None,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
+) -> DltSource:
+    host = quote(host)
+    user = quote(user)
+    password = quote(password)
+    database = quote(database)
+    sslmode = quote(sslmode)
+
+    if incremental_field is not None and incremental_field_type is not None:
+        incremental: dlt.sources.incremental | None = dlt.sources.incremental(
+            cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
+        )
+    else:
+        incremental = None
+
+    if source_type == ExternalDataSource.Type.POSTGRES:
+        credentials = ConnectionStringCredentials(
+            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
+        )
+    elif source_type == ExternalDataSource.Type.MYSQL:
+        credentials = ConnectionStringCredentials(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
+    else:
+        raise Exception("Unsupported source_type")
+
+    db_source = sql_database(
+        credentials, schema=schema, table_names=table_names, incremental=incremental, backend="pyarrow"
+    )
+
+    return db_source
+
+
+def snowflake_source(
+    account_id: str,
+    user: str,
+    password: str,
+    database: str,
+    warehouse: str,
+    schema: str,
+    table_names: list[str],
+    role: Optional[str] = None,
+    incremental_field: Optional[str] = None,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
+) -> DltSource:
+    account_id = quote(account_id)
+    user = quote(user)
+    password = quote(password)
+    database = quote(database)
+    warehouse = quote(warehouse)
+    role = quote(role) if role else None
+
+    if incremental_field is not None and incremental_field_type is not None:
+        incremental: dlt.sources.incremental | None = dlt.sources.incremental(
+            cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
+        )
+    else:
+        incremental = None
+
+    credentials = ConnectionStringCredentials(
+        f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
+    )
+    db_source = sql_database(
+        credentials, schema=schema, table_names=table_names, incremental=incremental, backend="pyarrow"
+    )
+
+    return db_source
 
 
 @dlt.source
@@ -41,6 +133,7 @@ def sql_database(
     backend_kwargs: Optional[dict[str, Any]] = None,
     include_views: bool = False,
     type_adapter_callback: Optional[TTypeAdapter] = None,
+    incremental: Optional[dlt.sources.incremental] = None,
 ) -> Iterable[DltResource]:
     """
     A dlt source which loads data from an SQL database using SQLAlchemy.
@@ -103,6 +196,13 @@ def sql_database(
             primary_key=get_primary_key(table),
             spec=SqlDatabaseTableConfiguration,
             columns=table_to_columns(table, reflection_level, type_adapter_callback),
+            table_format="delta",
+            write_disposition={
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if incremental
+            else "replace",
         )(
             engine,
             table,
@@ -113,9 +213,11 @@ def sql_database(
             table_adapter_callback=table_adapter_callback,
             backend_kwargs=backend_kwargs,
             type_adapter_callback=type_adapter_callback,
+            incremental=incremental,
         )
 
 
+# Dont use. Not configured with incremental syncs
 @dlt.resource(name=lambda args: args["table"], standalone=True, spec=SqlTableResourceConfiguration)
 def sql_table(
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,

@@ -75,10 +75,10 @@ class TableLoader:
 
         # generate where
         if last_value_func is max:  # Query ordered and filtered according to last_value function
-            filter_op = operator.ge
+            filter_op = operator.gt
             filter_op_end = operator.lt
         elif last_value_func is min:
-            filter_op = operator.le
+            filter_op = operator.lt
             filter_op_end = operator.gt
         else:  # Custom last_value, load everything and let incremental handle filtering
             return query
@@ -174,6 +174,8 @@ def table_rows(
     backend_kwargs: Optional[dict[str, Any]] = None,
     type_adapter_callback: Optional[TTypeAdapter] = None,
 ) -> Iterator[TDataItem]:
+    yield dlt.mark.materialize_table_schema()  # type: ignore
+
     columns: TTableSchemaColumns = None
     if defer_table_reflect:
         table = Table(table.name, table.metadata, autoload_with=engine, extend_existing=True)

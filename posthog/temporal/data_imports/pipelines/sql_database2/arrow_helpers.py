@@ -1,5 +1,6 @@
 from typing import Any, Optional
 from collections.abc import Sequence
+import uuid
 
 from dlt.common.schema.typing import TTableSchemaColumns
 from dlt.common import logger
@@ -57,6 +58,18 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
         pivoted_rows = np.asarray(rows, dtype="object", order="k").T  # type: ignore[call-overload]
 
     columnar = {col: dat.ravel() for col, dat in zip(columns, np.vsplit(pivoted_rows, len(columns)))}
+
+    get_type = np.vectorize(type)
+    apply_str = np.vectorize(lambda x: str(x) if x is not None else None)
+    for col, dat in zip(columns, np.vsplit(pivoted_rows, len(columns))):
+        typed_arr = get_type(dat.ravel())
+        minus_uuid = typed_arr == uuid.UUID
+        any_left = minus_uuid.any()
+        if any_left:
+            columnar[col] = apply_str(dat.ravel())
+        else:
+            columnar[col] = dat.ravel()
+
     columnar_known_types = {
         col["name"]: columnar[col["name"]] for col in columns.values() if col.get("data_type") is not None
     }
