@@ -175,6 +175,20 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             throw new HogVMException(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
         }
     }
+    function getFinishedState(): VMState {
+        return {
+            bytecode: [],
+            stack: [],
+            callStack: [],
+            throwStack: [],
+            declaredFunctions: {},
+            ip: -1,
+            ops,
+            asyncSteps,
+            syncDuration: syncDuration + (Date.now() - startTime),
+            maxMemUsed,
+        }
+    }
 
     for (; ip < bytecode.length; ip++) {
         ops += 1
@@ -314,6 +328,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     return {
                         result: popStack(),
                         finished: true,
+                        state: getFinishedState(),
                     } satisfies ExecResult
                 }
             case Operation.GET_LOCAL:
@@ -479,21 +494,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         throw new HogVMException('Invalid bytecode. More than one value left on stack')
     }
 
-    const finishedState: VMState = {
-        bytecode: [],
-        stack: [],
-        callStack: [],
-        declaredFunctions: {},
-        ip: -1,
-        ops,
-        asyncSteps,
-        syncDuration: syncDuration + (Date.now() - startTime),
-        maxMemUsed,
-    }
-
     if (stack.length === 0) {
-        return { result: null, finished: true, state: finishedState } satisfies ExecResult
+        return { result: null, finished: true, state: getFinishedState() } satisfies ExecResult
     }
 
-    return { result: popStack() ?? null, finished: true, state: finishedState } satisfies ExecResult
+    return { result: popStack() ?? null, finished: true, state: getFinishedState() } satisfies ExecResult
 }
