@@ -414,35 +414,35 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     values: [],
                 }
                 for (const event of configuration.filters?.events ?? []) {
-                    const serieProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
+                    const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
                     if (event.id) {
-                        serieProperties.push({
+                        eventProperties.push({
                             type: PropertyFilterType.HogQL,
                             key: hogql`event = ${event.id}`,
                         })
                     }
-                    if (serieProperties.length === 0) {
-                        serieProperties.push({
+                    if (eventProperties.length === 0) {
+                        eventProperties.push({
                             type: PropertyFilterType.HogQL,
                             key: 'true',
                         })
                     }
                     properties.values.push({
                         type: FilterLogicalOperator.And,
-                        values: serieProperties,
+                        values: eventProperties,
                     })
                 }
                 for (const action of configuration.filters?.actions ?? []) {
-                    const serieProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
+                    const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
                     if (action.id) {
-                        serieProperties.push({
+                        actionProperties.push({
                             type: PropertyFilterType.HogQL,
                             key: hogql`matchesAction(${action.id})`,
                         })
                     }
                     properties.values.push({
                         type: FilterLogicalOperator.And,
-                        values: serieProperties,
+                        values: actionProperties,
                     })
                 }
 
