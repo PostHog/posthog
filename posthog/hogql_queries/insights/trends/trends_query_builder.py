@@ -233,7 +233,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             orchestrator = self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
-                event_name_filter=self._event_name(),
+                event_name_filter=self._event_or_action_where_expr(),
             )
             orchestrator.events_query_builder.extend_select(
                 self._aggregation_operation.transform_breakdowns_for_query_orchestration(breakdown.column_exprs)
@@ -302,7 +302,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
-                event_name_filter=self._event_name(),
+                event_name_filter=self._event_or_action_where_expr(),
             ).build()
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_actors_query_orchestrator(
@@ -683,11 +683,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ]
             )
 
-        # Filter by event name
+        # Filter by event or action name
         if not self._aggregation_operation.is_first_time_ever_math():
-            event_name = self._event_name()
-            if event_name is not None:
-                filters.append(event_name)
+            event_or_action = self._event_or_action_where_expr()
+            if event_or_action is not None:
+                filters.append(event_or_action)
 
         # Filter Test Accounts
         if (
@@ -705,15 +705,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Series Filters
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
-
-        # Actions
-        if isinstance(series, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(series.id), team=self.team)
-                filters.append(action_to_expr(action))
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                filters.append(parse_expr("1 = 2"))
 
         # Breakdown
         if not ignore_breakdowns and breakdown is not None:
@@ -737,15 +728,24 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return ast.And(exprs=filters)
 
-    def _event_name(self) -> ast.Expr | None:
-        # Series
-        if series_event_name(self.series) is None:
-            return None
+    def _event_or_action_where_expr(self) -> ast.Expr | None:
+        # Event name
+        if series_event_name(self.series) is not None:
+            return parse_expr(
+                "event = {event}",
+                placeholders={"event": ast.Constant(value=series_event_name(self.series))},
+            )
 
-        return parse_expr(
-            "event = {event}",
-            placeholders={"event": ast.Constant(value=series_event_name(self.series))},
-        )
+        # Actions
+        if isinstance(self.series, ActionsNode):
+            try:
+                action = Action.objects.get(pk=int(self.series.id), team=self.team)
+                return action_to_expr(action)
+            except Action.DoesNotExist:
+                # If an action doesn't exist, we want to return no events
+                return parse_expr("1 = 2")
+
+        return None
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:

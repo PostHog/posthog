@@ -26,6 +26,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import (
     TrendsQueryRunner,
 )
 from posthog.models import GroupTypeMapping
+from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
@@ -4676,3 +4677,61 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert len(response.results) == 1
             assert response.results[0]["count"] == 4
+
+    def test_trends_math_first_time_for_user_actions(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        action = Action.objects.create(
+            team=self.team,
+            name="viewed from chrome and left",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+                {
+                    "event": "$pageleave",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+            ],
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [ActionsNode(id=action.id, math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        action = Action.objects.create(
+            team=self.team,
+            name="viewed from chrome or firefox",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Firefox", "operator": "icontains"}],
+                },
+            ],
+        )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [ActionsNode(id=action.id, math=BaseMathType.FIRST_TIME_FOR_USER)],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 2
+        assert response.results[0]["data"] == [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
