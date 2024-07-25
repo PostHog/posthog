@@ -1,4 +1,4 @@
-import { convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
+import { calculateCost, convertHogToJS, convertJSToHog, exec, ExecResult, VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
@@ -342,14 +342,21 @@ export class HogExecutor {
             })
 
             if (!execRes.finished) {
-                addLog(result, 'debug', `Suspending function due to async function call '${execRes.asyncFunctionName}'`)
-
                 const args = (execRes.asyncFunctionArgs ?? []).map((arg) => convertHogToJS(arg))
-
                 if (!execRes.state) {
                     // NOTE: This shouldn't be possible so is more of a type sanity check
                     throw new Error('State should be provided for async function')
                 }
+                addLog(
+                    result,
+                    'debug',
+                    `Suspending function due to async function call '${execRes.asyncFunctionName}'. Payload: ${
+                        calculateCost(execRes.state) + calculateCost(args)
+                    } bytes`
+                )
+
+                console.log('execRes', execRes)
+
                 if (execRes.asyncFunctionName) {
                     result.asyncFunctionRequest = {
                         name: execRes.asyncFunctionName,
@@ -363,8 +370,8 @@ export class HogExecutor {
                 const totalDuration = result.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
                 const messages = [`Function completed in ${totalDuration}ms.`]
                 if (execRes.state) {
-                    messages.push(`Sync time: ${execRes.state.syncDuration}ms.`)
-                    messages.push(`Mem used: ${execRes.state.maxMemUsed} bytes.`)
+                    messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
+                    messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
                 }
                 addLog(result, 'debug', messages.join(' '))
