@@ -162,6 +162,8 @@ def execute_process_query(
         return
 
     query_status.pickup_time = datetime.datetime.now(datetime.UTC)
+    manager.store_query_status(query_status)
+
     query_status.error = True  # Assume error in case nothing below ends up working
     query_status.complete = True
 
