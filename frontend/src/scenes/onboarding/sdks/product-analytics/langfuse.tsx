@@ -42,7 +42,7 @@ export function ProductAnalyticsLangfuseInstructions(): JSX.Element {
                     <CodeSnippet language={Language.JavaScript}>{apiHostOrigin()}</CodeSnippet>
                 </li>
                 <li>
-                    Click <strong>Enabled</strong> and then <strong>Save</strong>.
+                    Click <strong>Enable</strong> and then <strong>Save</strong>.
                 </li>
             </ol>
             <p>

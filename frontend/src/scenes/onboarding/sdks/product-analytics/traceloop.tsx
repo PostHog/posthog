@@ -26,11 +26,12 @@ export function ProductAnalyticsTraceloopInstructions(): JSX.Element {
                     in your Traceloop dashboard and click on the PostHog card.
                 </li>
                 <li>
-                    Enter in your PostHog host and project API key:
-                    <CodeSnippet language={Language.JavaScript}>
-                        {`${currentTeam?.api_token} // your api key
-${apiHostOrigin()} // your host`}
-                    </CodeSnippet>
+                    Paste in your PostHog project API key:
+                    <CodeSnippet language={Language.JavaScript}>{currentTeam?.api_token}</CodeSnippet>
+                </li>
+                <li>
+                    Paste in your PostHog host:
+                    <CodeSnippet language={Language.JavaScript}>{apiHostOrigin()}</CodeSnippet>
                 </li>
                 <li>
                     Select the environment you want to connect to PostHog and click <strong>Enable</strong>
