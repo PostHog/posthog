@@ -1,9 +1,11 @@
 import { DateTime } from 'luxon'
+
+import { isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
 import {
+    formatDateTime,
     fromUnixTimestamp,
     fromUnixTimestampMilli,
-    isHogDate,
-    isHogDateTime,
     now,
     toDate,
     toDateTime,
@@ -12,30 +14,30 @@ import {
     toTimeZone,
     toUnixTimestamp,
     toUnixTimestampMilli,
-    formatDateTime,
 } from './date'
-import { sha256Hex, sha256HmacChainHex, md5Hex } from './crypto'
 import { printHogStringOutput } from './print'
+
+function STLToString(args: any[]): string {
+    if (isHogDate(args[0])) {
+        const month = args[0].month
+        const day = args[0].day
+        return `${args[0].year}-${month < 10 ? '0' : ''}${month}-${day < 10 ? '0' : ''}${day}`
+    }
+    if (isHogDateTime(args[0])) {
+        return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
+    }
+    return printHogStringOutput(args[0])
+}
 
 export const STL: Record<string, (args: any[], name: string, timeout: number) => any> = {
     concat: (args) => {
-        return args.map((arg: any) => (arg === null ? '' : String(arg))).join('')
+        return args.map((arg: any) => (arg === null ? '' : STLToString([arg]))).join('')
     },
     match: (args) => {
         const regex = new RegExp(args[1])
         return regex.test(args[0])
     },
-    toString: (args: any[]) => {
-        if (isHogDate(args[0])) {
-            const month = args[0].month
-            const day = args[0].day
-            return `${args[0].year}-${month < 10 ? '0' : ''}${month}-${day < 10 ? '0' : ''}${day}`
-        }
-        if (isHogDateTime(args[0])) {
-            return DateTime.fromSeconds(args[0].dt, { zone: args[0].zone }).toISO()
-        }
-        return String(args[0])
-    },
+    toString: STLToString,
     toUUID: (args) => {
         return String(args[0])
     },
@@ -106,11 +108,13 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
             if (Array.isArray(x)) {
                 return x.map(convert)
             } else if (typeof x === 'object' && x !== null) {
-                // Date and DateTime will not be converted to a map
+                // DateTime and other objects will be sanitized and not converted to a map
                 if (x.__hogDateTime__) {
                     return toHogDateTime(x.dt, x.zone)
                 } else if (x.__hogDate__) {
                     return toHogDate(x.year, x.month, x.day)
+                } else if (x.__hogError__) {
+                    return newHogError(x.type, x.message, x.payload)
                 }
                 // All other objects will
                 const map = new Map()
@@ -145,7 +149,7 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
                     if (Array.isArray(x)) {
                         return x.map((v) => convert(v, marked))
                     }
-                    if (isHogDateTime(x) || isHogDate(x)) {
+                    if (isHogDateTime(x) || isHogDate(x) || isHogError(x)) {
                         return x
                     }
                     const obj: Record<string, any> = {}
@@ -345,6 +349,10 @@ export const STL: Record<string, (args: any[], name: string, timeout: number) =>
     formatDateTime(args) {
         return formatDateTime(args[0], args[1], args[2])
     },
+    HogError: (args) => newHogError(args[0], args[1], args[2]),
+    Error: (args, name) => newHogError(name, args[0], args[1]),
+    RetryError: (args, name) => newHogError(name, args[0], args[1]),
+    NotImplementedError: (args, name) => newHogError(name, args[0], args[1]),
 }
 
 export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {

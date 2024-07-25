@@ -1,17 +1,19 @@
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
+import { errorTrackingDataLogic } from './errorTrackingDataLogic'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
 export const ErrorTrackingActions = ({ showOrder = true }: { showOrder?: boolean }): JSX.Element => {
     const { dateRange } = useValues(errorTrackingLogic)
     const { setDateRange } = useActions(errorTrackingLogic)
-    const { order } = useValues(errorTrackingSceneLogic)
-    const { setOrder } = useActions(errorTrackingSceneLogic)
+    const { order, selectedRows } = useValues(errorTrackingSceneLogic)
+    const { setOrder, setSelectedRows } = useActions(errorTrackingSceneLogic)
+    const { mergeGroups } = useActions(errorTrackingDataLogic)
 
-    return (
+    return selectedRows.length === 0 ? (
         <div className="flex gap-4">
             <div className="flex items-center gap-1">
                 <span>Date range:</span>
@@ -56,6 +58,24 @@ export const ErrorTrackingActions = ({ showOrder = true }: { showOrder?: boolean
                         size="small"
                     />
                 </div>
+            )}
+        </div>
+    ) : (
+        <div className="flex space-x-1">
+            <LemonButton type="secondary" size="small" onClick={() => setSelectedRows([])}>
+                Unselect all
+            </LemonButton>
+            {selectedRows.length > 1 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => {
+                        mergeGroups(selectedRows)
+                        setSelectedRows([])
+                    }}
+                >
+                    Merge
+                </LemonButton>
             )}
         </div>
     )
