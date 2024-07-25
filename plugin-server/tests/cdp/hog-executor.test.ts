@@ -125,7 +125,7 @@ describe('Hog Executor', () => {
                   "{\\"foo\\":\\"***REDACTED***\\"}",
                   "substring: ***REDACTED***",
                   "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\"},\\"secret_input_3\\":\\"***REDACTED***\\"}",
-                  "Function completed in 0ms.",
+                  "Function completed in 0ms. Sync: 0ms. Mem: 129 bytes. Ops: 28.",
                 ]
             `)
         })
@@ -204,10 +204,10 @@ describe('Hog Executor', () => {
             expect(asyncExecResult.finished).toBe(true)
             expect(logs.map((log) => log.message)).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'",
+                "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":"success"}',
-                'Function completed in 100ms.',
+                'Function completed in 100ms. Sync: 0ms. Mem: 589 bytes. Ops: 22.',
             ])
         })
     })
