@@ -175,7 +175,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         <>
                             <div className="flex-1">
                                 <LemonButton
-                                    onClick={saveQuery}
+                                    onClick={() => saveQuery()}
                                     type="primary"
                                     disabledReason={
                                         !props.setQuery
