@@ -208,6 +208,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=0)]),
         }
 
+    @property
+    def _interval_function_name(self) -> ast.Call:
+        return f"toStartOf{self.query_date_range.interval_name.title()}"
+
     def _actors_parent_select_query(
         self, inner_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
@@ -224,9 +228,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         day_start = ast.Alias(
             alias="day_start",
-            expr=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
-            ),
+            expr=ast.Call(name=self._interval_function_name, args=[ast.Field(chain=["timestamp"])]),
         )
 
         query = cast(
@@ -367,7 +369,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             day_start = ast.Alias(
                 alias="day_start",
                 expr=ast.Call(
-                    name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                    name=self._interval_function_name,
                     args=[ast.Field(chain=["timestamp"])],
                 ),
             )
@@ -463,7 +465,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             query.select.append(
                 ast.Alias(
                     expr=ast.Call(
-                        name="toStartOfDay",
+                        name=self._interval_function_name,
                         args=[ast.Field(chain=["min_timestamp"])],
                     ),
                     alias="day_start",

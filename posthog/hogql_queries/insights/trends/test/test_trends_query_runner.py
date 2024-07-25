@@ -4047,7 +4047,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert response.results[0]["aggregated_value"] == 8
             assert response.results[1]["aggregated_value"] == 2
 
-    def test_trends_math_first_time_ever_basic(self):
+    def test_trends_math_first_time_for_user_basic(self):
         self._create_test_events()
         flush_persons_and_events()
 
@@ -4102,7 +4102,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 0
         assert response.results[0]["data"] == [0, 0, 0, 0, 0]
 
-    def test_trends_math_first_time_ever_breakdowns_basic(self):
+    def test_trends_math_first_time_for_user_breakdowns_basic(self):
         self._create_test_events()
         flush_persons_and_events()
 
@@ -4154,7 +4154,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         data = [result["data"] for result in response.results]
         assert data == matrix
 
-    def test_trends_math_first_time_ever_breakdowns_with_bins(self):
+    def test_trends_math_first_time_for_user_breakdowns_with_bins(self):
         self._create_test_events()
         flush_persons_and_events()
 
@@ -4204,7 +4204,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         data = [result["data"] for result in response.results]
         assert data == matrix
 
-    def test_trends_math_first_time_ever_with_filters(self):
+    def test_trends_math_first_time_for_user_with_filters(self):
         self._create_test_events()
         flush_persons_and_events()
 
@@ -4244,7 +4244,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 1
         assert response.results[0]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
 
-    def test_trends_math_first_time_ever_with_total_values(self):
+    def test_trends_math_first_time_for_user_with_total_values(self):
         self._create_test_events()
         flush_persons_and_events()
 
@@ -4286,7 +4286,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert len(response.results) == 1
             assert response.results[0]["aggregated_value"] == 1
 
-    def test_trends_math_first_time_ever_handles_multiple_ids(self):
+    def test_trends_math_first_time_for_user_handles_multiple_ids(self):
         timestamp = "2020-01-11T12:00:00Z"
 
         with freeze_time(timestamp):
@@ -4364,7 +4364,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 3
         assert response.results[0]["data"] == [0, 0, 1, 2]
 
-    def test_trends_math_first_time_ever_filters_first_events(self):
+    def test_trends_math_first_time_for_user_filters_first_events(self):
         timestamp = "2020-01-11T12:00:00Z"
 
         with freeze_time(timestamp):
@@ -4467,7 +4467,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 0
         assert response.results[0]["data"] == [0, 0, 0]
 
-    def test_trends_math_first_time_ever_prioritizes_first_event(self):
+    def test_trends_math_first_time_for_user_prioritizes_first_event(self):
         timestamp = "2020-01-11T12:00:00Z"
 
         with freeze_time(timestamp):
@@ -4556,7 +4556,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["count"] == 0
 
-    def test_trends_math_first_time_ever_date_ranges(self):
+    def test_trends_math_first_time_for_user_date_ranges(self):
         self._create_test_events()
         flush_persons_and_events()
 
@@ -4579,3 +4579,100 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results[0]["days"]) == 12
         assert response.results[0]["days"][0] == "2020-01-09"
         assert response.results[0]["days"][11] == "2020-01-20"
+
+    def test_trends_math_first_time_for_user_interval_types(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-20"):
+            response = self._run_trends_query(
+                "-180d",
+                None,
+                IntervalType.MONTH,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert len(response.results[0]["days"]) == 7
+
+        with freeze_time("2020-01-20"):
+            response = self._run_trends_query(
+                "-180d",
+                None,
+                IntervalType.WEEK,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert len(response.results[0]["days"]) == 27
+
+        with freeze_time("2020-01-20"):
+            response = self._run_trends_query(
+                "-30d",
+                None,
+                IntervalType.HOUR,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 4
+        assert len(response.results[0]["days"]) == 721
+
+        with freeze_time("2020-01-11T12:30:00Z"):
+            response = self._run_trends_query(
+                "-1h",
+                None,
+                IntervalType.MINUTE,
+                [
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert len(response.results[0]["days"]) == 61
+
+    def test_trends_math_first_time_for_user_all_events(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-20"):
+            response = self._run_trends_query(
+                "-180d",
+                None,
+                IntervalType.MONTH,
+                [
+                    EventsNode(
+                        event=None,
+                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                    )
+                ],
+                TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            )
+
+            assert len(response.results) == 1
+            assert response.results[0]["count"] == 4
