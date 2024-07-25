@@ -92,8 +92,7 @@ setupDev() {
   python manage.py setup_dev &
 }
 
-nc -z localhost 9092 || ( echo -e "\033[0;31mKafka isn't running. Please run\n\tdocker compose -f docker-compose.dev.yml up zookeeper kafka clickhouse db redis\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
-wget -nv -t1 --spider 'http://localhost:8123/' || ( echo -e "\033[0;31mClickhouse isn't running. Please run\n\tdocker compose -f docker-compose.dev.yml up zookeeper kafka clickhouse db redis.\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
+bin/check_kafka_clickhouse_up
 
 $SKIP_RECREATE_DATABASE || recreateDatabases
 $SKIP_MIGRATE || migrateDatabases

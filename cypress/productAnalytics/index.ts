@@ -192,16 +192,14 @@ export const dashboard = {
     },
 }
 
-export function createInsight(insightName: string): Promise<string> {
-    return new Promise((resolve) => {
-        savedInsights.createNewInsightOfType('TRENDS')
-        insight.applyFilter()
-        insight.editName(insightName)
-        insight.save()
-        // return insight id from the url
-        cy.url().then((url) => {
-            resolve(url.split('/').at(-1))
-        })
+export function createInsight(insightName: string): Cypress.Chainable<string> {
+    savedInsights.createNewInsightOfType('TRENDS')
+    insight.applyFilter()
+    insight.editName(insightName)
+    insight.save()
+    // return insight id from the url
+    return cy.url().then((url) => {
+        return url.split('/').at(-1)
     })
 }
 

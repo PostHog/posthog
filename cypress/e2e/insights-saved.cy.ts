@@ -19,7 +19,7 @@ chai.Assertion.addMethod('neverHaveChild', function (childSelector) {
 // insight tests were split up because Cypress was struggling with this many tests in one file🙈
 describe('Insights - saved', () => {
     it('Data is available immediately', () => {
-        void createInsight('saved insight').then((newInsightId) => {
+        createInsight('saved insight').then((newInsightId) => {
             cy.get('[data-attr=trend-line-graph]').should('exist') // Results cached
             cy.visit(urls.insightView(newInsightId)) // Full refresh
             cy.get('.InsightViz').should('exist').should('neverHaveChild', '.insight-empty-state') // Only cached data
@@ -30,7 +30,7 @@ describe('Insights - saved', () => {
     it('If cache empty, initiate async refresh', () => {
         cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?[^/]*?refresh=async/).as('getInsightsRefreshAsync')
         let newInsightId: string
-        void createInsight('saved insight').then((insightId) => {
+        createInsight('saved insight').then((insightId) => {
             newInsightId = insightId
         })
         cy.task('resetInsightCache').then(() => {
