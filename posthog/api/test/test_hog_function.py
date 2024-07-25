@@ -584,7 +584,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
                     "actions": [
                         {"id": f"{action1.id}", "name": "Test Action", "type": "actions", "order": 1},
-                        {"id": f"{action2.id}", "name": "Test Action", "type": "actions", "order": 1},
+                        {"id": f"{action2.id}", "name": "Test Action 2", "type": "actions", "order": 1},
                     ],
                     "filter_test_accounts": True,
                 },
