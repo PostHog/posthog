@@ -203,6 +203,25 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
+    if (embedded) {
+        return (
+            <>
+                {BlockingEmptyState ? (
+                    BlockingEmptyState
+                ) : supportsDisplay && showLegend ? (
+                    <>
+                        <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+                        <div className="InsightVizDisplay__content__right">
+                            <InsightLegend />
+                        </div>
+                    </>
+                ) : (
+                    renderActiveView()
+                )}
+            </>
+        )
+    }
+
     return (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
