@@ -373,6 +373,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(return_stmt_ctx);
     }
 
+    auto throw_stmt_ctx = ctx->throwStmt();
+    if (throw_stmt_ctx) {
+      return visit(throw_stmt_ctx);
+    }
+
+    auto try_catch_stmt_ctx = ctx->tryCatchStmt();
+    if (try_catch_stmt_ctx) {
+      return visit(try_catch_stmt_ctx);
+    }
+
     auto if_stmt_ctx = ctx->ifStmt();
     if (if_stmt_ctx) {
       return visit(if_stmt_ctx);
@@ -418,7 +428,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(empty_stmt_ctx);
     }
 
-    throw ParsingError("Statement must be one of returnStmt, ifStmt, whileStmt, forStmt, forInStmt, funcStmt, "
+    throw ParsingError("Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, funcStmt, "
                        "varAssignment, block, exprStmt, or emptyStmt");
   }
 
@@ -447,6 +457,110 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     PyObject* ret = build_ast_node("ReturnStatement", "{s:N}", "expr", expr);
     if (!ret) {
       Py_DECREF(expr);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(ThrowStmt) {
+    PyObject* expr;
+    try {
+      expr = visitAsPyObjectOrNone(ctx->expression());
+    } catch (...) {
+      throw;
+    }
+    PyObject* ret = build_ast_node("ThrowStatement", "{s:N}", "expr", expr);
+    if (!ret) {
+      Py_DECREF(expr);
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(CatchBlock) {
+    PyObject* catch_var_py;
+    string catch_var;
+    if (ctx->catchVar) {
+      catch_var = visitAsString(ctx->catchVar);
+      catch_var_py = PyUnicode_FromStringAndSize(catch_var.data(), catch_var.size());
+    } else {
+      catch_var_py = Py_None;
+      Py_INCREF(catch_var_py);
+    }
+
+    PyObject* catch_type_py;
+    string catch_type;
+    if (ctx->catchType) {
+      catch_type = visitAsString(ctx->catchType);
+      catch_type_py = PyUnicode_FromStringAndSize(catch_type.data(), catch_type.size());
+    } else {
+      catch_type_py = Py_None;
+      Py_INCREF(catch_type_py);
+    }
+
+    PyObject* catch_stmt;
+    try {
+      catch_stmt = visitAsPyObject(ctx->catchStmt);
+    } catch (...) {
+      Py_DECREF(catch_var_py);
+      Py_DECREF(catch_type_py);
+      throw;
+    }
+    PyObject* ret = PyTuple_Pack(3, catch_var_py, catch_type_py, catch_stmt);
+    Py_DECREF(catch_var_py);
+    Py_DECREF(catch_type_py);
+    Py_DECREF(catch_stmt);
+    if (!ret) {
+      throw PyInternalError();
+    }
+    return ret;
+  }
+
+  VISIT(TryCatchStmt) {
+    PyObject* try_stmt;
+    try {
+      try_stmt = visitAsPyObject(ctx->tryStmt);
+    } catch (...) {
+      throw;
+    }
+    PyObject* catches = PyList_New(0);
+    if (!catches) {
+      Py_DECREF(try_stmt);
+      throw PyInternalError();
+    }
+    auto catch_block_ctxs = ctx->catchBlock();
+    for (auto catch_block_ctx : catch_block_ctxs) {
+      PyObject* catch_block;
+      try {
+        catch_block = visitAsPyObject(catch_block_ctx);
+      } catch (...) {
+        Py_DECREF(try_stmt);
+        Py_DECREF(catches);
+        throw;
+      }
+      int append_code = PyList_Append(catches, catch_block);
+      Py_DECREF(catch_block);
+      if (append_code == -1) {
+        Py_DECREF(try_stmt);
+        Py_DECREF(catches);
+        throw PyInternalError();
+      }
+    }
+    PyObject* finally_stmt;
+    try {
+      finally_stmt = visitAsPyObjectOrNone(ctx->finallyStmt);
+    } catch (...) {
+      Py_DECREF(try_stmt);
+      Py_DECREF(catches);
+      throw;
+    }
+    PyObject* ret = build_ast_node(
+        "TryCatchStatement", "{s:N,s:N,s:N}", "try_stmt", try_stmt, "catches", catches, "finally_stmt", finally_stmt
+    );
+    if (!ret) {
+      Py_DECREF(try_stmt);
+      Py_DECREF(catches);
+      Py_DECREF(finally_stmt);
       throw PyInternalError();
     }
     return ret;
