@@ -1,26 +1,6 @@
 import { DateTime } from 'luxon'
 
-export interface HogDate {
-    __hogDate__: true
-    year: number
-    month: number
-    day: number
-}
-
-export interface HogDateTime {
-    __hogDateTime__: true
-    /** Timestamp float in seconds */
-    dt: number
-    zone: string
-}
-
-export function isHogDate(obj: any): obj is HogDate {
-    return obj && obj.__hogDate__ && 'year' in obj && 'month' in obj && 'day' in obj
-}
-
-export function isHogDateTime(obj: any): obj is HogDateTime {
-    return obj && obj.__hogDateTime__ && 'dt' in obj && 'zone' in obj
-}
+import { HogDate, HogDateTime, isHogDate, isHogDateTime } from '../objects'
 
 export function toHogDate(year: number, month: number, day: number): HogDate {
     return {

@@ -174,7 +174,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     else None,
                     # "currency": "OPTIONAL_CONFIG",
                     # "ending_before": "OPTIONAL_CONFIG",
-                    # "expand": "OPTIONAL_CONFIG",
+                    "expand[]": "data.tiers",
                     "limit": 100,
                     # "lookup_keys": "OPTIONAL_CONFIG",
                     # "product": "OPTIONAL_CONFIG",
