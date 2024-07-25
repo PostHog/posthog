@@ -22,13 +22,16 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     CountPerActorMathType,
+    EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     InsightActorsQuery,
     InsightDateRange,
     MathGroupTypeIndex,
     MultipleBreakdownType,
+    PersonPropertyFilter,
     PropertyMathType,
+    PropertyOperator,
     TrendsFilter,
     TrendsQuery,
 )
@@ -986,7 +989,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=BREAKDOWN_NULL_STRING_LABEL)
         self.assertEqual(len(result), 1)
 
-    def test_trends_math_first_time_ever(self):
+    def test_trends_math_first_time_for_user_basic(self):
         self._create_events()
 
         source_query = TrendsQuery(
@@ -1004,6 +1007,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             {get_distinct_id(result[0]), get_distinct_id(result[1])},
             {"person1", "person2"},
         )
+        self.assertEqual({get_event_count(result[0]), get_event_count(result[1])}, {1})
 
         result = self._get_actors(trends_query=source_query, day="2023-04-30")
         self.assertEqual(len(result), 0)
@@ -1011,7 +1015,195 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
         self.assertEqual(len(result), 1)
         self.assertEqual({get_distinct_id(result[0])}, {"person3"})
+        self.assertEqual(get_event_count(result[0]), 1)
 
         for i in range(20):
             result = self._get_actors(trends_query=source_query, day=f"2023-05-{2+i}")
             self.assertEqual(len(result), 0)
+
+    def test_trends_math_first_time_for_user_breakdowns_basic(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(breakdown="$browser"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="Chrome")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="Safari")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Chrome")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="Safari")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="$browser", type=MultipleBreakdownType.EVENT)]
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Chrome"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["Safari"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Chrome"])
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["Safari"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+    def test_trends_math_first_time_for_user_numeric_breakdowns(self):
+        self._create_numeric_events()
+
+        # single breakdown and bins
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(breakdown="some_property", breakdown_histogram_bin_count=4),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="[10,20.01]")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="[60,80]")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown="[10,20.01]")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=BREAKDOWN_NULL_STRING_LABEL)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        # single breakdown and just numbers
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(breakdown="some_property"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="20")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown="40")
+        self.assertEqual(len(result), 0)
+
+        # multiple breakdowns and bins
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="some_property", type=MultipleBreakdownType.EVENT, histogram_bin_count=4)
+                ]
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["[10,20.01]"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["[60,80]"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[10,20.01]"])
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=BREAKDOWN_NULL_STRING_LABEL)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        # multiple breakdowns and just numbers
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="some_property", type=MultipleBreakdownType.EVENT)]
+            ),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["20"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=["40"])
+        self.assertEqual(len(result), 0)
+
+    def test_trends_math_first_time_for_user_with_filters(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 0)
+
+        source_query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[
+                        PersonPropertyFilter(key="$geoip_country_code", operator=PropertyOperator.EXACT, value="DE")
+                    ],
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-30")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
