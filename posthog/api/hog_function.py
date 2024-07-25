@@ -102,9 +102,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         attrs["team"] = team
 
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if not has_addon:
-            template_id = attrs.get("template_id")
+            template_id = attrs.get("template_id", instance.template_id if instance else None)
             template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
 
             # In this case they are only allowed to create or update the function with free templates
@@ -131,8 +132,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
-
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if "inputs_schema" in attrs:
             attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])

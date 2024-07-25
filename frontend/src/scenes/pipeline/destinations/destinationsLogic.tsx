@@ -57,7 +57,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             userLogic,
             ['user', 'hasAvailableFeature'],
             pipelineAccessLogic,
-            ['canEnableNewDestinations'],
+            ['canEnableDestination'],
         ],
     }),
     actions({
@@ -295,7 +295,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {
-            if (enabled && !values.canEnableNewDestinations) {
+            if (enabled && !values.canEnableDestination(destination)) {
                 lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                 return
             }

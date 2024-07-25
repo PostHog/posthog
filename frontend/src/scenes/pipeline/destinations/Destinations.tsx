@@ -222,14 +222,8 @@ export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps):
 }
 
 const DestinationMoreOverlay = ({ destination }: { destination: Destination }): JSX.Element => {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
-
-    let canEnableThisDestination = canEnableNewDestinations
-
-    if (destination.backend === PipelineBackend.HogFunction) {
-        canEnableThisDestination = canEnableNewDestinations && destination.hog_function.template?.status === 'free'
-    }
 
     return (
         <LemonMenuOverlay
@@ -239,7 +233,7 @@ const DestinationMoreOverlay = ({ destination }: { destination: Destination }): 
                     onClick: () => toggleNode(destination, !destination.enabled),
                     disabledReason: !canConfigurePlugins
                         ? 'You do not have permission to toggle destinations.'
-                        : !canEnableThisDestination && !destination.enabled
+                        : !canEnableDestination(destination) && !destination.enabled
                         ? 'Data pipelines add-on is required for enabling new destinations'
                         : undefined,
                 },
