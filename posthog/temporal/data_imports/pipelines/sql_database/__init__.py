@@ -46,6 +46,7 @@ def sql_source_for_type(
     sslmode: str,
     schema: str,
     table_names: list[str],
+    team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
@@ -71,7 +72,9 @@ def sql_source_for_type(
     else:
         raise Exception("Unsupported source_type")
 
-    db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
+    db_source = sql_database(
+        credentials, schema=schema, table_names=table_names, incremental=incremental, team_id=team_id
+    )
 
     return db_source
 
@@ -110,6 +113,14 @@ def snowflake_source(
     return db_source
 
 
+# Temp while DLT doesn't support `interval` columns
+def remove_interval(doc: dict, team_id: Optional[int]) -> dict:
+    if team_id == 1 or team_id == 2:
+        if "sync_frequency_interval" in doc:
+            del doc["sync_frequency_interval"]
+    return doc
+
+
 @dlt.source(max_table_nesting=0)
 def sql_database(
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
@@ -117,6 +128,7 @@ def sql_database(
     metadata: Optional[MetaData] = None,
     table_names: Optional[List[str]] = dlt.config.value,  # noqa: UP006
     incremental: Optional[dlt.sources.incremental] = None,
+    team_id: Optional[int] = None,
 ) -> Iterable[DltResource]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -161,7 +173,7 @@ def sql_database(
             spec=SqlDatabaseTableConfiguration,
             table_format="delta",
             columns=get_column_hints(engine, schema or "", table.name),
-        )(
+        ).add_map(lambda x: remove_interval(x, team_id))(
             engine=engine,
             table=table,
             incremental=incremental,
