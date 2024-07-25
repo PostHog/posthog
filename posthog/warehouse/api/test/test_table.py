@@ -246,6 +246,7 @@ class TestTable(APIBaseTest):
         "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
+    @patch("posthog.tasks.warehouse.get_ph_client")
     def test_table_name_duplicate(self, patch_get_columns, patch_validate_column_type):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
