@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconMagicWand, IconPlus } from '@posthog/icons'
+import { IconMagicWand, IconPlus, IconX } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -9,7 +9,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import type { editor as importedEditor, IDisposable } from 'monaco-editor'
+import type { editor as importedEditor, IDisposable, Uri } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 
@@ -59,7 +59,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { hasErrors, error, isValidView, activeModelUri, allModels } = useValues(
         codeEditorLogic(codeEditorLogicProps)
     )
-    const { createModel, setModel } = useActions(codeEditorLogic(codeEditorLogicProps))
+    const { createModel, setModel, deleteModel } = useActions(codeEditorLogic(codeEditorLogicProps))
 
     const { editingView } = useValues(dataWarehouseSceneLogic)
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -125,33 +125,28 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
                 <div className="relative flex-1 overflow-hidden flex-col">
-                    <div className="flex flex-row gap-2 my-1">
+                    <div className="flex flex-row overflow-scroll hide-scrollbar">
                         {allModels.map((model) => (
-                            <LemonButton
-                                size="small"
-                                active={model === activeModelUri}
-                                type={model === activeModelUri ? 'secondary' : 'tertiary'}
+                            <QueryTab
                                 key={model.path}
-                                onClick={() => {
-                                    setModel(model)
-                                }}
-                            >
-                                New query
-                            </LemonButton>
+                                active={model === activeModelUri}
+                                model={model}
+                                onClick={setModel}
+                                onClear={allModels.length > 1 ? deleteModel : undefined}
+                            />
                         ))}
                         <LemonButton
                             onClick={() => {
                                 createModel()
                             }}
                             icon={<IconPlus fontSize={14} />}
-                            size="small"
                         />
                     </div>
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
                             queryKey={codeEditorKey}
-                            className="border rounded overflow-hidden h-full"
+                            className="border rounded-b overflow-hidden h-full"
                             language="hogQL"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
@@ -253,5 +248,38 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </div>
             </div>
         </div>
+    )
+}
+
+// one off component for query editor tabs
+interface QueryTabProps {
+    model: Uri
+    active?: boolean
+    onClick?: (model: Uri) => void
+    onClear?: (model: Uri) => void
+}
+
+function QueryTab({ model, active, onClear, onClick }: QueryTabProps): JSX.Element {
+    return (
+        <button
+            onClick={() => onClick?.(model)}
+            className={clsx(
+                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
+                active ? 'bg-[var(--bg-light)] border' : 'bg-bg-3000',
+                onClear ? 'pl-3 pr-2' : 'px-4'
+            )}
+        >
+            {'Query ' + model.path.split('/').pop()}
+            {onClear && (
+                <LemonButton
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClear(model)
+                    }}
+                    size="xsmall"
+                    icon={<IconX />}
+                />
+            )}
+        </button>
     )
 }

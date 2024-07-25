@@ -51,6 +51,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         createModel: true,
         addModel: (modelName: Uri) => ({ modelName }),
         setModel: (modelName: Uri) => ({ modelName }),
+        deleteModel: (modelName: Uri) => ({ modelName }),
+        removeModel: (modelName: Uri) => ({ modelName }),
     }),
     loaders(({ props }) => ({
         metadata: [
@@ -124,7 +126,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     })),
     reducers({
         modelCount: [
-            1,
+            0,
             {
                 createModel: (state) => state + 1,
             },
@@ -139,6 +141,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             [] as Uri[],
             {
                 addModel: (state, { modelName }) => [...state, modelName],
+                removeModel: (state, { modelName }) =>
+                    state.filter((model) => model.toString() !== modelName.toString()),
             },
         ],
     }),
@@ -156,6 +160,21 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             if (props.monaco) {
                 const model = props.monaco.editor.getModel(modelName)
                 props.editor?.setModel(model)
+            }
+        },
+        deleteModel: ({ modelName }) => {
+            if (props.monaco) {
+                const model = props.monaco.editor.getModel(modelName)
+                if (modelName == values.activeModelUri) {
+                    const indexOfModel = values.allModels.findIndex(
+                        (model) => model.toString() === modelName.toString()
+                    )
+                    const nextModel =
+                        values.allModels[indexOfModel + 1] || values.allModels[indexOfModel - 1] || values.allModels[0] // there will always be one
+                    actions.setModel(nextModel)
+                }
+                model?.dispose()
+                actions.removeModel(modelName)
             }
         },
     })),
