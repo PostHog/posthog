@@ -80,7 +80,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
-        saveAs: (redirectToViewMode?: boolean) => ({ redirectToViewMode }),
+        saveAs: (redirectToViewMode?: boolean, dialogDescription?: string) => ({
+            redirectToViewMode,
+            dialogDescription,
+        }),
         saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
@@ -237,7 +240,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
-        saveAs: async ({ redirectToViewMode }) => {
+        saveAs: async ({ redirectToViewMode, dialogDescription = '' }) => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
@@ -251,6 +254,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                         <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
                     </LemonField>
                 ),
+                description: dialogDescription,
                 errors: {
                     insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },

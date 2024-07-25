@@ -59,7 +59,12 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 data-attr="save-exploration"
-                                onClick={() => saveAs(true)}
+                                onClick={() =>
+                                    saveAs(
+                                        true,
+                                        'Only the currently open query will be saved as an insight. All other draft queries will be discarded'
+                                    )
+                                }
                                 loading={insightSaving}
                             >
                                 Save as insight
