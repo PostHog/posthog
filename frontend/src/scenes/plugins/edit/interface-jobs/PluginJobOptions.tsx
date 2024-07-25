@@ -52,7 +52,7 @@ export function PluginJobOptions({
         <>
             <h3 className="l3 mt-8">
                 Jobs
-                <LemonTag type="warning" className="uppercase" style={{ verticalAlign: '0.125em', marginLeft: 6 }}>
+                <LemonTag type="warning" className="uppercase align-[0.125em] ml-1.5">
                     BETA
                 </LemonTag>
             </h3>
