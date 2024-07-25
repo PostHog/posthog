@@ -159,6 +159,7 @@ def execute_process_query(
     if query_status.complete:
         return
 
+    query_status.pickup_time = datetime.datetime.now(datetime.UTC)
     query_status.error = True  # Assume error in case nothing below ends up working
     query_status.complete = True
 
@@ -166,9 +167,8 @@ def execute_process_query(
     if trigger == "chained":
         tag_queries(trigger="chaining")
 
-    pickup_time = datetime.datetime.now(datetime.UTC)
     if query_status.start_time:
-        wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
+        wait_duration = (query_status.pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
     try:
@@ -186,8 +186,9 @@ def execute_process_query(
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.error = False
         query_status.results = results
-        query_status.end_time = datetime.datetime.now(datetime.UTC)
-        process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
+        process_duration = (datetime.datetime.now(datetime.UTC) - query_status.pickup_time) / datetime.timedelta(
+            seconds=1
+        )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
     except CHQueryErrorTooManySimultaneousQueries:
         raise
@@ -203,6 +204,7 @@ def execute_process_query(
         sentry_sdk.capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
+        query_status.end_time = datetime.datetime.now(datetime.UTC)
         manager.store_query_status(query_status)
 
 
