@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/react'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -100,7 +99,11 @@ export const insightLogic = kea<insightLogicType>([
             insightUpdate,
             callback,
         }),
-        setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
+        setInsightMetadata: (
+            metadata: Partial<Pick<QueryBasedInsightModel, 'name' | 'description' | 'tags' | 'favorited'>>
+        ) => ({
+            metadata,
+        }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
     loaders(({ actions, values, props }) => ({
@@ -152,17 +155,12 @@ export const insightLogic = kea<insightLogicType>([
                         return { ...values.legacyInsight, ...metadata }
                     }
 
-                    if (metadata.filters || metadata.query) {
-                        const error = new Error(`Will not override filters or query in setInsightMetadata`)
-                        captureException(error)
-                        throw error
-                    }
-
                     const beforeUpdates = {}
                     for (const key of Object.keys(metadata)) {
                         beforeUpdates[key] = values.savedInsight[key]
                     }
 
+                    // TODO: insightsApi.update
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.legacyInsight.id}`,
                         metadata
