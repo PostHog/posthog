@@ -306,12 +306,12 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                     <>
                                         {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
                                             <LemonBanner type="warning">
-                                                <b>Warning:</b> This destionation would have triggered{' '}
+                                                <b>Warning:</b> This destination would have triggered{' '}
                                                 <strong>
                                                     {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
                                                 </strong>{' '}
                                                 in the last 7 days. Consider the impact of this function on your
-                                                infrastructure.
+                                                destination.
                                             </LemonBanner>
                                         ) : (
                                             <p>
