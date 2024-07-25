@@ -507,7 +507,7 @@ def get_batch_export_writer(
     return writer
 
 
-@workflow.defn(name="bigquery-export")
+@workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
 class BigQueryBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into BigQuery.
 

@@ -255,7 +255,6 @@ export interface HogQueryResponse {
     bytecode?: any[]
     coloredBytecode?: any[]
     stdout?: string
-    query_status?: never
 }
 
 export interface HogQuery extends DataNode<HogQueryResponse> {
@@ -277,7 +276,6 @@ export interface HogQLMetadataResponse {
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
-    query_status?: never
 }
 
 export interface AutocompleteCompletionItem {
@@ -342,7 +340,6 @@ export interface HogQLAutocompleteResponse {
     incomplete_list: boolean
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
-    query_status?: never
 }
 
 export enum HogLanguage {
@@ -1013,8 +1010,6 @@ export interface AnalyticsQueryResponseBase<T> {
     error?: string
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatus
 }
 
 interface CachedQueryResponseMixin {

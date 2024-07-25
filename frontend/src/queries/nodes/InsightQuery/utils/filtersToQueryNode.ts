@@ -296,34 +296,22 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // breakdown
     if (isInsightQueryWithBreakdown(query)) {
+        /* handle multi-breakdowns */
         // not undefined or null
         if (filters.breakdowns != null) {
-            /* handle multi-breakdowns for funnels */
-            if (isFunnelsFilter(filters)) {
-                if (filters.breakdowns.length === 1) {
-                    filters.breakdown_type = filters.breakdowns[0].type || 'event'
-                    filters.breakdown = filters.breakdowns[0].property as string
-                } else {
-                    captureException(
-                        'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
-                    )
-                }
+            if (filters.breakdowns.length === 1) {
+                filters.breakdown_type = filters.breakdowns[0].type
+                filters.breakdown = filters.breakdowns[0].property as string
+            } else {
+                captureException(
+                    'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
+                )
             }
+        }
 
-            /* handle multi-breakdowns for trends */
-            if (isTrendsFilter(filters)) {
-                filters.breakdowns = filters.breakdowns.map((b) => ({
-                    ...b,
-                    // Compatibility with legacy funnel breakdowns when someone switches a view from funnels to trends
-                    type: b.type || filters.breakdown_type || 'event',
-                }))
-            }
-        } else if (
-            /* handle missing breakdown_type */
-            // check for undefined and null values
-            filters.breakdown != null &&
-            filters.breakdown_type == null
-        ) {
+        /* handle missing breakdown_type */
+        // check for undefined and null values
+        if (filters.breakdown != null && filters.breakdown_type == null) {
             filters.breakdown_type = 'event'
         }
 

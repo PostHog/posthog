@@ -107,7 +107,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         )
     } else if (
         visualizationType === ChartDisplayType.ActionsLineGraph ||
-        visualizationType === ChartDisplayType.ActionsBar
+        visualizationType === ChartDisplayType.ActionsBar ||
+        visualizationType === ChartDisplayType.ActionsAreaGraph
     ) {
         component = <Chart />
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
