@@ -1,7 +1,7 @@
 import typing
 from datetime import datetime
 from functools import cached_property
-from typing import Optional
+from typing import Optional, cast
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -192,23 +192,25 @@ class TrendsActorsQueryBuilder:
                 else []
             ),
         ]
+        actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
             date_from, date_to = self._date_where_expr()
-            filters = self._events_where_expr(with_date_range=False)
             query_builder = FirstTimeForUserEventsQueryAlternator(
                 ast.SelectQuery(select=[]),
-                filters,
                 date_from,
                 date_to,
-                None,
-                self._sample_expr(),
+                filters=self._events_where_expr(with_date_range_expr=False, with_event_or_action_expr=False),
+                event_or_action_filter=self._event_or_action_where_expr(),
+                ratio=self._sample_expr(),
             )
-            query = query_builder.build()
+            query_builder.append_select(actor_col)
+            query_builder.extend_select(columns, aggregate=True)
+            query = cast(ast.SelectQuery, query_builder.build())
         else:
             query = ast.SelectQuery(
                 select=[
-                    ast.Alias(alias="actor_id", expr=self._actor_id_expr()),
+                    actor_col,
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["e", "timestamp"])),
                     *columns,
                 ],
@@ -228,23 +230,42 @@ class TrendsActorsQueryBuilder:
     def _get_matching_recordings_expr(self) -> list[ast.Expr]:
         if not self.include_recordings:
             return []
-        return [parse_expr("groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events")]
+        return [
+            parse_expr(
+                "groupUniqArray(100)(({timestamp}, uuid, $session_id, $window_id)) as matching_events",
+                placeholders={
+                    "timestamp": ast.Field(
+                        chain=[
+                            "timestamp"
+                            if not self.trends_aggregation_operations.is_first_time_ever_math()
+                            else "min_timestamp"
+                        ]
+                    )
+                },
+            )
+        ]
 
     def _actor_id_expr(self) -> ast.Expr:
         if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
             return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
         return ast.Field(chain=["e", "person_id"])
 
-    def _events_where_expr(self, with_breakdown_expr: bool = True, with_date_range: bool = True) -> ast.And:
-        return ast.And(
-            exprs=[
-                *self._entity_where_expr(),
-                *self._prop_where_expr(),
-                *(self._date_where_expr() if with_date_range else []),
-                *(self._breakdown_where_expr() if with_breakdown_expr else []),
-                *self._filter_empty_actors_expr(),
-            ]
-        )
+    def _events_where_expr(
+        self,
+        with_breakdown_expr: bool = True,
+        with_date_range_expr: bool = True,
+        with_event_or_action_expr: bool = True,
+    ) -> ast.And | None:
+        exprs: list[ast.Expr] = [
+            *([self._event_or_action_where_expr()] if with_event_or_action_expr else []),
+            *self._entity_where_expr(),
+            *self._prop_where_expr(),
+            *(self._date_where_expr() if with_date_range_expr else []),
+            *(self._breakdown_where_expr() if with_breakdown_expr else []),
+            *self._filter_empty_actors_expr(),
+        ]
+        if exprs:
+            return ast.And(exprs=exprs)
 
     def _sample_expr(self) -> ast.SampleExpr | None:
         if self.trends_query.samplingFactor is None:
@@ -255,31 +276,32 @@ class TrendsActorsQueryBuilder:
     def _entity_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
 
+        if self.entity.properties is not None and self.entity.properties != []:
+            conditions.append(property_to_expr(self.entity.properties, self.team))
+
+        return conditions
+
+    def _event_or_action_where_expr(self) -> ast.Expr | None:
         if isinstance(self.entity, ActionsNode):
             # Actions
             try:
                 action = Action.objects.get(pk=int(self.entity.id), team=self.team)
-                conditions.append(action_to_expr(action))
+                return action_to_expr(action)
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events
-                conditions.append(parse_expr("1 = 2"))
+                return parse_expr("1 = 2")
         elif isinstance(self.entity, EventsNode):
             if self.entity.event is not None:
-                conditions.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=str(self.entity.event)),
-                    )
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=str(self.entity.event)),
                 )
 
         else:
             raise ValueError(f"Invalid entity kind {self.entity.kind}")
 
-        if self.entity.properties is not None and self.entity.properties != []:
-            conditions.append(property_to_expr(self.entity.properties, self.team))
-
-        return conditions
+        return None
 
     def _prop_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []

@@ -65,41 +65,27 @@ class QueryAlternator:
 
 
 class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
+    """
+    A specialized QueryAlternator for building queries that identify the first time an event occurs for each user.
+
+    This class extends the base QueryAlternator to build a query that:
+    - Finds the minimum timestamp for `person_id` filtered by the event/action and right date range.
+    - Compares it with the minimum timestamp that satisfies general conditions like event/person properties and the left date range.
+    - Selects only those events where these two timestamps match.
+    """
+
     def __init__(
         self,
         query: ast.SelectQuery,
-        filters: ast.Expr,
         date_from: ast.Expr,
         date_to: ast.Expr,
-        event_name_filter: ast.Expr | None = None,
+        filters: ast.Expr | None = None,
+        event_or_action_filter: ast.Expr | None = None,
         ratio: ast.RatioExpr | None = None,
     ):
-        where_filters = [date_to]
-        if event_name_filter is not None:
-            where_filters.append(event_name_filter)
-
-        if len(where_filters) > 0:
-            where_filters_expr = cast(ast.Expr, ast.And(exprs=where_filters))
-        else:
-            where_filters_expr = where_filters[0]
-
-        sample_value = ast.SampleExpr(sample_value=ratio) if ratio is not None else None
-
-        query.select = [
-            ast.Alias(
-                alias="min_timestamp",
-                expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]),
-            ),
-            ast.Alias(
-                alias="min_timestamp_with_condition",
-                expr=ast.Call(
-                    name="minIf",
-                    args=[ast.Field(chain=["timestamp"]), ast.And(exprs=[date_from, filters])],
-                ),
-            ),
-        ]
-        query.select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e", sample=sample_value)
-        query.where = where_filters_expr
+        query.select = self._select_expr(date_from, filters)
+        query.select_from = self._select_from_expr(ratio)
+        query.where = self._where_expr(date_to, event_or_action_filter)
         query.group_by = [ast.Field(chain=["person_id"])]
         query.having = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -108,6 +94,37 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         )
 
         super().__init__(query)
+
+    def _select_expr(self, date_from: ast.Expr, filters: ast.Expr | None = None):
+        aggregation_filters = date_from if filters is None else ast.And(exprs=[date_from, filters])
+        return [
+            ast.Alias(
+                alias="min_timestamp",
+                expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]),
+            ),
+            ast.Alias(
+                alias="min_timestamp_with_condition",
+                expr=ast.Call(
+                    name="minIf",
+                    args=[ast.Field(chain=["timestamp"]), aggregation_filters],
+                ),
+            ),
+        ]
+
+    def _select_from_expr(self, ratio: ast.RatioExpr | None = None) -> ast.JoinExpr:
+        sample_value = ast.SampleExpr(sample_value=ratio) if ratio is not None else None
+        return ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e", sample=sample_value)
+
+    def _where_expr(self, date_to: ast.Expr, event_or_action_filter: ast.Expr | None = None) -> ast.Expr:
+        where_filters = [date_to]
+        if event_or_action_filter is not None:
+            where_filters.append(event_or_action_filter)
+
+        if len(where_filters) > 0:
+            where_filters_expr = cast(ast.Expr, ast.And(exprs=where_filters))
+        else:
+            where_filters_expr = where_filters[0]
+        return where_filters_expr
 
     def _transform_column(self, column: ast.Expr):
         return ast.Call(
@@ -564,11 +581,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             def __init__(self):
                 self.events_query_builder = FirstTimeForUserEventsQueryAlternator(
                     events_query,
-                    events_where_clause,
                     date_from,
                     date_to,
-                    event_name_filter,
-                    sample_value,
+                    filters=events_where_clause,
+                    event_or_action_filter=event_name_filter,
+                    ratio=sample_value,
                 )
                 self.parent_query_builder = QueryAlternator(parent_select)
 

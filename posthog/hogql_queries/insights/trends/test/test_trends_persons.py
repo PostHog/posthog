@@ -1,15 +1,15 @@
 from typing import Optional, Union
 from unittest.case import skip
 
+import pytest
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
-import pytest
 
 from posthog.api.test.test_team import create_team
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import Team, Cohort, GroupTypeMapping
+from posthog.models import Cohort, GroupTypeMapping, Team
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import (
@@ -20,17 +20,17 @@ from posthog.schema import (
     BreakdownType,
     ChartDisplayType,
     Compare,
+    CompareFilter,
     CountPerActorMathType,
-    InsightDateRange,
     EventsNode,
+    HogQLQueryModifiers,
     InsightActorsQuery,
+    InsightDateRange,
     MathGroupTypeIndex,
     MultipleBreakdownType,
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
-    CompareFilter,
-    HogQLQueryModifiers,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -985,3 +985,33 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29", breakdown=BREAKDOWN_NULL_STRING_LABEL)
         self.assertEqual(len(result), 1)
+
+    def test_trends_math_first_time_ever(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        for i in range(4):
+            result = self._get_actors(trends_query=source_query, day=f"2023-04-{i+25}")
+            self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-29")
+        self.assertEqual(len(result), 2)
+        self.assertEqual(
+            {get_distinct_id(result[0]), get_distinct_id(result[1])},
+            {"person1", "person2"},
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-30")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual({get_distinct_id(result[0])}, {"person3"})
+
+        for i in range(20):
+            result = self._get_actors(trends_query=source_query, day=f"2023-05-{2+i}")
+            self.assertEqual(len(result), 0)
