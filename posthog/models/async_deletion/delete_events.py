@@ -1,9 +1,15 @@
 from typing import Any
 
+from prometheus_client import Counter
+
 from posthog.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType, MAX_QUERY_SIZE
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+
+deletions_counter = Counter("deletions_executed", "Total number of deletions sent to clickhouse", ["deletion_type"])
+
 
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
 TABLES_TO_DELETE_TEAM_DATA_FROM = [
@@ -21,6 +27,8 @@ class AsyncEventDeletion(AsyncDeletionProcess):
     DELETION_TYPES = [DeletionType.Team, DeletionType.Group, DeletionType.Person]
 
     def process(self, deletions: list[AsyncDeletion]):
+        deletions_counter.labels(deletion_type="event").inc(len(deletions))
+
         if len(deletions) == 0:
             logger.debug("No AsyncDeletion to perform")
             return
@@ -49,6 +57,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
         team_deletions = [row for row in deletions if row.deletion_type == DeletionType.Team]
 
+        deletions_counter.labels(deletion_type=DeletionType.Team).inc(len(team_deletions))
         if len(team_deletions) == 0:
             return
 
