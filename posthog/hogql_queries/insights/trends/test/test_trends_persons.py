@@ -10,9 +10,11 @@ from posthog.api.test.test_team import create_team
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import Cohort, GroupTypeMapping, Team
+from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import (
+    ActionsNode,
     ActorsQuery,
     BaseMathType,
     Breakdown,
@@ -1583,4 +1585,117 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 0)
 
         result = self._get_actors(trends_query=source_query, day="2023-05-01T18:00:00Z")
+        self.assertEqual(len(result), 0)
+
+    def test_trends_math_first_time_for_user_all_events(self):
+        self._create_events()
+
+        source_query = TrendsQuery(
+            interval=IntervalType.MONTH,
+            series=[EventsNode(math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-180d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-01")
+        self.assertEqual(len(result), 2)
+        self.assertEqual({get_distinct_id(result[0]), get_distinct_id(result[1])}, {"person1", "person2"})
+        self.assertEqual({get_event_count(result[0]), get_event_count(result[1])}, {1})
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        _create_event(
+            event="$random",
+            distinct_id="person1",
+            timestamp="2023-03-10 16:00",
+            properties={"$browser": "Safari"},
+            team=self.team,
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-03-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+    def test_trends_math_first_time_for_user_actions(self):
+        self._create_events()
+
+        action = Action.objects.create(
+            team=self.team,
+            name="viewed from chrome or safari",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Safari", "operator": "icontains"}],
+                },
+            ],
+        )
+
+        source_query = TrendsQuery(
+            interval=IntervalType.MONTH,
+            series=[ActionsNode(id=action.id, math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-180d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-01")
+        self.assertEqual(len(result), 2)
+        self.assertEqual({get_distinct_id(result[0]), get_distinct_id(result[1])}, {"person1", "person2"})
+        self.assertEqual({get_event_count(result[0]), get_event_count(result[1])}, {1})
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person3")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        action = Action.objects.create(
+            team=self.team,
+            name="viewed from chrome and left",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+                {
+                    "event": "$pageleave",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "icontains"}],
+                },
+            ],
+        )
+
+        _create_event(
+            event="$pageleave",
+            distinct_id="person3",
+            timestamp="2023-04-29 17:00",
+            properties={"$browser": "Chrome"},
+            team=self.team,
+        )
+
+        source_query = TrendsQuery(
+            interval=IntervalType.MONTH,
+            series=[ActionsNode(id=action.id, math=BaseMathType.FIRST_TIME_FOR_USER)],
+            dateRange=InsightDateRange(date_from="-180d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-04-01")
+        self.assertEqual(len(result), 2)
+        self.assertEqual({get_distinct_id(result[0]), get_distinct_id(result[1])}, {"person1", "person3"})
+        self.assertEqual({get_event_count(result[0]), get_event_count(result[1])}, {1})
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
         self.assertEqual(len(result), 0)
