@@ -206,11 +206,12 @@ def ingestion_lag() -> None:
     GROUP BY event
     """
 
+    team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
     try:
         results = sync_execute(
             query,
             {
-                "team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS,
+                "team_ids": team_ids,
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
@@ -228,7 +229,7 @@ def ingestion_lag() -> None:
     except:
         pass
 
-    for team in Team.objects.filter(pk__in=settings.INGESTION_LAG_METRIC_TEAM_IDS.split(",")):
+    for team in Team.objects.filter(pk__in=team_ids):
         requests.post(
             settings.SITE_URL + "/e",
             json={
