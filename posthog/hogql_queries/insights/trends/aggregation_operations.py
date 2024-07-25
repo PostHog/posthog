@@ -209,7 +209,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         }
 
     @property
-    def _interval_function_name(self) -> ast.Call:
+    def _interval_function_name(self) -> str:
         return f"toStartOf{self.query_date_range.interval_name.title()}"
 
     def _actors_parent_select_query(
