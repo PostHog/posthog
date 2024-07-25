@@ -2,7 +2,7 @@ import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType } from '~/types'
+import { ActionStepType, FilterLogicalOperator, ReplayTabs } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
@@ -113,20 +113,24 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             {id ? (
                                 <LemonButton
                                     type="secondary"
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                actions: [
-                                                    {
-                                                        id: id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.replay(ReplayTabs.Recent, {
+                                        filter_group: {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            id: id,
+                                                            type: 'actions',
+                                                            order: 0,
+                                                            name: action.name,
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="action-view-recordings"
                                 >
