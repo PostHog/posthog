@@ -16,11 +16,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
-import { ActionsNode, EventsNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { EventsNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
     ChartDisplayType,
+    FilterLogicalOperator,
     FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
@@ -32,6 +35,8 @@ import {
     PipelineTab,
     PluginConfigFilters,
     PluginConfigTypeNew,
+    PropertyFilterType,
+    PropertyGroupFilter,
 } from '~/types'
 
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
@@ -205,7 +210,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         sparkline: [
-            null as null | { data: number[]; total: number; labels: string[] },
+            null as null | { data: number[]; count: number; labels: string[] },
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
                     if (values.sparkline === null) {
@@ -216,9 +221,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const result = await performQuery(sparklineQuery)
                     breakpoint()
                     const data = result?.results?.[0]?.data
-                    const total = result?.results?.[0]?.count
+                    const count = result?.results?.[0]?.count
                     const labels = result?.results?.[0]?.labels
-                    return { data, total, labels }
+                    return { data, count, labels }
                 },
             },
         ],
@@ -403,49 +408,65 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         sparklineQuery: [
             (s) => [s.configuration],
-            (configuration): TrendsQuery => ({
-                kind: NodeKind.TrendsQuery,
-                filterTestAccounts: configuration.filters?.filter_test_accounts,
-                series:
-                    (configuration.filters?.events?.length ?? 0) + (configuration.filters?.actions?.length ?? 0)
-                        ? [
-                              ...(configuration.filters?.events?.map(
-                                  (event) =>
-                                      ({
-                                          kind: NodeKind.EventsNode,
-                                          event: event.id,
-                                          name: event.name ?? undefined,
-                                          math: BaseMathType.TotalCount,
-                                          properties: event.properties,
-                                      } satisfies EventsNode)
-                              ) ?? []),
-                              ...(configuration.filters?.actions?.map(
-                                  (action) =>
-                                      ({
-                                          kind: NodeKind.ActionsNode,
-                                          id: parseInt(action.id),
-                                          name: action.name ?? undefined,
-                                          math: BaseMathType.TotalCount,
-                                          properties: action.properties,
-                                      } satisfies ActionsNode)
-                              ) ?? []),
-                          ]
-                        : [
-                              {
-                                  kind: NodeKind.EventsNode,
-                                  event: null,
-                                  name: 'All Events',
-                                  math: BaseMathType.TotalCount,
-                              } satisfies EventsNode,
-                          ],
-                interval: 'day',
-                dateRange: {
-                    date_from: '-7d',
-                },
-                trendsFilter: {
-                    display: ChartDisplayType.ActionsBar,
-                },
-            }),
+            (configuration): TrendsQuery => {
+                const properties: PropertyGroupFilter = {
+                    type: FilterLogicalOperator.Or,
+                    values: [],
+                }
+                for (const event of configuration.filters?.events ?? []) {
+                    const serieProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
+                    if (event.id) {
+                        serieProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: hogql`event = ${event.id}`,
+                        })
+                    }
+                    if (serieProperties.length === 0) {
+                        serieProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: 'true',
+                        })
+                    }
+                    properties.values.push({
+                        type: FilterLogicalOperator.And,
+                        values: serieProperties,
+                    })
+                }
+                for (const action of configuration.filters?.actions ?? []) {
+                    const serieProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
+                    if (action.id) {
+                        serieProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: hogql`matchesAction(${action.id})`,
+                        })
+                    }
+                    properties.values.push({
+                        type: FilterLogicalOperator.And,
+                        values: serieProperties,
+                    })
+                }
+
+                return {
+                    kind: NodeKind.TrendsQuery,
+                    filterTestAccounts: configuration.filters?.filter_test_accounts,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: null,
+                            name: 'All Events',
+                            math: BaseMathType.TotalCount,
+                        } satisfies EventsNode,
+                    ],
+                    properties,
+                    interval: 'day',
+                    dateRange: {
+                        date_from: '-7d',
+                    },
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsBar,
+                    },
+                }
+            },
             { resultEqualityCheck: equal },
         ],
     })),

@@ -303,7 +303,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         <p className="italic text-muted-alt">
                                             It would have triggered{' '}
                                             <strong>
-                                                {sparkline.total} time{sparkline.total !== 1 ? 's' : ''}
+                                                {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
                                             </strong>{' '}
                                             in the last 7 days.
                                         </p>
