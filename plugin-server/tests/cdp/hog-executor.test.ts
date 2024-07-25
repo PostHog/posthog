@@ -95,7 +95,7 @@ describe('Hog Executor', () => {
                     instance_id: results[0].id,
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
                 },
             ])
 
