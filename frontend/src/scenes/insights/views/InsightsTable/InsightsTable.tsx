@@ -23,7 +23,8 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { CalcColumnState } from './insightsTableLogic'
+
+export type CalcColumnState = 'total' | 'average' | 'median'
 
 export interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */

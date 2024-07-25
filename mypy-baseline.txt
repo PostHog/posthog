@@ -256,9 +256,6 @@ posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has i
 posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/models/property/util.py:0: error: Argument 1 to "append" of "list" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/queries/trends/util.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | None"; expected "str"  [arg-type]
-posthog/hogql/property.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/property.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/property.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'id': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'pk': (got "str | float", expected "str | int")  [misc]
 posthog/hogql/filters.py:0: error: Incompatible default for argument "team" (default has type "None", argument has type "Team")  [assignment]
@@ -596,7 +593,7 @@ posthog/api/plugin_log_entry.py:0: error: Name "timezone.datetime" is not define
 posthog/api/plugin_log_entry.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/warehouse/api/external_data_source.py:0: error: Incompatible return value type (got "tuple[ExternalDataSource, dict[str, list[tuple[str, str]]]]", expected "tuple[ExternalDataSource, list[Any]]")  [return-value]
 posthog/warehouse/api/external_data_source.py:0: error: Incompatible return value type (got "tuple[ExternalDataSource, dict[str, list[tuple[str, str]]]]", expected "tuple[ExternalDataSource, list[Any]]")  [return-value]
-posthog/warehouse/api/table.py:0: error: Unsupported target for indexed assignment ("dict[str, str | bool] | str")  [index]
+posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_calls" (hint: "_execute_calls: list[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_async_calls" (hint: "_execute_async_calls: list[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_cursors" (hint: "_cursors: list[<type>] = ...")  [var-annotated]

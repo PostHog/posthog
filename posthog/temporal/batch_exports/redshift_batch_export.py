@@ -150,11 +150,13 @@ class RedshiftClient(PostgreSQLClient):
             for field in merge_key
         )
 
-        delete_query = sql.SQL("""\
+        delete_query = sql.SQL(
+            """\
         DELETE FROM {stage_table}
         USING {final_table} AS final
         WHERE {merge_condition} AND {stage_table}.{stage_version_key} > final.{final_version_key};
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=delete_condition,
@@ -162,12 +164,14 @@ class RedshiftClient(PostgreSQLClient):
             final_version_key=sql.Identifier(version_key),
         )
 
-        merge_query = sql.SQL("""\
+        merge_query = sql.SQL(
+            """\
         MERGE INTO {final_table}
         USING {stage_table} AS stage
         ON {merge_condition}
         REMOVE DUPLICATES
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
@@ -490,7 +494,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 return records_completed
 
 
-@workflow.defn(name="redshift-export")
+@workflow.defn(name="redshift-export", failure_exception_types=[workflow.NondeterminismError])
 class RedshiftBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into Postgres.
 

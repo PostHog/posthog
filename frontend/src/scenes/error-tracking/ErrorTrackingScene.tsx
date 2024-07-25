@@ -1,6 +1,7 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconPerson } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -80,10 +81,26 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
+    const { selectedRows } = useValues(errorTrackingSceneLogic)
+    const { setSelectedRows } = useActions(errorTrackingSceneLogic)
+
     const record = props.record as ErrorTrackingGroup
+
+    const checked = selectedRows.includes(record.fingerprint)
 
     return (
         <div className="flex items-start space-x-1.5 group">
+            <LemonCheckbox
+                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                checked={checked}
+                onChange={(checked) => {
+                    setSelectedRows(
+                        checked
+                            ? [...selectedRows, record.fingerprint]
+                            : selectedRows.filter((r) => r != record.fingerprint)
+                    )
+                }}
+            />
             <LemonTableLink
                 title={record.fingerprint}
                 description={
