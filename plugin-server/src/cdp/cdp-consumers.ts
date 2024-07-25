@@ -18,7 +18,6 @@ import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
-import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
@@ -40,9 +39,6 @@ import { convertToCaptureEvent, convertToHogFunctionInvocationGlobals } from './
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-// WARNING: Do not change this - it will essentially reset the consumer
-const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
-
 const histogramKafkaBatchSize = new Histogram({
     name: 'cdp_function_executor_batch_size',
     help: 'The size of the batches we are receiving from Kafka',
@@ -52,7 +48,7 @@ const histogramKafkaBatchSize = new Histogram({
 const histogramKafkaBatchSizeKb = new Histogram({
     name: 'cdp_function_executor_batch_size_kb',
     help: 'The size in kb of the batches we are receiving from Kafka',
-    buckets: BUCKETS_KB_WRITTEN,
+    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
 const counterFunctionInvocation = new Counter({
@@ -79,7 +75,6 @@ abstract class CdpConsumerBase {
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
     groupsManager: GroupsManager
-    appMetrics?: AppMetrics
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
 
@@ -405,13 +400,6 @@ abstract class CdpConsumerBase {
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
         )
 
-        this.appMetrics =
-            this.hub?.appMetrics ??
-            new AppMetrics(
-                this.kafkaProducer,
-                this.hub.APP_METRICS_FLUSH_FREQUENCY_MS,
-                this.hub.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-            )
         this.kafkaProducer.producer.connect()
 
         this.batchConsumer = await startBatchConsumer({

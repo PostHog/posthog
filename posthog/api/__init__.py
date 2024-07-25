@@ -23,6 +23,7 @@ from . import (
     comments,
     dead_letter_queue,
     early_access_feature,
+    error_tracking,
     event_definition,
     exports,
     feature_flag,
@@ -132,7 +133,7 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["team_id"],
 )
-project_surveys_router = projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
+projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
 
 projects_router.register(
     r"dashboard_templates",
@@ -393,6 +394,13 @@ projects_router.register(
     r"notebooks",
     notebook.NotebookViewSet,
     "project_notebooks",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"error_tracking",
+    error_tracking.ErrorTrackingGroupViewSet,
+    "project_error_tracking",
     ["team_id"],
 )
 

@@ -44,6 +44,7 @@ export type QueryContextColumnComponent = ComponentType<{
     columnName: string
     query: DataTableNode
     record: unknown
+    recordIndex: number
     value: unknown
 }>
 

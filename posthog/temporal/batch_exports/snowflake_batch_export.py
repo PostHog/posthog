@@ -627,6 +627,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     flush_counter: int,
                     last_inserted_at,
                     last: bool,
+                    error: Exception | None,
                 ):
                     logger.info(
                         "Putting %sfile %s containing %s records with size %s bytes",
