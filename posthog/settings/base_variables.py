@@ -24,7 +24,7 @@ OPT_OUT_CAPTURE: bool = get_from_env("OPT_OUT_CAPTURE", False, type_cast=str_to_
 BENCHMARK: bool = get_from_env("BENCHMARK", False, type_cast=str_to_bool)
 if E2E_TESTING:
     logger.warning(
-        ["️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests."]
+        "️WARNING! Environment variable E2E_TESTING is enabled. This is a security vulnerability unless you are running tests."
     )
 
 IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
