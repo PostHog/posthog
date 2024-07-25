@@ -1,5 +1,6 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
+import { Invocation } from 'node-schedule'
 
 import {
     AppMetric2Type,
@@ -149,35 +150,53 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
+// This is the "persistent" state of a hog function invocation
 export type HogFunctionInvocation = {
     id: string
     globals: HogFunctionInvocationGlobals
     teamId: number
     hogFunctionId: HogFunctionType['id']
-    // Logs and timings _could_ be passed in from the async function service
-    logs: HogFunctionLogEntry[]
-    timings: HogFunctionTiming[]
+    // The current vmstate (set if the invocation is paused)
+    vmState?: VMState
 }
 
-export type HogFunctionInvocationResult = HogFunctionInvocation & {
+// The result of an execution
+export type HogFunctionInvocationResult = {
+    invocation: HogFunctionInvocation
     finished: boolean
     error?: any
     asyncFunctionRequest?: {
         name: string
         args: any[]
-        vmState: VMState
     }
+    logs: HogFunctionLogEntry[]
+    timings: HogFunctionTiming[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
 }
 
-export type HogFunctionInvocationAsyncResponse = HogFunctionInvocationResult & {
+export type HogFunctionInvocationAsyncRequest = {
+    state: string // Serialized HogFunctionInvocation without the asyncFunctionRequest
+    teamId: number
+    hogFunctionId: HogFunctionType['id']
+    asyncFunctionRequest?: {
+        name: string
+        args: any[]
+    }
+}
+
+export type HogFunctionInvocationAsyncResponse = {
+    state: string // Serialized HogFunctionInvocation
+    teamId: number
+    hogFunctionId: HogFunctionType['id']
+
     // FOLLOWUP: do we want to type this more strictly?
     asyncFunctionResponse: {
         /** An error message to indicate something went wrong and the invocation should be stopped */
         error?: any
         /** The data to be passed to the Hog function from the response */
-        response?: any
-        timings: HogFunctionTiming[]
+        response: any
+        timings?: HogFunctionTiming[]
+        logs?: HogFunctionLogEntry[]
     }
 }
 

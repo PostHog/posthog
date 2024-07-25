@@ -27,6 +27,7 @@ import { HogWatcher } from './hog-watcher/hog-watcher'
 import { HogWatcherState } from './hog-watcher/types'
 import {
     CdpOverflowMessage,
+    HogFunctionInvocationAsyncRequest,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
@@ -179,8 +180,8 @@ abstract class CdpConsumerBase {
                         result.logs = []
 
                         this.logAppMetrics({
-                            team_id: result.teamId,
-                            app_source_id: result.hogFunctionId,
+                            team_id: result.invocation.teamId,
+                            app_source_id: result.invocation.hogFunctionId,
                             metric_kind: result.error ? 'failure' : 'success',
                             metric_name: result.error ? 'failed' : 'succeeded',
                             count: 1,
@@ -216,7 +217,13 @@ abstract class CdpConsumerBase {
                         }
 
                         if (result.asyncFunctionRequest) {
-                            const res = await this.runWithHeartbeat(() => this.asyncFunctionExecutor.execute(result))
+                            const request: HogFunctionInvocationAsyncRequest = {
+                                state: JSON.stringify(result.invocation),
+                                teamId: result.invocation.teamId,
+                                hogFunctionId: result.invocation.hogFunctionId,
+                                asyncFunctionRequest: result.asyncFunctionRequest,
+                            }
+                            const res = await this.runWithHeartbeat(() => this.asyncFunctionExecutor.execute(request))
 
                             // NOTE: This is very temporary as it is producing the response. the response will actually be produced by the 3rd party service
                             // Later this will actually be the _request_ which we will push to the async function topic if we make one
@@ -224,7 +231,7 @@ abstract class CdpConsumerBase {
                                 this.messagesToProduce.push({
                                     topic: KAFKA_CDP_FUNCTION_CALLBACKS,
                                     value: res,
-                                    key: res.id,
+                                    key: res.hogFunctionId,
                                 })
                             }
                         }
@@ -261,7 +268,7 @@ abstract class CdpConsumerBase {
                                 source: 'hog_function_callback',
                                 payload: item,
                             },
-                            key: item.id,
+                            key: item.hogFunctionId,
                         })
                         // We don't report overflowed metric to appmetrics as it is sort of a meta-metric
                         counterFunctionInvocation.inc({ outcome: 'overflowed' })
