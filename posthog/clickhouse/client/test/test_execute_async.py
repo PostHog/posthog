@@ -149,6 +149,9 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = client.get_query_status(self.team.id, query_id)
         self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
+        self.assertIsNotNone(result.start_time)
+        self.assertIsNotNone(result.pickup_time)
+        self.assertIsNotNone(result.end_time)
         assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
 
@@ -165,6 +168,9 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
         self.assertTrue(result.complete)
+        self.assertIsNotNone(result.start_time)
+        self.assertIsNotNone(result.pickup_time)
+        self.assertIsNotNone(result.end_time)
         assert result.error_message
         self.assertRegex(result.error_message, "no viable alternative at input")
 
@@ -191,6 +197,9 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
         assert result.error_message is None
+        self.assertIsNotNone(result.start_time)
+        self.assertIsNotNone(result.pickup_time)
+        self.assertIsNotNone(result.end_time)
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
