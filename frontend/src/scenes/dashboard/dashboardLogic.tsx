@@ -664,7 +664,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return []
                 }
 
-                const validDates = insightTiles.map((i) => dayjs(i.last_refresh)).filter((date) => date.isValid())
+                const validDates = insightTiles
+                    .map((i) => dayjs(i.insight?.last_refresh))
+                    .filter((date) => date.isValid())
                 return sortDayJsDates(validDates)
             },
         ],
