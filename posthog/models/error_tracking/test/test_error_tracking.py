@@ -33,7 +33,7 @@ class TestErrorTracking(BaseTest):
         assert matching_groups.count() == 2
 
     def test_merge(self):
-        root_group = ErrorTrackingGroup.objects.create(
+        primary_group = ErrorTrackingGroup.objects.create(
             status="active",
             team=self.team,
             fingerprint="a_fingerprint",
@@ -50,9 +50,9 @@ class TestErrorTracking(BaseTest):
         )
 
         merging_fingerprints = [merge_group_1.fingerprint, merge_group_2.fingerprint, "no_group_fingerprint"]
-        root_group.merge(merging_fingerprints)
+        primary_group.merge(merging_fingerprints)
 
-        assert sorted(root_group.merged_fingerprints) == [
+        assert sorted(primary_group.merged_fingerprints) == [
             "already_merged_fingerprint",
             "another_fingerprint",
             "merged_fingerprint",
