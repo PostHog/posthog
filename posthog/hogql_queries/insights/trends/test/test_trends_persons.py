@@ -1207,3 +1207,213 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         result = self._get_actors(trends_query=source_query, day="2023-05-01")
         self.assertEqual(len(result), 1)
         self.assertEqual(get_distinct_id(result[0]), "person3")
+
+    def test_trends_math_first_time_for_user_handles_multiple_ids(self):
+        timestamp = "2020-01-11T12:00:00Z"
+
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon1", "p1"],
+                properties={},
+            )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon2", "p2"],
+                properties={},
+            )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon3"],
+                properties={},
+            )
+
+        # p1
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+
+        # p2
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon2",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-12T12:01:00Z",
+            properties={},
+        )
+
+        # anon3
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon3",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={},
+        )
+
+        source_query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-09")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-10")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-11")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-12")
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0][0]["distinct_ids"], ["anon2", "p2"])
+        self.assertEqual(result[1][0]["distinct_ids"], ["anon3"])
+
+    def test_trends_math_first_time_for_user_matches_first_event_only(self):
+        timestamp = "2020-01-11T12:00:00Z"
+
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon1", "p1"],
+                properties={},
+            )
+
+        # p1
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={"$browser": "Safari"},
+        )
+
+        source_query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-11")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-12")
+        self.assertEqual(len(result), 0)
+
+        source_query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-11")
+        self.assertEqual(len(result), 0)
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-12")
+        self.assertEqual(len(result), 0)
+
+    def test_trends_math_first_time_for_user_matches_all_first_events(self):
+        timestamp = "2020-01-11T12:00:00Z"
+
+        with freeze_time(timestamp):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["anon1", "p1"],
+                properties={},
+            )
+
+        # p1
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="anon1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$browser": "Safari"},
+        )
+
+        source_query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-11")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-12")
+        self.assertEqual(len(result), 0)
+
+        source_query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_TIME_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Safari")],
+                )
+            ],
+            dateRange=InsightDateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-11")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0]["distinct_ids"], ["anon1", "p1"])
+
+        result = self._get_actors(trends_query=source_query, day="2020-01-12")
+        self.assertEqual(len(result), 0)
