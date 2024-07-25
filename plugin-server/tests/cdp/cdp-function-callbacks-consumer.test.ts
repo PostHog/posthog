@@ -188,7 +188,7 @@ describe('CDP Processed Events Consuner', () => {
                     {
                         log_source: 'hog_function',
                         level: 'debug',
-                        message: expect.stringContaining('Function completed. Processing time'),
+                        message: expect.stringContaining('Function completed in '),
                     },
                 ],
             })
@@ -233,7 +233,7 @@ describe('CDP Processed Events Consuner', () => {
                     {
                         log_source: 'hog_function',
                         level: 'debug',
-                        message: expect.stringContaining('Function completed. Processing time'),
+                        message: expect.stringContaining('Function completed in'),
                     },
                 ],
             })
