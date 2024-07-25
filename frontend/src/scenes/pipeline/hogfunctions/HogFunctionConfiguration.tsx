@@ -26,6 +26,8 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
 import { AvailableFeature, EntityTypes } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
@@ -49,6 +51,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         exampleInvocationGlobalsWithInputs,
         showPaygate,
         hasAddon,
+        trendsQuery,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -293,6 +296,15 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 <p className="italic text-muted-alt">
                                     This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
+
+                                <Query
+                                    uniqueKey="hog-function-configuration-insight"
+                                    query={{
+                                        kind: NodeKind.InsightVizNode,
+                                        source: trendsQuery,
+                                        embedded: true,
+                                    }}
+                                />
                             </div>
                         </div>
 

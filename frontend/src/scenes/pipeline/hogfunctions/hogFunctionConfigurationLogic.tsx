@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -14,8 +15,10 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { NodeKind } from '~/queries/schema'
 import {
     AvailableFeature,
+    ChartDisplayType,
     FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
@@ -375,6 +378,44 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     inputs,
                 }
             },
+        ],
+        trendsQuery: [
+            (s) => [s.configuration],
+            (configuration) => ({
+                kind: NodeKind.TrendsQuery,
+                filterTestAccounts: configuration.filters?.filter_test_accounts,
+                series:
+                    (configuration.filters?.events?.length ?? 0) + (configuration.filters?.actions?.length ?? 0)
+                        ? [
+                              ...(configuration.filters?.events?.map((event) => ({
+                                  kind: NodeKind.EventsNode,
+                                  event: event.id,
+                                  name: event.name,
+                                  math: 'total',
+                                  properties: event.properties,
+                              })) ?? []),
+                              ...(configuration.filters?.actions?.map((action) => ({
+                                  kind: NodeKind.ActionsNode,
+                                  action: action.id,
+                                  name: action.name,
+                                  math: 'total',
+                                  properties: action.properties,
+                              })) ?? []),
+                          ]
+                        : [
+                              {
+                                  kind: NodeKind.EventsNode,
+                                  event: null,
+                                  name: 'All Events',
+                                  math: 'total',
+                              },
+                          ],
+                interval: 'day',
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsBar,
+                },
+            }),
+            { resultEqualityCheck: equal },
         ],
     })),
 
