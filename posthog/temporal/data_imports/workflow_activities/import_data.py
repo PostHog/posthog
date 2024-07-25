@@ -153,6 +153,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                     incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                     if schema.is_incremental
                     else None,
+                    team_id=inputs.team_id,
                 )
 
                 return await _run(
@@ -178,6 +179,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             incremental_field_type=schema.sync_type_config.get("incremental_field_type")
             if schema.is_incremental
             else None,
+            team_id=inputs.team_id,
         )
 
         return await _run(

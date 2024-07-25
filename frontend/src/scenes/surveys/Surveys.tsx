@@ -492,7 +492,7 @@ export function StatusTag({ survey }: { survey: Survey }): JSX.Element {
     } as Record<ProgressStatus, LemonTagType>
     const status = getSurveyStatus(survey)
     return (
-        <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }} data-attr="status">
+        <LemonTag type={statusColors[status]} className="font-semibold" data-attr="status">
             {status.toUpperCase()}
         </LemonTag>
     )

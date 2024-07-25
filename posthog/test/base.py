@@ -5,6 +5,7 @@ import resource
 import threading
 import time
 import uuid
+import unittest
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from functools import wraps
@@ -98,6 +99,10 @@ freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
 persons_ordering_int: int = 1
+
+
+# Expand string diffs
+unittest.util._MAX_LENGTH = 2000  # type: ignore
 
 
 def _setup_test_data(klass):
