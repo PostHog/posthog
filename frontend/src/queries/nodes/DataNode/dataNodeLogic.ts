@@ -128,13 +128,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
+        const hasQueryChanged = !queryEqual(props.query, oldProps.query)
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
-        if (queryStatus?.complete === false) {
+        if (hasQueryChanged && queryStatus?.complete === false) {
             // If there is an incomplete query, load the data with the same query_id which should return its status
             actions.loadData(undefined, queryStatus.id)
         } else if (
+            hasQueryChanged &&
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
-            !queryEqual(props.query, oldProps.query) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {
