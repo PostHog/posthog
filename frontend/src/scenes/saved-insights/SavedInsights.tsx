@@ -330,7 +330,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
     ...Object.entries(INSIGHT_TYPES_METADATA).map(([value, meta]) => ({
         value,
         label: meta.name,
-        icon: meta.icon ? <meta.icon color="#747EA2" noBackground /> : undefined,
+        icon: meta.icon ? <meta.icon /> : undefined,
     })),
 ]
 

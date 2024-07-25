@@ -1,9 +1,25 @@
+import { Histogram } from 'prom-client'
+
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult } from './types'
+
+export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
+
+const histogramFetchPayloadSize = new Histogram({
+    name: 'cdp_async_function_fetch_payload_size_kb',
+    help: 'The size in kb of the batches we are receiving from Kafka',
+    buckets: BUCKETS_KB_WRITTEN,
+})
+
+const histogramHogHooksPayloadSize = new Histogram({
+    name: 'cdp_async_function_hoghooks_payload_size_kb',
+    help: 'The size in kb of the batches we are receiving from Kafka',
+    buckets: BUCKETS_KB_WRITTEN,
+})
 
 export type AsyncFunctionExecutorOptions = {
     sync?: boolean
@@ -79,9 +95,17 @@ export class AsyncFunctionExecutor {
             // Finally overwrite the args with the sanitized ones
             request.asyncFunctionRequest.args = [url, { method, headers, body }]
 
+            if (body) {
+                histogramFetchPayloadSize.observe(body.length / 1024)
+            }
+
             // If the caller hasn't forced it to be synchronous and the team has the rustyhook enabled, enqueue it
             if (!options?.sync && this.hogHookEnabledForTeams(request.teamId)) {
-                const enqueued = await this.rustyHook.enqueueForHog(request)
+                const hoghooksPayload = JSON.stringify(request)
+
+                histogramHogHooksPayloadSize.observe(hoghooksPayload.length / 1024)
+
+                const enqueued = await this.rustyHook.enqueueForHog(JSON.stringify(request))
                 if (enqueued) {
                     return
                 }
