@@ -14,8 +14,9 @@ DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=str_to_bool)  # type: bool
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
-    "CLOUD_DEPLOYMENT", optional=True
-)  # "US", "EU", or "DEV" - unset on self-hosted
+    "CLOUD_DEPLOYMENT",
+    optional=True,  # "US", "EU", "DEV", or "E2E" - unset on self-hosted
+)
 SELF_CAPTURE: bool = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING: bool = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool

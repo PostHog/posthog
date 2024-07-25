@@ -64,7 +64,7 @@ export PGUSER="${PGUSER:=posthog}"
 export PGPASSWORD="${PGPASSWORD:=posthog}"
 export PGPORT="${PGPORT:=5432}"
 export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DATABASE}"
-export CLOUD_DEPLOYMENT=DEV
+export CLOUD_DEPLOYMENT=E2E
 
 source ./bin/celery-queues.env
 
