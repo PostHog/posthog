@@ -355,8 +355,6 @@ export class HogExecutor {
                     } bytes`
                 )
 
-                console.log('execRes', execRes)
-
                 if (execRes.asyncFunctionName) {
                     result.asyncFunctionRequest = {
                         name: execRes.asyncFunctionName,
