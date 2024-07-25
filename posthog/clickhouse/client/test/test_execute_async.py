@@ -128,7 +128,7 @@ class TestExecuteProcessQuery(TestCase):
         mock_process_query_dict.assert_called_once()
 
         # Assert that Redis set method was called with the correct arguments
-        mock_redis.set.assert_called_once()
+        self.assertEqual(mock_redis.set.call_count, 2)  # Once on pickup, once on completion
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
