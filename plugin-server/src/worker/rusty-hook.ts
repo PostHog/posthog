@@ -2,7 +2,6 @@ import { Webhook } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import fetch from 'node-fetch'
 
-import { HogFunctionInvocationResult } from '../cdp/types'
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { isProdEnv } from '../utils/env-utils'
