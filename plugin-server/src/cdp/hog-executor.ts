@@ -361,8 +361,12 @@ export class HogExecutor {
                 }
             } else {
                 const totalDuration = result.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
-
-                addLog(result, 'debug', `Function completed. Processing time ${totalDuration}ms`)
+                const messages = [`Function completed.`, `Processing time ${totalDuration}ms.`]
+                if (execRes.state) {
+                    messages.push(`Max memory used: ${execRes.state.maxMemUsed} bytes.`)
+                    messages.push(`Operations performed: ${execRes.state.ops}.`)
+                }
+                addLog(result, 'debug', messages.join(' '))
             }
         } catch (err) {
             result.error = err.message
