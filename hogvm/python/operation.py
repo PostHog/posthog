@@ -53,3 +53,6 @@ class Operation(int, Enum):
     SET_PROPERTY = 46
     JUMP_IF_STACK_NOT_NULL = 47
     GET_PROPERTY_NULLISH = 48
+    THROW = 49
+    TRY = 50
+    POP_TRY = 51

@@ -12,6 +12,7 @@ import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { hexToRGBA } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
@@ -32,6 +33,7 @@ export const LineGraph = (): JSX.Element => {
     // via props. Make this a purely presentational component
     const { xData, yData, presetChartHeight, visualizationType, showEditingUI } = useValues(dataVisualizationLogic)
     const isBarChart = visualizationType === ChartDisplayType.ActionsBar
+    const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
 
     const { goalLines } = useValues(displayLogic)
 
@@ -44,11 +46,12 @@ export const LineGraph = (): JSX.Element => {
             labels: xData.data,
             datasets: yData.map(({ data }, index) => {
                 const color = getSeriesColor(index)
+                const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
 
                 return {
                     data,
                     borderColor: color,
-                    backgroundColor: color,
+                    backgroundColor: backgroundColor,
                     borderWidth: isBarChart ? 0 : 2,
                     pointRadius: 0,
                     hitRadius: 0,
@@ -56,6 +59,7 @@ export const LineGraph = (): JSX.Element => {
                     hoverBorderWidth: isBarChart ? 0 : 2,
                     hoverBorderRadius: isBarChart ? 0 : 2,
                     type: isBarChart ? GraphType.Bar : GraphType.Line,
+                    fill: isAreaChart ? 'origin' : false,
                 } as ChartData['datasets'][0]
             }),
         }
@@ -249,7 +253,7 @@ export const LineGraph = (): JSX.Element => {
                 y: {
                     display: true,
                     beginAtZero: true,
-                    stacked: false,
+                    stacked: isAreaChart,
                     ticks: {
                         display: true,
                         ...tickOptions,

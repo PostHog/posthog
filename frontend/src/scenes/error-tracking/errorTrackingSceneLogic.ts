@@ -1,4 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
 
@@ -15,6 +16,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     actions({
         setOrder: (order: ErrorTrackingQuery['order']) => ({ order }),
+        setSelectedRows: (selectedRows: string[]) => ({ selectedRows }),
     }),
     reducers({
         order: [
@@ -22,6 +24,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             { persist: true },
             {
                 setOrder: (_, { order }) => order,
+            },
+        ],
+        selectedRows: [
+            [] as string[],
+            {
+                setSelectedRows: (_, { selectedRows }) => selectedRows,
             },
         ],
     }),
@@ -39,4 +47,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 }),
         ],
     }),
+
+    subscriptions(({ actions }) => ({
+        query: () => actions.setSelectedRows([]),
+    })),
 ])

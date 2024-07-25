@@ -4,7 +4,7 @@ from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, BytecodeResult
-from hogvm.python.stl import STL
+from hogvm.python.stl import STL, MIN_ARGS_INCLUDING_OPTIONAL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
@@ -191,6 +191,12 @@ class BytecodeBuilder(Visitor):
         ]
 
     def visit_array_access(self, node: ast.ArrayAccess):
+        if (
+            isinstance(node.property, ast.Constant)
+            and isinstance(node.property.value, int)
+            and node.property.value == 0
+        ):
+            raise QueryError("Array access starts from 1")
         return [
             *self.visit(node.array),
             *self.visit(node.property),
@@ -271,9 +277,23 @@ class BytecodeBuilder(Visitor):
                 f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
             )
         response = []
+
+        if node.name in MIN_ARGS_INCLUDING_OPTIONAL and len(node.args) < MIN_ARGS_INCLUDING_OPTIONAL[node.name]:
+            for _ in range(len(node.args), MIN_ARGS_INCLUDING_OPTIONAL[node.name]):
+                response.append(Operation.NULL)
+
         for expr in reversed(node.args):
             response.extend(self.visit(expr))
-        response.extend([Operation.CALL, node.name, len(node.args)])
+
+        response.extend(
+            [
+                Operation.CALL,
+                node.name,
+                len(node.args)
+                if node.name not in MIN_ARGS_INCLUDING_OPTIONAL
+                else MIN_ARGS_INCLUDING_OPTIONAL[node.name],
+            ]
+        )
         return response
 
     def visit_program(self, node: ast.Program):
@@ -305,6 +325,103 @@ class BytecodeBuilder(Visitor):
         else:
             response = [Operation.NULL]
         response.append(Operation.RETURN)
+        return response
+
+    def visit_throw_statement(self, node: ast.ThrowStatement):
+        return [*self.visit(node.expr), Operation.THROW]
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement):
+        if node.finally_stmt:
+            raise QueryError("finally blocks are not yet supported")
+        if not node.catches or len(node.catches) == 0:
+            raise QueryError("try statement must have at least one catch block")
+
+        try_stmt = self.visit(node.try_stmt)
+        response = []
+        response.extend(
+            [
+                Operation.TRY,
+                len(try_stmt) + 2 + 2,
+            ]
+        )
+        response.extend(try_stmt)
+        response.append(Operation.POP_TRY)
+
+        set_end_positions = []
+        catches_bytecode = []
+        self._start_scope()
+        self._declare_local("e")  # common error var for all blocks
+        catches_bytecode.extend(self.visit(ast.Field(chain=["e", "type"])))
+        self._declare_local("type")  # common error var for all blocks
+        # catches_bytecode.extend(self.visit(ast.Field(chain=['e'])))
+        for catch in node.catches:
+            catch_var = catch[0] or "e"
+            catch_type = catch[1] or "Error"
+            catch_stmt = catch[2]
+
+            self._start_scope()
+
+            # If we catch all
+            if catch_type == "Error":
+                if catch_var != "e":
+                    self._declare_local(catch_var)
+                    catches_bytecode.extend(self.visit(ast.Field(chain=["e"])))
+                # Add the catch block
+                catches_bytecode.extend(self.visit(catch_stmt))
+                catches_bytecode.extend(self._end_scope())
+                # And then jump to the very end, skipping everything else
+                catches_bytecode.extend([Operation.JUMP, None])
+                set_end_positions.append(len(catches_bytecode) - 1)
+            else:
+                # Named catch (e: RetryError) {}
+                compare_bytecode = self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["type"]),
+                        right=ast.Constant(value=catch_type),
+                    )
+                )
+                catches_bytecode.extend(
+                    [
+                        *compare_bytecode,
+                        Operation.JUMP_IF_FALSE,  # we add the jump position later
+                    ]
+                )
+
+                catch_bytecode = []
+                if catch_var != "e":
+                    self._declare_local(catch_var)
+                    catch_bytecode.extend(self.visit(ast.Field(chain=["e"])))
+                catch_bytecode.extend(self.visit(catch_stmt))
+
+                end_scope = self._end_scope()
+                catch_bytecode.extend(end_scope)
+
+                catches_bytecode.extend(
+                    [
+                        len(catch_bytecode) + 2 - len(end_scope),  # the jump position from earlier
+                        *catch_bytecode,
+                        Operation.JUMP,
+                        None,
+                    ]
+                )
+                set_end_positions.append(len(catches_bytecode) - 1)
+
+        # re-raise if nothing matched
+        catches_bytecode.extend(
+            [
+                Operation.POP,  # pop the type
+                Operation.THROW,  # throw the error
+            ]
+        )
+        end_scope = self._end_scope()
+        catches_bytecode.extend(end_scope)
+
+        for position in set_end_positions:
+            catches_bytecode[position] = len(catches_bytecode) - position - len(end_scope) - 1
+
+        response.extend([Operation.JUMP, len(catches_bytecode)])
+        response.extend(catches_bytecode)
         return response
 
     def visit_if_statement(self, node: ast.IfStatement):

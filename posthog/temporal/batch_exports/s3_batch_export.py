@@ -595,7 +595,7 @@ def get_batch_export_writer(
     return writer
 
 
-@workflow.defn(name="s3-export")
+@workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
 class S3BatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into S3.
 
