@@ -167,7 +167,9 @@ export function InsightsTable({
                 },
             })
         }
-    } else if (breakdownFilter?.breakdowns) {
+    }
+
+    if (breakdownFilter?.breakdowns) {
         breakdownFilter.breakdowns.forEach((breakdown, index) => {
             const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
                 formatBreakdownLabel(
