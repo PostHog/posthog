@@ -409,11 +409,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return state
                 },
-                [dashboardsModel.actionTypes.updateDashboardInsight]: (
-                    state,
-                    { insight, extraDashboardIds, updateTileOnDashboards }
-                ) => {
-                    const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { insight, extraDashboardIds }) => {
+                    const targetDashboards = (insight.dashboard_tiles || [])
+                        .map((tile) => tile.dashboard_id)
+                        .concat(extraDashboardIds || [])
                     if (!targetDashboards.includes(props.id)) {
                         // this update is not for this dashboard
                         return state
@@ -427,7 +426,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const newTiles = state.tiles.slice()
 
                         if (tileIndex >= 0) {
-                            if (insight.dashboards?.includes(props.id) && updateTileOnDashboards?.includes(props.id)) {
+                            if (insight.dashboards?.includes(props.id)) {
                                 newTiles[tileIndex] = {
                                     ...newTiles[tileIndex],
                                     insight: insight,
@@ -451,27 +450,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
-                },
-                [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (
-                    state,
-                    { shortId, refreshing, last_refresh }
-                ) => {
-                    // If not a dashboard item, don't do anything.
-                    if (!shortId) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        items: state?.tiles.map((t) =>
-                            !t.insight || t.insight.short_id === shortId
-                                ? {
-                                      ...t,
-                                      ...(refreshing != null ? { refreshing } : {}),
-                                      ...(last_refresh != null ? { last_refresh } : {}),
-                                  }
-                                : t
-                        ),
-                    } as DashboardType
                 },
                 [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }): DashboardType | null => {
                     const tileIndex = state?.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
@@ -914,7 +892,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds }) => {
-            const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
+            const targetDashboards = (insight.dashboard_tiles || [])
+                .map((tile) => tile.dashboard_id)
+                .concat(extraDashboardIds || [])
             if (!targetDashboards.includes(props.id)) {
                 // this update is not for this dashboard
                 return
