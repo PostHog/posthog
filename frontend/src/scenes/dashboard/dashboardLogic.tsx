@@ -679,16 +679,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return sortedDates[sortedDates.length - 1]
             },
         ],
-        oldestRefreshed: [
-            (s) => [s.sortedDates],
-            (sortedDates): Dayjs | null => {
-                if (!sortedDates.length) {
-                    return null
-                }
-
-                return sortedDates[0]
-            },
-        ],
         sortedClientRefreshAllowed: [
             (s) => [s.insightTiles],
             (insightTiles): Dayjs[] => {
