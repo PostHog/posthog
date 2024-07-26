@@ -377,42 +377,6 @@
                   "schema_valid": true,
                   "table": "sessions",
                   "type": "lazy_table"
-              },
-              "elements_chain_href": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "elements_chain_href",
-                  "name": "elements_chain_href",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "elements_chain_texts": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "elements_chain_texts",
-                  "name": "elements_chain_texts",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "array"
-              },
-              "elements_chain_ids": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "elements_chain_ids",
-                  "name": "elements_chain_ids",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "array"
-              },
-              "elements_chain_elements": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "elements_chain_elements",
-                  "name": "elements_chain_elements",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "array"
               }
           },
           "id": "events",
@@ -748,11 +712,7 @@
                       "group_3",
                       "$group_4",
                       "group_4",
-                      "session",
-                      "elements_chain_href",
-                      "elements_chain_texts",
-                      "elements_chain_ids",
-                      "elements_chain_elements"
+                      "session"
                   ],
                   "hogql_value": "events",
                   "name": "events",
@@ -1734,42 +1694,6 @@
                   "schema_valid": true,
                   "table": "sessions",
                   "type": "lazy_table"
-              },
-              "elements_chain_href": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "elements_chain_href",
-                  "name": "elements_chain_href",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "elements_chain_texts": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "elements_chain_texts",
-                  "name": "elements_chain_texts",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "array"
-              },
-              "elements_chain_ids": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "elements_chain_ids",
-                  "name": "elements_chain_ids",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "array"
-              },
-              "elements_chain_elements": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "elements_chain_elements",
-                  "name": "elements_chain_elements",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "array"
               }
           },
           "id": "events",
@@ -2105,11 +2029,7 @@
                       "group_3",
                       "$group_4",
                       "group_4",
-                      "session",
-                      "elements_chain_href",
-                      "elements_chain_texts",
-                      "elements_chain_ids",
-                      "elements_chain_elements"
+                      "session"
                   ],
                   "hogql_value": "events",
                   "name": "events",
