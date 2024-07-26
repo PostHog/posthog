@@ -449,18 +449,13 @@ def property_to_expr(
             return expr
 
         if property.key == "href":
-            return parse_expr(
-                "arrayExists(href -> {compare}, elements_chain_hrefs)",
-                {
-                    "compare": _field_to_compare_op(
-                        field=ast.Field(chain=["href"]),
-                        value=value,
-                        operator=operator,
-                        team=team,
-                        property=property,
-                        is_json_field=False,
-                    )
-                },
+            return _field_to_compare_op(
+                field=ast.Field(chain=["elements_chain_href"]),
+                value=value,
+                operator=operator,
+                team=team,
+                property=property,
+                is_json_field=False,
             )
 
         if property.key == "text":

@@ -342,7 +342,18 @@ class TestProperty(BaseTest):
                     "operator": "exact",
                 }
             ),
-            self._parse_expr("arrayExists(href -> href = 'href-text.', elements_chain_hrefs)"),
+            self._parse_expr("elements_chain_href = 'href-text.'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "href",
+                    "value": "href-text.",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr("elements_chain_href ilike '%href-text.%'"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -535,7 +546,7 @@ class TestProperty(BaseTest):
 
     def test_action_to_expr(self):
         _create_event(
-            event="$autocapture", team=self.team, distinct_id="some_id", elements_chain="a.active.nav-link:text='text'"
+            event="$autocapture", team=self.team, distinct_id="some_id", elements_chain='a.active.nav-link:text="text"'
         )
         action1 = Action.objects.create(
             team=self.team,
