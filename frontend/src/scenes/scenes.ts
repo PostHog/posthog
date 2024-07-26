@@ -83,21 +83,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Activity',
         defaultDocsPath: '/docs/data/events',
     },
-    [Scene.BatchExports]: {
-        projectBased: true,
-        name: 'Batch exports',
-        defaultDocsPath: '/docs/cdp/batch-exports',
-    },
-    [Scene.BatchExportEdit]: {
-        projectBased: true,
-        name: 'Edit batch export',
-        defaultDocsPath: '/docs/cdp/batch-exports',
-    },
-    [Scene.BatchExport]: {
-        projectBased: true,
-        name: 'Batch export',
-        defaultDocsPath: '/docs/cdp/batch-exports',
-    },
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
@@ -274,24 +259,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
     },
-    [Scene.Apps]: {
-        projectBased: true,
-        name: 'Apps',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.FrontendAppScene]: {
-        projectBased: true,
-        name: 'App',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.AppMetrics]: {
-        projectBased: true,
-        name: 'Apps',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -428,11 +395,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
 }
 
-const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
-    const combined = combineUrl(url, searchParams, hashParams)
-    return combined.url
-}
-
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use the above `preserveParams` function.
 export const redirects: Record<
     string,
@@ -441,8 +403,6 @@ export const redirects: Record<
     '/home': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
-    '/plugins': urls.projectApps(),
-    '/project/plugins': urls.projectApps(),
     '/actions': urls.actions(),
     '/organization/members': urls.settings('organization'),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
@@ -484,14 +444,11 @@ export const redirects: Record<
         return urls.replay()
     },
     '/replay': urls.replay(),
-    '/exports': urls.batchExports(),
     '/settings': urls.settings(),
     '/project/settings': urls.settings('project'),
     '/organization/settings': urls.settings('organization'),
     '/me/settings': urls.settings('user'),
     '/pipeline': urls.pipeline(),
-    '/project/apps': preserveParams(urls.projectApps()),
-    '/project/apps/:id': ({ id }) => urls.projectApp(id),
     '/instance': urls.instanceStatus(),
 }
 
@@ -520,10 +477,6 @@ export const routes: Record<string, Scene> = {
     [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.eventDefinitionEdit(':id')]: Scene.EventDefinitionEdit,
-    [urls.batchExports()]: Scene.BatchExports,
-    [urls.batchExportNew()]: Scene.BatchExportEdit,
-    [urls.batchExport(':id')]: Scene.BatchExport,
-    [urls.batchExportEdit(':id')]: Scene.BatchExportEdit,
     [urls.propertyDefinitions()]: Scene.DataManagement,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.propertyDefinitionEdit(':id')]: Scene.PropertyDefinitionEdit,
@@ -573,15 +526,6 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
-    [urls.projectApps()]: Scene.Apps,
-    [urls.projectApp(':id')]: Scene.Apps,
-    [urls.projectAppLogs(':id')]: Scene.Apps,
-    [urls.projectAppSource(':id')]: Scene.Apps,
-    [urls.frontendApp(':id')]: Scene.FrontendAppScene,
-    [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
-    [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,
-    [urls.appHistory(':pluginConfigId')]: Scene.AppMetrics,
-    [urls.appLogs(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,

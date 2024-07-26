@@ -4,12 +4,12 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
-import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
+import { BatchExportConfigurationForm } from './batch-exports/types'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'

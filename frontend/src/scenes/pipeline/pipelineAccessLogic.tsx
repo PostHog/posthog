@@ -1,9 +1,9 @@
 import { connect, kea, path, selectors } from 'kea'
-import { canConfigurePlugins, canGloballyManagePlugins } from 'scenes/plugins/access'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
+import { canConfigurePlugins, canGloballyManagePlugins } from './access'
 import type { pipelineAccessLogicType } from './pipelineAccessLogicType'
 import { Destination, NewDestinationItemType, PipelineBackend } from './types'
 
