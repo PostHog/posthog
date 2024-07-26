@@ -66,7 +66,7 @@ class QueryAlternator:
 
 class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
     """
-    A specialized QueryAlternator for building queries that identify the first time an event occurs for each user.
+    A specialized QueryAlternator for building queries that identify the first time an event or action occurs for each user.
 
     This class extends the base QueryAlternator to build a query that:
     - Finds the minimum timestamp for `person_id` filtered by the event/action and right date range.
@@ -120,7 +120,7 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         if event_or_action_filter is not None:
             where_filters.append(event_or_action_filter)
 
-        if len(where_filters) > 0:
+        if len(where_filters) > 1:
             where_filters_expr = cast(ast.Expr, ast.And(exprs=where_filters))
         else:
             where_filters_expr = where_filters[0]
