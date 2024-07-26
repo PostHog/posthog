@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { finished } from 'stream'
 
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
@@ -143,7 +142,6 @@ describe('Hog Executor', () => {
                     teamId: 1,
                     hogFunctionId: hogFunction.id,
                     vmState: expect.any(Object),
-
                     globals: {
                         project: { id: 1, name: 'test', url: 'http://localhost:8000/projects/1' },
                         event: {
@@ -159,6 +157,12 @@ describe('Hog Executor', () => {
                             url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
                         },
                     },
+                    timings: [
+                        {
+                            kind: 'hog',
+                            duration_ms: 0,
+                        },
+                    ],
                 },
 
                 asyncFunctionRequest: {
@@ -185,12 +189,6 @@ describe('Hog Executor', () => {
                         },
                     ],
                 },
-                timings: [
-                    {
-                        kind: 'hog',
-                        duration_ms: 0,
-                    },
-                ],
             })
         })
 

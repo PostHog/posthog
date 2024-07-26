@@ -9,7 +9,7 @@ import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher } from './hog-watcher/hog-watcher'
 import { HogWatcherState } from './hog-watcher/types'
-import { HogFunctionInvocation, HogFunctionInvocationAsyncRequest, HogFunctionType } from './types'
+import { HogFunctionInvocation, HogFunctionInvocationAsyncRequest, HogFunctionLogEntry, HogFunctionType } from './types'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
@@ -110,6 +110,7 @@ export class CdpApi {
                 globals: globals,
                 teamId: team.id,
                 hogFunctionId: id,
+                timings: [],
             }
 
             // We use the provided config if given, otherwise the function's config
@@ -123,6 +124,7 @@ export class CdpApi {
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
             let response = this.hogExecutor.execute(compoundConfiguration, invocation)
+            const logs: HogFunctionLogEntry[] = []
 
             while (response.asyncFunctionRequest) {
                 invocation.vmState = response.invocation.vmState
@@ -158,13 +160,16 @@ export class CdpApi {
                     invocation.vmState!.stack.push(convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null))
                 }
 
+                logs.push(...response.logs)
                 response = this.hogExecutor.execute(compoundConfiguration, invocation)
             }
+
+            logs.push(...response.logs)
 
             res.json({
                 status: response.finished ? 'success' : 'error',
                 error: String(response.error),
-                logs: response.logs,
+                logs: logs,
             })
         } catch (e) {
             console.error(e)

@@ -175,6 +175,7 @@ export class HogExecutor {
             globals: modifiedGlobals,
             teamId: hogFunction.team_id,
             hogFunctionId: hogFunction.id,
+            timings: [],
         })
     }
 
@@ -196,7 +197,6 @@ export class HogExecutor {
             finished: false,
             error,
             logs: [],
-            timings: [],
         })
 
         const hogFunction = this.hogFunctionManager.getTeamHogFunction(
@@ -214,8 +214,14 @@ export class HogExecutor {
 
         // Add the response to the stack to continue execution
         invocation.vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
+        invocation.timings.push(...(asyncFunctionResponse.timings ?? []))
 
-        return this.execute(hogFunction, invocation)
+        const res = this.execute(hogFunction, invocation)
+
+        // Add any timings and logs from the async function
+        res.logs = [...(asyncFunctionResponse.logs ?? []), ...res.logs]
+
+        return res
     }
 
     execute(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): HogFunctionInvocationResult {
@@ -233,7 +239,6 @@ export class HogExecutor {
             finished: false,
             capturedPostHogEvents: [],
             logs: [],
-            timings: [],
         }
 
         if (!invocation.vmState) {
@@ -327,7 +332,7 @@ export class HogExecutor {
             hogExecutionDuration.observe(duration)
 
             result.finished = execRes.finished
-            result.timings.push({
+            invocation.timings.push({
                 kind: 'hog',
                 duration_ms: duration,
             })
@@ -356,7 +361,7 @@ export class HogExecutor {
                     addLog(result, 'warn', `Function was not finished but also had no async function to execute.`)
                 }
             } else {
-                const totalDuration = result.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
+                const totalDuration = invocation.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
                 const messages = [`Function completed in ${totalDuration}ms.`]
                 if (execRes.state) {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
