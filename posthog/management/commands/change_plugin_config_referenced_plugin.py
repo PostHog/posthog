@@ -19,7 +19,7 @@ class Command(BaseCommand):
         if "," in config_ids:
             config_ids = {int(x) for x in config_ids.split(",")}
         else:
-            config_ids = set(int(config_ids))
+            config_ids = {int(config_ids)}
 
         new_plugin = Plugin.objects.get(id=new_plugin_id)
         found_configs = PluginConfig.objects.filter(id__in=config_ids)
