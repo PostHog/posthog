@@ -40,12 +40,10 @@ const Filters = (): JSX.Element => {
 
     return (
         <div
-            className="sticky z-20 pt-2"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                backgroundColor: 'var(--bg-3000)',
-                top: mobileLayout ? 'var(--breadcrumbs-height-full)' : 'var(--breadcrumbs-height-compact)',
-            }}
+            className={clsx(
+                'sticky z-20 pt-2 bg-bg-3000',
+                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
+            )}
         >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
