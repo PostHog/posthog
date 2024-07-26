@@ -1,5 +1,6 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
+import { Operation } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
@@ -157,4 +158,24 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     )
 
     return JSON.parse(res.toString())
+}
+
+/** Find globals by quickly skimming through the bytecode and looking for a GET_GLOBAL pattern */
+export function findGlobalsFast(bytecode?: any[]): Set<string> {
+    if (!bytecode) {
+        return new Set()
+    }
+    const globals = new Set<string>()
+    for (let i = 2; i < bytecode.length - 1; i++) {
+        if (
+            bytecode[i] === Operation.GET_GLOBAL && // current = GET_GLOBAL
+            typeof bytecode[i - 1] === 'string' && // prev = string
+            bytecode[i - 2] == Operation.STRING && // prev.prev = op.String
+            typeof bytecode[i + 1] === 'number' // next = number
+        ) {
+            globals.add(bytecode[i - 1])
+        }
+    }
+
+    return globals
 }

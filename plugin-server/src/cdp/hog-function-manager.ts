@@ -5,6 +5,7 @@ import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { HogFunctionType, IntegrationType } from './types'
+import { findGlobalsFast } from './utils'
 
 export type HogFunctionMap = Record<HogFunctionType['id'], HogFunctionType>
 export type HogFunctionCache = Record<Team['id'], HogFunctionMap>
@@ -94,7 +95,7 @@ export class HogFunctionManager {
             )
         ).rows
 
-        await this.enrichWithIntegrations(items)
+        await this.prepareHogFunctions(items)
 
         const cache: HogFunctionCache = {}
         for (const item of items) {
@@ -123,7 +124,7 @@ export class HogFunctionManager {
             )
         ).rows
 
-        await this.enrichWithIntegrations(items)
+        await this.prepareHogFunctions(items)
 
         if (!this.cache[teamId]) {
             this.cache[teamId] = {}
@@ -150,7 +151,7 @@ export class HogFunctionManager {
                 'fetchHogFunction'
             )
         ).rows
-        await this.enrichWithIntegrations(items)
+        await this.prepareHogFunctions(items)
         return items[0] ?? null
     }
 
@@ -160,13 +161,44 @@ export class HogFunctionManager {
         const items: HogFunctionType[] = Object.values(this.cache[teamId] || {})
         const itemsToReload = items.filter((item) => ids.some((id) => item.depends_on_integration_ids?.has(id)))
 
-        return this.enrichWithIntegrations(itemsToReload)
+        return this.prepareHogFunctions(itemsToReload)
     }
 
-    public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
+    public async prepareHogFunctions(items: HogFunctionType[]): Promise<void> {
         const integrationIds: number[] = []
 
         items.forEach((item) => {
+            const filtersGlobals = findGlobalsFast(item.filters?.bytecode)
+
+            // Add the hog function globals
+            let functionGlobals = findGlobalsFast(item.bytecode)
+
+            // Extend it with the inputs that are used for the function
+            Object.values(item.inputs || {}).forEach((input) => {
+                functionGlobals = functionGlobals.union(findGlobalsFast(input.bytecode))
+            })
+
+            item.used_globals = {
+                all: functionGlobals.union(filtersGlobals),
+                filters: filtersGlobals,
+                function: functionGlobals,
+            }
+        })
+
+        items.forEach((item) => {
+            // First off we find all globals used in this function - this can later be used for more efficient loading
+            const filtersGlobals = findGlobalsFast(item.filters?.bytecode)
+            let functionGlobals = findGlobalsFast(item.bytecode)
+            Object.values(item.inputs || {}).forEach((input) => {
+                functionGlobals = functionGlobals.union(findGlobalsFast(input.bytecode))
+            })
+
+            item.used_globals = {
+                all: functionGlobals.union(filtersGlobals),
+                filters: filtersGlobals,
+                function: functionGlobals,
+            }
+
             item.inputs_schema?.forEach((schema) => {
                 if (schema.type === 'integration') {
                     const input = item.inputs?.[schema.key]

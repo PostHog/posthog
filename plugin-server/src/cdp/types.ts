@@ -226,12 +226,17 @@ export type HogFunctionType = {
     inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    used_globals?: {
+        all: Set<string>
+        filters: Set<string>
+        function: Set<string>
+    }
 }
 
 export type HogFunctionInputType = {
     value: any
     secret?: boolean
-    bytecode?: HogBytecode | object
+    bytecode?: HogBytecode
 }
 
 export type IntegrationType = {

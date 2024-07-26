@@ -121,7 +121,7 @@ export class CdpApi {
             }
 
             // TODO: Type the configuration better so we don't make mistakes here
-            await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
+            await this.hogFunctionManager.prepareHogFunctions([compoundConfiguration])
 
             let response = this.hogExecutor.execute(compoundConfiguration, invocation)
             const logs: HogFunctionLogEntry[] = []
