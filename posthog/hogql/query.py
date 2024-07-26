@@ -76,9 +76,19 @@ def execute_hogql_query(
             raise ValueError(
                 f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
             )
-        if "filters" in placeholders_in_query:
+        if "filters" in placeholders_in_query or any(
+            placeholder.startswith("filters.") for placeholder in placeholders_in_query
+        ):
             select_query = replace_filters(select_query, filters, team)
-            placeholders_in_query.remove("filters")
+
+            removed_placeholders: list[str] = []
+            for placeholder in placeholders_in_query:
+                if placeholder == "filters":
+                    removed_placeholders.append(placeholder)
+                elif placeholder.startswith("filters."):
+                    removed_placeholders.append(placeholder)
+
+        placeholders_in_query = [n for n in placeholders_in_query if n not in removed_placeholders]
 
         if len(placeholders_in_query) > 0:
             if len(placeholders) == 0:
