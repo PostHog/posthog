@@ -944,7 +944,7 @@ def calculate_external_data_rows_synced() -> None:
     retry_jitter=True,
 )
 def backfill_raw_sessions_table_for_day(
-    *_: list[Any], date: datetime, team_id: Optional[int] = None, use_offline_workload: bool = True
+    *_: list[Any], date: "datetime", team_id: Optional[int] = None, use_offline_workload: bool = True
 ) -> None:
     try:
         from posthog.tasks.backfill_raw_sessions_table import run_backfill_raw_sessions_table_for_day

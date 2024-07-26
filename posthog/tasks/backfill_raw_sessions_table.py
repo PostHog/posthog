@@ -1,9 +1,8 @@
-import time
+from datetime import datetime, timedelta
 from typing import Optional
 
 import structlog
 
-from datetime import datetime, timedelta
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
@@ -20,7 +19,6 @@ SETTINGS = {
 def run_backfill_raw_sessions_table_for_day(
     date: datetime, team_id: Optional[int] = None, use_offline_workload: bool = True
 ):
-    time.sleep(10)
     logger.info(f"Starting backfill for {date.strftime('%Y-%m-%d')}")
     date_where = f"toStartOfDay(timestamp) = '{date.strftime('%Y-%m-%d')}'"
 
