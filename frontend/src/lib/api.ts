@@ -1630,8 +1630,8 @@ const api = {
     },
 
     hogFunctions: {
-        async list(): Promise<PaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest().hogFunctions().get()
+        async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().withQueryString(params).get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).get()
