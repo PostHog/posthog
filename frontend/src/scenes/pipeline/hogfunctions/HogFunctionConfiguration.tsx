@@ -325,8 +325,8 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                             {sparklineLoading ? <Spinner className="absolute bottom-0 left-0" /> : null}
                                             <Sparkline
                                                 type="bar"
-                                                className="w-full"
-                                                data={[{ name: 'Matching events', values: sparkline.data }]}
+                                                className="w-full h-20"
+                                                data={sparkline.data}
                                                 labels={sparkline.labels}
                                             />
                                         </div>
