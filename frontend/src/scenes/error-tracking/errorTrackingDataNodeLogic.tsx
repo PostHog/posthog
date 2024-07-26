@@ -4,19 +4,19 @@ import api from 'lib/api'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ErrorTrackingGroup } from '~/queries/schema'
 
-import type { errorTrackingDataLogicType } from './errorTrackingDataLogicType'
+import type { errorTrackingDataNodeLogicType } from './errorTrackingDataNodeLogicType'
 import { mergeGroups } from './utils'
 
-export interface ErrorTrackingDataLogicProps {
+export interface ErrorTrackingDataNodeLogicProps {
     query: DataNodeLogicProps['query']
     key: DataNodeLogicProps['key']
 }
 
-export const errorTrackingDataLogic = kea<errorTrackingDataLogicType>([
-    path(['scenes', 'error-tracking', 'errorTrackingDataLogic']),
-    props({} as ErrorTrackingDataLogicProps),
+export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
+    path(['scenes', 'error-tracking', 'errorTrackingDataNodeLogic']),
+    props({} as ErrorTrackingDataNodeLogicProps),
 
-    connect(({ key, query }: ErrorTrackingDataLogicProps) => ({
+    connect(({ key, query }: ErrorTrackingDataNodeLogicProps) => ({
         values: [dataNodeLogic({ key, query }), ['response']],
         actions: [dataNodeLogic({ key, query }), ['setResponse']],
     })),

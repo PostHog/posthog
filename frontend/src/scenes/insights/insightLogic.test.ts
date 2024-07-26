@@ -9,7 +9,6 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -528,7 +527,7 @@ describe('insightLogic', () => {
         logic.actions.saveInsight()
         await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
 
-        logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
+        logic.actions.updateInsight({ name: 'my new name' })
         await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.setInsight])
     })
 
@@ -552,6 +551,9 @@ describe('insightLogic', () => {
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
+            cachedInsight: {
+                id: 3,
+            },
         })
         logic.mount()
 
@@ -589,42 +591,6 @@ describe('insightLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: '/insights/12/edit' }),
             })
-    })
-
-    describe('emptyFilters', () => {
-        let theEmptyFiltersLogic: ReturnType<typeof insightLogic.build>
-        beforeEach(() => {
-            const insight = {
-                result: ['result from api'],
-            }
-            theEmptyFiltersLogic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            theEmptyFiltersLogic.mount()
-            silenceKeaLoadersErrors()
-        })
-        afterEach(resumeKeaLoadersErrors)
-
-        it('does not call the api on update when empty filters and no query', async () => {
-            await expectLogic(theEmptyFiltersLogic, () => {
-                theEmptyFiltersLogic.actions.updateInsight({
-                    name: 'name',
-                    filters: {},
-                    query: undefined,
-                })
-            }).toNotHaveDispatchedActions(['updateInsightSuccess'])
-        })
-
-        it('does call the api on update when empty filters but query is present', async () => {
-            await expectLogic(theEmptyFiltersLogic, () => {
-                theEmptyFiltersLogic.actions.updateInsight({
-                    name: 'name',
-                    filters: {},
-                    query: { kind: NodeKind.DataTableNode } as DataTableNode,
-                })
-            }).toDispatchActions(['updateInsightSuccess'])
-        })
     })
 
     describe('reacts to external changes', () => {

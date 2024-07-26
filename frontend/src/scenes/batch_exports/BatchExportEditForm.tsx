@@ -107,16 +107,6 @@ export function BatchExportGeneralEditFields({
                         <LemonInput placeholder="Name your workflow for future reference" />
                     </LemonField>
                 )}
-                {featureFlags[FEATURE_FLAGS.PERSON_BATCH_EXPORTS] && (
-                    <LemonField name="model" label="Model" info="A model defines the data that will be exported.">
-                        <LemonSelect
-                            options={[
-                                { value: 'events', label: 'Events' },
-                                { value: 'persons', label: 'Persons' },
-                            ]}
-                        />
-                    </LemonField>
-                )}
                 <div className="flex gap-2 items-start flex-wrap">
                     <LemonField
                         name="interval"
@@ -337,11 +327,11 @@ export function BatchExportsEditFields({
                 ) : batchExportConfigForm.destination === 'Snowflake' ? (
                     <>
                         <LemonField name="user" label="User">
-                            <LemonInput placeholder="my-user" />
+                            <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>
 
                         <LemonField name="password" label="Password">
-                            <LemonInput placeholder="my-password" type="password" />
+                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
                         </LemonField>
 
                         <LemonField name="account" label="Account">
@@ -388,11 +378,11 @@ export function BatchExportsEditFields({
                 ) : batchExportConfigForm.destination === 'Postgres' ? (
                     <>
                         <LemonField name="user" label="User">
-                            <LemonInput placeholder="my-user" />
+                            <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>
 
                         <LemonField name="password" label="Password">
-                            <LemonInput placeholder="my-password" type="password" />
+                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
                         </LemonField>
 
                         <LemonField name="host" label="Host">
@@ -453,11 +443,11 @@ export function BatchExportsEditFields({
                 ) : batchExportConfigForm.destination === 'Redshift' ? (
                     <>
                         <LemonField name="user" label="User">
-                            <LemonInput placeholder="my-user" />
+                            <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>
 
                         <LemonField name="password" label="Password">
-                            <LemonInput placeholder="my-password" type="password" />
+                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
                         </LemonField>
 
                         <LemonField name="host" label="Host">

@@ -1,8 +1,0 @@
-#!/bin/bash
-set -e
-
-# pass first argument to WEBPACK_HOT_RELOAD_HOST
-[ $# -ge 1 ] && export WEBPACK_HOT_RELOAD_HOST=$1
-
-pnpm install
-pnpm start-https
