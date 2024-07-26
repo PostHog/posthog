@@ -18,7 +18,7 @@ SETTINGS = {
 
 def run_backfill_raw_sessions_table_for_day(
     date: datetime, team_id: Optional[int] = None, use_offline_workload: bool = True
-):
+) -> None:
     logger.info(f"Starting backfill for {date.strftime('%Y-%m-%d')}")
     date_where = f"toStartOfDay(timestamp) = '{date.strftime('%Y-%m-%d')}'"
 
@@ -45,6 +45,6 @@ AND and(
     logger.info(f"Finished backfill for {date.strftime('%Y-%m-%d')}")
 
 
-def get_days_to_backfill(start_date: datetime, end_date: datetime):
+def get_days_to_backfill(start_date: datetime, end_date: datetime) -> list[datetime]:
     num_days = (end_date - start_date).days + 1
     return [start_date + timedelta(days=i) for i in reversed(range(num_days))]

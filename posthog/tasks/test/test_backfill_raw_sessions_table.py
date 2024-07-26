@@ -48,7 +48,7 @@ class TestBackfillRawSessionsTable(APIBaseTest):
         results = execute_hogql_query("SELECT id FROM sessions", team=self.team, modifiers=modifiers).results
         assert len(results) == 2
 
-    def test_get_dates_are_inclusive(self):
+    def test_get_dates_are_inclusive(self) -> None:
         start_date = datetime(2022, 1, 1)
         end_date = datetime(2022, 1, 3)
         dates = get_days_to_backfill(start_date, end_date)
