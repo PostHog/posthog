@@ -469,12 +469,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } catch (...) {
       throw;
     }
-    PyObject* ret = build_ast_node("ThrowStatement", "{s:N}", "expr", expr);
-    if (!ret) {
-      Py_DECREF(expr);
-      throw PyInternalError();
-    }
-    return ret;
+    RETURN_NEW_AST_NODE("ThrowStatement", "{s:N}", "expr", expr);
   }
 
   VISIT(CatchBlock) {
@@ -484,8 +479,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       catch_var = visitAsString(ctx->catchVar);
       catch_var_py = PyUnicode_FromStringAndSize(catch_var.data(), catch_var.size());
     } else {
-      catch_var_py = Py_None;
-      Py_INCREF(catch_var_py);
+      catch_var_py = Py_NewRef(Py_None);
     }
 
     PyObject* catch_type_py;
