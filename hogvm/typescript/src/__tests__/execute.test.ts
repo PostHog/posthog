@@ -531,7 +531,7 @@ describe('hogvm execute', () => {
                 maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
-                syncDuration: 0,
+                syncDuration: expect.any(Number),
             },
         })
     })
@@ -547,6 +547,45 @@ describe('hogvm execute', () => {
         expect(exec(bytecode)).toEqual({
             finished: true,
             result: '0.002',
+            state: {
+                asyncSteps: 0,
+                bytecode: [],
+                callStack: [],
+                declaredFunctions: {},
+                ip: -1,
+                maxMemUsed: 13,
+                ops: 2,
+                stack: [],
+                throwStack: [],
+                syncDuration: expect.any(Number),
+            },
+        })
+    })
+    test('exec runs at sync return', () => {
+        const bytecode = [
+            '_h',
+            33,
+            0.002, // seconds to sleep
+            2,
+            'toString',
+            1,
+            op.RETURN,
+        ]
+        expect(exec(bytecode)).toEqual({
+            finished: true,
+            result: '0.002',
+            state: {
+                asyncSteps: 0,
+                bytecode: [],
+                callStack: [],
+                declaredFunctions: {},
+                ip: -1,
+                maxMemUsed: 13,
+                ops: 3,
+                stack: [],
+                throwStack: [],
+                syncDuration: expect.any(Number),
+            },
         })
     })
     test('test bytecode dicts', () => {

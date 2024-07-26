@@ -148,6 +148,8 @@ abstract class CdpConsumerBase {
                     value: Buffer.from(JSON.stringify(x.value)),
                     key: x.key,
                     waitForAck: true,
+                }).catch((reason) => {
+                    status.error('⚠️', `failed to produce message: ${reason}`)
                 })
             )
         )

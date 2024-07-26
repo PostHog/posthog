@@ -9,6 +9,7 @@ import {
     LemonSwitch,
     LemonTextArea,
     Link,
+    Spinner,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -16,6 +17,7 @@ import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -34,6 +36,8 @@ import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 
+const EVENT_THRESHOLD_ALERT_LEVEL = 8000
+
 export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
@@ -49,6 +53,8 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         exampleInvocationGlobalsWithInputs,
         showPaygate,
         hasAddon,
+        sparkline,
+        sparklineLoading,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -293,6 +299,44 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 <p className="italic text-muted-alt">
                                     This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
+                            </div>
+                            <div className="border bg-bg-light rounded p-3 space-y-2">
+                                <LemonLabel>Expected volume</LemonLabel>
+                                {sparkline ? (
+                                    <>
+                                        {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                                            <LemonBanner type="warning">
+                                                <b>Warning:</b> This destination would have triggered{' '}
+                                                <strong>
+                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                </strong>{' '}
+                                                in the last 7 days. Consider the impact of this function on your
+                                                destination.
+                                            </LemonBanner>
+                                        ) : (
+                                            <p>
+                                                This destination would have triggered{' '}
+                                                <strong>
+                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                </strong>{' '}
+                                                in the last 7 days.
+                                            </p>
+                                        )}
+                                        <div className="relative">
+                                            {sparklineLoading ? <Spinner className="absolute bottom-0 left-0" /> : null}
+                                            <Sparkline
+                                                type="bar"
+                                                className="w-full"
+                                                data={[{ name: 'Matching events', values: sparkline.data }]}
+                                                labels={sparkline.labels}
+                                            />
+                                        </div>
+                                    </>
+                                ) : sparklineLoading ? (
+                                    <div>
+                                        <Spinner />
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
 

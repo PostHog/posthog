@@ -30,7 +30,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "alert"
+    scope_object = "INTERNAL"
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
 

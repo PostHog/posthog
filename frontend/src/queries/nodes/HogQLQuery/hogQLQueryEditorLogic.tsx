@@ -35,6 +35,14 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     props({} as HogQLQueryEditorLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
+        const selection = props.editor?.getSelection()
+        const model = props.editor?.getModel()
+        const highlightedQuery = selection && model ? model.getValueInRange(selection) : null
+
+        if (highlightedQuery && props.query.query === highlightedQuery) {
+            return
+        }
+
         if (props.query.query !== oldProps.query.query || props.editor !== oldProps.editor) {
             actions.setQueryInput(props.query.query)
         }
@@ -43,7 +51,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery'], dataWarehouseSceneLogic, ['updateView']],
     }),
     actions({
-        saveQuery: true,
+        saveQuery: (queryOverride?: string) => ({ queryOverride }),
         setQueryInput: (queryInput: string) => ({ queryInput }),
         setPrompt: (prompt: string) => ({ prompt }),
         setPromptError: (error: string | null) => ({ error }),
@@ -66,11 +74,12 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
     }),
     listeners(({ actions, props, values }) => ({
-        saveQuery: () => {
+        saveQuery: ({ queryOverride }) => {
             const query = values.queryInput
             // TODO: Is below line necessary if the only way for queryInput to change is already through setQueryInput?
             actions.setQueryInput(query)
-            props.setQuery?.({ ...props.query, query })
+
+            props.setQuery?.({ ...props.query, query: queryOverride ?? query })
         },
         setQueryInput: async ({ queryInput }) => {
             props.onChange?.(queryInput)

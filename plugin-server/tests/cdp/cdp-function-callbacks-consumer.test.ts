@@ -163,7 +163,7 @@ describe('CDP Processed Events Consuner', () => {
                     {
                         log_source: 'hog_function',
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
                     },
                     {
                         log_source: 'hog_function',
@@ -188,7 +188,7 @@ describe('CDP Processed Events Consuner', () => {
                     {
                         log_source: 'hog_function',
                         level: 'debug',
-                        message: expect.stringContaining('Function completed. Processing time'),
+                        message: expect.stringContaining('Function completed in '),
                     },
                 ],
             })
@@ -218,7 +218,7 @@ describe('CDP Processed Events Consuner', () => {
                     {
                         log_source: 'hog_function',
                         level: 'debug',
-                        message: "Suspending function due to async function call 'fetch'",
+                        message: "Suspending function due to async function call 'fetch'. Payload: 1140 bytes",
                     },
                     {
                         log_source: 'hog_function',
@@ -233,7 +233,7 @@ describe('CDP Processed Events Consuner', () => {
                     {
                         log_source: 'hog_function',
                         level: 'debug',
-                        message: expect.stringContaining('Function completed. Processing time'),
+                        message: expect.stringContaining('Function completed in'),
                     },
                 ],
             })

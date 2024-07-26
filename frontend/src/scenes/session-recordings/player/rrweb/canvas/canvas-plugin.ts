@@ -165,7 +165,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                 },
                 // ensures transparency is possible
                 'image/webp',
-                0.5
+                0.4
             )
         }
     }
