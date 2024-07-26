@@ -189,8 +189,6 @@ export class HogExecutor {
         if (!invocation.hogFunctionId) {
             throw new Error('No hog function id provided')
         }
-        // TODO: Figure out timings
-        // timings: invocation.asyncFunctionResponse.timings,
 
         const errorRes = (error = 'Something went wrong'): HogFunctionInvocationResult => ({
             invocation,
