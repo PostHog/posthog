@@ -62,7 +62,7 @@ export const hogFunctionIconLogic = kea<hogFunctionIconLogicType>([
         ],
     })),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions }) => ({
         setShowPopover: ({ show }) => {
             if (show) {
                 actions.loadPossibleIcons()
