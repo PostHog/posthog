@@ -146,7 +146,6 @@ export const insightLogic = kea<insightLogicType>([
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
-                    console.debug('setInsightMetadata')
                     const editMode =
                         insightSceneLogic.isMounted() &&
                         insightSceneLogic.values.queryBasedInsight === values.queryBasedInsight &&
@@ -166,7 +165,6 @@ export const insightLogic = kea<insightLogicType>([
                         readAsQuery: false,
                     })
                     breakpoint()
-                    console.debug('response', response)
 
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     dashboardsModel.actions.updateDashboardInsight(response)
@@ -220,7 +218,7 @@ export const insightLogic = kea<insightLogicType>([
                     query: clearInsightQuery ? undefined : state.query,
                 }
             },
-            setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
+            setInsightMetadata: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
