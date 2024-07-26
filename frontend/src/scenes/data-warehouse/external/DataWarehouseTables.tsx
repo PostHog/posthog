@@ -1,4 +1,4 @@
-import { IconBrackets, IconChevronDown, IconDatabase, IconGear } from '@posthog/icons'
+import { IconBrackets, IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -225,7 +225,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     return (
         <div
             className={clsx(
-                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto max-h-screen`,
+                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : 'flex-0'
             )}
         >
@@ -233,35 +233,8 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
             ) : (
                 <>
-                    <LemonButton
-                        size="xsmall"
-                        onClick={() => setCollapsed(true)}
-                        fullWidth
-                        sideIcon={
-                            <div className="flex flex-row gap-1">
-                                <LemonButton
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        router.actions.push(urls.dataWarehouseTable())
-                                    }}
-                                    type="primary"
-                                    size="xsmall"
-                                >
-                                    Link source
-                                </LemonButton>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="primary"
-                                    icon={<IconGear />}
-                                    data-attr="new-data-warehouse-settings-link"
-                                    key="new-data-warehouse-settings-link"
-                                    onClick={() => router.actions.push(urls.dataWarehouseSettings())}
-                                />
-                                <IconChevronDown className="rotate-90 text-xl" />
-                            </div>
-                        }
-                    >
-                        <span className="uppercase text-muted-alt tracking-wider">Schemas</span>
+                    <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth>
+                        <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>

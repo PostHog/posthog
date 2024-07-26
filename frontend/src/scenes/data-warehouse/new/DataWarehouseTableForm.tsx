@@ -92,6 +92,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                             { label: 'CSV', value: 'CSV' },
                             { label: 'CSV with headers', value: 'CSVWithNames' },
                             { label: 'JSON', value: 'JSONEachRow' },
+                            { label: 'Delta', value: 'Delta' },
                         ]}
                     />
                 </LemonField>

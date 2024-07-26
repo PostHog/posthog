@@ -21,6 +21,8 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
 from posthog.hogql.database.database import create_hogql_database
+from posthog.temporal.data_imports.pipelines.stripe import validate_credentials as validate_stripe_credentials
+from posthog.temporal.data_imports.pipelines.zendesk import validate_credentials as validate_zendesk_credentials
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
@@ -71,8 +73,26 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataJob
-        fields = ["id", "created_at", "created_by", "status", "schema", "rows_synced", "latest_error"]
-        read_only_fields = ["id", "created_at", "created_by", "status", "schema", "rows_synced", "latest_error"]
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "schema",
+            "rows_synced",
+            "latest_error",
+            "workflow_run_id",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "schema",
+            "rows_synced",
+            "latest_error",
+            "workflow_run_id",
+        ]
 
     def get_schema(self, instance: ExternalDataJob):
         return SimpleExternalDataSchemaSerializer(
@@ -317,7 +337,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         client_secret = payload.get("client_secret")
-        account_id = payload.get("account_id")
+        account_id = payload.get("account_id", None)
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -570,6 +590,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Missing required parameter: source_type"},
             )
 
+        # Validate sourced credentials
+        if source_type == ExternalDataSource.Type.STRIPE:
+            key = request.data.get("client_secret", "")
+            if not validate_stripe_credentials(api_key=key):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Stripe secret is incorrect"},
+                )
+        elif source_type == ExternalDataSource.Type.ZENDESK:
+            subdomain = request.data.get("subdomain", "")
+            api_key = request.data.get("api_key", "")
+            email_address = request.data.get("email_address", "")
+            if not validate_zendesk_credentials(subdomain=subdomain, api_key=api_key, email_address=email_address):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
+                )
+
+        # Get schemas and validate SQL credentials
         if source_type == ExternalDataSource.Type.POSTGRES:
             host = request.data.get("host", None)
             port = request.data.get("port", None)

@@ -120,7 +120,7 @@ class Breakdown:
                 breakdowns.append(
                     self._get_breakdown_col_expr(
                         self._get_multiple_breakdown_alias_name(idx + 1),
-                        value=breakdown.value,
+                        value=breakdown.property,
                         breakdown_type=breakdown.type,
                         normalize_url=breakdown.normalize_url,
                         histogram_bin_count=breakdown.histogram_bin_count,
@@ -233,7 +233,7 @@ class Breakdown:
                     cast(list[BreakdownSchema], self._breakdown_filter.breakdowns), lookup_values
                 ):
                     actors_filter = self._get_actors_query_where_expr(
-                        breakdown_value=breakdown.value,
+                        breakdown_value=breakdown.property,
                         breakdown_type=breakdown.type,
                         lookup_value=str(
                             lookup_value
@@ -274,6 +274,9 @@ class Breakdown:
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
+        if lookup_value == BREAKDOWN_OTHER_STRING_LABEL:
+            return None
+
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
         if breakdown_type == "hogql":
@@ -383,7 +386,7 @@ class Breakdown:
             group_type_index=group_type_index,
         )
 
-        if histogram_bin_count is not None and not self.ignore_histogram_bin_count:
+        if histogram_bin_count is not None:
             return ast.Alias(
                 alias=alias,
                 expr=ast.Field(chain=properties_chain),
@@ -416,10 +419,3 @@ class Breakdown:
             else None
         )
         return TrendsDisplay(display)
-
-    @property
-    def ignore_histogram_bin_count(self):
-        """
-        For "Total Value" display options `histogram_bin_count` doesn't apply.
-        """
-        return self._trends_display.is_total_value()

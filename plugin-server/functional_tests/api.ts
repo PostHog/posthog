@@ -64,6 +64,8 @@ export const capture = async ({
     $set_once = undefined,
     topic = ['$performance_event', '$snapshot_items'].includes(event)
         ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        : ['$$client_ingestion_warning'].includes(event)
+        ? 'client_iwarnings_ingestion'
         : 'events_plugin_ingestion',
 }: {
     teamId: number | null
@@ -266,6 +268,16 @@ export const reloadAction = async (teamId: number, actionId: number) => {
     await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
 }
 
+export const fetchIngestionWarnings = async (teamId: number) => {
+    const queryResult = (await clickHouseClient.querying(`
+        SELECT *,
+        FROM ingestion_warnings
+        WHERE team_id = ${teamId}
+        ORDER BY timestamp ASC
+    `)) as unknown as ClickHouse.ObjectQueryResult<any>
+    return queryResult.data.map((warning) => ({ ...warning, details: JSON.parse(warning.details) }))
+}
+
 export const fetchEvents = async (teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
         SELECT *,
@@ -297,6 +309,44 @@ export const fetchGroups = async (teamId: number) => {
         `SELECT * FROM groups WHERE team_id = ${teamId} ORDER BY created_at ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<any>
     return queryResult.data.map((group) => ({ ...group, group_properties: JSON.parse(group.group_properties) }))
+}
+
+export const createGroupType = async (teamId: number, index: number, groupType: string) => {
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `
+        INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
+        VALUES ($1, $2, $3)
+        `,
+        [teamId, groupType, index],
+        'insertGroupType'
+    )
+}
+
+export const createGroup = async (
+    teamId: number,
+    groupTypeIndex: number,
+    groupKey: string,
+    groupProperties: Record<string, any>
+) => {
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `,
+        [
+            teamId,
+            groupKey,
+            groupTypeIndex,
+            JSON.stringify(groupProperties),
+            new Date().toISOString(),
+            JSON.stringify({}),
+            JSON.stringify({}),
+            1,
+        ],
+        'upsertGroup'
+    )
 }
 
 export const fetchPostgresPersons = async (teamId: number) => {

@@ -20,9 +20,10 @@ import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
@@ -158,15 +159,16 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { openEmailForm, closeEmailForm } = useActions(supportLogic)
-    const { isEmailFormOpen } = useValues(supportLogic)
     const { preflight, isCloud } = useValues(preflightLogic)
-    const { user } = useValues(userLogic)
-    const region = preflight?.region
+    const { currentOrganization } = useValues(organizationLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { title } = useValues(theLogic)
+    const { openEmailForm, closeEmailForm } = useActions(theLogic)
+    const { title, isEmailFormOpen } = useValues(theLogic)
+
+    const region = preflight?.region
 
     return (
         <>
@@ -280,7 +282,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                             type="secondary"
                                             status="alt"
                                             to={`https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml&debug-info=${encodeURIComponent(
-                                                getPublicSupportSnippet(region, user)
+                                                getPublicSupportSnippet(region, currentOrganization, currentTeam)
                                             )}`}
                                             icon={<IconFeatures />}
                                             targetBlank

@@ -26,7 +26,7 @@ from posthog.client import sync_execute
 from posthog.models import Action
 from posthog.constants import AvailableFeature
 from posthog.exceptions import generate_exception_response
-from posthog.models.activity_logging.activity_log import changes_between, load_activity, log_activity, Detail
+from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity, log_activity, Detail
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
@@ -317,8 +317,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
+        changes = []
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
+                # Manually delete the flag and log the change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(type="Survey", field="targeting_flag", action="deleted", before=instance.targeting_flag)
+                )
                 instance.targeting_flag.delete()
                 validated_data["targeting_flag_id"] = None
             validated_data.pop("remove_targeting_flag")
@@ -331,14 +338,33 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             new_filters = validated_data["targeting_flag_filters"]
             if instance.targeting_flag:
                 existing_targeting_flag = instance.targeting_flag
+                existing_targeting_flag_filters = existing_targeting_flag.filters
                 serialized_data_filters = {
-                    **existing_targeting_flag.filters,
+                    **existing_targeting_flag_filters,
                     **new_filters,
                 }
+                # Log the existing filter change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(
+                        type="Survey",
+                        field="targeting_flag_filters",
+                        action="changed",
+                        before=existing_targeting_flag_filters,
+                        after=new_filters,
+                    )
+                )
                 self._create_or_update_targeting_flag(instance.targeting_flag, serialized_data_filters)
             else:
                 new_flag = self._create_or_update_targeting_flag(
                     None, new_filters, instance.name, bool(instance.start_date)
+                )
+                # Log the new filter change
+                # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
+                # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
+                changes.append(
+                    Change(type="Survey", field="targeting_flag_filters", action="created", after=new_filters)
                 )
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
@@ -355,7 +381,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         iteration_count = validated_data.get("iteration_count")
         if instance.current_iteration is not None and instance.current_iteration > iteration_count > 0:
             raise serializers.ValidationError(
-                f"Cannot change survey recurrence to {validated_data.get('iteration_count')}, should be at least {instance.current_iteration}"
+                f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
             )
 
         instance.iteration_count = iteration_count
@@ -363,10 +389,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         instance = super().update(instance, validated_data)
 
-        self._add_user_survey_interacted_filters(instance, end_date)
-        self._associate_actions(instance, validated_data.get("conditions"))
         team = Team.objects.get(id=self.context["team_id"])
-        changes = changes_between("Survey", previous=before_update, current=instance)
+        # `changes_between` will not catch changes to the ForeignKey relationships
+        # so it's useful for any changes to the Survey model itself, but not for the related models
+        non_foreign_table_relation_changes = changes_between(
+            "Survey",
+            previous=before_update,
+            current=instance,
+        )
+        changes.extend(non_foreign_table_relation_changes)
         log_activity(
             organization_id=team.organization_id,
             team_id=self.context["team_id"],
@@ -377,6 +408,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             activity="updated",
             detail=Detail(changes=changes, name=instance.name),
         )
+
+        self._add_user_survey_interacted_filters(instance, end_date)
+        self._associate_actions(instance, validated_data.get("conditions"))
         return instance
 
     def _associate_actions(self, instance: Survey, conditions):

@@ -36,6 +36,7 @@ class AvailableFeature(StrEnum):
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
+    DATA_PIPELINES = "data_pipelines"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

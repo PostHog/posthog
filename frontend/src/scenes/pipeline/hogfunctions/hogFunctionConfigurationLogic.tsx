@@ -10,9 +10,11 @@ import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
+    AvailableFeature,
     FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
@@ -121,12 +123,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         return id ?? templateId ?? 'new'
     }),
     connect({
-        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
+        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes'], userLogic, ['hasAvailableFeature']],
     }),
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
-    connect({
-        values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes']],
-    }),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: (configuration?: HogFunctionConfigurationType) => ({ configuration }),
@@ -205,9 +204,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             submit: async (data) => {
                 const payload = sanitizeConfiguration(data)
 
-                if (props.templateId) {
-                    // Only sent on create
-                    ;(payload as any).template_id = props.templateId
+                // Only sent on create
+                ;(payload as any).template_id = props.templateId || values.hogFunction?.template?.id
+
+                if (!values.hasAddon) {
+                    // Remove the source field if the user doesn't have the addon
+                    delete payload.hog
+                    delete payload.inputs_schema
                 }
 
                 await asyncActions.upsertHogFunction(payload)
@@ -215,6 +218,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
+        hasAddon: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => {
+                return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+            },
+        ],
+        showPaygate: [
+            (s) => [s.template, s.hasAddon],
+            (template, hasAddon) => {
+                return template && template.status !== 'free' && !hasAddon
+            },
+        ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
             (template, hogFunction): HogFunctionConfigurationType => {
@@ -385,10 +400,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         resetForm: () => {
-            actions.resetConfiguration({
+            const config = {
                 ...values.defaultFormState,
                 ...(cache.configFromUrl || {}),
-            })
+            }
+
+            const paramsFromUrl = cache.paramsFromUrl ?? {}
+            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                config.inputs[paramsFromUrl.integration_target] = {
+                    value: paramsFromUrl.integration_id,
+                }
+            }
+
+            actions.resetConfiguration(config)
         },
 
         duplicate: async () => {
@@ -473,16 +497,30 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     afterMount(({ props, actions, cache }) => {
+        cache.paramsFromUrl = {
+            integration_id: router.values.searchParams.integration_id,
+            integration_target: router.values.searchParams.integration_target,
+        }
+
         if (props.templateId) {
             cache.configFromUrl = router.values.hashParams.configuration
             actions.loadTemplate() // comes with plugin info
         } else if (props.id) {
             actions.loadHogFunction()
         }
+
+        if (router.values.searchParams.integration_target) {
+            // Clear query params so we don't keep trying to set the integration
+            router.actions.replace(router.values.location.pathname, undefined, router.values.hashParams)
+        }
     }),
 
     subscriptions(({ props, cache }) => ({
         configuration: (configuration) => {
+            if (!Object.keys(configuration).length) {
+                return
+            }
+
             if (props.templateId) {
                 // Sync state to the URL bar if new
                 cache.ignoreUrlChange = true

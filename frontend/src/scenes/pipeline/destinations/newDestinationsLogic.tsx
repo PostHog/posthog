@@ -26,7 +26,7 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha'
+    status?: 'stable' | 'beta' | 'alpha' | 'free'
 }
 
 export type NewDestinationFilters = {
@@ -103,13 +103,6 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             (s) => [s.plugins, s.hogFunctionTemplates, s.batchExportServiceNames, router.selectors.hashParams],
             (plugins, hogFunctionTemplates, batchExportServiceNames, hashParams): NewDestinationItemType[] => {
                 return [
-                    ...Object.values(plugins).map((plugin) => ({
-                        icon: <RenderApp plugin={plugin} />,
-                        name: plugin.name,
-                        description: plugin.description || '',
-                        backend: PipelineBackend.Plugin,
-                        url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
-                    })),
                     ...Object.values(hogFunctionTemplates).map((hogFunction) => ({
                         icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
                         name: hogFunction.name,
@@ -122,6 +115,14 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         ).url,
                         status: hogFunction.status,
                     })),
+                    ...Object.values(plugins).map((plugin) => ({
+                        icon: <RenderApp plugin={plugin} />,
+                        name: plugin.name,
+                        description: plugin.description || '',
+                        backend: PipelineBackend.Plugin,
+                        url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
+                    })),
+
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
                         name: service,

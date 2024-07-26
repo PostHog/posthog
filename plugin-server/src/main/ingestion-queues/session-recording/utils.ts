@@ -1,6 +1,6 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
+import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-rdkafka'
 import path from 'path'
 import { Counter } from 'prom-client'
 
@@ -78,32 +78,6 @@ export const queryWatermarkOffsets = (
             }
 
             resolve([partition, offsets.highOffset])
-        })
-    })
-}
-
-export const queryCommittedOffsets = (
-    kafkaConsumer: KafkaConsumer | undefined,
-    topicPartitions: TopicPartition[]
-): Promise<Record<number, number>> => {
-    return new Promise<Record<number, number>>((resolve, reject) => {
-        if (!kafkaConsumer) {
-            return reject('Not connected')
-        }
-
-        kafkaConsumer.committed(topicPartitions, 10000, (err, offsets) => {
-            if (err) {
-                captureException(err)
-                status.error('🔥', 'Failed to query kafka committed offsets', err)
-                return reject(err)
-            }
-
-            resolve(
-                offsets.reduce((acc, { partition, offset }) => {
-                    acc[partition] = offset
-                    return acc
-                }, {} as Record<number, number>)
-            )
         })
     })
 }

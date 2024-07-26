@@ -82,6 +82,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
+from posthog.utils import get_instance_region
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -248,7 +249,9 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
+    if modifiers.sessionTableVersion == SessionTableVersion.V2 or (
+        get_instance_region() == "EU" and modifiers.sessionTableVersion == SessionTableVersion.AUTO
+    ):
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
         sessions = SessionsTableV2()
@@ -442,6 +445,14 @@ def create_hogql_database(
                             join_table=joining_table,
                             join_function=join.join_function(),
                         )
+                elif isinstance(person_field, ast.LazyJoin):
+                    person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
+                        from_field=from_field,
+                        to_field=to_field,
+                        join_table=joining_table,
+                        join_function=join.join_function(),
+                    )
+
         except Exception as e:
             capture_exception(e)
 
