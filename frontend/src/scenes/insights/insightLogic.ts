@@ -39,15 +39,9 @@ import {
 import { teamLogic } from '../teamLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
+import { insightsApi } from './utils/api'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
-
-function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
-    return (
-        !filters ||
-        (Object.keys(filters).length < 2 && JSON.stringify(cleanFilters(filters)) === JSON.stringify(cleanFilters({})))
-    )
-}
 
 export const createEmptyInsight = (
     insightId: InsightShortId | `new-${string}` | 'new',
@@ -102,8 +96,8 @@ export const insightLogic = kea<insightLogicType>([
         loadInsight: (shortId: InsightShortId) => ({
             shortId,
         }),
-        updateInsight: (insight: Partial<InsightModel>, callback?: (insight: Partial<InsightModel>) => void) => ({
-            insight,
+        updateInsight: (insightUpdate: Partial<QueryBasedInsightModel>, callback?: () => void) => ({
+            insightUpdate,
             callback,
         }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
@@ -126,35 +120,23 @@ export const insightLogic = kea<insightLogicType>([
                     }
                     throw new Error(`Insight "${shortId}" not found`)
                 },
-                updateInsight: async ({ insight, callback }, breakpoint) => {
-                    if (!Object.entries(insight).length) {
+                updateInsight: async ({ insightUpdate, callback }, breakpoint) => {
+                    if (!Object.entries(insightUpdate).length) {
                         return values.legacyInsight
                     }
 
-                    if ('filters' in insight && !insight.query && emptyFilters(insight.filters)) {
-                        const error = new Error('Will not override empty filters in updateInsight.')
-                        captureException(error, {
-                            extra: {
-                                filters: JSON.stringify(insight.filters),
-                                insight: JSON.stringify(insight),
-                                valuesInsight: JSON.stringify(values.legacyInsight),
-                            },
-                        })
-                        throw error
-                    }
-
-                    const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.legacyInsight.id}`,
-                        insight
-                    )
+                    const response = await insightsApi.update(values.queryBasedInsight.id, insightUpdate, {
+                        writeAsQuery: values.queryBasedInsightSaving,
+                        readAsQuery: false,
+                    })
                     breakpoint()
                     const updatedInsight: InsightModel = {
                         ...response,
                         result: response.result || values.legacyInsight.result,
                     }
-                    callback?.(updatedInsight)
+                    callback?.()
 
-                    const removedDashboards = (values.legacyInsight.dashboards || []).filter(
+                    const removedDashboards = (values.queryBasedInsight.dashboards || []).filter(
                         (d) => !updatedInsight.dashboards?.includes(d)
                     )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
