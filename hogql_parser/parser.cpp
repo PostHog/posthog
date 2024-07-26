@@ -2484,8 +2484,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     auto tag_element_ctx = ctx->hogqlxTagElement();
+    auto column_expr_ctx = ctx->columnExpr();
     auto tag_attribute_ctx = ctx->hogqlxTagAttribute();
-    PyObject* attributes = PyList_New(tag_attribute_ctx.size() + (tag_element_ctx ? 1 : 0));
+    PyObject* attributes = PyList_New(tag_attribute_ctx.size() + (tag_element_ctx || column_expr_ctx ? 1 : 0));
     if (!attributes) throw PyInternalError();
     bool found_source = false;
     for (size_t i = 0; i < tag_attribute_ctx.size(); i++) {
@@ -2528,6 +2529,19 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
       PyObject* source_attribute = build_ast_node(
           "HogQLXAttribute", "{s:s#,s:N}", "name", "source", 6, "value", visitAsPyObject(ctx->hogqlxTagElement())
+      );
+      if (!source_attribute) {
+        Py_DECREF(attributes);
+        throw PyInternalError();
+      }
+      PyList_SET_ITEM(attributes, tag_attribute_ctx.size(), source_attribute);
+    } else if (column_expr_ctx) {
+      if (found_source) {
+        Py_DECREF(attributes);
+        throw SyntaxError("Nested HogQLX tags cannot have a source attribute");
+      }
+      PyObject* source_attribute = build_ast_node(
+          "HogQLXAttribute", "{s:s#,s:N}", "name", "source", 6, "value", visitAsPyObject(ctx->columnExpr())
       );
       if (!source_attribute) {
         Py_DECREF(attributes);

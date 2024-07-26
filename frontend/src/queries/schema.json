@@ -7669,6 +7669,7 @@
                     "type": "integer"
                 },
                 "end_time": {
+                    "description": "When did the query execution task finish (whether successfully or not).",
                     "format": "date-time",
                     "type": "string"
                 },
@@ -7697,6 +7698,11 @@
                     },
                     "type": "array"
                 },
+                "pickup_time": {
+                    "description": "When was the query execution task picked up by a worker.",
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "query_async": {
                     "const": true,
                     "default": true,
@@ -7708,6 +7714,7 @@
                 },
                 "results": {},
                 "start_time": {
+                    "description": "When was query execution task enqueued.",
                     "format": "date-time",
                     "type": "string"
                 },

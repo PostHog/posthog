@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
-export default function PostgresSchemaForm(): JSX.Element {
+export default function SchemaForm(): JSX.Element {
     const { toggleSchemaShouldSync, openSyncMethodModal } = useActions(sourceWizardLogic)
     const { databaseSchema } = useValues(sourceWizardLogic)
 
@@ -26,6 +26,11 @@ export default function PostgresSchemaForm(): JSX.Element {
                                             onChange={(checked) => {
                                                 toggleSchemaShouldSync(schema, checked)
                                             }}
+                                            disabledReason={
+                                                schema.sync_type === null
+                                                    ? 'Please set up a sync method first'
+                                                    : undefined
+                                            }
                                         />
                                     )
                                 },
