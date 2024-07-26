@@ -1,7 +1,7 @@
 import type { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 // Note: we can only import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -15,13 +15,15 @@ import type { editor } from 'monaco-editor'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataWarehouseTab } from '~/types'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 
 export interface HogQLQueryEditorLogicProps {
-    key: number
+    key: string | number
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
     onChange?: (query: string) => void
@@ -64,6 +66,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     })),
     selectors({
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
+        multitab: [
+            () => [],
+            () => router.values.location.pathname.includes(urls.dataWarehouse(DataWarehouseTab.Explore)),
+        ],
     }),
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {

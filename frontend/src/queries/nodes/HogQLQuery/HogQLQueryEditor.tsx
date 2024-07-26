@@ -3,17 +3,20 @@ import { IconMagicWand, IconPlus, IconX } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import { activemodelStateKey, codeEditorLogic, editorModelsStateKey } from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable, Uri } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { urls } from 'scenes/urls'
 
 import { HogQLQuery } from '~/queries/schema'
+import { DataWarehouseTab } from '~/types'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 
@@ -32,7 +35,11 @@ const EDITOR_HEIGHT = 222
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
 
-    const [key] = useState(() => uniqueNode++)
+    const [key] = useState(() =>
+        router.values.location.pathname.includes(urls.dataWarehouse(DataWarehouseTab.Explore))
+            ? urls.dataWarehouse(DataWarehouseTab.Explore)
+            : uniqueNode++
+    )
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
@@ -46,7 +53,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         monaco,
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
-    const { queryInput, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
+    const { queryInput, prompt, aiAvailable, promptError, promptLoading, multitab } = useValues(logic)
+
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
@@ -59,7 +67,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { hasErrors, error, isValidView, activeModelUri, allModels } = useValues(
         codeEditorLogic(codeEditorLogicProps)
     )
-    const { createModel, setModel, deleteModel } = useActions(codeEditorLogic(codeEditorLogicProps))
+
+    const { createModel, setModel, deleteModel, setModels, addModel, updateState } = useActions(
+        codeEditorLogic(codeEditorLogicProps)
+    )
 
     const { editingView } = useValues(dataWarehouseSceneLogic)
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -125,23 +136,25 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
                 <div className="relative flex-1 overflow-hidden flex-col">
-                    <div className="flex flex-row overflow-scroll hide-scrollbar">
-                        {allModels.map((model) => (
-                            <QueryTab
-                                key={model.path}
-                                active={model === activeModelUri}
-                                model={model}
-                                onClick={setModel}
-                                onClear={allModels.length > 1 ? deleteModel : undefined}
+                    {multitab && (
+                        <div className="flex flex-row overflow-scroll hide-scrollbar">
+                            {allModels.map((model) => (
+                                <QueryTab
+                                    key={model.path}
+                                    active={model.path === activeModelUri?.path}
+                                    model={model}
+                                    onClick={setModel}
+                                    onClear={allModels.length > 1 ? deleteModel : undefined}
+                                />
+                            ))}
+                            <LemonButton
+                                onClick={() => {
+                                    createModel()
+                                }}
+                                icon={<IconPlus fontSize={14} />}
                             />
-                        ))}
-                        <LemonButton
-                            onClick={() => {
-                                createModel()
-                            }}
-                            icon={<IconPlus fontSize={14} />}
-                        />
-                    </div>
+                        </div>
+                    )}
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
@@ -149,7 +162,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             className="border rounded-b overflow-hidden h-full"
                             language="hogQL"
                             value={queryInput}
-                            onChange={(v) => setQueryInput(v ?? '')}
+                            onChange={(v) => {
+                                setQueryInput(v ?? '')
+                                updateState()
+                            }}
                             height="100%"
                             onMount={(editor, monaco) => {
                                 monacoDisposables.current.push(
@@ -161,6 +177,48 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     })
                                 )
                                 setMonacoAndEditor([monaco, editor])
+
+                                const allModelQueries = localStorage.getItem(editorModelsStateKey(codeEditorKey))
+                                const activeModelUri = localStorage.getItem(activemodelStateKey(codeEditorKey))
+
+                                if (allModelQueries && multitab) {
+                                    // clear existing models
+                                    monaco.editor.getModels().forEach((model) => {
+                                        model.dispose()
+                                    })
+
+                                    const models = JSON.parse(allModelQueries || '[]')
+                                    const newModels: Uri[] = []
+
+                                    models.forEach((model: Record<string, any>) => {
+                                        if (monaco) {
+                                            const uri = monaco.Uri.parse(model.path)
+                                            const newModel = monaco.editor.createModel(model.query, 'hogQL', uri)
+                                            editor?.setModel(newModel)
+                                            newModels.push(uri)
+                                        }
+                                    })
+
+                                    setModels(newModels)
+
+                                    if (activeModelUri) {
+                                        const uri = monaco.Uri.parse(activeModelUri)
+                                        const activeModel = monaco.editor
+                                            .getModels()
+                                            .find((model) => model.uri.path === uri.path)
+                                        activeModel && editor?.setModel(activeModel)
+                                        setModel(uri)
+                                    } else if (newModels.length) {
+                                        setModel(newModels[0])
+                                    }
+                                } else {
+                                    const model = editor.getModel()
+
+                                    if (model) {
+                                        addModel(model.uri)
+                                        setModel(model.uri)
+                                    }
+                                }
                             }}
                             options={{
                                 minimap: {

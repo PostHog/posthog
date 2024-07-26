@@ -10,9 +10,11 @@ import { loaders } from 'kea-loaders'
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
 import { editor, MarkerSeverity, Uri } from 'monaco-editor'
 
+import { examples } from '~/queries/examples'
 import { performQuery } from '~/queries/query'
 import {
     AnyDataNode,
+    DataVisualizationNode,
     HogLanguage,
     HogQLFilters,
     HogQLMetadata,
@@ -22,6 +24,9 @@ import {
 } from '~/queries/schema'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
+
+export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
+export const activemodelStateKey = (key: string | number): string => `${key}/activeModelUri`
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 
@@ -53,6 +58,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         setModel: (modelName: Uri) => ({ modelName }),
         deleteModel: (modelName: Uri) => ({ modelName }),
         removeModel: (modelName: Uri) => ({ modelName }),
+        setModels: (models: Uri[]) => ({ models }),
+        updateState: true,
     }),
     loaders(({ props }) => ({
         metadata: [
@@ -124,38 +131,51 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             },
         ],
     })),
-    reducers({
-        modelCount: [
-            0,
-            {
-                createModel: (state) => state + 1,
-            },
-        ],
+    reducers(({ props }) => ({
         activeModelUri: [
             null as null | Uri,
             {
-                setModel: (_, { modelName }) => modelName,
+                setModel: (_, { modelName }) => {
+                    const path = modelName.path.split('/').pop()
+                    path && localStorage.setItem(activemodelStateKey(props.key), path)
+                    return modelName
+                },
             },
         ],
         allModels: [
             [] as Uri[],
             {
-                addModel: (state, { modelName }) => [...state, modelName],
-                removeModel: (state, { modelName }) =>
-                    state.filter((model) => model.toString() !== modelName.toString()),
+                addModel: (state, { modelName }) => {
+                    const newModels = [...state, modelName]
+                    const queries = newModels.map((model) => {
+                        return {
+                            query:
+                                props.monaco?.editor.getModel(model)?.getValue() ||
+                                (examples.DataWarehouse as DataVisualizationNode).source.query,
+                            path: model.path.split('/').pop(),
+                        }
+                    })
+                    localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
+                    return newModels
+                },
+                removeModel: (state, { modelName }) => {
+                    const newModels = state.filter((model) => model.toString() !== modelName.toString())
+                    const queries = newModels.map((model) => {
+                        return {
+                            query:
+                                props.monaco?.editor.getModel(model)?.getValue() ||
+                                (examples.DataWarehouse as DataVisualizationNode).source.query,
+                            path: model.path.split('/').pop(),
+                        }
+                    })
+                    localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
+                    return newModels
+                },
+                setModels: (_, { models }) => models,
             },
         ],
-    }),
+    })),
     listeners(({ props, values, actions }) => ({
-        createModel: () => {
-            if (props.monaco) {
-                const uri = props.monaco.Uri.parse((values.modelCount + 1).toString())
-                const model = props.monaco.editor.createModel('SELECT event FROM events LIMIT 100', props.language, uri)
-                props.editor?.setModel(model)
-                actions.setModel(uri)
-                actions.addModel(uri)
-            }
-        },
         setModel: ({ modelName }) => {
             if (props.monaco) {
                 const model = props.monaco.editor.getModel(modelName)
@@ -175,6 +195,33 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 }
                 model?.dispose()
                 actions.removeModel(modelName)
+            }
+        },
+        updateState: async (_, breakpoint) => {
+            await breakpoint(100)
+            const queries = values.allModels.map((model) => {
+                return {
+                    query:
+                        props.monaco?.editor.getModel(model)?.getValue() ||
+                        (examples.DataWarehouse as DataVisualizationNode).source.query,
+                    path: model.path.split('/').pop(),
+                }
+            })
+            localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
+        },
+        createModel: () => {
+            let currentModelCount = 1
+            const allNumbers = values.allModels.map((model) => parseInt(model.path.split('/').pop() || '0'))
+            while (allNumbers.includes(currentModelCount)) {
+                currentModelCount++
+            }
+
+            if (props.monaco) {
+                const uri = props.monaco.Uri.parse(currentModelCount.toString())
+                const model = props.monaco.editor.createModel('SELECT event FROM events LIMIT 100', props.language, uri)
+                props.editor?.setModel(model)
+                actions.setModel(uri)
+                actions.addModel(uri)
             }
         },
     })),
