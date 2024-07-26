@@ -139,11 +139,16 @@ export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Tea
 }
 
 export const gzipObject = async <T extends object>(object: T): Promise<string> => {
-    const res = await new Promise<Buffer>((res, rej) =>
-        gzip(JSON.stringify(object), (err, result) => (err ? rej(err) : res(result)))
+    const payload = JSON.stringify(object)
+    const buffer = await new Promise<Buffer>((res, rej) =>
+        gzip(payload, (err, result) => (err ? rej(err) : res(result)))
     )
+    const res = buffer.toString('base64')
 
-    return res.toString('base64')
+    // NOTE: Base64 encoding isn't as efficient but we would need to change the kafka producer/consumers to use ucs2 or something
+    // as well in order to support binary data better
+
+    return res
 }
 
 export const unGzipObject = async <T extends object>(data: string): Promise<T> => {
