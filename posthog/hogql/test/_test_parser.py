@@ -1706,13 +1706,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_visit_hogqlx_tag_column_source(self):
             query = """
-                select <Link to='https://google.com'>{event}</Link> from events
+                select <a href='https://google.com'>{event}</a> from events
             """
             node = self._select(query)
             assert isinstance(node, ast.SelectQuery) and cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
-                kind="Link",
+                kind="a",
                 attributes=[
-                    ast.HogQLXAttribute(name="to", value=Constant(value="https://google.com")),
+                    ast.HogQLXAttribute(name="href", value=Constant(value="https://google.com")),
                     ast.HogQLXAttribute(name="source", value=ast.Field(chain=["event"])),
                 ],
             )
