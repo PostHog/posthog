@@ -68,6 +68,15 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 )
                 args = rest_args
                 query_predicate = []
+        sync_execute(
+            f"""
+            DELETE FROM posthog.sharded_events
+            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+            WHERE {str_predicate}
+            """,
+            args,
+            settings={"max_query_size": MAX_QUERY_SIZE},
+        )
 
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
         team_deletions = [row for row in deletions if row.deletion_type == DeletionType.Team]
