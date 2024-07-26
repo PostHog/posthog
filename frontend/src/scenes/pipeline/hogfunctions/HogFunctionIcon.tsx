@@ -2,6 +2,7 @@ import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, lemonToast, Pop
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { useState } from 'react'
 
 import { hogFunctionIconLogic, HogFunctionIconLogicProps } from './hogFunctionIconLogic'
 
@@ -47,15 +48,7 @@ export function HogFunctionIconEditable({
     const { setShowPopover, setSearchTerm } = useActions(hogFunctionIconLogic(props))
 
     const content = (
-        <span
-            className={clsx('relative cursor-pointer', {
-                'w-8 h-8': size === 'small',
-                'w-10 h-10': size === 'medium',
-                'w-12 h-12': size === 'large',
-            })}
-            onClick={() => setShowPopover(!showPopover)}
-        >
-            {possibleIconsLoading ? <Spinner className="absolute -top-1 -right-1" /> : null}
+        <span className="cursor-pointer" onClick={() => setShowPopover(!showPopover)}>
             <HogFunctionIcon size={size} src={props.src} />
         </span>
     )
@@ -105,18 +98,14 @@ export function HogFunctionIconEditable({
                         {possibleIcons?.map((icon) => (
                             <span
                                 key={icon.id}
-                                className="w-14 h-14 cursor-pointer"
+                                className="cursor-pointer"
                                 onClick={() => {
                                     const nonTempUrl = icon.url.replace('&temp=true', '')
                                     props.onChange?.(nonTempUrl)
                                     setShowPopover(false)
                                 }}
                             >
-                                <img
-                                    src={icon.url}
-                                    title={icon.name}
-                                    className="w-full h-full rounded overflow-hidden"
-                                />
+                                <HogFunctionIcon src={icon.url} />
                             </span>
                         )) ??
                             (possibleIconsLoading ? (
@@ -142,15 +131,31 @@ export function HogFunctionIcon({
     src?: string
     size?: 'small' | 'medium' | 'large'
 }): JSX.Element {
+    const [loaded, setLoaded] = useState(false)
+
     return (
         <span
-            className={clsx('flex items-center justify-center', {
+            className={clsx('relative flex items-center justify-center', {
                 'w-8 h-8 text-2xl': size === 'small',
                 'w-10 h-10 text-4xl': size === 'medium',
                 'w-12 h-12 text-6xl': size === 'large',
             })}
         >
-            {src ? <img className="w-full h-full rounded overflow-hidden" src={src} /> : <span>🦔</span>}
+            {src ? (
+                <>
+                    <img
+                        className={clsx(
+                            'w-full h-full rounded overflow-hidden transition-opacity',
+                            loaded ? 'opacity-100' : 'opacity-0'
+                        )}
+                        src={src}
+                        onLoad={() => setLoaded(true)}
+                    />
+                    {!loaded && <LemonSkeleton className="absolute w-full h-full" />}
+                </>
+            ) : (
+                <span>🦔</span>
+            )}
         </span>
     )
 }

@@ -82,6 +82,10 @@ const displayMap: Record<
         className: 'bar',
         element: ActionsHorizontalBar,
     },
+    ActionsStackedBar: {
+        className: 'bar',
+        element: ActionsLineGraph,
+    },
     ActionsTable: {
         className: 'table',
         element: DashboardInsightsTable,

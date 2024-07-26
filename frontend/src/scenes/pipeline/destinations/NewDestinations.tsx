@@ -17,7 +17,7 @@ export function DestinationOptionsTable(): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { loading, filteredDestinations, filters } = useValues(newDestinationsLogic)
     const { setFilters, openFeedbackDialog } = useActions(newDestinationsLogic)
-    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    const { canEnableDestination } = useValues(pipelineAccessLogic)
 
     return (
         <div className="space-y-2">
@@ -71,7 +71,7 @@ export function DestinationOptionsTable(): JSX.Element {
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
-                                    to={canEnableNewDestinations || target.status === 'free' ? target.url : undefined}
+                                    to={canEnableDestination(target) ? target.url : undefined}
                                     title={
                                         <>
                                             {target.name}
@@ -98,7 +98,7 @@ export function DestinationOptionsTable(): JSX.Element {
                         width: 100,
                         align: 'right',
                         render: function RenderActions(_, target) {
-                            return canEnableNewDestinations || target.status === 'free' ? (
+                            return canEnableDestination(target) ? (
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}

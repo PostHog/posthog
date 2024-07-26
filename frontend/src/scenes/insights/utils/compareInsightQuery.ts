@@ -15,6 +15,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
 
     // cumulative time series
     [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayType.ActionsLineGraphCumulative,
