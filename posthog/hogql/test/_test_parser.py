@@ -1704,6 +1704,19 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
+        def test_visit_hogqlx_tag_column_source(self):
+            query = """
+                select <Link to='https://google.com'>{event}</Link> from events
+            """
+            node = self._select(query)
+            assert node.select[0] == ast.HogQLXTag(
+                kind="Link",
+                attributes=[
+                    ast.HogQLXAttribute(name="to", value=Constant(value="https://google.com")),
+                    ast.HogQLXAttribute(name="source", value=ast.Field(chain=["event"])),
+                ],
+            )
+
         def test_select_extract_as_function(self):
             node = self._select("select extract('string', 'other string') from events")
 
