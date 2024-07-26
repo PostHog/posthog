@@ -3,7 +3,7 @@ from typing import Any
 from prometheus_client import Counter
 
 from posthog.client import sync_execute
-from posthog.models.async_deletion import AsyncDeletion, DeletionType, MAX_QUERY_SIZE
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -66,7 +66,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                     WHERE {str_predicate}
                     """,
                     next_args,
-                    settings={"max_query_size": MAX_QUERY_SIZE},
+                    settings={},
                 )
                 # Reset the query predicate and predicate args
                 args = rest_args
@@ -80,7 +80,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             WHERE {str_predicate}
             """,
             args,
-            settings={"max_query_size": MAX_QUERY_SIZE},
+            settings={},
         )
 
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
@@ -106,7 +106,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 WHERE {" OR ".join(conditions)}
                 """,
                 args,
-                settings={"max_query_size": MAX_QUERY_SIZE},
+                settings={},
             )
 
     def _verify_by_group(self, deletion_type: int, async_deletions: list[AsyncDeletion]) -> list[AsyncDeletion]:
@@ -129,7 +129,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
-            settings={"max_query_size": MAX_QUERY_SIZE, "max_execution_time": 30 * 60},
+            settings={"max_execution_time": 30 * 60},
         )
         return {tuple(row) for row in clickhouse_result}
 
