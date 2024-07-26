@@ -1,8 +1,8 @@
 import time
-from typing import Optional
+from typing import Optional, Any, TYPE_CHECKING
 from uuid import UUID
 
-from celery import shared_task
+from celery import shared_task, chain
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -20,6 +20,9 @@ from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 @shared_task(ignore_result=True)
@@ -931,3 +934,42 @@ def calculate_external_data_rows_synced() -> None:
         pass
     else:
         capture_external_data_rows_synced()
+
+
+@shared_task(
+    ignore_result=True,
+    retry_backoff=10,
+    retry_backoff_max=30,
+    max_retries=3,
+    retry_jitter=True,
+)
+def backfill_raw_sessions_table_for_day(
+    *_: list[Any], date: datetime, team_id: Optional[int] = None, use_offline_workload: bool = True
+) -> None:
+    try:
+        from posthog.tasks.backfill_raw_sessions_table import run_backfill_raw_sessions_table_for_day
+    except ImportError:
+        pass
+    else:
+        run_backfill_raw_sessions_table_for_day(date=date, team_id=team_id, use_offline_workload=use_offline_workload)
+
+
+@shared_task(ignore_result=True)
+def backfill_raw_sessions_table(
+    start_date: "datetime", end_date: "datetime", team_id: Optional[int] = None, use_offline_workload: bool = True
+) -> None:
+    try:
+        from posthog.tasks.backfill_raw_sessions_table import get_days_to_backfill
+    except ImportError:
+        pass
+    else:
+        tasks_chain = chain(
+            *[
+                backfill_raw_sessions_table_for_day.s(
+                    date=date, team_id=team_id, use_offline_workload=use_offline_workload
+                )
+                for date in get_days_to_backfill(start_date, end_date)
+            ]
+        )
+        task = tasks_chain.apply_async()
+        return task
