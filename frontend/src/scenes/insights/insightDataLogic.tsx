@@ -66,12 +66,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            [
-                'setInsight',
-                'loadInsightSuccess',
-                'saveInsight as insightLogicSaveInsight',
-                'saveAsNamingSuccess as insightLogicSaveAsNamingSuccess',
-            ],
+            ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight', 'saveAsConfirmation'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
@@ -81,7 +76,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
     actions({
         setQuery: (query: Node | null) => ({ query }),
         saveAs: (redirectToViewMode?: boolean) => ({ redirectToViewMode }),
-        saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
         cancelChanges: true,
@@ -254,33 +248,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 errors: {
                     insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ insightName }) => actions.saveAsNamingSuccess(insightName, redirectToViewMode),
+                onSubmit: async ({ insightName }) => actions.saveAsConfirmation(insightName, redirectToViewMode),
             })
-        },
-        saveAsNamingSuccess: ({ name, redirectToViewMode }) => {
-            let filters = values.legacyInsight.filters
-            if (isInsightVizNode(values.query)) {
-                const querySource = values.query.source
-                filters = queryNodeToFilter(querySource)
-            } else if (values.isQueryBasedInsight) {
-                filters = {}
-            }
-
-            let query = undefined
-            if (values.isQueryBasedInsight) {
-                query = values.query
-            }
-
-            actions.setInsight(
-                {
-                    ...values.legacyInsight,
-                    filters: filters,
-                    query: query ?? undefined,
-                },
-                { overrideFilter: true, fromPersistentApi: false }
-            )
-
-            actions.insightLogicSaveAsNamingSuccess(name, redirectToViewMode)
         },
         cancelChanges: () => {
             const savedFilters = values.savedInsight.filters

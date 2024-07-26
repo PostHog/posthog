@@ -87,7 +87,7 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
+        saveAsConfirmation: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
         cancelChanges: true,
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -420,17 +420,18 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAsNamingSuccess: async ({ name, redirectToViewMode }) => {
-            const { filters, query } = getInsightFilterOrQueryForPersistance(
-                values.queryBasedInsight,
-                values.queryBasedInsightSaving
+        saveAsConfirmation: async ({ name, redirectToViewMode }) => {
+            const insight = await insightsApi.create(
+                {
+                    name,
+                    query: values.queryBasedInsight.query,
+                    saved: true,
+                },
+                {
+                    writeAsQuery: values.queryBasedInsightSaving,
+                    readAsQuery: false,
+                }
             )
-            const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
-                name,
-                filters,
-                query,
-                saved: true,
-            })
             lemonToast.info(
                 `You're now working on a copy of ${
                     values.queryBasedInsight.name || values.queryBasedInsight.derived_name || name
