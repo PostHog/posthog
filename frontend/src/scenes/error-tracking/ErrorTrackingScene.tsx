@@ -14,9 +14,8 @@ import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { ErrorTrackingActions } from './ErrorTrackingActions'
 import { errorTrackingDataLogic } from './errorTrackingDataLogic'
-import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
@@ -26,7 +25,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { query } = useValues(errorTrackingSceneLogic)
+    const { query, selectedRows } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -50,12 +49,38 @@ export function ErrorTrackingScene(): JSX.Element {
     return (
         <BindLogic logic={errorTrackingDataLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
             <div className="space-y-2">
-                <ErrorTrackingFilters />
+                <ErrorTrackingFilters.FilterGroup />
                 <LemonDivider />
-                <ErrorTrackingActions />
+                {selectedRows.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
                 <Query query={query} context={context} />
             </div>
         </BindLogic>
+    )
+}
+
+const ErrorTrackingActions = (): JSX.Element => {
+    const { selectedRows } = useValues(errorTrackingSceneLogic)
+    const { setSelectedRows } = useActions(errorTrackingSceneLogic)
+    const { mergeGroups } = useActions(errorTrackingDataLogic)
+
+    return (
+        <div className="flex space-x-1">
+            <LemonButton type="secondary" size="small" onClick={() => setSelectedRows([])}>
+                Unselect all
+            </LemonButton>
+            {selectedRows.length > 1 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => {
+                        mergeGroups(selectedRows)
+                        setSelectedRows([])
+                    }}
+                >
+                    Merge
+                </LemonButton>
+            )}
+        </div>
     )
 }
 
