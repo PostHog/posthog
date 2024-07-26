@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/node'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
@@ -33,6 +34,7 @@ import {
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
+    HogFunctionLogEntry,
     HogFunctionMessageToProduce,
     HogFunctionOverflowedGlobals,
     HogFunctionType,
@@ -173,6 +175,19 @@ abstract class CdpConsumerBase {
         counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
     }
 
+    protected logLogEntry(logEntry: HogFunctionLogEntry) {
+        const sanitized = {
+            ...logEntry,
+            timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
+        }
+        // Convert timestamps to ISO strings
+        this.messagesToProduce.push({
+            topic: KAFKA_LOG_ENTRIES,
+            value: sanitized,
+            key: sanitized.instance_id,
+        })
+    }
+
     protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
         await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
@@ -191,18 +206,7 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
 
-                        logs.forEach((x) => {
-                            const sanitized = {
-                                ...x,
-                                timestamp: castTimestampOrNow(x.timestamp, TimestampFormat.ClickHouse),
-                            }
-                            // Convert timestamps to ISO strings
-                            this.messagesToProduce.push({
-                                topic: KAFKA_LOG_ENTRIES,
-                                value: sanitized,
-                                key: sanitized.instance_id,
-                            })
-                        })
+                        logs.forEach((x) => this.logLogEntry(x))
 
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
@@ -298,8 +302,15 @@ abstract class CdpConsumerBase {
                 // Deserialize the compressed data
                 await Promise.all(
                     asyncResponses.map(async (item) => {
-                        const invocation = await unGzipObject<HogFunctionInvocation>(item.state)
-                        invocationsWithResponses.push([invocation, item.asyncFunctionResponse])
+                        try {
+                            const invocation = await unGzipObject<HogFunctionInvocation>(item.state)
+                            invocationsWithResponses.push([invocation, item.asyncFunctionResponse])
+                        } catch (e) {
+                            status.error('Error unzipping message', e, item.state)
+                            captureException(e, {
+                                extra: { hogFunctionId: item.hogFunctionId, teamId: item.teamId },
+                            })
+                        }
                     })
                 )
 

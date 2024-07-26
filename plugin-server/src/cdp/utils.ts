@@ -143,12 +143,12 @@ export const gzipObject = async <T extends object>(object: T): Promise<string> =
         gzip(JSON.stringify(object), (err, result) => (err ? rej(err) : res(result)))
     )
 
-    return res.toString('ucs2')
+    return res.toString('base64')
 }
 
 export const unGzipObject = async <T extends object>(data: string): Promise<T> => {
     const res = await new Promise<Buffer>((res, rej) =>
-        gunzip(Buffer.from(data, 'ucs2'), (err, result) => (err ? rej(err) : res(result)))
+        gunzip(Buffer.from(data, 'base64'), (err, result) => (err ? rej(err) : res(result)))
     )
 
     return JSON.parse(res.toString())
