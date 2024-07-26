@@ -620,11 +620,13 @@ def selector_to_expr(selector_string: str):
                 useful_elements.append(ast.Constant(value=part.data["tag_name"]))
 
         if "attr_id" in part.data:
-            exprs.append(
-                parse_expr(
-                    "indexOf(elements_chain_ids, {value}) > 0", {"value": ast.Constant(value=part.data["attr_id"])}
-                )
+            id_expr = parse_expr(
+                "indexOf(elements_chain_ids, {value}) > 0", {"value": ast.Constant(value=part.data["attr_id"])}
             )
+            if len(selector.parts) == 1 and len(part.data.keys()) == 1:
+                # OPTIMIZATION: if there's only one selector part and that only filters on an ID, we don't need to also query elements_chain separately
+                return id_expr
+            exprs.append(id_expr)
     if len(useful_elements) > 0:
         exprs.append(
             parse_expr(
