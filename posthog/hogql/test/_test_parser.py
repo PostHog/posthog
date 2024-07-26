@@ -1709,7 +1709,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 select <Link to='https://google.com'>{event}</Link> from events
             """
             node = self._select(query)
-            assert node.select[0] == ast.HogQLXTag(
+            assert isinstance(node, ast.SelectQuery) and cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
                 kind="Link",
                 attributes=[
                     ast.HogQLXAttribute(name="to", value=Constant(value="https://google.com")),
