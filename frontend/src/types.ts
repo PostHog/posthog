@@ -1658,7 +1658,7 @@ export interface Tileable {
     color: InsightColor | null
 }
 
-export interface DashboardTile extends Tileable, Cacheable {
+export interface DashboardTile extends Tileable {
     id: number
     insight?: InsightModel
     text?: TextModel
