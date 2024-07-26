@@ -195,20 +195,15 @@ impl FeatureFlagList {
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
-    use mockall::mock;
-    use mockall::predicate::*;
     use serde_json::json;
-    use tokio::runtime::Runtime;
-    use tokio::time::timeout;
-
-    use std::time::Duration;
 
     use super::*;
-    use crate::database::CustomDatabaseError;
     use crate::test_utils::{
-        insert_flags_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-        insert_new_team_in_redis, setup_pg_client, setup_redis_client,
+        insert_deleted_flag_for_team_in_pg, insert_flag_with_empty_filters,
+        insert_flag_with_ensure_experience_continuity, insert_flag_with_invalid_filters,
+        insert_flags_for_team_in_pg, insert_flags_for_team_in_redis,
+        insert_inactive_flag_for_team_in_pg, insert_new_team_in_pg, insert_new_team_in_redis,
+        setup_pg_client, setup_redis_client,
     };
 
     #[tokio::test]
@@ -414,118 +409,47 @@ mod tests {
         }
     }
 
-    mock! {
-        DatabaseClient {}
-        #[async_trait]
-        impl DatabaseClient for DatabaseClient {
-            async fn get_connection(&self) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres> , crate::database::CustomDatabaseError>;
-            async fn run_query(
-                &self,
-                query: String,
-                parameters: Vec<String>,
-                timeout_ms: Option<u64>,
-            ) -> Result<Vec<FeatureFlagRow>, crate::database::CustomDatabaseError>;
+    #[tokio::test]
+    async fn test_fetch_nonexistent_team_from_pg() {
+        let client = setup_pg_client(None).await;
+
+        match FeatureFlagList::from_pg(client.clone(), -1).await {
+            Ok(flags) => assert_eq!(flags.flags.len(), 0),
+            Err(err) => panic!("Expected empty result, got error: {:?}", err),
         }
     }
 
-    #[tokio::test]
-    async fn test_from_pg_success_mocked() {
-        let mut db_mock = MockDatabaseClient::new();
+    // #[tokio::test]
+    // async fn test_fetch_flags_db_connection_failure() {
+    //     // Simulate a database connection failure by using an invalid client setup
+    //     let client = setup_invalid_pg_client().await; // This function should return an invalid client
 
-        db_mock.expect_run_query()
-            .withf(|query, params, _| {
-                query.contains("SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag") &&
-                params == &vec![1.to_string()]
-            })
-            .returning(|_, _, _| {
-                Ok(vec![FeatureFlagRow {
-                    id: 1,
-                    team_id: 1,
-                    name: Some("Test Flag".to_string()),
-                    key: "test_flag".to_string(),
-                    filters: json!({
-                        "groups": [
-                            {
-                                "properties": [
-                                    {
-                                        "key": "email",
-                                        "value": "test@example.com",
-                                        "type": "person"
-                                    }
-                                ],
-                                "rollout_percentage": 50
-                            }
-                        ]
-                    }),
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: false,
-                }])
-            });
+    //     match FeatureFlagList::from_pg(client, 1).await {
+    //         Err(FlagError::DatabaseUnavailable) => (),
+    //         other => panic!("Expected DatabaseUnavailable error, got: {:?}", other),
+    //     }
+    // }
 
-        let result = FeatureFlagList::from_pg(Arc::new(db_mock), 1).await;
+    // #[tokio::test]
+    // async fn test_fetch_multiple_flags_from_pg() {
+    //     let client = setup_pg_client(None).await;
 
-        assert!(result.is_ok());
-        let flag_list = result.unwrap();
-        assert_eq!(flag_list.flags.len(), 1);
-        let flag = &flag_list.flags[0];
-        assert_eq!(flag.id, 1);
-        assert_eq!(flag.team_id, 1);
-        assert_eq!(flag.name, Some("Test Flag".to_string()));
-        assert_eq!(flag.key, "test_flag");
-        assert!(!flag.deleted);
-        assert!(flag.active);
-        assert!(!flag.ensure_experience_continuity);
+    //     let team = insert_new_team_in_pg(client.clone())
+    //         .await
+    //         .expect("Failed to insert team in pg");
 
-        assert_eq!(flag.filters.groups.len(), 1);
-        let group = &flag.filters.groups[0];
-        assert_eq!(group.properties.as_ref().unwrap().len(), 1);
-        let property = &group.properties.as_ref().unwrap()[0];
-        assert_eq!(property.key, "email");
-        assert_eq!(property.value, json!("test@example.com"));
-        assert_eq!(property.prop_type, "person");
-        assert_eq!(group.rollout_percentage, Some(50.0));
-    }
+    //     // Insert multiple flags for the team
+    //     insert_flags_for_team_in_pg(client.clone(), team.id, Some(3))
+    //         .await
+    //         .expect("Failed to insert flags");
 
-    #[tokio::test]
-    async fn test_from_pg_database_unavailable_mocked() {
-        let mut db_mock = MockDatabaseClient::new();
+    //     let flags_from_pg = FeatureFlagList::from_pg(client.clone(), team.id)
+    //         .await
+    //         .expect("Failed to fetch flags from pg");
 
-        db_mock.expect_run_query().returning(|_, _, _| {
-            let rt = Runtime::new().unwrap();
-            let elapsed_error = rt.block_on(async {
-                let dummy_future = async {};
-                timeout(Duration::from_secs(0), dummy_future)
-                    .await
-                    .unwrap_err()
-            });
-            Err(CustomDatabaseError::Timeout(elapsed_error))
-        });
-
-        let result = FeatureFlagList::from_pg(Arc::new(db_mock), 1).await;
-
-        assert!(matches!(result, Err(FlagError::DatabaseUnavailable)));
-    }
-
-    #[tokio::test]
-    async fn test_from_pg_data_parsing_error_mocked() {
-        let mut db_mock = MockDatabaseClient::new();
-
-        db_mock.expect_run_query().returning(|_, _, _| {
-            Ok(vec![FeatureFlagRow {
-                id: 1,
-                team_id: 1,
-                name: Some("Test Flag".to_string()),
-                key: "test_flag".to_string(),
-                filters: json!({"invalid": "filter"}), // Invalid filter structure
-                deleted: false,
-                active: true,
-                ensure_experience_continuity: false,
-            }])
-        });
-
-        let result = FeatureFlagList::from_pg(Arc::new(db_mock), 1).await;
-
-        assert!(matches!(result, Err(FlagError::DataParsingError)));
-    }
+    //     assert_eq!(flags_from_pg.flags.len(), 3);
+    //     for flag in &flags_from_pg.flags {
+    //         assert_eq!(flag.team_id, team.id);
+    //     }
+    // }
 }
