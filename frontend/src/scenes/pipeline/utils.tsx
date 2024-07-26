@@ -138,7 +138,7 @@ export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.
                     </>
                 }
             >
-                {plugin.url ? (
+                {plugin.url && plugin.plugin_type !== 'inline' ? (
                     <Link to={plugin.url} target="_blank">
                         <PluginImage plugin={plugin} size={imageSize} />
                     </Link>
