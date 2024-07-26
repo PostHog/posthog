@@ -9,7 +9,7 @@ import { addLog, HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher } from './hog-watcher/hog-watcher'
 import { HogWatcherState } from './hog-watcher/types'
-import { HogFunctionInvocation, HogFunctionType } from './types'
+import { HogFunctionInvocation, HogFunctionInvocationAsyncRequest, HogFunctionType } from './types'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
@@ -110,8 +110,6 @@ export class CdpApi {
                 globals: globals,
                 teamId: team.id,
                 hogFunctionId: id,
-                logs: [],
-                timings: [],
             }
 
             // We use the provided config if given, otherwise the function's config
@@ -127,6 +125,8 @@ export class CdpApi {
             let response = this.hogExecutor.execute(compoundConfiguration, invocation)
 
             while (response.asyncFunctionRequest) {
+                invocation.vmState = response.invocation.vmState
+
                 const asyncFunctionRequest = response.asyncFunctionRequest
 
                 if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
@@ -140,25 +140,25 @@ export class CdpApi {
                     )
 
                     // Add the state, simulating what executeAsyncResponse would do
-                    asyncFunctionRequest.vmState.stack.push(convertJSToHog({ status: 200, body: {} }))
+                    invocation.vmState!.stack.push(convertJSToHog({ status: 200, body: {} }))
                 } else {
-                    const asyncRes = await this.asyncFunctionExecutor!.execute(response, {
+                    const asyncInvocationRequest: HogFunctionInvocationAsyncRequest = {
+                        state: '', // WE don't care about the state for this level of testing
+                        teamId: team.id,
+                        hogFunctionId: hogFunction.id,
+                        asyncFunctionRequest,
+                    }
+                    const asyncRes = await this.asyncFunctionExecutor!.execute(asyncInvocationRequest, {
                         sync: true,
                     })
 
                     if (!asyncRes || asyncRes.asyncFunctionResponse.error) {
                         addLog(response, 'error', 'Failed to execute async function')
                     }
-                    asyncFunctionRequest.vmState.stack.push(
-                        convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null)
-                    )
-                    response.timings.push(...(asyncRes?.asyncFunctionResponse.timings ?? []))
+                    invocation.vmState!.stack.push(convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null))
                 }
 
-                // Clear it so we can't ever end up in a loop
-                delete response.asyncFunctionRequest
-
-                response = this.hogExecutor.execute(compoundConfiguration, response, asyncFunctionRequest.vmState)
+                response = this.hogExecutor.execute(compoundConfiguration, invocation)
             }
 
             res.json({
