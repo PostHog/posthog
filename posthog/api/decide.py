@@ -318,8 +318,8 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
                     {
                         "recordCanvas": record_canvas,
                         # hard coded during beta while we decide on sensible values
-                        "canvasFps": 4 if record_canvas else None,
-                        "canvasQuality": "0.6" if record_canvas else None,
+                        "canvasFps": 3 if record_canvas else None,
+                        "canvasQuality": "0.4" if record_canvas else None,
                     }
                 )
     except Exception as e:
