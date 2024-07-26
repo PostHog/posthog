@@ -1,3 +1,4 @@
+import { TZLabel } from '@posthog/apps-common'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -6,6 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
@@ -75,14 +77,22 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { value } = props
-    const properties = JSON.parse(value as string)
+    const record = props.record as ErrorTrackingGroup
 
     return (
         <LemonTableLink
-            title={properties.$exception_type}
-            description={<div className="line-clamp-1">{properties.$exception_message}</div>}
-            to={urls.errorTrackingGroup(properties.$exception_type)}
+            title={record.fingerprint}
+            description={
+                <div className="space-y-1">
+                    <div className="line-clamp-1">{record.description}</div>
+                    <div className="space-x-1">
+                        <TZLabel time={record.first_seen} className="border-dotted border-b" />
+                        <span>|</span>
+                        <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                    </div>
+                </div>
+            }
+            to={urls.errorTrackingGroup(record.fingerprint)}
         />
     )
 }

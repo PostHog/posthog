@@ -9,6 +9,7 @@ import {
     HogFunctionInvocation,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
     HogFunctionLogEntryLevel,
     HogFunctionType,
@@ -74,6 +75,21 @@ export const addLog = (result: HogFunctionInvocationResult, level: HogFunctionLo
         level,
         message,
     })
+}
+
+const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
+    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
+
+    // Find and replace any sensitive values
+    sensitiveValues?.forEach((sensitiveValue) => {
+        message = message.replaceAll(sensitiveValue, '***REDACTED***')
+    })
+
+    if (message.length > MAX_LOG_LENGTH) {
+        message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
+    }
+
+    return message
 }
 
 export class HogExecutor {
@@ -206,12 +222,12 @@ export class HogExecutor {
         const { vmState } = invocation.asyncFunctionRequest ?? {}
         const { asyncFunctionResponse } = invocation
 
-        if (!vmState || !asyncFunctionResponse.vmResponse || asyncFunctionResponse.error) {
+        if (!vmState || !asyncFunctionResponse.response || asyncFunctionResponse.error) {
             return errorRes(invocation.error ?? 'No VM state provided for async response')
         }
 
         // Add the response to the stack to continue execution
-        vmState.stack.push(convertJSToHog(asyncFunctionResponse.vmResponse ?? null))
+        vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
 
         return this.execute(hogFunction, baseInvocation, vmState)
     }
@@ -233,23 +249,18 @@ export class HogExecutor {
             ...invocation,
             asyncFunctionRequest: undefined,
             finished: false,
+            capturedPostHogEvents: [],
         }
 
         if (!state) {
             addLog(result, 'debug', `Executing function`)
         } else {
-            // NOTE: We do our own check here for async steps as it saves executing Hog and is easier to handle
-            if (state.asyncSteps >= MAX_ASYNC_STEPS) {
-                addLog(result, 'error', `Function exceeded maximum async steps`)
-                result.error = 'Function exceeded maximum async steps'
-                return result
-            }
             addLog(result, 'debug', `Resuming function`)
         }
 
         try {
             const start = performance.now()
-            let globals: Record<string, any> | undefined = undefined
+            let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
 
             try {
@@ -258,6 +269,8 @@ export class HogExecutor {
                 addLog(result, 'error', `Error building inputs: ${e}`)
                 throw e
             }
+
+            const sensitiveValues = this.getSensitiveValues(hogFunction, globals.inputs)
 
             try {
                 let hogLogs = 0
@@ -284,14 +297,40 @@ export class HogExecutor {
                                 return
                             }
 
-                            let message = args
-                                .map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg))
-                                .join(', ')
-
-                            if (message.length > MAX_LOG_LENGTH) {
-                                message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
+                            addLog(result, 'info', sanitizeLogMessage(args, sensitiveValues))
+                        },
+                        postHogCapture: (event) => {
+                            if (typeof event.event !== 'string') {
+                                throw new Error("[HogFunction] - postHogCapture call missing 'event' property")
                             }
-                            addLog(result, 'info', message)
+
+                            if (result.capturedPostHogEvents!.length > 0) {
+                                throw new Error(
+                                    'postHogCapture was called more than once. Only one call is allowed per function'
+                                )
+                            }
+                            const executionCount = globals.event.properties?.$hog_function_execution_count ?? 0
+
+                            if (executionCount > 0) {
+                                addLog(
+                                    result,
+                                    'warn',
+                                    `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
+                                )
+                                return
+                            }
+
+                            result.capturedPostHogEvents!.push({
+                                team_id: invocation.teamId,
+                                timestamp: DateTime.utc().toISO(),
+                                distinct_id: event.distinct_id || invocation.globals.event.distinct_id,
+                                event: event.event,
+                                properties: {
+                                    ...event.properties,
+                                    // Increment the execution count so that we can check it in the future
+                                    $hog_function_execution_count: executionCount + 1,
+                                },
+                            })
                         },
                     },
                 })
@@ -340,7 +379,10 @@ export class HogExecutor {
         return result
     }
 
-    buildHogFunctionGlobals(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): Record<string, any> {
+    buildHogFunctionGlobals(
+        hogFunction: HogFunctionType,
+        invocation: HogFunctionInvocation
+    ): HogFunctionInvocationGlobalsWithInputs {
         const builtInputs: Record<string, any> = {}
 
         Object.entries(hogFunction.inputs ?? {}).forEach(([key, item]) => {
@@ -356,5 +398,28 @@ export class HogExecutor {
             ...invocation.globals,
             inputs: builtInputs,
         }
+    }
+
+    getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
+        const values: string[] = []
+
+        hogFunction.inputs_schema?.forEach((schema) => {
+            if (schema.secret || schema.type === 'integration') {
+                const value = inputs[schema.key]
+                if (typeof value === 'string') {
+                    values.push(value)
+                } else if (
+                    (schema.type === 'dictionary' || schema.type === 'integration') &&
+                    typeof value === 'object'
+                ) {
+                    // Assume the values are the sensitive parts
+                    Object.values(value).forEach((val: any) => {
+                        values.push(val)
+                    })
+                }
+            }
+        })
+
+        return values
     }
 }

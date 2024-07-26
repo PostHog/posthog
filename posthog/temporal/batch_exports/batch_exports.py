@@ -46,7 +46,7 @@ FROM
         team_id={team_id},
         interval_start={interval_start},
         interval_end={interval_end}
-    )
+    ) AS persons
 FORMAT ArrowStream
 """
 
@@ -61,7 +61,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 
@@ -76,7 +76,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 
@@ -90,7 +90,7 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
 """)
 
@@ -439,7 +439,8 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
-            await send_batch_export_run_failure(inputs.id)
+            logger.info("Sending failure notification email for run %s", inputs.id)
+            await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
         except Exception:
             logger.exception("Failure email notification could not be sent")
 

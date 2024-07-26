@@ -12,7 +12,7 @@ export interface SeriesDatum {
     id: number // determines order that series will be displayed in
     dataIndex: number
     datasetIndex: number
-    breakdown_value?: string | number
+    breakdown_value?: string | number | string[]
     compare_label?: CompareLabelType
     action?: ActionFilter
     label?: string

@@ -3,58 +3,22 @@ import { actions, afterMount, connect, kea, listeners, path, selectors } from 'k
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { fromParamsGivenUrl } from 'lib/utils'
+import IconHubspot from 'public/services/hubspot.png'
+import IconSalesforce from 'public/services/salesforce.png'
+import IconSlack from 'public/services/slack.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { IntegrationType } from '~/types'
+import { IntegrationKind, IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 
-// NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
-// Just means we have to change it back to http once redirected.
-const getSlackRedirectUri = (next: string = ''): string =>
-    `${window.location.origin.replace('http://', 'https://')}/integrations/slack/redirect${
-        next ? '?next=' + encodeURIComponent(next) : ''
-    }`
-
-const getSlackEventsUri = (): string =>
-    `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`
-
-// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
-export const getSlackAppManifest = (): any => ({
-    display_information: {
-        name: 'PostHog',
-        description: 'Product Insights right where you need them',
-        background_color: '#f54e00',
-    },
-    features: {
-        app_home: {
-            home_tab_enabled: false,
-            messages_tab_enabled: false,
-            messages_tab_read_only_enabled: true,
-        },
-        bot_user: {
-            display_name: 'PostHog',
-            always_online: false,
-        },
-        unfurl_domains: [window.location.hostname],
-    },
-    oauth_config: {
-        redirect_urls: [getSlackRedirectUri()],
-        scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
-        },
-    },
-    settings: {
-        event_subscriptions: {
-            request_url: getSlackEventsUri(),
-            bot_events: ['link_shared'],
-        },
-        org_deploy_enabled: false,
-        socket_mode_enabled: false,
-        token_rotation_enabled: false,
-    },
-})
+const ICONS: Record<IntegrationKind, any> = {
+    slack: IconSlack,
+    salesforce: IconSalesforce,
+    hubspot: IconHubspot,
+}
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
@@ -63,7 +27,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
     }),
 
     actions({
-        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
         deleteIntegration: (id: number) => ({ id }),
     }),
 
@@ -73,43 +37,47 @@ export const integrationsLogic = kea<integrationsLogicType>([
             {
                 loadIntegrations: async () => {
                     const res = await api.integrations.list()
-                    return res.results
+
+                    // Simple modifier here to add icons and names - we can move this to the backend at some point
+
+                    return res.results.map((integration) => {
+                        return {
+                            ...integration,
+                            // TODO: Make the icons endpoint independent of hog functions
+                            icon_url: ICONS[integration.kind],
+                        }
+                    })
                 },
             },
         ],
     })),
     listeners(({ actions }) => ({
-        handleRedirect: async ({ kind, searchParams }) => {
-            switch (kind) {
-                case 'slack': {
-                    const { state, code, error, next } = searchParams
+        handleOauthCallback: async ({ kind, searchParams }) => {
+            const { state, code, error } = searchParams
+            const { next } = fromParamsGivenUrl(state)
+            let replaceUrl: string = next || urls.settings('project-integrations')
 
-                    const replaceUrl = next || urls.settings('project')
+            if (error) {
+                lemonToast.error(`Failed due to "${error}"`)
+                router.actions.replace(replaceUrl)
+                return
+            }
 
-                    if (error) {
-                        lemonToast.error(`Failed due to "${error}"`)
-                        router.actions.replace(replaceUrl)
-                        return
-                    }
+            try {
+                const integration = await api.integrations.create({
+                    kind,
+                    config: { state, code },
+                })
 
-                    try {
-                        await api.integrations.create({
-                            kind: 'slack',
-                            config: { state, code, redirect_uri: getSlackRedirectUri(next) },
-                        })
+                // Add the integration ID to the replaceUrl so that the landing page can use it
+                replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}integration_id=${integration.id}`
 
-                        actions.loadIntegrations()
-                        lemonToast.success(`Integration successful.`)
-                    } catch (e) {
-                        lemonToast.error(`Something went wrong. Please try again.`)
-                    } finally {
-                        router.actions.replace(replaceUrl)
-                    }
-
-                    return
-                }
-                default:
-                    lemonToast.error(`Something went wrong.`)
+                actions.loadIntegrations()
+                lemonToast.success(`Integration successful.`)
+            } catch (e) {
+                lemonToast.error(`Something went wrong. Please try again.`)
+            } finally {
+                router.actions.replace(replaceUrl)
             }
         },
 
@@ -123,8 +91,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        '/integrations/:kind/redirect': ({ kind = '' }, searchParams) => {
-            actions.handleRedirect(kind, searchParams)
+        '/integrations/:kind/callback': ({ kind = '' }, searchParams) => {
+            actions.handleOauthCallback(kind as IntegrationKind, searchParams)
         },
     })),
     selectors({
@@ -135,18 +103,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
 
-        addToSlackButtonUrl: [
+        slackAvailable: [
             (s) => [s.preflight],
             (preflight) => {
-                return (next: string = '') => {
-                    const clientId = preflight?.slack_service?.client_id
-
-                    return clientId
-                        ? `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=channels:read,groups:read,chat:write&redirect_uri=${encodeURIComponent(
-                              getSlackRedirectUri(next)
-                          )}`
-                        : null
-                }
+                // TODO: Change this to be based on preflight or something
+                return preflight?.slack_service?.available
             },
         ],
     }),

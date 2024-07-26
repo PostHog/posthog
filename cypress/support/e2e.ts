@@ -1,8 +1,10 @@
 import 'givens/setup'
 import './commands'
 import 'cypress-axe'
-import { decideResponse } from '../fixtures/api/decide'
+
 import { urls } from 'scenes/urls'
+
+import { decideResponse } from '../fixtures/api/decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires

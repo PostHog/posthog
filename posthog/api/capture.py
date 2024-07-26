@@ -1,4 +1,4 @@
-import gzip
+import dataclasses
 import json
 import re
 from random import random
@@ -23,7 +23,6 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
-from collections.abc import Callable
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -86,6 +85,12 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
 )
 
+EVENTS_REJECTED_OVER_QUOTA_COUNTER = Counter(
+    "capture_events_rejected_over_quota",
+    "Events rejected by capture due to quota-limiting, send a quota limiting signal to the client which stops sending us traffic.",
+    labelnames=[LABEL_RESOURCE_TYPE],
+)
+
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
     "capture_partition_key_capacity_exceeded_total",
     "Indicates that automatic partition override is active for a given key. Value incremented once a minute.",
@@ -121,7 +126,6 @@ KAFKA_TIMEOUT_ERROR_COUNTER = Counter(
 REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
     "capture_replay_message_production_seconds",
     "Time taken to produce a set of replay messages",
-    labelnames=["compress_in_capture"],
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
@@ -208,7 +212,6 @@ def log_event(
     headers: Optional[list] = None,
     historical: bool = False,
     overflowing: bool = False,
-    value_serializer: Optional[Callable[[Any], Any]] = None,
 ) -> FutureRecordMetadata:
     kafka_topic = _kafka_topic(event_name, historical=historical, overflowing=overflowing)
 
@@ -221,9 +224,7 @@ def log_event(
         else:
             producer = KafkaProducer()
 
-        future = producer.produce(
-            topic=kafka_topic, data=data, key=partition_key, headers=headers, value_serializer=value_serializer
-        )
+        future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception:
@@ -328,9 +329,16 @@ def drop_performance_events(events: list[Any]) -> list[Any]:
     return cleaned_list
 
 
-def drop_events_over_quota(token: str, events: list[Any]) -> list[Any]:
+@dataclasses.dataclass(frozen=True)
+class EventsOverQuotaResult:
+    events: list[Any]
+    events_were_limited: bool
+    recordings_were_limited: bool
+
+
+def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResult:
     if not settings.EE_AVAILABLE:
-        return events
+        return EventsOverQuotaResult(events, False, False)
 
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
@@ -342,12 +350,15 @@ def drop_events_over_quota(token: str, events: list[Any]) -> list[Any]:
         QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
+    recordings_were_limited = False
+    events_were_limited = False
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
+                    recordings_were_limited = True
                     continue
 
         else:
@@ -355,11 +366,14 @@ def drop_events_over_quota(token: str, events: list[Any]) -> list[Any]:
             if token in limited_tokens_events:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
+                    events_were_limited = True
                     continue
 
         results.append(event)
 
-    return results
+    return EventsOverQuotaResult(
+        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
+    )
 
 
 def lib_version_from_query_params(request) -> str:
@@ -467,8 +481,12 @@ def get_event(request):
         except Exception as e:
             capture_exception(e)
 
+        # we're not going to change the response for events
+        recordings_were_quota_limited = False
         try:
-            events = drop_events_over_quota(token, events)
+            events_over_quota_result = drop_events_over_quota(token, events)
+            events = events_over_quota_result.events
+            recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
         except Exception as e:
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
@@ -567,8 +585,7 @@ def get_event(request):
             # This is mostly a copy of above except we only log, we don't error out
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
-                compression_in_capture = _compress_in_capture(token)
-                with REPLAY_MESSAGE_PRODUCTION_TIMER.labels(compress_in_capture=compression_in_capture).time():
+                with REPLAY_MESSAGE_PRODUCTION_TIMER.time():
                     for event, event_uuid, distinct_id in processed_events:
                         capture_args = (
                             event,
@@ -644,21 +661,28 @@ def get_event(request):
             scope.set_tag("ph-team-token", token)
             capture_exception(exc, {"data": data})
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
-        pass
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "Unable to store recording snapshot. Please try again. If you are the owner of this app you can check the logs for further details.",
+                code="server_error",
+                type="server_error",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        )
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
-    return cors_response(request, JsonResponse({"status": 1}))
 
+    response_body: dict[str, int | list[str]] = {"status": 1}
+    # if this has an unexpected effect we don't want it to have an unexpected effect on all clients at once,
+    # so we check if a random number if less than the given sample rate
+    # that means we can set SAMPLE_RATE to 0 to disable this and 1 to turn on for all clients
+    if recordings_were_quota_limited and random() < settings.RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE:
+        EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
+        response_body["quota_limited"] = ["recordings"]
 
-def _compress_in_capture(token: str | None) -> bool:
-    if (
-        # this check is only here so that we can test in a limited way in production
-        # ultimately we'll only check this setting
-        (settings.DEBUG or settings.TEST or token == "sTMFPsFhdP1Ssg")
-        and settings.SESSION_RECORDING_KAFKA_COMPRESSION == "gzip-in-capture"
-    ):
-        return True
-    return False
+    return cors_response(request, JsonResponse(response_body))
 
 
 def replace_with_warning(
@@ -825,14 +849,9 @@ def capture_internal(
         token=token,
     )
 
-    def gzip_json_serializer(data):
-        json_data = json.dumps(data).encode("utf-8")
-        return gzip.compress(json_data)
-
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [("token", token), *extra_headers]
-        value_serializer = gzip_json_serializer if (_compress_in_capture(token)) else None
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
@@ -846,7 +865,6 @@ def capture_internal(
             partition_key=session_id,
             headers=headers,
             overflowing=overflowing,
-            value_serializer=value_serializer,
         )
 
     # We aim to always partition by {team_id}:{distinct_id} but allow

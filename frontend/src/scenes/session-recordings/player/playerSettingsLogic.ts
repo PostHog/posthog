@@ -199,7 +199,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSearchQuery: (search: string) => ({ search }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
-        setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredInspectorStacking: (stacking: InspectorStacking) => ({ stacking }),
@@ -232,17 +231,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setPlaybackViewMode: (_, { mode }) => mode,
             },
         ],
-        prefersAdvancedFilters: [
-            true,
-            {
-                persist: true,
-            },
-            {
-                setPrefersAdvancedFilters: (_, { prefersAdvancedFilters }) => prefersAdvancedFilters,
-            },
-        ],
         quickFilterProperties: [
-            ['$geoip_country_name', ...(values.currentTeam?.person_display_name_properties || [])] as string[],
+            [...(values.currentTeam?.person_display_name_properties || [])] as string[],
             {
                 persist: true,
             },

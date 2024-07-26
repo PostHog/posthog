@@ -1,13 +1,15 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataWarehouseTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { DataWarehouseSceneTab } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -15,7 +17,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views'],
+            ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -26,7 +28,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     actions(({ values }) => ({
         selectRow: (row: DatabaseSchemaTable | null) => ({ row }),
-        setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
+        setSceneTab: (tab: DataWarehouseTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
         toggleEditSchemaMode: (inEditSchemaMode?: boolean) => ({ inEditSchemaMode }),
         updateSelectedSchema: (columnKey: string, columnType: DatabaseSerializedFieldType) => ({
@@ -38,6 +40,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         cancelEditSchema: () => ({ database: values.database }),
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
         toggleSchemaModal: true,
+        setEditingView: (id: string) => ({ id }),
+        updateView: (query: string) => ({ query }),
     })),
     reducers({
         selectedRow: [
@@ -130,6 +134,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 toggleSchemaModal: (state) => !state,
             },
         ],
+        editingView: [
+            null as string | null,
+            {
+                setEditingView: (_, { id }) => id,
+            },
+        ],
+        currentTab: [
+            DataWarehouseTab.Explore as DataWarehouseTab,
+            {
+                setSceneTab: (_, { tab }) => tab,
+            },
+        ],
     }),
     selectors({
         dataWarehouseTablesBySourceType: [
@@ -171,6 +187,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
             actions.setIsEditingSavedQuery(false)
             lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
+            if (payload) {
+                router.actions.push(urls.dataWarehouseView(payload.id, payload.query))
+            }
         },
         saveSchema: async () => {
             const schemaUpdates = values.schemaUpdates
@@ -226,6 +245,30 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     name: values.selectedRow.name,
                     tableType: values.selectedRow.type,
                 })
+            }
+        },
+        updateView: ({ query }) => {
+            if (values.editingView) {
+                const newViewQuery: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: query,
+                }
+                const oldView = values.viewsMapById[values.editingView]
+                const newView = {
+                    ...oldView,
+                    query: newViewQuery,
+                }
+                actions.updateDataWarehouseSavedQuery(newView)
+            }
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        '/data-warehouse/view/:id': ({ id }) => {
+            actions.setEditingView(id as string)
+        },
+        '/data-warehouse/:tab': ({ tab }) => {
+            if (tab !== values.currentTab) {
+                actions.setSceneTab(tab as DataWarehouseTab)
             }
         },
     })),

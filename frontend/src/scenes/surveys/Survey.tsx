@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -124,15 +124,14 @@ export function SurveyDisplaySummary({
                             ].slice(2)}
                             :
                         </span>{' '}
-                        <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
+                        <LemonTag>{survey.conditions.url}</LemonTag>
                     </div>
                 </div>
             )}
             {survey.conditions?.selector && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
-                        <span>Selector matches:</span>{' '}
-                        <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
+                        <span>Selector matches:</span> <LemonTag>{survey.conditions.selector}</LemonTag>
                     </div>
                 </div>
             )}
@@ -152,10 +151,10 @@ export function SurveyDisplaySummary({
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
                         <span>Wait period after seeing survey:</span>{' '}
-                        <span className="simple-tag tag-light-blue text-primary-alt">
+                        <LemonTag>
                             {survey.conditions.seenSurveyWaitPeriodInDays}{' '}
                             {survey.conditions.seenSurveyWaitPeriodInDays === 1 ? 'day' : 'days'}
-                        </span>
+                        </LemonTag>
                     </div>
                 </div>
             )}

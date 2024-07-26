@@ -13,7 +13,7 @@ const tuple = (array: any[]): any[] => {
     return array
 }
 
-describe('HogQL Bytecode', () => {
+describe('hogvm execute', () => {
     test('execution results', async () => {
         const globals = { properties: { foo: 'bar', nullValue: null } }
         const options = { globals }
@@ -131,6 +131,149 @@ describe('HogQL Bytecode', () => {
         }
         bytecode2.push(2, 'sleep', 301)
         expect(() => execSync(bytecode2)).toThrow('Too many arguments')
+    })
+
+    test('memory limits 1', async () => {
+        // let string := 'banana'
+        // for (let i := 0; i < 100; i := i + 1) {
+        //   string := string || string
+        // }
+        const bytecode: any[] = [
+            '_h',
+            32,
+            'banana',
+            33,
+            0,
+            33,
+            100,
+            36,
+            1,
+            15,
+            40,
+            18,
+            36,
+            0,
+            36,
+            0,
+            2,
+            'concat',
+            2,
+            37,
+            0,
+            33,
+            1,
+            36,
+            1,
+            6,
+            37,
+            1,
+            39,
+            -25,
+            35,
+            35,
+        ]
+
+        await expect(execAsync(bytecode)).rejects.toThrow(
+            'Memory limit of 67108864 bytes exceeded. Tried to allocate 75497504 bytes.'
+        )
+    })
+
+    test('memory limits 2', async () => {
+        // // Printing recursive objects.
+        // let obj := {'key': 'value', 'key2': 'value2'}
+        // let str := 'na'
+        // for (let i := 0; i < 10000; i := i + 1) {
+        //   if (i < 16) {
+        //     str := str || str
+        //   }
+        //   obj[f'key_{i}'] := {
+        //     'wasted': 'memory: ' || str || ' batman!',
+        //     'something': obj,  // something links to obj
+        //   }
+        // }
+        const bytecode: any[] = [
+            '_h',
+            32,
+            'key',
+            32,
+            'value',
+            32,
+            'key2',
+            32,
+            'value2',
+            42,
+            2,
+            32,
+            'na',
+            33,
+            0,
+            33,
+            10000,
+            36,
+            2,
+            15,
+            40,
+            52,
+            33,
+            16,
+            36,
+            2,
+            15,
+            40,
+            9,
+            36,
+            1,
+            36,
+            1,
+            2,
+            'concat',
+            2,
+            37,
+            1,
+            36,
+            0,
+            36,
+            2,
+            32,
+            'key_',
+            2,
+            'concat',
+            2,
+            32,
+            'wasted',
+            32,
+            ' batman!',
+            36,
+            1,
+            32,
+            'memory: ',
+            2,
+            'concat',
+            3,
+            32,
+            'something',
+            36,
+            0,
+            42,
+            2,
+            46,
+            33,
+            1,
+            36,
+            2,
+            6,
+            37,
+            2,
+            39,
+            -59,
+            35,
+            35,
+            35,
+        ]
+
+        await expect(execAsync(bytecode)).rejects.toThrow(
+            'Memory limit of 67108864 bytes exceeded. Tried to allocate 67155164 bytes.'
+        )
     })
 
     test('should execute user-defined stringify function correctly', async () => {
@@ -383,6 +526,7 @@ describe('HogQL Bytecode', () => {
                 callStack: [],
                 declaredFunctions: {},
                 ip: 8,
+                maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
                 syncDuration: 0,
@@ -569,7 +713,7 @@ describe('HogQL Bytecode', () => {
             ]).result
         ).toEqual([1, [2, [3, 4]], 5])
 
-        // var a := [1, 2, 3]; return a[1];
+        // var a := [1, 2, 3]; return a[2];
         expect(
             exec([
                 '_h',
@@ -584,14 +728,14 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(2)
 
-        // return [1, 2, 3][1];
+        // return [1, 2, 3][2];
         expect(
             exec([
                 '_h',
@@ -604,13 +748,13 @@ describe('HogQL Bytecode', () => {
                 op.ARRAY,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(2)
 
-        // return [1, [2, [3, 4]], 5][1][1][1];
+        // return [1, [2, [3, 4]], 5][2][2][2];
         expect(
             exec([
                 '_h',
@@ -631,19 +775,19 @@ describe('HogQL Bytecode', () => {
                 op.ARRAY,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(4)
 
-        // return [1, [2, [3, 4]], 5][1][1][1] + 1;
+        // return [1, [2, [3, 4]], 5][2][2][2] + 1;
         expect(
             exec([
                 '_h',
@@ -666,20 +810,20 @@ describe('HogQL Bytecode', () => {
                 op.ARRAY,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.PLUS,
                 op.RETURN,
             ]).result
         ).toEqual(5)
 
-        // return [1, [2, [3, 4]], 5].1.1.1;
+        // return [1, [2, [3, 4]], 5].2.2.2;
         expect(
             exec([
                 '_h',
@@ -700,17 +844,22 @@ describe('HogQL Bytecode', () => {
                 op.ARRAY,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(4)
+
+        // return [1, 2, 3][0]
+        expect(() => execSync(['_h', 33, 1, 33, 2, 33, 3, 43, 3, 33, 0, 45, 38])).toThrow(
+            'Hog arrays start from index 1'
+        )
     })
 
     test('test bytecode tuples', () => {
@@ -768,7 +917,7 @@ describe('HogQL Bytecode', () => {
             ]).result
         ).toEqual(tuple([1, tuple([2, tuple([3, 4])]), 5]))
 
-        // var a := (1, 2, 3); return a[1];
+        // var a := (1, 2, 3); return a[2];
         expect(
             exec([
                 '_h',
@@ -783,14 +932,14 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(2)
 
-        // return (1, (2, (3, 4)), 5)[1][1][1];
+        // return (1, (2, (3, 4)), 5)[2][2][2];
         expect(
             exec([
                 '_h',
@@ -811,19 +960,19 @@ describe('HogQL Bytecode', () => {
                 op.TUPLE,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(4)
 
-        // return (1, (2, (3, 4)), 5).1.1.1;
+        // return (1, (2, (3, 4)), 5).2.2.2;
         expect(
             exec([
                 '_h',
@@ -844,19 +993,19 @@ describe('HogQL Bytecode', () => {
                 op.TUPLE,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
             ]).result
         ).toEqual(4)
 
-        // return (1, (2, (3, 4)), 5)[1][1][1] + 1;
+        // return (1, (2, (3, 4)), 5)[2][2][2] + 1;
         expect(
             exec([
                 '_h',
@@ -879,13 +1028,13 @@ describe('HogQL Bytecode', () => {
                 op.TUPLE,
                 3,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.PLUS,
                 op.RETURN,
@@ -894,7 +1043,7 @@ describe('HogQL Bytecode', () => {
     })
 
     test('test bytecode nested', () => {
-        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;
+        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3.d.2;
         expect(
             exec([
                 '_h',
@@ -921,20 +1070,20 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(3)
 
-        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];
+        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[3].d[3];
         expect(
             exec([
                 '_h',
@@ -961,20 +1110,20 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(42)
 
-        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];
+        // var r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3['d'][4];
         expect(
             exec([
                 '_h',
@@ -1001,20 +1150,20 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                3,
+                4,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
             ]).result
         ).toEqual(6)
 
-        // var r := {'d': (1, 3, 42, 6)}; return r.d.1;
+        // var r := {'d': (1, 3, 42, 6)}; return r.d.2;
         expect(
             exec([
                 '_h',
@@ -1038,7 +1187,7 @@ describe('HogQL Bytecode', () => {
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                1,
+                2,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1048,8 +1197,8 @@ describe('HogQL Bytecode', () => {
 
     test('test bytecode nested modify', () => {
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r.2.d.2 := 3;
-        // return r.2.d.2;
+        // r.3.d.3 := 3;
+        // return r.3.d.3;
         expect(
             exec([
                 '_h',
@@ -1076,26 +1225,26 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.INTEGER,
                 3,
                 op.SET_PROPERTY,
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1103,8 +1252,8 @@ describe('HogQL Bytecode', () => {
         ).toEqual(3)
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r[2].d[2] := 3;
-        // return r[2].d[2];
+        // r[3].d[3] := 3;
+        // return r[3].d[3];
         expect(
             exec([
                 '_h',
@@ -1131,26 +1280,26 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.INTEGER,
                 3,
                 op.SET_PROPERTY,
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1158,8 +1307,8 @@ describe('HogQL Bytecode', () => {
         ).toEqual(3)
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r[2].c := [666];
-        // return r[2];
+        // r[3].c := [666];
+        // return r[3];
         expect(
             exec([
                 '_h',
@@ -1186,7 +1335,7 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'c',
@@ -1198,7 +1347,7 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1206,8 +1355,8 @@ describe('HogQL Bytecode', () => {
         ).toEqual(map({ d: [1, 3, 42, 3], c: [666] }))
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r[2].d[2] := 3;
-        // return r[2].d;
+        // r[3].d[3] := 3;
+        // return r[3].d;
         expect(
             exec([
                 '_h',
@@ -1234,20 +1383,20 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.INTEGER,
                 3,
                 op.SET_PROPERTY,
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
@@ -1258,8 +1407,8 @@ describe('HogQL Bytecode', () => {
         ).toEqual([1, 3, 3, 3])
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
-        // r.2['d'] := ['a', 'b', 'c', 'd'];
-        // return r[2].d[2];
+        // r.3['d'] := ['a', 'b', 'c', 'd'];
+        // return r[3].d[3];
         expect(
             exec([
                 '_h',
@@ -1286,7 +1435,7 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
@@ -1304,13 +1453,13 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,
@@ -1319,8 +1468,8 @@ describe('HogQL Bytecode', () => {
 
         // var r := [1, 2, {'d': [1, 3, 42, 3]}];
         // var g := 'd';
-        // r.2[g] := ['a', 'b', 'c', 'd'];
-        // return r[2].d[2];
+        // r.3[g] := ['a', 'b', 'c', 'd'];
+        // return r[3].d[3];
         expect(
             exec([
                 '_h',
@@ -1349,7 +1498,7 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.GET_LOCAL,
                 1,
@@ -1367,13 +1516,13 @@ describe('HogQL Bytecode', () => {
                 op.GET_LOCAL,
                 0,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.STRING,
                 'd',
                 op.GET_PROPERTY,
                 op.INTEGER,
-                2,
+                3,
                 op.GET_PROPERTY,
                 op.RETURN,
                 op.POP,

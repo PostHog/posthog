@@ -1,6 +1,8 @@
 import { IconInfo, IconPlus } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
+    LemonDivider,
     LemonDropdown,
     LemonInput,
     LemonLabel,
@@ -13,16 +15,18 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes } from '~/types'
+import { AvailableFeature, EntityTypes } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
@@ -42,6 +46,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         loaded,
         hogFunction,
         willReEnableOnSave,
+        exampleInvocationGlobalsWithInputs,
+        showPaygate,
+        hasAddon,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -51,6 +58,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         resetToTemplate,
         duplicateFromTemplate,
         setConfigurationValue,
+        deleteHogFunction,
     } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
@@ -78,9 +86,22 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
     const headerButtons = (
         <>
             {!templateId && (
-                <LemonButton type="secondary" onClick={() => duplicate()}>
-                    Duplicate
-                </LemonButton>
+                <>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton fullWidth onClick={() => duplicate()}>
+                                    Duplicate
+                                </LemonButton>
+                                <LemonDivider />
+                                <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
+                                    Delete
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                    <LemonDivider vertical />
+                </>
             )}
         </>
     )
@@ -108,6 +129,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         </>
     )
 
+    if (showPaygate) {
+        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+    }
+
     return (
         <div className="space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
@@ -119,6 +144,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                         </>
                     }
                 />
+
+                <LemonBanner type="info">
+                    Hog Functions are in <b>alpha</b> and are the next generation of our data pipeline destinations. You
+                    can use pre-existing templates or modify the source Hog code to create your own custom functions.
+                </LemonBanner>
 
                 <Form
                     logic={hogFunctionConfigurationLogic}
@@ -311,6 +341,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                             language="hog"
                                                             value={value ?? ''}
                                                             onChange={(v) => onChange(v ?? '')}
+                                                            globals={exampleInvocationGlobalsWithInputs}
                                                             options={{
                                                                 minimap: {
                                                                     enabled: false,
@@ -335,6 +366,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 size="xsmall"
                                                 type="secondary"
                                                 onClick={() => setShowSource(true)}
+                                                disabledReason={
+                                                    !hasAddon
+                                                        ? 'Editing the source code requires the Data Pipelines addon'
+                                                        : undefined
+                                                }
                                             >
                                                 Show function source code
                                             </LemonButton>

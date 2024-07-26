@@ -4,7 +4,7 @@ from typing import Literal, Optional
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable"]
+    status: Literal["alpha", "beta", "stable", "free"]
     id: str
     name: str
     description: str

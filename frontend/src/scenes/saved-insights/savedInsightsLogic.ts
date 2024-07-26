@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -11,6 +12,9 @@ import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -64,7 +68,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], sceneLogic, ['activeScene']],
         logic: [eventUsageLogic],
     }),
     actions({
@@ -74,8 +78,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             debounce: boolean = true
         ) => ({ filters, merge, debounce }),
         updateFavoritedInsight: (insight: QueryBasedInsightModel, favorited: boolean) => ({ insight, favorited }),
-        renameInsight: (insight: InsightModel) => ({ insight }),
-        duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
+        renameInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+        duplicateInsight: (insight: QueryBasedInsightModel, redirectToInsight = false) => ({
             insight,
             redirectToInsight,
         }),
@@ -119,7 +123,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 // scroll to top if the page changed, except if changed via back/forward
                 if (
-                    router.values.location.pathname === urls.savedInsights() &&
+                    sceneLogic.values.activeScene === Scene.SavedInsights &&
                     router.values.lastMethod !== 'POP' &&
                     values.insights.filters?.page !== filters.page
                 ) {
@@ -167,7 +171,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors({
+        queryBasedInsightSaving: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
+        ],
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -227,18 +235,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     pageSize: INSIGHTS_PER_PAGE,
                     currentPage: filters.page,
                     entryCount: count,
-                    onBackward: () =>
-                        actions.setSavedInsightsFilters({
-                            page: filters.page - 1,
-                        }),
-                    onForward: () =>
-                        actions.setSavedInsightsFilters({
-                            page: filters.page + 1,
-                        }),
                 }
             },
         ],
-    })),
+    }),
     listeners(({ actions, asyncActions, values, selectors }) => ({
         setSavedInsightsFilters: async ({ merge, debounce }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
@@ -278,9 +278,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, {
-                ...insight,
-                name: insight.name ? `${insight.name} (copy)` : insight.name,
+            const newInsight = await insightsApi.duplicate(insight, {
+                writeAsQuery: values.queryBasedInsightSaving,
+                readAsQuery: false,
             })
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
@@ -321,7 +321,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                   }
               ]
             | void => {
-            if (router.values.location.pathname === urls.savedInsights()) {
+            const currentScene = sceneLogic.findMounted()?.values
+            if (currentScene?.activeScene === Scene.SavedInsights) {
                 const nextValues = cleanFilters(values.filters)
                 const urlValues = cleanFilters(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {

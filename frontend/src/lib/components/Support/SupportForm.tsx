@@ -119,6 +119,7 @@ export function SupportForm(): JSX.Element | null {
                         <LemonTextArea
                             placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"
+                            minRows={5}
                             {...props}
                         />
                         {objectStorageAvailable && !!user && (
