@@ -1,3 +1,4 @@
+import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/components/Sparkline'
 
@@ -35,6 +36,15 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <Sparkline {...props} data={data ?? []} type={type} />
+                </ErrorBoundary>
+            )
+        } else if (tag === 'Link') {
+            const { to, target } = rest
+            return (
+                <ErrorBoundary>
+                    <Link to={to} target={target ?? '_self'}>
+                        {to}
+                    </Link>
                 </ErrorBoundary>
             )
         }
