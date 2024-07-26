@@ -170,7 +170,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         {({ value, onChange }) => (
                                             <HogFunctionIconEditable
                                                 logicKey={id ?? templateId ?? 'new'}
-                                                search={configuration.name}
                                                 src={value}
                                                 onChange={(val) => onChange(val)}
                                             />
