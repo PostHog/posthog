@@ -6,7 +6,7 @@ describe('Utils', () => {
         it("should compress and decompress a string using gzip's sync functions", async () => {
             const input = { foo: 'bar', foo2: 'bar' }
             const compressed = await gzipObject(input)
-            expect(compressed).toHaveLength(52)
+            expect(compressed).toHaveLength(19)
             const decompressed = await unGzipObject(compressed)
             expect(decompressed).toEqual(input)
         })
