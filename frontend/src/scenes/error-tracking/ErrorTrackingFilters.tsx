@@ -77,7 +77,7 @@ export const Options = ({ showOrder = true }: { showOrder?: boolean }): JSX.Elem
     const { setOrder } = useActions(errorTrackingSceneLogic)
 
     return (
-        <div className="flex gap-4">
+        <div className="flex gap-4 py-2">
             <div className="flex items-center gap-1">
                 <span>Date range:</span>
                 <DateFilter

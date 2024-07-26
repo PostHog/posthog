@@ -48,12 +48,10 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
-            <div className="space-y-2">
-                <ErrorTrackingFilters.FilterGroup />
-                <LemonDivider />
-                {selectedRows.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
-                <Query query={query} context={context} />
-            </div>
+            <ErrorTrackingFilters.FilterGroup />
+            <LemonDivider className="mt-2" />
+            {selectedRows.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
+            <Query query={query} context={context} />
         </BindLogic>
     )
 }
@@ -64,7 +62,7 @@ const ErrorTrackingActions = (): JSX.Element => {
     const { mergeGroups } = useActions(errorTrackingDataNodeLogic)
 
     return (
-        <div className="flex space-x-1">
+        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-bg-3000 flex space-x-1">
             <LemonButton type="secondary" size="small" onClick={() => setSelectedRows([])}>
                 Unselect all
             </LemonButton>

@@ -22,9 +22,9 @@ export function ErrorTrackingGroupScene(): JSX.Element {
     const { setErrorGroupTab } = useActions(errorTrackingGroupSceneLogic)
 
     return (
-        <div className="space-y-4">
+        <>
             <ErrorTrackingFilters.FilterGroup />
-            <LemonDivider />
+            <LemonDivider className="mt-2" />
             <ErrorTrackingFilters.Options showOrder={false} />
 
             <LemonTabs
@@ -43,6 +43,6 @@ export function ErrorTrackingGroupScene(): JSX.Element {
                     },
                 ]}
             />
-        </div>
+        </>
     )
 }
