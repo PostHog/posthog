@@ -41,14 +41,19 @@ export const humanFriendlyDataWarehouseTabName = (tab: DataWarehouseTab): string
 export function DataWarehouseExternalScene(): JSX.Element {
     const { currentTab } = useValues(dataWarehouseSceneLogic)
 
-    const { insightProps, insightSaving } = useValues(
+    const { insightSaving, insightProps } = useValues(
         insightLogic({
             dashboardItemId: 'new',
             cachedInsight: null,
         })
     )
-
-    const { saveAs } = useActions(insightDataLogic(insightProps))
+    const { saveAs } = useActions(
+        insightLogic({
+            dashboardItemId: 'new',
+            cachedInsight: null,
+        })
+    )
+    const { query } = useValues(insightDataLogic(insightProps))
 
     return (
         <div>
@@ -59,7 +64,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 data-attr="save-exploration"
-                                onClick={() => saveAs(true)}
+                                onClick={() => saveAs(query, true)}
                                 loading={insightSaving}
                             >
                                 Save as insight
@@ -93,7 +98,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 onChange={(tab) => router.actions.push(urls.dataWarehouse(tab as DataWarehouseTab))}
                 tabs={Object.entries(tabToContent).map(([tab, content]) => ({
                     label: (
-                        <span className="flex justify-center items-center justify-between gap-1">
+                        <span className="flex items-center justify-between gap-1">
                             {humanFriendlyDataWarehouseTabName(tab as DataWarehouseTab)}{' '}
                         </span>
                     ),
