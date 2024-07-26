@@ -1,6 +1,7 @@
 export const UNUSED_ICONS = [
     'IconAdvanced',
     'IconAsterisk',
+    'IconBugs',
     'IconGridMasonry',
     'IconApps',
     'IconRibbon',

@@ -73,6 +73,13 @@ const CLOUD_FEATURES: CloudFeature[] = [
         link: 'https://posthog.com/pricing',
     },
     {
+        name: 'Open-Source Bug Reporting',
+        description:
+            'All bug reports submitted through the dashboard are publicly available.',
+        icon: <IconBugs />,
+        link: 'https://github.com/PostHog/posthog/issues',
+    },
+    {
         name: 'World-class support',
         description:
             'PostHog Cloud customers get access to our world-class support team, not just the community forum.',
