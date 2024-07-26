@@ -49,7 +49,7 @@ jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
             connect: jest.fn(),
         },
         disconnect: jest.fn(),
-        produce: jest.fn(),
+        produce: jest.fn(() => Promise.resolve()),
     }
     return {
         KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
@@ -211,7 +211,7 @@ describe('CDP Processed Events Consuner', () => {
                 topic: 'log_entries_test',
                 value: {
                     log_source: 'hog_function',
-                    message: "Suspending function due to async function call 'fetch'",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1497 bytes",
                     team_id: 2,
                 },
             })
