@@ -262,7 +262,7 @@ def create_hogql_database(
         replay_events = database.session_replay_events
         replay_events.fields["session"] = LazyJoin(
             from_field=["session_id"],
-            join_table=sessions,
+            join_table=sessions,e
             join_function=join_replay_table_to_sessions_table_v2,
         )
         replay_events.fields["events"].join_table = events

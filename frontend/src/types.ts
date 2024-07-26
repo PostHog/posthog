@@ -3237,6 +3237,7 @@ export interface CoreFilterDefinition {
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
+    knownPropertyType?: PropertyType
 }
 
 export interface TileParams {

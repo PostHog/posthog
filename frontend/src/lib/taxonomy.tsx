@@ -1,31 +1,9 @@
-import { CoreFilterDefinition, PropertyFilterValue } from '~/types'
+import { CAMPAIGN_PARAMS } from 'posthog-js/lib/src/utils/event-utils'
+
+import { CoreFilterDefinition, PropertyFilterValue, PropertyType } from '~/types'
 
 import { TaxonomicFilterGroupType } from './components/TaxonomicFilter/types'
 import { Link } from './lemon-ui/Link'
-
-/** Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts */
-// Ideally this would be imported from posthog-js, we just need to start exporting the list there
-export const CAMPAIGN_PROPERTIES: string[] = [
-    'utm_source',
-    'utm_medium',
-    'utm_campaign',
-    'utm_content',
-    'utm_term',
-    'gclid', // google ads
-    'gad_source', // google ads
-    'gclsrc', // google ads 360
-    'dclid', // google display ads
-    'gbraid', // google ads, web to app
-    'wbraid', // google ads, app to web
-    'fbclid', // facebook
-    'msclkid', // microsoft
-    'twclid', // twitter
-    'li_fat_id', // linkedin
-    'mc_cid', // mailchimp campaign id
-    'igshid', // instagram
-    'ttclid', // tiktok
-    'rdt_cid', // reddit
-]
 
 // copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
 const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
@@ -44,7 +22,7 @@ const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
-    ...CAMPAIGN_PROPERTIES,
+    ...CAMPAIGN_PARAMS,
 ])
 
 export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
@@ -364,11 +342,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'City Name',
             description: `Name of the city matched to this event's IP address.`,
             examples: ['Sydney', 'Chennai', 'Brooklyn'],
+            knownPropertyType: PropertyType.String,
         },
         $geoip_country_name: {
             label: 'Country Name',
             description: `Name of the country matched to this event's IP address.`,
             examples: ['Australia', 'India', 'United States'],
+            knownPropertyType: PropertyType.String,
         },
         $geoip_country_code: {
             label: 'Country Code',
@@ -379,31 +359,38 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Continent Name',
             description: `Name of the continent matched to this event's IP address.`,
             examples: ['Oceania', 'Asia', 'North America'],
+            knownPropertyType: PropertyType.String,
         },
         $geoip_continent_code: {
             label: 'Continent Code',
             description: `Code of the continent matched to this event's IP address.`,
             examples: ['OC', 'AS', ' NA'],
+            knownPropertyType: PropertyType.String,
         },
         $geoip_postal_code: {
             label: 'Postal Code',
             description: `Approximated postal code matched to this event's IP address.`,
             examples: ['2000', '600004', '11211'],
+            knownPropertyType: PropertyType.String,
         },
         $geoip_latitude: {
             label: 'Latitude',
             description: `Approximated latitude matched to this event's IP address.`,
             examples: ['-33.8591', '13.1337', '40.7'],
+            knownPropertyType: PropertyType.Numeric,
         },
         $geoip_longitude: {
             label: 'Longitude',
             description: `Approximated longitude matched to this event's IP address.`,
             examples: ['151.2', '80.8008', '-73.9'],
+            knownPropertyType: PropertyType.Numeric,
         },
         $geoip_time_zone: {
             label: 'Timezone',
             description: `Timezone matched to this event's IP address.`,
             examples: ['Australia/Sydney', 'Asia/Kolkata', 'America/New_York'],
+            knownPropertyType: PropertyType.String,
+            w,
         },
         $geoip_subdivision_1_name: {
             label: 'Subdivision 1 Name',
