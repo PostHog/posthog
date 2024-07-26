@@ -47,6 +47,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
         conditions, args = self._conditions(deletions)
 
+        # Split the deletions into chunks to avoid hitting the max query size
         query_predicate = []
         for condition in conditions:
             query_predicate.append(condition)
@@ -55,6 +56,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             str_predicate = " OR ".join(query_predicate)
             query_size = len(str_predicate.encode("utf-8"))
 
+            # If the query size is greater than the max predicate size, execute the query and reset the query predicate
             if query_size > MAX_PREDICATE_SIZE:
                 next_args, rest_args = split_dict(args, len(query_predicate) - 1)
                 sync_execute(
@@ -66,8 +68,11 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                     next_args,
                     settings={"max_query_size": MAX_QUERY_SIZE},
                 )
+                # Reset the query predicate and predicate args
                 args = rest_args
                 query_predicate = []
+
+        # This is the default condition if we don't hit the MAX_PREDICATE_SIZE
         sync_execute(
             f"""
             DELETE FROM posthog.sharded_events
