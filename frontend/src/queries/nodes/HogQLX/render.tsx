@@ -38,15 +38,6 @@ export function renderHogQLX(value: any): JSX.Element {
                     <Sparkline {...props} data={data ?? []} type={type} />
                 </ErrorBoundary>
             )
-        } else if (tag === 'Link') {
-            const { to, source, target } = rest
-            return (
-                <ErrorBoundary>
-                    <Link to={to} target={target ?? '_self'}>
-                        {source ? renderHogQLX(source) : to}
-                    </Link>
-                </ErrorBoundary>
-            )
         } else if (tag === 'a') {
             const { href, source, target } = rest
             return (
