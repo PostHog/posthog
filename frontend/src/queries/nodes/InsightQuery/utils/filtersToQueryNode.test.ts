@@ -409,6 +409,112 @@ describe('filtersToQueryNode', () => {
             }
             expect(result).toEqual(query)
         })
+
+        it('converts multiple breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'event',
+                        property: '$pathname',
+                        normalize_url: true,
+                    },
+                    {
+                        type: 'group',
+                        property: '$num',
+                        group_type_index: 0,
+                        histogram_bin_count: 10,
+                    },
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'event',
+                            property: '$pathname',
+                            normalize_url: true,
+                        },
+                        {
+                            type: 'group',
+                            property: '$num',
+                            group_type_index: 0,
+                            histogram_bin_count: 10,
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('converts legacy funnel breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'event',
+                        property: '$current_url',
+                    },
+                    {
+                        property: '$pathname',
+                    } as any,
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'event',
+                            property: '$current_url',
+                        },
+                        {
+                            type: 'event',
+                            property: '$pathname',
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('does not add breakdown_type for multiple breakdowns', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                breakdowns: [
+                    {
+                        type: 'person',
+                        property: '$browser',
+                    },
+                ],
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                breakdownFilter: {
+                    breakdowns: [
+                        {
+                            type: 'person',
+                            property: '$browser',
+                        },
+                    ],
+                    breakdown_type: undefined,
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
     })
 
     describe('funnels filter', () => {
