@@ -38,8 +38,8 @@ function CategoryPill({
             type={isActive ? 'primary' : canInteract ? 'option' : 'muted'}
             data-attr={`taxonomic-tab-${groupType}`}
             onClick={canInteract ? onClick : undefined}
-            weight="normal"
-            aria-disabled
+            disabledReason={!canInteract ? 'No results' : null}
+            className="font-normal"
         >
             {group?.render ? (
                 group?.name

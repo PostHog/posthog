@@ -66,7 +66,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                     disabledReason={
                                         surveysStylingAvailable
                                             ? null
-                                            : 'Subscribe to surveys to customize survey position.'
+                                            : 'Upgrade your plan to customize survey position.'
                                     }
                                 >
                                     {position}

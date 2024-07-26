@@ -37,3 +37,29 @@ class TestErrorTracking(APIBaseTest):
         )
         group.refresh_from_db()
         self.assertEqual(group.fingerprint, "CustomFingerprint")
+
+    def test_merging_of_an_existing_group(self):
+        fingerprint = "CustomFingerprint"
+        merging_fingerprints = ["NewFingerprint"]
+        group = ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=self.team)
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/{fingerprint}/merge",
+            data={"merging_fingerprints": merging_fingerprints},
+        )
+
+        group.refresh_from_db()
+        self.assertEqual(group.merged_fingerprints, merging_fingerprints)
+
+    def test_merging_when_no_group_exists(self):
+        fingerprint = "CustomFingerprint"
+        merging_fingerprints = ["NewFingerprint"]
+
+        self.assertEqual(ErrorTrackingGroup.objects.count(), 0)
+        self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/{fingerprint}/merge",
+            data={"merging_fingerprints": merging_fingerprints},
+        )
+        self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
+        groups = ErrorTrackingGroup.objects.only("merged_fingerprints")
+        self.assertEqual(groups[0].merged_fingerprints, merging_fingerprints)

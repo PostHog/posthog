@@ -150,14 +150,19 @@ def execute_process_query(
     team = Team.objects.get(pk=team_id)
     sentry_sdk.set_tag("team_id", team_id)
 
+    is_staff_user = False
     if user_id:
-        user = User.objects.get(pk=user_id)
+        user = User.objects.only("email", "is_staff").get(pk=user_id)
+        is_staff_user = user.is_staff
         sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
 
     query_status = manager.get_query_status()
 
     if query_status.complete:
         return
+
+    query_status.pickup_time = datetime.datetime.now(datetime.UTC)
+    manager.store_query_status(query_status)
 
     query_status.error = True  # Assume error in case nothing below ends up working
     query_status.complete = True
@@ -166,9 +171,8 @@ def execute_process_query(
     if trigger == "chained":
         tag_queries(trigger="chaining")
 
-    pickup_time = datetime.datetime.now(datetime.UTC)
     if query_status.start_time:
-        wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
+        wait_duration = (query_status.pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
     try:
@@ -186,23 +190,22 @@ def execute_process_query(
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.error = False
         query_status.results = results
-        query_status.end_time = datetime.datetime.now(datetime.UTC)
-        process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
+        process_duration = (datetime.datetime.now(datetime.UTC) - query_status.pickup_time) / datetime.timedelta(
+            seconds=1
+        )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
     except CHQueryErrorTooManySimultaneousQueries:
         raise
-    except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
+    except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
-        query_status.error_message = str(err)
-        logger.exception("Error processing query for team %s query %s", team_id, query_id)
-        sentry_sdk.capture_exception(err)
-        # Do not raise here, the task itself did its job and we cannot recover
-    except Exception as err:  # We cannot reveal anything about the error
-        query_status.results = None  # Clear results in case they are faulty
-        logger.exception("Error processing query for team %s query %s", team_id, query_id)
+        if isinstance(err, ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
+            # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
+            query_status.error_message = str(err)
+        logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         sentry_sdk.capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
+        query_status.end_time = datetime.datetime.now(datetime.UTC)
         manager.store_query_status(query_status)
 
 

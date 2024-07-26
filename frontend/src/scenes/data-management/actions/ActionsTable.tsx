@@ -19,7 +19,15 @@ import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, AvailableFeature, ChartDisplayType, InsightType, ProductKey } from '~/types'
+import {
+    ActionType,
+    AvailableFeature,
+    ChartDisplayType,
+    FilterLogicalOperator,
+    InsightType,
+    ProductKey,
+    ReplayTabs,
+} from '~/types'
 
 import { NewActionButton } from '../../actions/NewActionButton'
 import { teamLogic } from '../../teamLogic'
@@ -151,20 +159,24 @@ export function ActionsTable(): JSX.Element {
                                     Copy
                                 </LemonButton>
                                 <LemonButton
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                actions: [
-                                                    {
-                                                        id: action.id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.replay(ReplayTabs.Recent, {
+                                        filter_group: {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            id: action.id,
+                                                            type: 'actions',
+                                                            order: 0,
+                                                            name: action.name,
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"

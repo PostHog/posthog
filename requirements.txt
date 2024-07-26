@@ -271,7 +271,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.29
+hogql-parser==1.0.32
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -601,7 +601,7 @@ structlog==23.2.0
     # via
     #   -r requirements.in
     #   django-structlog
-temporalio==1.4.0
+temporalio==1.6.0
     # via -r requirements.in
 tenacity==8.2.3
     # via

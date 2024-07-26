@@ -9,6 +9,22 @@ class HogVMException(Exception):
     pass
 
 
+class UncaughtHogVMException(HogVMException):
+    type: str
+    message: str
+    payload: Any
+
+    def __init__(self, type, message, payload):
+        super().__init__(message)
+        self.type = type
+        self.message = message
+        self.payload = payload
+
+    def __str__(self):
+        msg = self.message.replace("'", "\\'")
+        return f"{self.type}('{msg}')"
+
+
 def like(string, pattern, flags=0):
     pattern = re.escape(pattern).replace("%", ".*")
     re_pattern = re.compile(pattern, flags)
