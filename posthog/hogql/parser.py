@@ -1102,6 +1102,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 if a.name == "source":
                     raise SyntaxError(f"Nested HogQLX tags cannot have a source attribute")
             attributes.append(ast.HogQLXAttribute(name="source", value=source))
+        if ctx.columnExpr():
+            source = self.visit(ctx.columnExpr())
+            for a in attributes:
+                if a.name == "source":
+                    raise SyntaxError(f"Nested HogQLX tags cannot have a source attribute")
+            attributes.append(ast.HogQLXAttribute(name="source", value=source))
         return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):

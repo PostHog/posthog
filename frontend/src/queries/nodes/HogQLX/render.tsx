@@ -39,11 +39,11 @@ export function renderHogQLX(value: any): JSX.Element {
                 </ErrorBoundary>
             )
         } else if (tag === 'Link') {
-            const { to, target } = rest
+            const { to, source, target } = rest
             return (
                 <ErrorBoundary>
                     <Link to={to} target={target ?? '_self'}>
-                        {to}
+                        {source ?? to}
                     </Link>
                 </ErrorBoundary>
             )
