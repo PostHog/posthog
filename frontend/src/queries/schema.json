@@ -3276,6 +3276,9 @@
                     },
                     "type": "array"
                 },
+                "exception_type": {
+                    "type": ["string", "null"]
+                },
                 "fingerprint": {
                     "type": "string"
                 },
@@ -3310,6 +3313,7 @@
             },
             "required": [
                 "fingerprint",
+                "exception_type",
                 "merged_fingerprints",
                 "occurrences",
                 "sessions",

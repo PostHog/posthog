@@ -102,7 +102,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 }}
             />
             <LemonTableLink
-                title={record.fingerprint}
+                title={record.exception_type || record.fingerprint}
                 description={
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
