@@ -43,8 +43,31 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <Link to={to} target={target ?? '_self'}>
-                        {source ?? to}
+                        {source ? renderHogQLX(source) : to}
                     </Link>
+                </ErrorBoundary>
+            )
+        } else if (tag === 'a') {
+            const { href, source, target } = rest
+            return (
+                <ErrorBoundary>
+                    <Link to={href} target={target ?? '_self'}>
+                        {source ? renderHogQLX(source) : href}
+                    </Link>
+                </ErrorBoundary>
+            )
+        } else if (tag === 'strong') {
+            const { source } = rest
+            return (
+                <ErrorBoundary>
+                    <strong>{renderHogQLX(source)}</strong>
+                </ErrorBoundary>
+            )
+        } else if (tag === 'em') {
+            const { source } = rest
+            return (
+                <ErrorBoundary>
+                    <em>{renderHogQLX(source)}</em>
                 </ErrorBoundary>
             )
         }
