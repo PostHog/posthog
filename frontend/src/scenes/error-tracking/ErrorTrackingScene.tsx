@@ -14,7 +14,7 @@ import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { errorTrackingDataLogic } from './errorTrackingDataLogic'
+import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
@@ -47,7 +47,7 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={errorTrackingDataLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+        <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
             <div className="space-y-2">
                 <ErrorTrackingFilters.FilterGroup />
                 <LemonDivider />
@@ -61,7 +61,7 @@ export function ErrorTrackingScene(): JSX.Element {
 const ErrorTrackingActions = (): JSX.Element => {
     const { selectedRows } = useValues(errorTrackingSceneLogic)
     const { setSelectedRows } = useActions(errorTrackingSceneLogic)
-    const { mergeGroups } = useActions(errorTrackingDataLogic)
+    const { mergeGroups } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <div className="flex space-x-1">
@@ -146,7 +146,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 }
 
 const AssigneeColumn: QueryContextColumnComponent = (props) => {
-    const { assignGroup } = useActions(errorTrackingDataLogic)
+    const { assignGroup } = useActions(errorTrackingDataNodeLogic)
 
     const record = props.record as ErrorTrackingGroup
 
