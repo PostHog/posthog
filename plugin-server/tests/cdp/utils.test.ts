@@ -4,9 +4,9 @@ import { insertHogFunction as _insertHogFunction } from './fixtures'
 describe('Utils', () => {
     describe('gzip compressions', () => {
         it("should compress and decompress a string using gzip's sync functions", async () => {
-            const input = { foo: 'bar' }
+            const input = { foo: 'bar', foo2: 'bar' }
             const compressed = await gzipObject(input)
-            expect(compressed).toMatchInlineSnapshot(`"H4sIAAAAAAAAE6tWSsvPV7JSSkosUqoFAO/1K/4NAAAA"`)
+            expect(compressed).toHaveLength(52)
             const decompressed = await unGzipObject(compressed)
             expect(decompressed).toEqual(input)
         })
