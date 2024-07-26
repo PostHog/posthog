@@ -11,6 +11,8 @@ from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 deletions_counter = Counter("deletions_executed", "Total number of deletions sent to clickhouse", ["deletion_type"])
 
 
+MAX_PREDICATE_SIZE = 240_000  # 240KB
+
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
 TABLES_TO_DELETE_TEAM_DATA_FROM = [
     "person",
@@ -44,15 +46,28 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         )
 
         conditions, args = self._conditions(deletions)
-        sync_execute(
-            f"""
-            ALTER TABLE sharded_events
-            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-            DELETE WHERE {" OR ".join(conditions)}
-            """,
-            args,
-            settings={"max_query_size": MAX_QUERY_SIZE},
-        )
+
+        query_predicate = []
+        for condition in conditions:
+            query_predicate.append(condition)
+
+            # Get estimated  byte size of the query
+            str_predicate = " OR ".join(query_predicate)
+            query_size = len(str_predicate.encode("utf-8"))
+
+            if query_size > MAX_PREDICATE_SIZE:
+                next_args, rest_args = split_dict(args, len(query_predicate) - 1)
+                sync_execute(
+                    f"""
+                    DELETE FROM posthog.sharded_events
+                    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                    WHERE {str_predicate}
+                    """,
+                    next_args,
+                    settings={"max_query_size": MAX_QUERY_SIZE},
+                )
+                args = rest_args
+                query_predicate = []
 
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
         team_deletions = [row for row in deletions if row.deletion_type == DeletionType.Team]
@@ -72,9 +87,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
             sync_execute(
                 f"""
-                ALTER TABLE {table}
+                DELETE FROM {table}
                 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                DELETE WHERE {" OR ".join(conditions)}
+                WHERE {" OR ".join(conditions)}
                 """,
                 args,
                 settings={"max_query_size": MAX_QUERY_SIZE},
@@ -134,3 +149,13 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                     f"key{suffix}": async_deletion.key,
                 },
             )
+
+
+def split_dict(original_dict, n):
+    items = list(original_dict.items())
+
+    # Split the items
+    first_n = dict(items[:n])
+    rest = dict(items[n:])
+
+    return first_n, rest
