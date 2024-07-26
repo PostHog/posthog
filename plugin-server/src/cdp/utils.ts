@@ -1,6 +1,7 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { DateTime } from 'luxon'
+import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
@@ -135,4 +136,20 @@ export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Tea
         sent_at: DateTime.now().toISO(),
         token: team.api_token,
     }
+}
+
+export const gzipObject = async <T extends object>(object: T): Promise<string> => {
+    const res = await new Promise<Buffer>((res, rej) =>
+        gzip(JSON.stringify(object), (err, result) => (err ? rej(err) : res(result)))
+    )
+
+    return res.toString('base64')
+}
+
+export const unGzipObject = async <T extends object>(data: string): Promise<T> => {
+    const res = await new Promise<Buffer>((res, rej) =>
+        gunzip(Buffer.from(data, 'base64'), (err, result) => (err ? rej(err) : res(result)))
+    )
+
+    return JSON.parse(res.toString())
 }

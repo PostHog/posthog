@@ -121,6 +121,7 @@ export class HogExecutor {
                     }
                 }
             } catch (error) {
+                // TODO: This should be reported as a log or metric
                 status.error('🦔', `[HogExecutor] Error filtering function`, {
                     hogFunctionId: hogFunction.id,
                     hogFunctionName: hogFunction.name,
@@ -180,26 +181,18 @@ export class HogExecutor {
     /**
      * Intended to be invoked as a continuation from an async function
      */
-    executeAsyncResponse(asyncResponse: HogFunctionInvocationAsyncResponse): HogFunctionInvocationResult {
-        if (!asyncResponse.hogFunctionId) {
+    executeAsyncResponse(
+        invocation: HogFunctionInvocation,
+        asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse']
+    ): HogFunctionInvocationResult {
+        if (!invocation.hogFunctionId) {
             throw new Error('No hog function id provided')
         }
-
-        // TODO: Deserialize state
-        const deserialized: HogFunctionInvocation = JSON.parse(asyncResponse.state)
-
-        const baseInvocation: HogFunctionInvocation = {
-            id: deserialized.id,
-            globals: deserialized.globals,
-            teamId: deserialized.teamId,
-            hogFunctionId: deserialized.hogFunctionId,
-            vmState: deserialized.vmState,
-            // TODO: Figure out timings
-            // timings: invocation.asyncFunctionResponse.timings,
-        }
+        // TODO: Figure out timings
+        // timings: invocation.asyncFunctionResponse.timings,
 
         const errorRes = (error = 'Something went wrong'): HogFunctionInvocationResult => ({
-            invocation: baseInvocation,
+            invocation,
             finished: false,
             error,
             logs: [],
@@ -207,24 +200,22 @@ export class HogExecutor {
         })
 
         const hogFunction = this.hogFunctionManager.getTeamHogFunction(
-            baseInvocation.globals.project.id,
-            baseInvocation.hogFunctionId
+            invocation.globals.project.id,
+            invocation.hogFunctionId
         )
 
         if (!hogFunction) {
-            return errorRes(`Hog Function with ID ${baseInvocation.hogFunctionId} not found`)
+            return errorRes(`Hog Function with ID ${invocation.hogFunctionId} not found`)
         }
 
-        const { asyncFunctionResponse } = asyncResponse
-
-        if (!baseInvocation.vmState || !asyncFunctionResponse.response || asyncFunctionResponse.error) {
+        if (!invocation.vmState || !asyncFunctionResponse.response || asyncFunctionResponse.error) {
             return errorRes(asyncFunctionResponse.error ?? 'No VM state provided for async response')
         }
 
         // Add the response to the stack to continue execution
-        baseInvocation.vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
+        invocation.vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
 
-        return this.execute(hogFunction, baseInvocation)
+        return this.execute(hogFunction, invocation)
     }
 
     execute(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): HogFunctionInvocationResult {

@@ -159,15 +159,26 @@ export type HogFunctionInvocation = {
     vmState?: VMState
 }
 
+export type HogFunctionAsyncFunctionRequest = {
+    name: string
+    args: any[]
+}
+
+export type HogFunctionAsyncFunctionResponse = {
+    /** An error message to indicate something went wrong and the invocation should be stopped */
+    error?: any
+    /** The data to be passed to the Hog function from the response */
+    response: any
+    timings?: HogFunctionTiming[]
+    logs?: HogFunctionLogEntry[]
+}
+
 // The result of an execution
 export type HogFunctionInvocationResult = {
     invocation: HogFunctionInvocation
     finished: boolean
     error?: any
-    asyncFunctionRequest?: {
-        name: string
-        args: any[]
-    }
+    asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: HogFunctionLogEntry[]
     timings: HogFunctionTiming[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
@@ -177,10 +188,7 @@ export type HogFunctionInvocationAsyncRequest = {
     state: string // Serialized HogFunctionInvocation without the asyncFunctionRequest
     teamId: number
     hogFunctionId: HogFunctionType['id']
-    asyncFunctionRequest?: {
-        name: string
-        args: any[]
-    }
+    asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
 }
 
 export type HogFunctionInvocationAsyncResponse = {
@@ -189,14 +197,7 @@ export type HogFunctionInvocationAsyncResponse = {
     hogFunctionId: HogFunctionType['id']
 
     // FOLLOWUP: do we want to type this more strictly?
-    asyncFunctionResponse: {
-        /** An error message to indicate something went wrong and the invocation should be stopped */
-        error?: any
-        /** The data to be passed to the Hog function from the response */
-        response: any
-        timings?: HogFunctionTiming[]
-        logs?: HogFunctionLogEntry[]
-    }
+    asyncFunctionResponse: HogFunctionAsyncFunctionResponse
 }
 
 // Mostly copied from frontend types

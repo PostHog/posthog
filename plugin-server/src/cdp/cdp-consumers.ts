@@ -27,6 +27,8 @@ import { HogWatcher } from './hog-watcher/hog-watcher'
 import { HogWatcherState } from './hog-watcher/types'
 import {
     CdpOverflowMessage,
+    HogFunctionAsyncFunctionResponse,
+    HogFunctionInvocation,
     HogFunctionInvocationAsyncRequest,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
@@ -35,7 +37,7 @@ import {
     HogFunctionOverflowedGlobals,
     HogFunctionType,
 } from './types'
-import { convertToCaptureEvent, convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToCaptureEvent, convertToHogFunctionInvocationGlobals, gzipObject, unGzipObject } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -218,7 +220,7 @@ abstract class CdpConsumerBase {
 
                         if (result.asyncFunctionRequest) {
                             const request: HogFunctionInvocationAsyncRequest = {
-                                state: JSON.stringify(result.invocation),
+                                state: await gzipObject(result.invocation),
                                 teamId: result.invocation.teamId,
                                 hogFunctionId: result.invocation.hogFunctionId,
                                 asyncFunctionRequest: result.asyncFunctionRequest,
@@ -289,8 +291,18 @@ abstract class CdpConsumerBase {
                     }
                 }
 
-                const results = await this.runManyWithHeartbeat(asyncResponsesToRun, (item) =>
-                    this.hogExecutor.executeAsyncResponse(item)
+                const invocationsWithResponses: [HogFunctionInvocation, HogFunctionAsyncFunctionResponse][] = []
+
+                // Deserialize the compressed data
+                await Promise.all(
+                    asyncResponses.map(async (item) => {
+                        const invocation = await unGzipObject<HogFunctionInvocation>(item.state)
+                        invocationsWithResponses.push([invocation, item.asyncFunctionResponse])
+                    })
+                )
+
+                const results = await this.runManyWithHeartbeat(invocationsWithResponses, (item) =>
+                    this.hogExecutor.executeAsyncResponse(...item)
                 )
 
                 this.hogWatcher.currentObservations.observeResults(results)
@@ -554,8 +566,7 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
         const events: HogFunctionInvocationAsyncResponse[] = []
         messages.map((message) => {
             try {
-                const event = JSON.parse(message.value!.toString()) as unknown
-
+                const event = JSON.parse(message.value!.toString())
                 events.push(event as HogFunctionInvocationAsyncResponse)
             } catch (e) {
                 status.error('Error parsing message', e)
