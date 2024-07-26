@@ -126,6 +126,14 @@ export function HelpButton({
                                     hideHelp()
                                 },
                             },
+                            //
+                            {
+                                label: 'Report a Bug'
+                                onClick: () => {
+                                    window.open('https://github.com/your-repo/issues/new?template=bug_report.md', '_blank');
+                                    hideHelp();
+                                },
+                            }
                         ],
                     },
                     !contactOnly && {
