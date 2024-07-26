@@ -49,7 +49,7 @@ jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
             connect: jest.fn(),
         },
         disconnect: jest.fn(),
-        produce: jest.fn(),
+        produce: jest.fn(() => Promise.resolve()),
     }
     return {
         KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
