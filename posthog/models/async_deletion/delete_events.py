@@ -75,7 +75,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         # This is the default condition if we don't hit the MAX_PREDICATE_SIZE
         sync_execute(
             f"""
-            DELETE FROM posthog.sharded_events
+            DELETE FROM sharded_events
             ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             WHERE {str_predicate}
             """,
