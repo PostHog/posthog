@@ -1,9 +1,10 @@
+import json
 from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
 
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -50,6 +51,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "hog",
             "filters",
             "icon_url",
+            "template",
         ]
         read_only_fields = fields
 
@@ -100,9 +102,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         attrs["team"] = team
 
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if not has_addon:
-            template_id = attrs.get("template_id")
+            template_id = attrs.get("template_id", instance.template_id if instance else None)
             template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
 
             # In this case they are only allowed to create or update the function with free templates
@@ -129,8 +132,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # Without the addon, they cannot deviate from the template
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
-
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         if "inputs_schema" in attrs:
             attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
@@ -212,6 +213,13 @@ class HogFunctionViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
+
+        if self.request.GET.get("filters"):
+            try:
+                filters = json.loads(self.request.GET["filters"])
+                queryset = queryset.filter(filters__contains=filters)
+            except Exception:
+                raise exceptions.ValidationError({"filter": f"Invalid filter"})
 
         return queryset
 

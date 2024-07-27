@@ -32,7 +32,9 @@ export const LineGraph = (): JSX.Element => {
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
     const { xData, yData, presetChartHeight, visualizationType, showEditingUI } = useValues(dataVisualizationLogic)
-    const isBarChart = visualizationType === ChartDisplayType.ActionsBar
+    const isBarChart =
+        visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
+    const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
 
     const { goalLines } = useValues(displayLogic)
@@ -243,6 +245,7 @@ export const LineGraph = (): JSX.Element => {
                 x: {
                     display: true,
                     beginAtZero: true,
+                    stacked: isStackedBarChart,
                     ticks: tickOptions,
                     grid: {
                         ...gridOptions,
@@ -253,7 +256,7 @@ export const LineGraph = (): JSX.Element => {
                 y: {
                     display: true,
                     beginAtZero: true,
-                    stacked: isAreaChart,
+                    stacked: isAreaChart || isStackedBarChart,
                     ticks: {
                         display: true,
                         ...tickOptions,

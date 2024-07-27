@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import {
-    HogFunctionInvocationAsyncResponse,
+    HogFunctionAsyncFunctionResponse,
     HogFunctionInvocationResult,
     HogFunctionLogEntry,
     HogFunctionType,
@@ -13,20 +13,17 @@ import { castTimestampOrNow } from '../../src/utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
 
-const simulateMockFetchAsyncResponse = (result: HogFunctionInvocationResult): HogFunctionInvocationAsyncResponse => {
+const createAsyncFunctionResponse = (): HogFunctionAsyncFunctionResponse => {
     return {
-        ...result,
-        asyncFunctionResponse: {
-            timings: [
-                {
-                    kind: 'async_function',
-                    duration_ms: 100,
-                },
-            ],
-            response: {
-                status: 200,
-                body: 'success',
+        timings: [
+            {
+                kind: 'async_function',
+                duration_ms: 100,
             },
+        ],
+        response: {
+            status: 200,
+            body: 'success',
         },
     }
 }
@@ -61,15 +58,19 @@ describe('Hog Executor', () => {
             mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
         })
 
-        it('can parse incoming messages correctly', () => {
+        it('can execute messages', () => {
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results).toHaveLength(1)
             expect(results[0]).toMatchObject({
-                id: expect.any(String),
-                hogFunctionId: hogFunction.id,
+                invocation: {
+                    id: expect.any(String),
+                    hogFunctionId: hogFunction.id,
+                },
+                finished: false,
+                asyncFunctionRequest: {},
             })
         })
 
@@ -83,7 +84,7 @@ describe('Hog Executor', () => {
                     team_id: 1,
                     log_source: 'hog_function',
                     log_source_id: hogFunction.id,
-                    instance_id: results[0].id,
+                    instance_id: results[0].invocation.id,
                     timestamp: expect.any(DateTime),
                     level: 'debug',
                     message: 'Executing function',
@@ -92,10 +93,10 @@ describe('Hog Executor', () => {
                     team_id: 1,
                     log_source: 'hog_function',
                     log_source_id: hogFunction.id,
-                    instance_id: results[0].id,
+                    instance_id: results[0].invocation.id,
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
                 },
             ])
 
@@ -125,7 +126,7 @@ describe('Hog Executor', () => {
                   "{\\"foo\\":\\"***REDACTED***\\"}",
                   "substring: ***REDACTED***",
                   "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\"},\\"secret_input_3\\":\\"***REDACTED***\\"}",
-                  "Function completed. Processing time 0ms",
+                  "Function completed in 0ms. Sync: 0ms. Mem: 129 bytes. Ops: 28.",
                 ]
             `)
         })
@@ -136,24 +137,34 @@ describe('Hog Executor', () => {
                 .findMatchingFunctions(createHogExecutionGlobals())
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0]).toMatchObject({
-                id: results[0].id,
-                globals: {
-                    project: { id: 1, name: 'test', url: 'http://localhost:8000/projects/1' },
-                    event: {
-                        uuid: 'uuid',
-                        name: 'test',
-                        distinct_id: 'distinct_id',
-                        url: 'http://localhost:8000/events/1',
-                        properties: { $lib_version: '1.2.3' },
-                        timestamp: '2024-06-07T12:00:00.000Z',
+                invocation: {
+                    id: results[0].invocation.id,
+                    teamId: 1,
+                    hogFunctionId: hogFunction.id,
+                    vmState: expect.any(Object),
+                    globals: {
+                        project: { id: 1, name: 'test', url: 'http://localhost:8000/projects/1' },
+                        event: {
+                            uuid: 'uuid',
+                            name: 'test',
+                            distinct_id: 'distinct_id',
+                            url: 'http://localhost:8000/events/1',
+                            properties: { $lib_version: '1.2.3' },
+                            timestamp: '2024-06-07T12:00:00.000Z',
+                        },
+                        source: {
+                            name: 'Test hog function',
+                            url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                        },
                     },
-                    source: {
-                        name: 'Test hog function',
-                        url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-                    },
+                    timings: [
+                        {
+                            kind: 'hog',
+                            duration_ms: 0,
+                        },
+                    ],
                 },
-                teamId: 1,
-                hogFunctionId: hogFunction.id,
+
                 asyncFunctionRequest: {
                     name: 'fetch',
                     args: [
@@ -177,14 +188,7 @@ describe('Hog Executor', () => {
                             method: 'POST',
                         },
                     ],
-                    vmState: expect.any(Object),
                 },
-                timings: [
-                    {
-                        kind: 'hog',
-                        duration_ms: 0,
-                    },
-                ],
             })
         })
 
@@ -197,17 +201,17 @@ describe('Hog Executor', () => {
             const splicedLogs = results[0].logs.splice(0, 100)
             logs.push(...splicedLogs)
 
-            const asyncExecResult = executor.executeAsyncResponse(simulateMockFetchAsyncResponse(results[0]))
+            const asyncExecResult = executor.executeAsyncResponse(results[0].invocation, createAsyncFunctionResponse())
 
             logs.push(...asyncExecResult.logs)
             expect(asyncExecResult.error).toBeUndefined()
             expect(asyncExecResult.finished).toBe(true)
             expect(logs.map((log) => log.message)).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'",
+                "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":"success"}',
-                'Function completed. Processing time 100ms',
+                'Function completed in 100ms. Sync: 0ms. Mem: 589 bytes. Ops: 22.',
             ])
         })
     })
@@ -259,13 +263,13 @@ describe('Hog Executor', () => {
             expect(results).toHaveLength(1)
 
             // Run the result one time simulating a successful fetch
-            const asyncResult1 = executor.executeAsyncResponse(simulateMockFetchAsyncResponse(results[0]))
+            const asyncResult1 = executor.executeAsyncResponse(results[0].invocation, createAsyncFunctionResponse())
             expect(asyncResult1.finished).toBe(false)
             expect(asyncResult1.error).toBe(undefined)
             expect(asyncResult1.asyncFunctionRequest).toBeDefined()
 
             // Run the result one more time simulating a second successful fetch
-            const asyncResult2 = executor.executeAsyncResponse(simulateMockFetchAsyncResponse(asyncResult1))
+            const asyncResult2 = executor.executeAsyncResponse(asyncResult1.invocation, createAsyncFunctionResponse())
             // This time we should see an error for hitting the loop limit
             expect(asyncResult2.finished).toBe(false)
             expect(asyncResult2.error).toEqual('Exceeded maximum number of async steps: 2')

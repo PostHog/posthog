@@ -143,15 +143,14 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"
                             onMount={(editor, monaco) => {
-                                monacoDisposables.current.push(
-                                    editor.addAction({
-                                        id: 'saveAndRunPostHog',
-                                        label: 'Save and run query',
-                                        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                                        run: () => saveQuery(),
-                                    })
-                                )
                                 setMonacoAndEditor([monaco, editor])
+                            }}
+                            onPressCmdEnter={(value, selectionType) => {
+                                if (value && selectionType === 'selection') {
+                                    saveQuery(value)
+                                } else {
+                                    saveQuery()
+                                }
                             }}
                             options={{
                                 minimap: {
@@ -176,7 +175,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         <>
                             <div className="flex-1">
                                 <LemonButton
-                                    onClick={saveQuery}
+                                    onClick={() => saveQuery()}
                                     type="primary"
                                     disabledReason={
                                         !props.setQuery

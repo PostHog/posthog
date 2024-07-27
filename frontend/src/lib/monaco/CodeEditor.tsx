@@ -27,7 +27,7 @@ if (loader) {
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
     autocompleteContext?: string
-    onPressCmdEnter?: (value: string) => void
+    onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
     autoFocus?: boolean
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
@@ -257,7 +257,17 @@ export function CodeEditor({
                             id: 'saveAndRunPostHog',
                             label: 'Save and run query',
                             keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                            run: () => onPressCmdEnter(editor.getValue()),
+                            run: () => {
+                                const selection = editor.getSelection()
+                                const model = editor.getModel()
+                                if (selection && model) {
+                                    const highlightedText = model.getValueInRange(selection)
+                                    onPressCmdEnter(highlightedText, 'selection')
+                                    return
+                                }
+
+                                onPressCmdEnter(editor.getValue(), 'full')
+                            },
                         })
                     )
                 }
