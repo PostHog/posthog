@@ -14,6 +14,7 @@ from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_list
 from token_bucket import Limiter, MemoryStorage
+from posthog.models.personal_api_key import hash_key_value
 
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -91,41 +92,41 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if request.user.is_authenticated and personal_api_key is None:
             return True
 
-        # As we're figuring out what our throttle limits should be, we don't actually want to throttle anything.
-        # Instead of throttling, this logs that the request would have been throttled.
         try:
             request_would_be_allowed = super().allow_request(request, view)
-            if not request_would_be_allowed:
-                team_id = self.safely_get_team_id_from_view(view)
-                path = getattr(request, "path", None)
-                if path:
-                    path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
-                    path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
+            if request_would_be_allowed:
+                return True
 
-                if self.team_is_allowed_to_bypass_throttle(team_id):
-                    statsd.incr(
-                        "team_allowed_to_bypass_rate_limit_exceeded",
-                        tags={"team_id": team_id, "path": path},
-                    )
-                    RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=path).inc()
-                    return True
-                else:
-                    scope = getattr(self, "scope", None)
-                    rate = getattr(self, "rate", None)
+            team_id = self.safely_get_team_id_from_view(view)
+            path = getattr(request, "path", None)
+            if path:
+                path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
+                path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
 
-                    statsd.incr(
-                        "rate_limit_exceeded",
-                        tags={
-                            "team_id": team_id,
-                            "scope": scope,
-                            "rate": rate,
-                            "path": path,
-                            "personal_api_key": personal_api_key[0] if personal_api_key else None,
-                        },
-                    )
-                    RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
+            if self.team_is_allowed_to_bypass_throttle(team_id):
+                statsd.incr(
+                    "team_allowed_to_bypass_rate_limit_exceeded",
+                    tags={"team_id": team_id, "path": path},
+                )
+                RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=path).inc()
+                return True
+            else:
+                scope = getattr(self, "scope", None)
+                rate = getattr(self, "rate", None)
 
-            return request_would_be_allowed
+                statsd.incr(
+                    "rate_limit_exceeded",
+                    tags={
+                        "team_id": team_id,
+                        "scope": scope,
+                        "rate": rate,
+                        "path": path,
+                        "hashed_personal_api_key": hash_key_value(personal_api_key[0]) if personal_api_key else None,
+                    },
+                )
+                RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
+
+            return False
         except Exception as e:
             capture_exception(e)
             return True
@@ -142,7 +143,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if request.user.is_authenticated:
             api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
             if api_key is not None:
-                ident = api_key[0]
+                ident = hash_key_value(api_key[0])
             else:
                 try:
                     team_id = self.safely_get_team_id_from_view(view)

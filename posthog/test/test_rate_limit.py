@@ -28,6 +28,7 @@ class TestUserAPI(APIBaseTest):
         cache.clear()
 
         self.personal_api_key = generate_random_token_personal()
+        self.hashed_personal_api_key = hash_key_value(self.personal_api_key)
         PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
@@ -70,7 +71,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": "/api/projects/TEAM_ID/feature_flags",
-                "personal_api_key": self.personal_api_key,
+                "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
 
@@ -106,7 +107,7 @@ class TestUserAPI(APIBaseTest):
                     "scope": "sustained",
                     "rate": "5/hour",
                     "path": "/api/projects/TEAM_ID/feature_flags",
-                    "personal_api_key": self.personal_api_key,
+                    "hashed_personal_api_key": self.hashed_personal_api_key,
                 },
             )
 
@@ -148,7 +149,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "clickhouse_burst",
                 "rate": "5/minute",
                 "path": "/api/projects/TEAM_ID/events",
-                "personal_api_key": self.personal_api_key,
+                "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
 
@@ -181,7 +182,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": f"/api/projects/TEAM_ID/feature_flags",
-                "personal_api_key": self.personal_api_key,
+                "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
 
@@ -260,7 +261,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": f"/api/organizations/ORG_ID/plugins",
-                "personal_api_key": self.personal_api_key,
+                "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
 
@@ -321,7 +322,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": "/api/login",
-                "personal_api_key": self.personal_api_key,
+                "personal_api_key": None,
             },
         )
 
