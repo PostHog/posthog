@@ -2,7 +2,17 @@ import RE2 from 're2'
 
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
-import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, like, setNestedValue } from './utils'
+import {
+    calculateCost,
+    convertHogToJS,
+    convertJSToHog,
+    getNestedValue,
+    HogVMException,
+    like,
+    setNestedValue,
+    UncaughtHogVMException,
+} from './utils'
+import { isHogError } from './objects'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
@@ -16,6 +26,8 @@ export interface VMState {
     stack: any[]
     /** Call stack of the VM */
     callStack: [number, number, number][]
+    /** Throw stack of the VM */
+    throwStack: [number, number, number][]
     /** Declared functions of the VM */
     declaredFunctions: Record<string, [number, number]>
     /** Instruction pointer of the VM */
@@ -56,7 +68,7 @@ export function execSync(bytecode: any[], options?: ExecOptions): any {
     if (response.finished) {
         return response.result
     }
-    throw new Error('Unexpected async function call: ' + response.asyncFunctionName)
+    throw new HogVMException('Unexpected async function call: ' + response.asyncFunctionName)
 }
 
 export async function execAsync(bytecode: any[], options?: ExecOptions): Promise<any> {
@@ -81,10 +93,10 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
                 )
                 vmState.stack.push(result)
             } else {
-                throw new Error('Invalid async function call: ' + response.asyncFunctionName)
+                throw new HogVMException('Invalid async function call: ' + response.asyncFunctionName)
             }
         } else {
-            throw new Error('Invalid async function call')
+            throw new HogVMException('Invalid async function call')
         }
     }
 }
@@ -100,7 +112,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
 
     if (!bytecode || bytecode.length === 0 || bytecode[0] !== '_h') {
-        throw new Error("Invalid HogQL bytecode, must start with '_h'")
+        throw new HogVMException("Invalid HogQL bytecode, must start with '_h'")
     }
 
     const startTime = Date.now()
@@ -114,6 +126,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const stack: any[] = vmState ? vmState.stack : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: [number, number, number][] = vmState ? vmState.callStack : []
+    const throwStack: [number, number, number][] = vmState ? vmState.throwStack : []
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
     let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
@@ -125,7 +138,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     function popStack(): any {
         if (stack.length === 0) {
-            throw new Error('Invalid HogQL bytecode, stack is empty')
+            throw new HogVMException('Invalid HogQL bytecode, stack is empty')
         }
         memUsed -= memStack.pop() ?? 0
         return stack.pop()
@@ -136,7 +149,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         memUsed += memStack[memStack.length - 1]
         maxMemUsed = Math.max(maxMemUsed, memUsed)
         if (memUsed > memLimit && memLimit > 0) {
-            throw new Error(`Memory limit of ${memLimit} bytes exceeded. Tried to allocate ${memUsed} bytes.`)
+            throw new HogVMException(`Memory limit of ${memLimit} bytes exceeded. Tried to allocate ${memUsed} bytes.`)
         }
         return stack.push(value)
     }
@@ -152,14 +165,28 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     function next(): any {
         if (ip >= bytecode!.length - 1) {
-            throw new Error('Unexpected end of bytecode')
+            throw new HogVMException('Unexpected end of bytecode')
         }
         return bytecode![++ip]
     }
 
     function checkTimeout(): void {
         if (syncDuration + Date.now() - startTime > timeout) {
-            throw new Error(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
+            throw new HogVMException(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
+        }
+    }
+    function getFinishedState(): VMState {
+        return {
+            bytecode: [],
+            stack: [],
+            callStack: [],
+            throwStack: [],
+            declaredFunctions: {},
+            ip: -1,
+            ops,
+            asyncSteps,
+            syncDuration: syncDuration + (Date.now() - startTime),
+            maxMemUsed,
         }
     }
 
@@ -301,6 +328,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     return {
                         result: popStack(),
                         finished: true,
+                        state: getFinishedState(),
                     } satisfies ExecResult
                 }
             case Operation.GET_LOCAL:
@@ -383,10 +411,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 } else {
                     temp = next() // args.length
                     if (temp > stack.length) {
-                        throw new Error('Not enough arguments on the stack')
+                        throw new HogVMException('Not enough arguments on the stack')
                     }
                     if (temp > MAX_FUNCTION_ARGS_LENGTH) {
-                        throw new Error('Too many arguments')
+                        throw new HogVMException('Too many arguments')
                     }
                     const args = Array(temp)
                         .fill(null)
@@ -401,7 +429,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             name in ASYNC_STL)
                     ) {
                         if (asyncSteps >= maxAsyncSteps) {
-                            throw new Error(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
+                            throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
                         }
 
                         return {
@@ -413,6 +441,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 bytecode,
                                 stack,
                                 callStack,
+                                throwStack,
                                 declaredFunctions,
                                 ip: ip + 1,
                                 ops,
@@ -424,21 +453,50 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     } else if (name in STL) {
                         pushStack(STL[name](args, name, timeout))
                     } else {
-                        throw new Error(`Unsupported function call: ${name}`)
+                        throw new HogVMException(`Unsupported function call: ${name}`)
                     }
                 }
                 break
             }
+            case Operation.TRY:
+                throwStack.push([callStack.length, stack.length, ip + next()])
+                break
+            case Operation.POP_TRY:
+                if (throwStack.length > 0) {
+                    throwStack.pop()
+                } else {
+                    throw new HogVMException('Invalid operation POP_TRY: no try block to pop')
+                }
+                break
+            case Operation.THROW: {
+                const exception = popStack()
+                if (!isHogError(exception)) {
+                    throw new HogVMException('Can not throw: value is not of type Error')
+                }
+                if (throwStack.length > 0) {
+                    const [callStackLen, stackLen, catchIp] = throwStack.pop()!
+                    spliceStack1(stackLen)
+                    memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
+                    callStack.splice(callStackLen)
+                    pushStack(exception)
+                    ip = catchIp
+                } else {
+                    throw new UncaughtHogVMException(exception.type, exception.message, exception.payload)
+                }
+                break
+            }
             default:
-                throw new Error(`Unexpected node while running bytecode: ${bytecode[ip]}`)
+                throw new HogVMException(`Unexpected node while running bytecode: ${bytecode[ip]}`)
         }
     }
 
     if (stack.length > 1) {
-        throw new Error('Invalid bytecode. More than one value left on stack')
-    } else if (stack.length === 0) {
-        return { result: null, finished: true } satisfies ExecResult
+        throw new HogVMException('Invalid bytecode. More than one value left on stack')
     }
 
-    return { result: popStack() ?? null, finished: true } satisfies ExecResult
+    if (stack.length === 0) {
+        return { result: null, finished: true, state: getFinishedState() } satisfies ExecResult
+    }
+
+    return { result: popStack() ?? null, finished: true, state: getFinishedState() } satisfies ExecResult
 }

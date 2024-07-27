@@ -5,7 +5,7 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionType, Breadcrumb, PluginConfigWithPluginInfoNew } from '~/types'
+import { ActionType, Breadcrumb, HogFunctionType } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
@@ -35,11 +35,11 @@ export const actionLogic = kea<actionLogicType>([
                 },
             },
         ],
-        matchingPluginConfigs: [
-            null as PluginConfigWithPluginInfoNew[] | null,
+        matchingHogFunctions: [
+            null as HogFunctionType[] | null,
             {
-                loadMatchingPluginConfigs: async () => {
-                    const res = await api.actions.listMatchingPluginConfigs(props.id!)
+                loadMatchingHogFunctions: async () => {
+                    const res = await api.hogFunctions.list({ filters: { actions: [{ id: `${props.id}` }] } })
 
                     return res.results
                 },

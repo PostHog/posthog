@@ -11,7 +11,7 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
-
+from temporalio.common import RetryPolicy
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
@@ -56,6 +56,12 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
             asdict(inputs),
             id=str(external_data_schema.id),
             task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=10),
+                maximum_interval=timedelta(seconds=60),
+                maximum_attempts=3,
+                non_retryable_error_types=["NondeterminismError"],
+            ),
         ),
         spec=ScheduleSpec(
             intervals=[ScheduleIntervalSpec(every=sync_frequency)],

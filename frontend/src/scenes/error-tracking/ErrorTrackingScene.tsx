@@ -1,6 +1,7 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconPerson } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -13,9 +14,8 @@ import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { ErrorTrackingActions } from './ErrorTrackingActions'
-import { errorTrackingDataLogic } from './errorTrackingDataLogic'
-import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
+import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
@@ -25,7 +25,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { query } = useValues(errorTrackingSceneLogic)
+    const { query, selectedRows } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -47,14 +47,38 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={errorTrackingDataLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
-            <div className="space-y-2">
-                <ErrorTrackingFilters />
-                <LemonDivider />
-                <ErrorTrackingActions />
-                <Query query={query} context={context} />
-            </div>
+        <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+            <ErrorTrackingFilters.FilterGroup />
+            <LemonDivider className="mt-2" />
+            {selectedRows.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
+            <Query query={query} context={context} />
         </BindLogic>
+    )
+}
+
+const ErrorTrackingActions = (): JSX.Element => {
+    const { selectedRows } = useValues(errorTrackingSceneLogic)
+    const { setSelectedRows } = useActions(errorTrackingSceneLogic)
+    const { mergeGroups } = useActions(errorTrackingDataNodeLogic)
+
+    return (
+        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-bg-3000 flex space-x-1">
+            <LemonButton type="secondary" size="small" onClick={() => setSelectedRows([])}>
+                Unselect all
+            </LemonButton>
+            {selectedRows.length > 1 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => {
+                        mergeGroups(selectedRows)
+                        setSelectedRows([])
+                    }}
+                >
+                    Merge
+                </LemonButton>
+            )}
+        </div>
     )
 }
 
@@ -80,12 +104,28 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
+    const { selectedRows } = useValues(errorTrackingSceneLogic)
+    const { setSelectedRows } = useActions(errorTrackingSceneLogic)
+
     const record = props.record as ErrorTrackingGroup
+
+    const checked = selectedRows.includes(record.fingerprint)
 
     return (
         <div className="flex items-start space-x-1.5 group">
+            <LemonCheckbox
+                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                checked={checked}
+                onChange={(checked) => {
+                    setSelectedRows(
+                        checked
+                            ? [...selectedRows, record.fingerprint]
+                            : selectedRows.filter((r) => r != record.fingerprint)
+                    )
+                }}
+            />
             <LemonTableLink
-                title={record.fingerprint}
+                title={record.exception_type || record.fingerprint}
                 description={
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
@@ -104,7 +144,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 }
 
 const AssigneeColumn: QueryContextColumnComponent = (props) => {
-    const { assignGroup } = useActions(errorTrackingDataLogic)
+    const { assignGroup } = useActions(errorTrackingDataNodeLogic)
 
     const record = props.record as ErrorTrackingGroup
 
