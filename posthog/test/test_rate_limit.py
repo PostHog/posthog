@@ -322,7 +322,7 @@ class TestUserAPI(APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": "/api/login",
-                "personal_api_key": None,
+                "hashed_personal_api_key": None,
             },
         )
 
