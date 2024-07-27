@@ -38,6 +38,18 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
 
+    def test_create_too_many_api_keys(self):
+        for i in range(0, 10):
+            self.client.post(
+                "/api/personal_api_keys",
+                {"label": i, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+            )
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": i, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == 400
+
     def test_create_personal_api_key_label_required(self):
         response = self.client.post("/api/personal_api_keys/", {"label": ""})
         assert response.status_code == 400

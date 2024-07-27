@@ -468,6 +468,7 @@ function PersonalAPIKeysTable(): JSX.Element {
 }
 
 export function PersonalAPIKeys(): JSX.Element {
+    const { keys } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId } = useActions(personalAPIKeysLogic)
 
     return (
@@ -484,7 +485,16 @@ export function PersonalAPIKeys(): JSX.Element {
                     More about API authentication in PostHog Docs.
                 </Link>
             </p>
-            <LemonButton type="primary" icon={<IconPlus />} onClick={() => setEditingKeyId('new')}>
+            <LemonButton
+                type="primary"
+                icon={<IconPlus />}
+                onClick={() => setEditingKeyId('new')}
+                disabledReason={
+                    keys.length >= 10
+                        ? 'You can only have 10 personal API keys. Please remove a key before creating a new one.'
+                        : false
+                }
+            >
                 Create personal API key
             </LemonButton>
 

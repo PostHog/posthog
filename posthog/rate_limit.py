@@ -68,7 +68,7 @@ path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
 path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
 
 
-class TeamRateThrottle(SimpleRateThrottle):
+class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_team_id_from_view(view):
         """
@@ -87,7 +87,8 @@ class TeamRateThrottle(SimpleRateThrottle):
             return True
 
         # Only rate limit authenticated requests made with a personal API key
-        if request.user.is_authenticated and PersonalAPIKeyAuthentication.find_key_with_source(request) is None:
+        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        if request.user.is_authenticated and personal_api_key is None:
             return True
 
         # As we're figuring out what our throttle limits should be, we don't actually want to throttle anything.
@@ -119,6 +120,7 @@ class TeamRateThrottle(SimpleRateThrottle):
                             "scope": scope,
                             "rate": rate,
                             "path": path,
+                            "personal_api_key": personal_api_key[0] if personal_api_key else None,
                         },
                     )
                     RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
@@ -130,20 +132,27 @@ class TeamRateThrottle(SimpleRateThrottle):
 
     def get_cache_key(self, request, view):
         """
-        Attempts to throttle based on the team_id of the request. If it can't do that, it falls back to the user_id.
-        And then finally to the IP address.
+        Tries the following options in order:
+        - personal_api_key
+        - team_id
+        - user_id
+        - ip
         """
         ident = None
         if request.user.is_authenticated:
-            try:
-                team_id = self.safely_get_team_id_from_view(view)
-                if team_id:
-                    ident = team_id
-                else:
-                    ident = request.user.pk
-            except Exception as e:
-                capture_exception(e)
-                ident = self.get_ident(request)
+            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+            if api_key is not None:
+                ident = api_key[0]
+            else:
+                try:
+                    team_id = self.safely_get_team_id_from_view(view)
+                    if team_id:
+                        ident = team_id
+                    else:
+                        ident = request.user.pk
+                except Exception as e:
+                    capture_exception(e)
+                    ident = self.get_ident(request)
         else:
             ident = self.get_ident(request)
 
@@ -243,28 +252,28 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class BurstRateThrottle(TeamRateThrottle):
+class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
     scope = "burst"
     rate = "480/minute"
 
 
-class SustainedRateThrottle(TeamRateThrottle):
+class SustainedRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block slower but sustained bursts of requests, per project
     scope = "sustained"
     rate = "4800/hour"
 
 
-class ClickHouseBurstRateThrottle(TeamRateThrottle):
+class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit ClickHouse
     # Intended to block quick bursts of requests, per project
     scope = "clickhouse_burst"
     rate = "240/minute"
 
 
-class ClickHouseSustainedRateThrottle(TeamRateThrottle):
+class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per project
     scope = "clickhouse_sustained"
