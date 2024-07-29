@@ -5,8 +5,8 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { base64Encode } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -25,7 +25,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { query, selectedRows } = useValues(errorTrackingSceneLogic)
+    const { query, selectedRowIndexes } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -50,29 +50,29 @@ export function ErrorTrackingScene(): JSX.Element {
         <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
-            {selectedRows.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
+            {selectedRowIndexes.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
             <Query query={query} context={context} />
         </BindLogic>
     )
 }
 
 const ErrorTrackingActions = (): JSX.Element => {
-    const { selectedRows } = useValues(errorTrackingSceneLogic)
-    const { setSelectedRows } = useActions(errorTrackingSceneLogic)
+    const { selectedRowIndexes } = useValues(errorTrackingSceneLogic)
+    const { setSelectedRowIndexes } = useActions(errorTrackingSceneLogic)
     const { mergeGroups } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-bg-3000 flex space-x-1">
-            <LemonButton type="secondary" size="small" onClick={() => setSelectedRows([])}>
+            <LemonButton type="secondary" size="small" onClick={() => setSelectedRowIndexes([])}>
                 Unselect all
             </LemonButton>
-            {selectedRows.length > 1 && (
+            {selectedRowIndexes.length > 1 && (
                 <LemonButton
                     type="secondary"
                     size="small"
                     onClick={() => {
-                        mergeGroups(selectedRows)
-                        setSelectedRows([])
+                        mergeGroups(selectedRowIndexes)
+                        setSelectedRowIndexes([])
                     }}
                 >
                     Merge
@@ -104,28 +104,27 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { selectedRows } = useValues(errorTrackingSceneLogic)
-    const { setSelectedRows } = useActions(errorTrackingSceneLogic)
+    const { selectedRowIndexes } = useValues(errorTrackingSceneLogic)
+    const { setSelectedRowIndexes } = useActions(errorTrackingSceneLogic)
 
+    const rowIndex = props.recordIndex
     const record = props.record as ErrorTrackingGroup
 
-    const checked = selectedRows.includes(record.fingerprint)
+    const checked = selectedRowIndexes.includes(props.recordIndex)
 
     return (
         <div className="flex items-start space-x-1.5 group">
             <LemonCheckbox
                 className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
                 checked={checked}
-                onChange={(checked) => {
-                    setSelectedRows(
-                        checked
-                            ? [...selectedRows, record.fingerprint]
-                            : selectedRows.filter((r) => r != record.fingerprint)
+                onChange={(newValue) => {
+                    setSelectedRowIndexes(
+                        newValue ? [...selectedRowIndexes, rowIndex] : selectedRowIndexes.filter((id) => id != rowIndex)
                     )
                 }}
             />
             <LemonTableLink
-                title={record.exception_type || record.fingerprint}
+                title={record.exception_type || 'Unknown Type'}
                 description={
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
@@ -137,7 +136,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 }
                 className="flex-1"
-                to={urls.errorTrackingGroup(record.fingerprint)}
+                to={base64Encode(JSON.stringify(record.fingerprint))}
             />
         </div>
     )

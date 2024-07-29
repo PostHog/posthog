@@ -341,7 +341,7 @@ class ErrorTrackingGroup(BaseModel):
     description: Optional[str] = None
     events: Optional[list[dict[str, Any]]] = None
     exception_type: Optional[str] = None
-    fingerprint: str
+    fingerprint: list[str]
     first_seen: AwareDatetime
     last_seen: AwareDatetime
     merged_fingerprints: list[str]
