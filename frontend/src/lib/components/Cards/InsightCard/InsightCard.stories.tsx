@@ -2,6 +2,7 @@ import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema'
 import { ChartDisplayType, InsightColor, InsightModel, InsightShortId, TrendsFilterType } from '~/types'
 
@@ -76,13 +77,11 @@ export const InsightCard: Story = (args) => {
         <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
             {!wasItemRemoved && (
                 <InsightCardComponent
-                    insight={
-                        {
-                            ...EXAMPLE_TRENDS,
-                            name: args.insightName,
-                            description: args.insightDescription,
-                        } as unknown as InsightModel
-                    }
+                    insight={getQueryBasedInsightModel({
+                        ...EXAMPLE_TRENDS,
+                        name: args.insightName,
+                        description: args.insightDescription,
+                    } as unknown as InsightModel)}
                     ribbonColor={insightColor}
                     loading={args.loading}
                     apiErrored={args.apiErrored}
@@ -97,15 +96,13 @@ export const InsightCard: Story = (args) => {
                 />
             )}
             <InsightCardComponent
-                insight={
-                    {
-                        ...EXAMPLE_TRENDS,
-                        name: 'Wow, this name is really super duper ginormously off the charts long! How do we even manage to fit it in an insight card without it breaking?!',
-                        description:
-                            'Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.',
-                        tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
-                    } as unknown as InsightModel
-                }
+                insight={getQueryBasedInsightModel({
+                    ...EXAMPLE_TRENDS,
+                    name: 'Wow, this name is really super duper ginormously off the charts long! How do we even manage to fit it in an insight card without it breaking?!',
+                    description:
+                        'Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.',
+                    tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -116,9 +113,12 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
-                insight={
-                    { ...EXAMPLE_TRENDS, name: '', description: '', last_modified_by: null } as unknown as InsightModel
-                }
+                insight={getQueryBasedInsightModel({
+                    ...EXAMPLE_TRENDS,
+                    name: '',
+                    description: '',
+                    last_modified_by: null,
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -129,14 +129,12 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
-                insight={
-                    {
-                        ...EXAMPLE_FUNNEL,
-                        short_id: 'funnel_empty' as InsightShortId,
-                        filters: { ...EXAMPLE_FUNNEL.filters, events: EXAMPLE_FUNNEL.filters.events?.slice(0, 1) },
-                        name: 'What a pitiful funnel',
-                    } as unknown as InsightModel
-                }
+                insight={getQueryBasedInsightModel({
+                    ...EXAMPLE_FUNNEL,
+                    short_id: 'funnel_empty' as InsightShortId,
+                    filters: { ...EXAMPLE_FUNNEL.filters, events: EXAMPLE_FUNNEL.filters.events?.slice(0, 1) },
+                    name: 'What a pitiful funnel',
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -147,7 +145,10 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
-                insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' } as unknown as InsightModel}
+                insight={getQueryBasedInsightModel({
+                    ...EXAMPLE_FUNNEL,
+                    name: 'What a plentiful funnel',
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -158,15 +159,13 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
-                insight={
-                    {
-                        ...EXAMPLE_TRENDS,
-                        filters: {
-                            ...EXAMPLE_TRENDS.filters,
-                            display: 'totally_wrong_display_type' as ChartDisplayType,
-                        } as TrendsFilterType,
-                    } as unknown as InsightModel
-                }
+                insight={getQueryBasedInsightModel({
+                    ...EXAMPLE_TRENDS,
+                    filters: {
+                        ...EXAMPLE_TRENDS.filters,
+                        display: 'totally_wrong_display_type' as ChartDisplayType,
+                    } as TrendsFilterType,
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -179,7 +178,7 @@ export const InsightCard: Story = (args) => {
             {examples.map((e) => (
                 <InsightCardComponent
                     key={e.id}
-                    insight={e}
+                    insight={getQueryBasedInsightModel(e)}
                     rename={() => {}}
                     duplicate={() => {}}
                     placement="SavedInsightGrid"

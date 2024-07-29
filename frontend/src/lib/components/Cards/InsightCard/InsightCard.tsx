@@ -10,7 +10,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
 import {
@@ -20,7 +19,7 @@ import {
     DashboardType,
     InsightColor,
     InsightLogicProps,
-    InsightModel,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
@@ -28,7 +27,7 @@ import { InsightMeta } from './InsightMeta'
 
 export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
-    insight: InsightModel
+    insight: QueryBasedInsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** Whether the insight has been called to load. */
@@ -78,7 +77,7 @@ export interface FilterBasedCardContentProps
 
 function InsightCardInternal(
     {
-        insight: legacyInsight,
+        insight,
         dashboardId,
         ribbonColor,
         loadingQueued,
@@ -108,7 +107,6 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
-    const insight = getQueryBasedInsightModel(legacyInsight)
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
