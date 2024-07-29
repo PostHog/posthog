@@ -10,6 +10,8 @@ import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
+    LogEntry,
+    LogEntryLevel,
     ParsedClickhouseEvent,
 } from './types'
 
@@ -157,4 +159,22 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     )
 
     return JSON.parse(res.toString())
+}
+
+// Helper to ensure all timestamps in a log list are different (otherwise they are de-duped)
+export const addLog = (logs: LogEntry[], level: LogEntryLevel, message: string) => {
+    const lastLog = logs[logs.length - 1]
+    // TRICKY: The log entries table is de-duped by timestamp, so we need to ensure that the timestamps are unique
+    // It is unclear how this affects parallel execution environments
+    let now = DateTime.now()
+    if (lastLog && now <= lastLog.timestamp) {
+        // Ensure that the timestamps are unique
+        now = lastLog.timestamp.plus(1)
+    }
+
+    logs.push({
+        timestamp: now,
+        level,
+        message,
+    })
 }

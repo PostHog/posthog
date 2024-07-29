@@ -33,8 +33,8 @@ import {
     HogFunctionInvocationAsyncRequest,
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationLogEntry,
     HogFunctionInvocationResult,
-    HogFunctionLogEntry,
     HogFunctionMessageToProduce,
     HogFunctionOverflowedGlobals,
     HogFunctionType,
@@ -175,7 +175,7 @@ abstract class CdpConsumerBase {
         counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
     }
 
-    protected logLogEntry(logEntry: HogFunctionLogEntry) {
+    protected logLogEntry(logEntry: HogFunctionInvocationLogEntry) {
         const sanitized = {
             ...logEntry,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
@@ -195,8 +195,6 @@ abstract class CdpConsumerBase {
                 await Promise.all(
                     results.map(async (result) => {
                         // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
-                        const logs = result.logs
-                        result.logs = []
 
                         this.logAppMetrics({
                             team_id: result.invocation.teamId,
@@ -206,7 +204,17 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
 
-                        logs.forEach((x) => this.logLogEntry(x))
+                        const logs = result.logs
+                        result.logs = []
+                        logs.forEach((x) =>
+                            this.logLogEntry({
+                                ...x,
+                                team_id: result.invocation.teamId,
+                                log_source: 'hog_function',
+                                log_source_id: result.invocation.hogFunctionId,
+                                instance_id: result.invocation.id,
+                            })
+                        )
 
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
