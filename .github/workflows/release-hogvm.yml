@@ -21,7 +21,10 @@ jobs:
               id: check-package-version
               uses: PostHog/check-package-version@v2
               with:
-                  path: 'hogvm/typescript'
+                  path: hogvm/typescript
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v4
@@ -29,7 +32,7 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: pnpm
-                  cache-dependency-path: plugin-server/pnpm-lock.yaml
+                  cache-dependency-path: hogvm/typescript/pnpm-lock.yaml
 
             - name: Install dependencies
               if: steps.check-package-version.outputs.is-new-version == 'true'
