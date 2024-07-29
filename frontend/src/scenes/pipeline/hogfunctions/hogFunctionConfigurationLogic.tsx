@@ -466,7 +466,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (action.id) {
                         actionProperties.push({
                             type: PropertyFilterType.HogQL,
-                            key: hogql`matchesAction(${action.id})`,
+                            key: hogql`matchesAction(${parseInt(action.id)})`,
                         })
                     }
                     properties.values.push({
