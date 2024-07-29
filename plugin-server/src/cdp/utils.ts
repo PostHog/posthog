@@ -3,15 +3,15 @@
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
-import { RawClickHouseEvent, Team } from '../types'
+import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
-import { clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
-    LogEntry,
-    LogEntryLevel,
+    HogFunctionInvocationResult,
+    HogFunctionLogEntrySerialized,
     ParsedClickhouseEvent,
 } from './types'
 
@@ -161,20 +161,36 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return JSON.parse(res.toString())
 }
 
-// Helper to ensure all timestamps in a log list are different (otherwise they are de-duped)
-export const addLog = (logs: LogEntry[], level: LogEntryLevel, message: string) => {
-    const lastLog = logs[logs.length - 1]
-    // TRICKY: The log entries table is de-duped by timestamp, so we need to ensure that the timestamps are unique
-    // It is unclear how this affects parallel execution environments
-    let now = DateTime.now()
-    if (lastLog && now <= lastLog.timestamp) {
-        // Ensure that the timestamps are unique
-        now = lastLog.timestamp.plus(1)
-    }
+export const prepareLogEntriesForClickhouse = (
+    result: HogFunctionInvocationResult
+): HogFunctionLogEntrySerialized[] => {
+    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+    const logs = result.logs
+    result.logs = [] // Clear it to ensure it isn't passed on anywhere else
 
-    logs.push({
-        timestamp: now,
-        level,
-        message,
+    const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
+
+    // Start with a timestamp that is guaranteed to be before the first log entry
+    let timestamp = sortedLogs[0].timestamp.minus(1)
+
+    sortedLogs.forEach((logEntry) => {
+        if (logEntry.timestamp <= timestamp) {
+            logEntry.timestamp = timestamp.plus(1)
+        }
+
+        timestamp = logEntry.timestamp
+
+        const sanitized: HogFunctionLogEntrySerialized = {
+            ...logEntry,
+            team_id: result.invocation.teamId,
+            log_source: 'hog_function',
+            log_source_id: result.invocation.hogFunctionId,
+            instance_id: result.invocation.id,
+            timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
+        }
+        // Convert timestamps to ISO strings
+        preparedLogs.push(sanitized)
     })
+
+    return preparedLogs
 }

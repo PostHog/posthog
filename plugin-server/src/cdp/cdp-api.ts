@@ -1,5 +1,6 @@
 import { convertJSToHog } from '@posthog/hogvm'
 import express from 'express'
+import { DateTime } from 'luxon'
 
 import { Hub } from '../types'
 import { status } from '../utils/status'
@@ -10,7 +11,6 @@ import { HogFunctionManager } from './hog-function-manager'
 import { HogWatcher } from './hog-watcher/hog-watcher'
 import { HogWatcherState } from './hog-watcher/types'
 import { HogFunctionInvocation, HogFunctionInvocationAsyncRequest, HogFunctionType, LogEntry } from './types'
-import { addLog } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutor
@@ -133,18 +133,19 @@ export class CdpApi {
                 const asyncFunctionRequest = response.asyncFunctionRequest
 
                 if (mock_async_functions || asyncFunctionRequest.name !== 'fetch') {
-                    addLog(
-                        response.logs,
-                        'info',
-                        `Async function '${asyncFunctionRequest.name}' was mocked with arguments:`
-                    )
-                    addLog(
-                        response.logs,
-                        'info',
-                        `${asyncFunctionRequest.name}(${asyncFunctionRequest.args
+                    response.logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `Async function '${asyncFunctionRequest.name}' was mocked with arguments:`,
+                    })
+
+                    response.logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: `${asyncFunctionRequest.name}(${asyncFunctionRequest.args
                             .map((x) => JSON.stringify(x, null, 2))
-                            .join(', ')})`
-                    )
+                            .join(', ')})`,
+                    })
 
                     // Add the state, simulating what executeAsyncResponse would do
                     invocation.vmState!.stack.push(convertJSToHog({ status: 200, body: {} }))
@@ -160,7 +161,11 @@ export class CdpApi {
                     })
 
                     if (!asyncRes || asyncRes.asyncFunctionResponse.error) {
-                        addLog(response.logs, 'error', 'Failed to execute async function')
+                        response.logs.push({
+                            level: 'error',
+                            timestamp: DateTime.now(),
+                            message: 'Failed to execute async function',
+                        })
                     }
                     invocation.vmState!.stack.push(convertJSToHog(asyncRes?.asyncFunctionResponse.response ?? null))
                 }

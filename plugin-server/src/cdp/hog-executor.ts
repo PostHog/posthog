@@ -13,7 +13,7 @@ import {
     HogFunctionInvocationResult,
     HogFunctionType,
 } from './types'
-import { addLog, convertToHogFunctionFilterGlobal } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils'
 
 const MAX_ASYNC_STEPS = 2
 const MAX_HOG_LOGS = 10
@@ -217,11 +217,11 @@ export class HogExecutor {
             logs: [],
         }
 
-        if (!invocation.vmState) {
-            addLog(result.logs, 'debug', `Executing function`)
-        } else {
-            addLog(result.logs, 'debug', `Resuming function`)
-        }
+        result.logs.push({
+            level: 'debug',
+            timestamp: DateTime.now(),
+            message: invocation.vmState ? 'Resuming function' : `Executing function`,
+        })
 
         try {
             const start = performance.now()
@@ -231,7 +231,12 @@ export class HogExecutor {
             try {
                 globals = this.buildHogFunctionGlobals(hogFunction, invocation)
             } catch (e) {
-                addLog(result.logs, 'error', `Error building inputs: ${e}`)
+                result.logs.push({
+                    level: 'error',
+                    timestamp: DateTime.now(),
+                    message: `Error building inputs: ${e}`,
+                })
+
                 throw e
             }
 
@@ -251,18 +256,22 @@ export class HogExecutor {
                         print: (...args) => {
                             hogLogs++
                             if (hogLogs == MAX_HOG_LOGS) {
-                                addLog(
-                                    result.logs,
-                                    'warn',
-                                    `Function exceeded maximum log entries. No more logs will be collected.`
-                                )
+                                result.logs.push({
+                                    level: 'warn',
+                                    timestamp: DateTime.now(),
+                                    message: `Function exceeded maximum log entries. No more logs will be collected.`,
+                                })
                             }
 
                             if (hogLogs >= MAX_HOG_LOGS) {
                                 return
                             }
 
-                            addLog(result.logs, 'info', sanitizeLogMessage(args, sensitiveValues))
+                            result.logs.push({
+                                level: 'info',
+                                timestamp: DateTime.now(),
+                                message: sanitizeLogMessage(args, sensitiveValues),
+                            })
                         },
                         postHogCapture: (event) => {
                             if (typeof event.event !== 'string') {
@@ -277,11 +286,11 @@ export class HogExecutor {
                             const executionCount = globals.event.properties?.$hog_function_execution_count ?? 0
 
                             if (executionCount > 0) {
-                                addLog(
-                                    result.logs,
-                                    'warn',
-                                    `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
-                                )
+                                result.logs.push({
+                                    level: 'warn',
+                                    timestamp: DateTime.now(),
+                                    message: `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`,
+                                })
                                 return
                             }
 
@@ -300,7 +309,11 @@ export class HogExecutor {
                     },
                 })
             } catch (e) {
-                addLog(result.logs, 'error', `Error executing function: ${e}`)
+                result.logs.push({
+                    level: 'error',
+                    timestamp: DateTime.now(),
+                    message: `Error executing function: ${e}`,
+                })
                 throw e
             }
 
@@ -319,13 +332,13 @@ export class HogExecutor {
                     // NOTE: This shouldn't be possible so is more of a type sanity check
                     throw new Error('State should be provided for async function')
                 }
-                addLog(
-                    result.logs,
-                    'debug',
-                    `Suspending function due to async function call '${execRes.asyncFunctionName}'. Payload: ${
+                result.logs.push({
+                    level: 'debug',
+                    timestamp: DateTime.now(),
+                    message: `Suspending function due to async function call '${execRes.asyncFunctionName}'. Payload: ${
                         calculateCost(execRes.state) + calculateCost(args)
-                    } bytes`
-                )
+                    } bytes`,
+                })
 
                 if (execRes.asyncFunctionName) {
                     result.invocation.vmState = execRes.state
@@ -334,7 +347,11 @@ export class HogExecutor {
                         args: args,
                     }
                 } else {
-                    addLog(result.logs, 'warn', `Function was not finished but also had no async function to execute.`)
+                    result.logs.push({
+                        level: 'warn',
+                        timestamp: DateTime.now(),
+                        message: `Function was not finished but also had no async function to execute.`,
+                    })
                 }
             } else {
                 const totalDuration = invocation.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
@@ -344,7 +361,11 @@ export class HogExecutor {
                     messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
                 }
-                addLog(result.logs, 'debug', messages.join(' '))
+                result.logs.push({
+                    level: 'debug',
+                    timestamp: DateTime.now(),
+                    message: messages.join(' '),
+                })
             }
         } catch (err) {
             result.error = err.message
