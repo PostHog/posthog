@@ -4,7 +4,6 @@ on:
     push:
         branches:
             - main
-            - fix/hogvm-exports
 
 jobs:
     release:
