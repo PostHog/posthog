@@ -32,26 +32,31 @@ class ErrorTrackingGroup(UUIDModel):
     )
 
     @classmethod
-    def filter_fingerprints(cls, queryset, fingerprints: list[str]) -> QuerySet:
+    def filter_fingerprints(cls, queryset, fingerprints: list[list]) -> QuerySet:
         query = Q(fingerprint__in=fingerprints)
 
         for fp in fingerprints:
-            query |= Q(merged_fingerprints__contains=[fp])
+            query |= Q(merged_fingerprints__contains=fp)
 
         return queryset.filter(query)
 
     @transaction.atomic
-    def merge(self, fingerprints: list[str]) -> None:
+    def merge(self, fingerprints: list[list[str]]) -> None:
         if not fingerprints:
             return
 
-        merged_fingerprints = set(self.merged_fingerprints)
-        merged_fingerprints.update(fingerprints)
+        # sets don't like lists so we're converting fingerprints to tuples
+        def convert_fingerprints_to_tuples(fps: list[list[str]]):
+            return [tuple(f) for f in fps]
+
+        merged_fingerprints = set(convert_fingerprints_to_tuples(self.merged_fingerprints))
+        merged_fingerprints.update(convert_fingerprints_to_tuples(fingerprints))
 
         merging_groups = ErrorTrackingGroup.objects.filter(team=self.team, fingerprint__in=fingerprints)
         for group in merging_groups:
-            merged_fingerprints |= set(group.merged_fingerprints)
+            merged_fingerprints |= set(convert_fingerprints_to_tuples(group.merged_fingerprints))
 
         merging_groups.delete()
-        self.merged_fingerprints = list(merged_fingerprints)
+        # converting back to list of lists before saving
+        self.merged_fingerprints = [list(f) for f in merged_fingerprints]
         self.save()
