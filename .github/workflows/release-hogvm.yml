@@ -31,6 +31,7 @@ jobs:
               if: steps.check-package-version.outputs.is-new-version == 'true'
               with:
                   node-version: 18.12.1
+                  registry-url: https://registry.npmjs.org
                   cache: pnpm
                   cache-dependency-path: hogvm/typescript/pnpm-lock.yaml
 
@@ -45,9 +46,7 @@ jobs:
             - name: Publish the package in the npm registry
               id: publish-package
               if: steps.check-package-version.outputs.is-new-version == 'true'
-              working-directory:
               run: |
                   pnpm publish --access public --tag latest
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-                  VERSION: ${{ steps.check-package-version.outputs.committed-version }}
