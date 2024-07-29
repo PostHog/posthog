@@ -189,6 +189,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], {"network_timing": True, "web_vitals": False})
 
+        self._update_team({"capture_performance_opt_in": False})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["capturePerformance"], False)
+
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
 
