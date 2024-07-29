@@ -369,7 +369,7 @@ export function LineGraph_({
             },
             borderWidth: isBar ? 0 : 2,
             pointRadius: 0,
-            hitRadius: 20,
+            hitRadius: 0,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
@@ -413,7 +413,7 @@ export function LineGraph_({
 
         const tooltipOptions: Partial<TooltipOptions> = {
             enabled: false, // disable builtin tooltip (use custom markup)
-            mode: 'point',
+            mode: 'nearest',
             // If bar, we want to only show the tooltip for what we're hovering over
             // to avoid confusion
             axis: isHorizontal ? 'y' : 'x',
@@ -569,15 +569,6 @@ export function LineGraph_({
 
                         tooltipEl.style.top = tooltipClientTop + 'px'
                         tooltipEl.style.left = tooltipClientLeft + 'px'
-
-                        // Add event listener
-                        tooltipEl.addEventListener('mouseenter', () => {
-                            tooltipEl.style.opacity = '1'
-                        })
-
-                        tooltipEl.addEventListener('mouseleave', () => {
-                            tooltipEl.style.opacity = '0'
-                        })
                     },
                 },
                 ...(!isBar
