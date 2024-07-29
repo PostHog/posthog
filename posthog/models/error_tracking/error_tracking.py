@@ -14,8 +14,13 @@ class ErrorTrackingGroup(UUIDModel):
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    fingerprint: models.TextField = models.TextField(null=False, blank=False)
-    merged_fingerprints: ArrayField = ArrayField(models.TextField(null=False, blank=False), default=list)
+    fingerprint: ArrayField = ArrayField(models.TextField(null=False, blank=False), null=False, blank=False)
+    merged_fingerprints: ArrayField = ArrayField(
+        ArrayField(models.TextField(null=False, blank=False), null=False, blank=False),
+        null=False,
+        blank=False,
+        default=list,
+    )
     status: models.CharField = models.CharField(
         max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False
     )
