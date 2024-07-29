@@ -49,5 +49,5 @@ jobs:
               run: |
                   pnpm publish --access public --tag latest --no-git-checks
               env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+                  NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
                   VERSION: ${{ steps.check-package-version.outputs.committed-version }}
