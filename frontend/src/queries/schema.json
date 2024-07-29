@@ -390,7 +390,7 @@
             "type": "object"
         },
         "BaseMathType": {
-            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session"],
+            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session", "first_time_for_user"],
             "type": "string"
         },
         "BinCountValue": {
@@ -3276,6 +3276,9 @@
                     },
                     "type": "array"
                 },
+                "exception_type": {
+                    "type": ["string", "null"]
+                },
                 "fingerprint": {
                     "type": "string"
                 },
@@ -3310,6 +3313,7 @@
             },
             "required": [
                 "fingerprint",
+                "exception_type",
                 "merged_fingerprints",
                 "occurrences",
                 "sessions",
