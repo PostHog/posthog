@@ -168,36 +168,21 @@ export class HogFunctionManager {
         const integrationIds: number[] = []
 
         items.forEach((item) => {
-            const filtersGlobals = findGlobalsFast(item.filters?.bytecode)
-
-            // Add the hog function globals
-            let functionGlobals = findGlobalsFast(item.bytecode)
-
-            // Extend it with the inputs that are used for the function
-            Object.values(item.inputs || {}).forEach((input) => {
-                functionGlobals = functionGlobals.union(findGlobalsFast(input.bytecode))
-            })
-
-            item.used_globals = {
-                all: functionGlobals.union(filtersGlobals),
-                filters: filtersGlobals,
-                function: functionGlobals,
-            }
-        })
-
-        items.forEach((item) => {
             // First off we find all globals used in this function - this can later be used for more efficient loading
             const filtersGlobals = findGlobalsFast(item.filters?.bytecode)
             let functionGlobals = findGlobalsFast(item.bytecode)
+
             Object.values(item.inputs || {}).forEach((input) => {
-                functionGlobals = functionGlobals.union(findGlobalsFast(input.bytecode))
+                functionGlobals = new Set([...functionGlobals, ...findGlobalsFast(input.bytecode)])
             })
 
             item.used_globals = {
-                all: functionGlobals.union(filtersGlobals),
+                all: new Set([...functionGlobals, ...filtersGlobals]),
                 filters: filtersGlobals,
                 function: functionGlobals,
             }
+
+            console.log('GLOBALS', item.used_globals)
 
             item.inputs_schema?.forEach((schema) => {
                 if (schema.type === 'integration') {
