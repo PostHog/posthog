@@ -184,7 +184,6 @@ abstract class CdpConsumerBase {
         const logs = prepareLogEntriesForClickhouse(result)
 
         logs.forEach((logEntry) => {
-            // Convert timestamps to ISO strings
             this.messagesToProduce.push({
                 topic: KAFKA_LOG_ENTRIES,
                 value: logEntry,

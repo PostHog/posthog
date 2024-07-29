@@ -171,14 +171,16 @@ export const prepareLogEntriesForClickhouse = (
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     // Start with a timestamp that is guaranteed to be before the first log entry
-    let timestamp = sortedLogs[0].timestamp.minus(1)
+    let previousTimestamp = sortedLogs[0].timestamp.minus(1)
 
     sortedLogs.forEach((logEntry) => {
-        if (logEntry.timestamp <= timestamp) {
-            logEntry.timestamp = timestamp.plus(1)
+        // TRICKY: The clickhouse table dedupes logs with the same timestamp - we need to ensure they are unique by simply plus-ing 1ms
+        // if the timestamp is the same as the previous one
+        if (logEntry.timestamp <= previousTimestamp) {
+            logEntry.timestamp = previousTimestamp.plus(1)
         }
 
-        timestamp = logEntry.timestamp
+        previousTimestamp = logEntry.timestamp
 
         const sanitized: HogFunctionLogEntrySerialized = {
             ...logEntry,
@@ -188,7 +190,6 @@ export const prepareLogEntriesForClickhouse = (
             instance_id: result.invocation.id,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
-        // Convert timestamps to ISO strings
         preparedLogs.push(sanitized)
     })
 
