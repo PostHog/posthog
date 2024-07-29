@@ -5,6 +5,7 @@ on:
         branches:
             - main
             - master
+            - fix/hogvm-publish
 
 jobs:
     release:
@@ -45,7 +46,6 @@ jobs:
             - name: Publish the package in the npm registry
               id: publish-package
               if: steps.check-package-version.outputs.is-new-version == 'true'
-              working-directory:
               run: |
                   pnpm publish --access public --tag latest
               env:
