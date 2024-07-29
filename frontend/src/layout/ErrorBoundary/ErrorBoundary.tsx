@@ -3,9 +3,13 @@ import './ErrorBoundary.scss'
 import { ErrorBoundary as SentryErrorBoundary, getCurrentHub } from '@sentry/react'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { useActions } from 'kea'
 
 export function ErrorBoundary({ children }: { children?: React.ReactNode }): JSX.Element {
     const isSentryInitialized = !!getCurrentHub().getClient()
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <SentryErrorBoundary
@@ -33,7 +37,7 @@ export function ErrorBoundary({ children }: { children?: React.ReactNode }): JSX
                                 type="primary"
                                 fullWidth
                                 center
-                                onClick={() => openEmailForm()}
+                                onClick={() =>  openSupportForm({ kind: 'bug', isEmailFormOpen: true })()}
                                 targetBlank
                                 className="mt-2"
                             >
