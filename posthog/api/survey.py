@@ -379,7 +379,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             instance.targeting_flag.save()
 
         iteration_count = validated_data.get("iteration_count")
-        if instance.current_iteration is not None and instance.current_iteration > iteration_count > 0:
+        if (
+            instance.current_iteration is not None
+            and iteration_count is not None
+            and instance.current_iteration > iteration_count > 0
+        ):
             raise serializers.ValidationError(
                 f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
             )

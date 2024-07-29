@@ -1,9 +1,14 @@
 import { IconTerminal } from '@posthog/icons'
 import { parseGithubRepoURL } from 'lib/utils'
 import imgPluginDefault from 'public/plugin-default.svg'
+import IconTransformationSemverFlattener from 'public/transformations/semver-flattener.png'
 import { useEffect, useState } from 'react'
 
 import { PluginType } from '~/types'
+
+const pluginImageOverrides: Record<string, any> = {
+    'inline://semver-flattener': IconTransformationSemverFlattener,
+}
 
 export type PluginImageSize = 'small' | 'medium' | 'large'
 
@@ -23,7 +28,10 @@ export function PluginImage({
     }[size]
 
     useEffect(() => {
-        if (icon) {
+        const imageOverride = pluginImageOverrides[url ?? '']
+        if (imageOverride) {
+            setState((state) => ({ ...state, image: imageOverride }))
+        } else if (icon) {
             setState((state) => ({ ...state, image: icon }))
         } else if (url?.includes('github.com')) {
             const { user, repo, path } = parseGithubRepoURL(url)

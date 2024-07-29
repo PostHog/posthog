@@ -1,9 +1,8 @@
-import { DatabaseSchemaField, DataTableNode, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaField, DataVisualizationNode, NodeKind } from '~/queries/schema'
 
-export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): DataTableNode => {
+export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): DataVisualizationNode => {
     return {
-        kind: NodeKind.DataTableNode,
-        full: true,
+        kind: NodeKind.DataVisualizationNode,
         source: {
             kind: NodeKind.HogQLQuery,
             // TODO: Use `hogql` tag?

@@ -40,7 +40,12 @@ export function insightOnDashboard(
     if (!tile.insight) {
         throw new Error('tile has no insight')
     }
-    return { ...tile.insight, dashboards: dashboardsRelation, filters: { ...tile.insight.filters, ...insight.filters } }
+    return {
+        ...tile.insight,
+        dashboards: dashboardsRelation,
+        dashboard_tiles: dashboardsRelation.map((dashboardId) => ({ id: insight.id!, dashboard_id: dashboardId })),
+        filters: { ...tile.insight.filters, ...insight.filters },
+    }
 }
 
 const TEXT_TILE: DashboardTile = {
@@ -48,7 +53,6 @@ const TEXT_TILE: DashboardTile = {
     text: { body: 'I AM A TEXT', last_modified_at: '2021-01-01T00:00:00Z' },
     layouts: {},
     color: InsightColor.Blue,
-    last_refresh: '2021-01-01T00:00:00Z',
 }
 
 let tileId = 0
@@ -57,7 +61,6 @@ export const tileFromInsight = (insight: InsightModel, id: number = tileId++): D
     layouts: {},
     color: null,
     insight: insight,
-    last_refresh: insight.last_refresh,
 })
 
 export const dashboardResult = (
@@ -590,22 +593,17 @@ describe('dashboardLogic', () => {
 
         it('can respond to external update of an insight on the dashboard', async () => {
             const copiedInsight = insight800()
-            dashboardsModel.actions.updateDashboardInsight(
-                {
-                    ...copiedInsight,
-                    filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
-                    last_refresh: '2012-04-01T00:00:00Z',
-                },
-                [],
-                [9]
-            )
+            dashboardsModel.actions.updateDashboardInsight({
+                ...copiedInsight,
+                filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
+                last_refresh: '2012-04-01T00:00:00Z',
+            })
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.dashboard?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
-            expect(logic.values.insightTiles[0].last_refresh).toEqual('2012-04-01T00:00:00Z')
         })
 
         it('can respond to external insight rename', async () => {

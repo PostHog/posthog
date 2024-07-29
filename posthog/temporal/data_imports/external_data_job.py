@@ -32,6 +32,14 @@ from posthog.warehouse.models import (
     ExternalDataSource,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.warehouse.models.external_data_schema import aupdate_should_sync
+
+
+Non_Retryable_Schema_Errors = [
+    "NoSuchTableError",
+    "401 Client Error: Unauthorized for url: https://api.stripe.com",
+    "403 Client Error: Forbidden for url: https://api.stripe.com",
+]
 
 
 @dataclasses.dataclass
@@ -53,6 +61,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         logger.exception(
             f"External data job failed for external data schema {inputs.schema_id} with error: {inputs.internal_error}"
         )
+
+        has_non_retryable_error = any(error in inputs.internal_error for error in Non_Retryable_Schema_Errors)
+        if has_non_retryable_error:
+            logger.info("Schema has a non-retryable error - turning off syncing")
+            await aupdate_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
     await sync_to_async(update_external_job_status)(
         run_id=uuid.UUID(inputs.id),
@@ -177,7 +190,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 import_data_activity,
                 job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=1),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
 

@@ -23,19 +23,33 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { CalcColumnState } from './insightsTableLogic'
+
+export type CalcColumnState = 'total' | 'average' | 'median'
 
 export interface InsightsTableProps {
-    /** Whether this is just a legend instead of standalone insight viz. Default: false. */
-    isLegend?: boolean
-    /** Whether this is table is embedded in another card or whether it should be a card of its own. Default: false. */
-    embedded?: boolean
     /** Key for the entityFilterLogic */
     filterKey: string
+    /**
+     * Whether this is just a legend instead of standalone insight viz.
+     * @default false
+     */
+    isLegend?: boolean
+    /**
+     * Whether this is table is embedded in another card or whether it should be a card of its own.
+     * @default false
+     */
+    embedded?: boolean
+    /** @default false */
     canEditSeriesNameInline?: boolean
-    /** (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired. */
+    /**
+     * (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired.
+     *  @default true
+     */
     canCheckUncheckSeries?: boolean
-    /* whether this table is below another insight or the insight is in table view */
+    /**
+     * Whether this table is below another insight or the insight is in table view.
+     * @default false
+     */
     isMainInsightView?: boolean
 }
 
@@ -166,9 +180,7 @@ export function InsightsTable({
                 },
             })
         }
-    }
-
-    if (breakdownFilter?.breakdowns) {
+    } else if (breakdownFilter?.breakdowns) {
         breakdownFilter.breakdowns.forEach((breakdown, index) => {
             const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
                 formatBreakdownLabel(

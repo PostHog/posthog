@@ -2,7 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     id="template-Intercom",
     name="Send data to Intercom",
     description="Send events and contact information to Intercom",
@@ -17,23 +17,19 @@ if (empty(email)) {
     return
 }
 
-let body := {
+let res := fetch(f'https://{host}/events', {
+  'method': 'POST',
+  'headers': {
+    'Authorization': f'Bearer {accessToken}',
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  },
+  'body': {
     'event_name': event.name,
     'created_at': toInt(toUnixTimestamp(toDateTime(event.timestamp))),
     'email': inputs.email,
     'id': event.distinct_id,
-}
-
-let headers := {
-    'Authorization': f'Bearer {accessToken}',
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-}
-
-let res := fetch(f'https://{host}/events', {
-  'method': 'POST',
-  'headers': headers,
-  'body': body
+  }
 })
 
 if (res.status >= 200 and res.status < 300) {

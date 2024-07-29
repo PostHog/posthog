@@ -1,5 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
@@ -16,8 +16,8 @@ import { newDestinationsLogic } from './newDestinationsLogic'
 export function DestinationOptionsTable(): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { loading, filteredDestinations, filters } = useValues(newDestinationsLogic)
-    const { setFilters } = useActions(newDestinationsLogic)
-    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    const { setFilters, openFeedbackDialog } = useActions(newDestinationsLogic)
+    const { canEnableDestination } = useValues(pipelineAccessLogic)
 
     return (
         <div className="space-y-2">
@@ -30,6 +30,9 @@ export function DestinationOptionsTable(): JSX.Element {
                     value={filters.search ?? ''}
                     onChange={(e) => setFilters({ search: e })}
                 />
+                <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
+                    Can't find what you're looking for?
+                </Link>
                 <div className="flex-1" />
                 <LemonSelect
                     type="secondary"
@@ -68,7 +71,7 @@ export function DestinationOptionsTable(): JSX.Element {
                         render: function RenderName(_, target) {
                             return (
                                 <LemonTableLink
-                                    to={canEnableNewDestinations || target.status === 'free' ? target.url : undefined}
+                                    to={canEnableDestination(target) ? target.url : undefined}
                                     title={
                                         <>
                                             {target.name}
@@ -95,7 +98,7 @@ export function DestinationOptionsTable(): JSX.Element {
                         width: 100,
                         align: 'right',
                         render: function RenderActions(_, target) {
-                            return canEnableNewDestinations || target.status === 'free' ? (
+                            return canEnableDestination(target) ? (
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}

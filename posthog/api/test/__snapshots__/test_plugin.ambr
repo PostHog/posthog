@@ -141,7 +141,7 @@
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
   FROM "posthog_plugin"
-  INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
+  LEFT OUTER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
@@ -329,7 +329,7 @@
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
   FROM "posthog_plugin"
-  INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
+  LEFT OUTER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
@@ -542,7 +542,7 @@
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
   FROM "posthog_plugin"
-  INNER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
+  LEFT OUTER JOIN "posthog_organization" ON ("posthog_plugin"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN

@@ -522,6 +522,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     flush_counter: int,
                     last_inserted_at,
                     last: bool,
+                    error: Exception | None,
                 ):
                     logger.debug(
                         "Copying %s records of size %s bytes",
@@ -570,7 +571,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 return writer.records_total
 
 
-@workflow.defn(name="postgres-export")
+@workflow.defn(name="postgres-export", failure_exception_types=[workflow.NondeterminismError])
 class PostgresBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into Postgres.
 

@@ -490,7 +490,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 return records_completed
 
 
-@workflow.defn(name="redshift-export")
+@workflow.defn(name="redshift-export", failure_exception_types=[workflow.NondeterminismError])
 class RedshiftBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into Postgres.
 
