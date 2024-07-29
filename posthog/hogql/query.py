@@ -88,7 +88,7 @@ def execute_hogql_query(
                 elif placeholder.startswith("filters."):
                     removed_placeholders.append(placeholder)
 
-        placeholders_in_query = [n for n in placeholders_in_query if n not in removed_placeholders]
+            placeholders_in_query = [n for n in placeholders_in_query if n not in removed_placeholders]
 
         if len(placeholders_in_query) > 0:
             if len(placeholders) == 0:
