@@ -16,6 +16,7 @@ import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -34,6 +35,8 @@ import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 
+const EVENT_THRESHOLD_ALERT_LEVEL = 8000
+
 export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
@@ -49,6 +52,8 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         exampleInvocationGlobalsWithInputs,
         showPaygate,
         hasAddon,
+        sparkline,
+        sparklineLoading,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -164,7 +169,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         {({ value, onChange }) => (
                                             <HogFunctionIconEditable
                                                 logicKey={id ?? templateId ?? 'new'}
-                                                search={configuration.name}
                                                 src={value}
                                                 onChange={(val) => onChange(val)}
                                             />
@@ -293,6 +297,43 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 <p className="italic text-muted-alt">
                                     This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
+                            </div>
+                            <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                <LemonLabel>Expected volume</LemonLabel>
+                                {sparkline && !sparklineLoading ? (
+                                    <>
+                                        {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                                            <LemonBanner type="warning">
+                                                <b>Warning:</b> This destination would have triggered{' '}
+                                                <strong>
+                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                </strong>{' '}
+                                                in the last 7 days. Consider the impact of this function on your
+                                                destination.
+                                            </LemonBanner>
+                                        ) : (
+                                            <p>
+                                                This destination would have triggered{' '}
+                                                <strong>
+                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                </strong>{' '}
+                                                in the last 7 days.
+                                            </p>
+                                        )}
+                                        <Sparkline
+                                            type="bar"
+                                            className="w-full h-20"
+                                            data={sparkline.data}
+                                            labels={sparkline.labels}
+                                        />
+                                    </>
+                                ) : sparklineLoading ? (
+                                    <div className="min-h-20">
+                                        <SpinnerOverlay />
+                                    </div>
+                                ) : (
+                                    <p>The expected volume could not be calculated</p>
+                                )}
                             </div>
                         </div>
 

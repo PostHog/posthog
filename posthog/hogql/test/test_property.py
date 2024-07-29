@@ -342,7 +342,18 @@ class TestProperty(BaseTest):
                     "operator": "exact",
                 }
             ),
-            self._parse_expr("arrayExists(href -> href = 'href-text.', elements_chain_hrefs)"),
+            self._parse_expr("elements_chain_href = 'href-text.'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "href",
+                    "value": "href-text.",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr("elements_chain_href ilike '%href-text.%'"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -490,30 +501,36 @@ class TestProperty(BaseTest):
             ),
         )
         self.assertEqual(
-            self._selector_to_expr("#withid"),
+            self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
-                    """{regex} and indexOf(elements_chain_ids, 'withid') > 0""",
+                    """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;).*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
             ),
         )
+
         self.assertEqual(
-            self._selector_to_expr("#with-dashed-id"),
+            self._selector_to_expr("a#with-dashed-id"),
             clear_locations(
                 parse_expr(
-                    """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0""",
+                    """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;).*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
             ),
+        )
+        # test optimization
+        self.assertEqual(
+            self._selector_to_expr("#with-dashed-id"),
+            clear_locations(parse_expr("""indexOf(elements_chain_ids, 'with-dashed-id') > 0""")),
         )
         self.assertEqual(
             self._selector_to_expr("#with-dashed-id"),
@@ -523,19 +540,14 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with\\slashed\\id"),
             clear_locations(
                 parse_expr(
-                    "{regex} and indexOf(elements_chain_ids, 'with\\\\slashed\\\\id') > 0",
-                    {
-                        "regex": elements_chain_match(
-                            '(^|;).*?attr_id="with\\\\slashed\\\\id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                        )
-                    },
+                    "indexOf(elements_chain_ids, 'with\\\\slashed\\\\id') > 0",
                 )
             ),
         )
 
     def test_action_to_expr(self):
         _create_event(
-            event="$autocapture", team=self.team, distinct_id="some_id", elements_chain="a.active.nav-link:text='text'"
+            event="$autocapture", team=self.team, distinct_id="some_id", elements_chain='a.active.nav-link:text="text"'
         )
         action1 = Action.objects.create(
             team=self.team,

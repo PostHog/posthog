@@ -168,14 +168,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             }}
                             height="100%"
                             onMount={(editor, monaco) => {
-                                monacoDisposables.current.push(
-                                    editor.addAction({
-                                        id: 'saveAndRunPostHog',
-                                        label: 'Save and run query',
-                                        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                                        run: () => saveQuery(),
-                                    })
-                                )
                                 setMonacoAndEditor([monaco, editor])
 
                                 const allModelQueries = localStorage.getItem(editorModelsStateKey(codeEditorKey))
@@ -220,6 +212,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     }
                                 }
                             }}
+                            onPressCmdEnter={(value, selectionType) => {
+                                if (value && selectionType === 'selection') {
+                                    saveQuery(value)
+                                } else {
+                                    saveQuery()
+                                }
+                            }}
                             options={{
                                 minimap: {
                                     enabled: false,
@@ -243,7 +242,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         <>
                             <div className="flex-1">
                                 <LemonButton
-                                    onClick={saveQuery}
+                                    onClick={() => saveQuery()}
                                     type="primary"
                                     disabledReason={
                                         !props.setQuery

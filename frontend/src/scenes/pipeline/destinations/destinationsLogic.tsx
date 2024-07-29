@@ -37,10 +37,12 @@ export type DestinationFilters = {
     search?: string
     onlyActive?: boolean
     kind?: PipelineBackend
+    filters?: Record<string, any>
 }
 
 export type PipelineDestinationsLogicProps = {
     defaultFilters?: DestinationFilters
+    forceFilters?: DestinationFilters
     syncFiltersWithUrl?: boolean
 }
 
@@ -55,7 +57,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             userLogic,
             ['user', 'hasAvailableFeature'],
             pipelineAccessLogic,
-            ['canEnableNewDestinations'],
+            ['canEnableDestination'],
         ],
     }),
     actions({
@@ -73,13 +75,16 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     reducers(({ props }) => ({
         filters: [
-            props.defaultFilters as DestinationFilters,
+            { ...(props.defaultFilters || {}), ...(props.forceFilters || {}) } as DestinationFilters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
+                    ...(props.forceFilters || {}),
                 }),
-                resetFilters: () => ({}),
+                resetFilters: () => ({
+                    ...(props.forceFilters || {}),
+                }),
             },
         ],
     })),
@@ -188,7 +193,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
-                    return (await api.hogFunctions.list()).results
+                    return (
+                        await api.hogFunctions.list({
+                            filters: values.filters?.filters,
+                        })
+                    ).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {
@@ -286,7 +295,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {
-            if (enabled && !values.canEnableNewDestinations) {
+            if (enabled && !values.canEnableDestination(destination)) {
                 lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                 return
             }

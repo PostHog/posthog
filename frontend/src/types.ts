@@ -1658,7 +1658,7 @@ export interface Tileable {
     color: InsightColor | null
 }
 
-export interface DashboardTile extends Tileable, Cacheable {
+export interface DashboardTile extends Tileable {
     id: number
     insight?: InsightModel
     text?: TextModel
@@ -2013,6 +2013,7 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsBar = 'ActionsBar',
+    ActionsStackedBar = 'ActionsStackedBar',
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
@@ -3418,6 +3419,7 @@ export enum BaseMathType {
     WeeklyActiveUsers = 'weekly_active',
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
+    FirstTimeForUser = 'first_time_for_user',
 }
 
 export enum PropertyMathType {
