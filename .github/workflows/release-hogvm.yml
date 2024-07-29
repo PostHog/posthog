@@ -20,8 +20,8 @@ jobs:
             - name: Check package version and detect an update
               id: check-package-version
               uses: PostHog/check-package-version@v2
-            #   with:
-            #       path: '@posthog/hogvm'
+              with:
+                  path: 'hogvm/typescript'
 
             - name: Set up Node
               uses: actions/setup-node@v4
