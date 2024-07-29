@@ -97,7 +97,7 @@
 
     <function>
         <type>executable</type>
-        <name>test_function_python</name>
+        <name>aggregate_funnel_test</name>
         <return_type>String</return_type>
         <argument>
             <type>UInt8</type>
