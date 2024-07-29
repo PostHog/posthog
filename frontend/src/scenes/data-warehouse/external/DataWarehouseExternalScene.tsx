@@ -1,6 +1,5 @@
-import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -11,36 +10,15 @@ import { urls } from 'scenes/urls'
 import { DataWarehouseTab } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
-import { DataWarehouseManagedSourcesTable } from '../settings/DataWarehouseManagedSourcesTable'
-import { DataWarehouseSelfManagedSourcesTable } from '../settings/DataWarehouseSelfManagedSourcesTable'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { dataWarehouseExternalSceneLogic } from './dataWarehouseExternalSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
 export const scene: SceneExport = {
     component: DataWarehouseExternalScene,
-    logic: dataWarehouseSceneLogic,
-}
-
-const tabToContent: Partial<Record<DataWarehouseTab, JSX.Element>> = {
-    [DataWarehouseTab.Explore]: <Explore />,
-    [DataWarehouseTab.ManagedSources]: <DataWarehouseManagedSourcesTable />,
-    [DataWarehouseTab.SelfManagedSources]: <DataWarehouseSelfManagedSourcesTable />,
-}
-
-export const humanFriendlyDataWarehouseTabName = (tab: DataWarehouseTab): string => {
-    switch (tab) {
-        case DataWarehouseTab.Explore:
-            return 'Explore'
-        case DataWarehouseTab.ManagedSources:
-            return 'Managed sources'
-        case DataWarehouseTab.SelfManagedSources:
-            return 'Self-Managed sources'
-    }
+    logic: dataWarehouseExternalSceneLogic,
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { currentTab } = useValues(dataWarehouseSceneLogic)
-
     const { insightSaving, insightProps } = useValues(
         insightLogic({
             dashboardItemId: 'new',
@@ -60,24 +38,16 @@ export function DataWarehouseExternalScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
-                        {currentTab === DataWarehouseTab.Explore && (
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-exploration"
-                                onClick={() => saveAs(query, true)}
-                                loading={insightSaving}
-                            >
-                                Save as insight
-                            </LemonButton>
-                        )}
-
                         <LemonButton
                             type="primary"
-                            data-attr="new-data-warehouse-easy-link"
-                            key="new-data-warehouse-easy-link"
-                            to={urls.dataWarehouseTable()}
+                            data-attr="save-exploration"
+                            onClick={() => saveAs(query, true)}
+                            loading={insightSaving}
                         >
-                            Link source
+                            Save as insight
+                        </LemonButton>
+                        <LemonButton type="secondary" to={urls.dataWarehouseSettings(DataWarehouseTab.ManagedSources)}>
+                            Manage sources
                         </LemonButton>
                     </>
                 }
@@ -93,27 +63,9 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
             <DataWarehouseInitialBillingLimitNotice />
-            <LemonTabs
-                activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.dataWarehouse(tab as DataWarehouseTab))}
-                tabs={Object.entries(tabToContent).map(([tab, content]) => ({
-                    label: (
-                        <span className="flex items-center justify-between gap-1">
-                            {humanFriendlyDataWarehouseTabName(tab as DataWarehouseTab)}{' '}
-                        </span>
-                    ),
-                    key: tab,
-                    content: content,
-                }))}
-            />
+            <BindLogic logic={insightSceneLogic} props={{}}>
+                <DataWarehouseTables />
+            </BindLogic>
         </div>
-    )
-}
-
-function Explore(): JSX.Element {
-    return (
-        <BindLogic logic={insightSceneLogic} props={{}}>
-            <DataWarehouseTables />
-        </BindLogic>
     )
 }

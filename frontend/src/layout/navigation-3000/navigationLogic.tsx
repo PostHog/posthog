@@ -35,7 +35,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { ProductKey } from '~/types'
+import { DataWarehouseTab, ProductKey } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -391,13 +391,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: urls.notebooks(),
                           },
                           {
-                              identifier: Scene.DataManagement,
-                              label: 'Data management',
-                              icon: <IconDatabase />,
-                              logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.eventDefinitions(),
-                          },
-                          {
                               identifier: Scene.PersonsManagement,
                               label: 'People',
                               icon: <IconPeople />,
@@ -435,6 +428,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 tooltip: 'New insight',
                                 identifier: Scene.Insight,
                             },
+                        },
+                        {
+                            identifier: Scene.DataWarehouse,
+                            label: 'SQL',
+                            icon: <IconServer />,
+                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                         },
                         {
                             identifier: Scene.WebAnalytics,
@@ -486,26 +485,37 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
-                        {
-                            identifier: Scene.DataWarehouse,
-                            label: 'Data warehouse',
-                            icon: <IconServer />,
-                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                        },
-                        hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.Pipeline,
-                                  label: 'Data pipeline',
-                                  icon: <IconDecisionTree />,
-                                  to: urls.pipeline(),
-                              }
-                            : null,
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,
                                   label: 'Early access features',
                                   icon: <IconRocket />,
                                   to: urls.earlyAccessFeatures(),
+                              }
+                            : null,
+                    ].filter(isNotNil),
+                    [
+                        {
+                            identifier: Scene.DataManagement,
+                            label: 'Events management',
+                            icon: <IconDatabase />,
+                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
+                        },
+                        {
+                            identifier: Scene.DataWarehouseSettings,
+                            label: 'Data import',
+                            icon: <IconServer />,
+                            to: isUsingSidebar
+                                ? undefined
+                                : urls.dataWarehouseSettings(DataWarehouseTab.ManagedSources),
+                        },
+                        hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.Pipeline,
+                                  label: 'Data export',
+                                  icon: <IconDecisionTree />,
+                                  to: urls.pipeline(),
                               }
                             : null,
                     ].filter(isNotNil),

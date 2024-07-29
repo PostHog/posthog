@@ -4,10 +4,11 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
-import { DataWarehouseTab } from '~/types'
+import { Breadcrumb, DataWarehouseTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -141,7 +142,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
         currentTab: [
-            DataWarehouseTab.Explore as DataWarehouseTab,
+            DataWarehouseTab.ManagedSources as DataWarehouseTab,
             {
                 setSceneTab: (_, { tab }) => tab,
             },
@@ -171,6 +172,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dataWarehouseTables, s.views],
             (dataWarehouseTables, views): DatabaseSchemaTable[] => {
                 return [...dataWarehouseTables, ...views]
+            },
+        ],
+        breadcrumbs: [
+            (s) => [s.currentTab],
+            (currentTab): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.DataWarehouseSettings,
+                        name: 'Data warehouse settings',
+                        path: urls.dataWarehouseSettings(currentTab),
+                    },
+                ]
             },
         ],
     }),
@@ -263,9 +276,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/data-warehouse/view/:id': ({ id }) => {
-            actions.setEditingView(id as string)
-        },
         '/data-warehouse/:tab': ({ tab }) => {
             if (tab !== values.currentTab) {
                 actions.setSceneTab(tab as DataWarehouseTab)

@@ -107,7 +107,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 {
                     key: Scene.DataWarehouseSettings,
                     name: 'Data Warehouse Settings',
-                    path: urls.dataWarehouse(parentSettingsTab),
+                    path: urls.dataWarehouseSettings(parentSettingsTab),
                 },
                 {
                     key: Scene.dataWarehouseSourceSettings,

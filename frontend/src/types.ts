@@ -4403,7 +4403,6 @@ export type AppMetricsV2RequestParams = {
 }
 
 export enum DataWarehouseTab {
-    Explore = 'explore',
     ManagedSources = 'managed-sources',
     SelfManagedSources = 'self-managed-sources',
 }

@@ -189,7 +189,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
-        '/data-warehouse/*': (_, __, { q }) => {
+        '/sql': (_, __, { q }) => {
             actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
             values.insightDataLogicRef?.logic.actions.setQuery(examples.DataWarehouse)
             values.insightLogicRef?.logic.actions.setInsight(
