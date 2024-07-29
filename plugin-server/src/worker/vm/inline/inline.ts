@@ -50,7 +50,7 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
             name: 'posthog-semver-flattener',
             description:
                 'Processes specified properties to flatten sematic versions. Assumes any property contains a string which matches [the SemVer specification](https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)',
-            is_global: false,
+            is_global: true,
             is_preinstalled: false,
             url: 'inline://semver-flattener',
             config_schema: SEMVER_FLATTENER_CONFIG_SCHEMA,
