@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/react'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -100,7 +99,11 @@ export const insightLogic = kea<insightLogicType>([
             insightUpdate,
             callback,
         }),
-        setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
+        setInsightMetadata: (
+            metadataUpdate: Partial<Pick<QueryBasedInsightModel, 'name' | 'description' | 'tags' | 'favorited'>>
+        ) => ({
+            metadataUpdate,
+        }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
     loaders(({ actions, values, props }) => ({
@@ -142,41 +145,29 @@ export const insightLogic = kea<insightLogicType>([
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
                     return updatedInsight
                 },
-                setInsightMetadata: async ({ metadata }, breakpoint) => {
+                setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
                     const editMode =
                         insightSceneLogic.isMounted() &&
-                        insightSceneLogic.values.legacyInsight === values.legacyInsight &&
+                        insightSceneLogic.values.queryBasedInsight === values.queryBasedInsight &&
                         insightSceneLogic.values.insightMode === ItemMode.Edit
 
                     if (editMode) {
-                        return { ...values.legacyInsight, ...metadata }
-                    }
-
-                    if (metadata.filters || metadata.query) {
-                        const error = new Error(`Will not override filters or query in setInsightMetadata`)
-                        captureException(error)
-                        throw error
+                        return { ...values.legacyInsight, ...metadataUpdate }
                     }
 
                     const beforeUpdates = {}
-                    for (const key of Object.keys(metadata)) {
+                    for (const key of Object.keys(metadataUpdate)) {
                         beforeUpdates[key] = values.savedInsight[key]
                     }
 
-                    const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.legacyInsight.id}`,
-                        metadata
-                    )
+                    const response = await insightsApi.update(values.queryBasedInsight.id, metadataUpdate, {
+                        writeAsQuery: values.queryBasedInsightSaving,
+                        readAsQuery: false,
+                    })
                     breakpoint()
 
-                    // only update the fields that we changed
-                    const updatedInsight = { ...values.legacyInsight } as InsightModel
-                    for (const key of Object.keys(metadata)) {
-                        updatedInsight[key] = response[key]
-                    }
-
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    dashboardsModel.actions.updateDashboardInsight(updatedInsight)
+                    dashboardsModel.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
                     lemonToast.success(`Updated insight`, {
@@ -184,23 +175,18 @@ export const insightLogic = kea<insightLogicType>([
                             label: 'Undo',
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
-                                const response = await api.update(
-                                    `api/projects/${teamLogic.values.currentTeamId}/insights/${values.queryBasedInsight.id}`,
-                                    beforeUpdates
-                                )
-                                // only update the fields that we changed
-                                const revertedInsight = { ...values.legacyInsight } as InsightModel
-                                for (const key of Object.keys(beforeUpdates)) {
-                                    revertedInsight[key] = response[key]
-                                }
+                                const response = await insightsApi.update(values.queryBasedInsight.id, beforeUpdates, {
+                                    writeAsQuery: values.queryBasedInsightSaving,
+                                    readAsQuery: false,
+                                })
                                 savedInsightsLogic.findMounted()?.actions.loadInsights()
-                                dashboardsModel.actions.updateDashboardInsight(revertedInsight)
-                                actions.setInsight(revertedInsight, { overrideFilter: false, fromPersistentApi: true })
+                                dashboardsModel.actions.updateDashboardInsight(response)
+                                actions.setInsight(response, { overrideFilter: false, fromPersistentApi: true })
                                 lemonToast.success('Insight change reverted')
                             },
                         },
                     })
-                    return updatedInsight
+                    return response
                 },
             },
         ],
@@ -232,7 +218,7 @@ export const insightLogic = kea<insightLogicType>([
                     query: clearInsightQuery ? undefined : state.query,
                 }
             },
-            setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
+            setInsightMetadata: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
