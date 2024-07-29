@@ -247,7 +247,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         {
                             name: 'High volume',
                             values: overThreshold,
-                            color: 'danger',
+                            color: 'warning',
                         },
                     ]
                     const count = result?.results?.[0]?.count
