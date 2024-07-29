@@ -1,6 +1,5 @@
 import './ErrorBoundary.scss'
 
-import { IconChevronDown } from '@posthog/icons'
 import { ErrorBoundary as SentryErrorBoundary, getCurrentHub } from '@sentry/react'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -30,9 +29,16 @@ export function ErrorBoundary({ children }: { children?: React.ReactNode }): JSX
                             : 'Please help us resolve the issue by sending a screenshot of this message.'}
                         <HelpButton
                             customComponent={
-                                <LemonButton type="primary" sideIcon={<IconChevronDown />}>
-                                    Contact PostHog
-                                </LemonButton>
+                                <LemonButton
+                                type="primary"
+                                fullWidth
+                                center
+                                onClick={() => openEmailForm()}
+                                targetBlank
+                                className="mt-2"
+                            >
+                                Email an engineer
+                            </LemonButton>
                             }
                             customKey="error-boundary"
                             contactOnly
