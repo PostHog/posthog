@@ -1,5 +1,7 @@
 import { connect, kea, path, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BaseMathType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
@@ -93,6 +95,22 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
             </>
         ),
         category: MathCategory.SessionCount,
+    },
+    [BaseMathType.FirstTimeForUser]: {
+        name: 'First time for user',
+        shortName: 'first time',
+        description: (
+            <>
+                Only count events if users do it for the first time.
+                <br />
+                <br />
+                <i>
+                    Example: If a single user performs an event for the first time ever within a given period, it counts
+                    as 1. Subsequent events by the same user will not be counted.
+                </i>
+            </>
+        ),
+        category: MathCategory.EventCount,
     },
 }
 
@@ -284,12 +302,14 @@ export const mathsLogic = kea<mathsLogicType>([
             ['groupTypes', 'aggregationLabel'],
             groupsAccessLogic,
             ['needsUpgradeForGroups', 'canStartUsingGroups'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     }),
     selectors({
         mathDefinitions: [
-            (s) => [s.groupsMathDefinitions],
-            (groupsMathDefinitions): Record<string, MathDefinition> => {
+            (s) => [s.groupsMathDefinitions, s.featureFlags],
+            (groupsMathDefinitions, featureFlags): Record<string, MathDefinition> => {
                 const allMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...groupsMathDefinitions,
@@ -297,18 +317,18 @@ export const mathsLogic = kea<mathsLogicType>([
                     ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
                     ...HOGQL_MATH_DEFINITIONS,
                 }
-                return allMathDefinitions
+                return filterMathTypesUnderFeatureFlags(allMathDefinitions, featureFlags)
             },
         ],
         // Static means the options do not have nested selectors (like math function)
         staticMathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
-            (groupsMathDefinitions, needsUpgradeForGroups): Record<string, MathDefinition> => {
+            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups, s.featureFlags],
+            (groupsMathDefinitions, needsUpgradeForGroups, featureFlags): Record<string, MathDefinition> => {
                 const staticMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
                 }
-                return staticMathDefinitions
+                return filterMathTypesUnderFeatureFlags(staticMathDefinitions, featureFlags)
             },
         ],
         staticActorsOnlyMathDefinitions: [
@@ -353,3 +373,14 @@ export const mathsLogic = kea<mathsLogicType>([
         ],
     }),
 ])
+
+export function filterMathTypesUnderFeatureFlags(
+    mathDefinitions: Record<string, MathDefinition>,
+    featureFlags: Record<string, boolean | string>
+): Record<string, MathDefinition> {
+    const copy = { ...mathDefinitions }
+    if (!featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]) {
+        delete copy[BaseMathType.FirstTimeForUser]
+    }
+    return copy
+}

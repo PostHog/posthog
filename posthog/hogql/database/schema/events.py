@@ -3,6 +3,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
     StringJSONDatabaseField,
+    StringArrayDatabaseField,
     IntegerDatabaseField,
     Table,
     LazyJoin,
@@ -114,6 +115,10 @@ class EventsTable(Table):
             join_table=SessionsTableV1(),
             join_function=join_events_table_to_sessions_table,
         ),
+        "elements_chain_href": StringDatabaseField(name="elements_chain_href"),
+        "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts"),
+        "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids"),
+        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements"),
     }
 
     def to_printed_clickhouse(self, context):

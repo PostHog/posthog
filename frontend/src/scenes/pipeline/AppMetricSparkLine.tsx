@@ -37,7 +37,7 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
             loading={appMetricsResponse === null}
             labels={dates}
             data={displayData}
-            className="max-w-24"
+            className="max-w-24 h-8"
             maximumIndicator={false}
         />
     )
@@ -70,7 +70,7 @@ export function AppMetricSparkLineV2({ pipelineNode }: { pipelineNode: PipelineN
             loading={appMetricsLoading}
             labels={appMetrics?.labels}
             data={displayData}
-            className="max-w-24"
+            className="max-w-24 h-8"
             maximumIndicator={false}
         />
     )

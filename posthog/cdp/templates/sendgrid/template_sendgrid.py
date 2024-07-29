@@ -10,7 +10,6 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/sendgrid.png",
     hog="""
 let email := inputs.email
-let properties := inputs.properties
 
 if (empty(email)) {
     print('`email` input is empty. Not updating contacts.')
@@ -21,7 +20,7 @@ let contact := {
   'email': email,
 }
 
-for (let key, value in properties) {
+for (let key, value in inputs.properties) {
     if (not empty(value)) {
         contact[key] := value
     }

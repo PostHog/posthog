@@ -31,9 +31,9 @@ class BatchExportDestination(UUIDModel):
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
-        "Snowflake": set("password"),
-        "Postgres": set("password"),
-        "Redshift": set("password"),
+        "Snowflake": {"user", "password"},
+        "Postgres": {"user", "password"},
+        "Redshift": {"user", "password"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
         "HTTP": set("token"),
         "NoOp": set(),

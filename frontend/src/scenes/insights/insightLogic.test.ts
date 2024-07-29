@@ -26,6 +26,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {
@@ -574,8 +575,11 @@ describe('insightLogic', () => {
         })
         logic.mount()
 
+        const dataLogic = insightDataLogic(logic.values.insightProps)
+        dataLogic.mount()
+
         await expectLogic(logic, () => {
-            logic.actions.saveAsNamingSuccess('New Insight (copy)')
+            logic.actions.saveAsConfirmation('New Insight (copy)', dataLogic.values.query)
         })
             .toDispatchActions(['setInsight'])
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])

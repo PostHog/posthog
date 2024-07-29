@@ -1,7 +1,8 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Optional, cast
 
 from freezegun import freeze_time
+
 from hogql_parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
@@ -14,12 +15,12 @@ from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
     Compare,
+    CompareFilter,
     EventsNode,
     InsightDateRange,
     IntervalType,
     TrendsFilter,
     TrendsQuery,
-    CompareFilter,
 )
 from posthog.test.base import BaseTest
 
@@ -65,7 +66,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def _get_date_where_sql(self, **kwargs):
         builder = self._get_builder(**kwargs)
         date_expr = builder._date_where_expr()
-        return self._print_hogql_expr(date_expr)
+        return self._print_hogql_expr(list(date_expr))
 
     def _get_utc_string(self, dt: datetime | None) -> str | None:
         if dt is None:

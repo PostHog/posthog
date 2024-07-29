@@ -39,7 +39,7 @@ async function _perform<Flag extends boolean>(
 export const insightsApi = {
     _perform,
     async create<Flag extends boolean>(
-        insight: QueryBasedInsightModel,
+        insight: Partial<QueryBasedInsightModel>,
         options: InsightsApiOptions<Flag>
     ): Promise<ReturnedInsightModelByFlag<Flag>> {
         return this._perform('create', insight, options)

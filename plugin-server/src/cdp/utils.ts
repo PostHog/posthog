@@ -3,13 +3,15 @@
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
-import { RawClickHouseEvent, Team } from '../types'
+import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
-import { clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationResult,
+    HogFunctionLogEntrySerialized,
     ParsedClickhouseEvent,
 } from './types'
 
@@ -157,4 +159,43 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     )
 
     return JSON.parse(res.toString())
+}
+
+export const prepareLogEntriesForClickhouse = (
+    result: HogFunctionInvocationResult
+): HogFunctionLogEntrySerialized[] => {
+    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+    const logs = result.logs
+    result.logs = [] // Clear it to ensure it isn't passed on anywhere else
+
+    const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
+
+    if (sortedLogs.length === 0) {
+        return []
+    }
+
+    // Start with a timestamp that is guaranteed to be before the first log entry
+    let previousTimestamp = sortedLogs[0].timestamp.minus(1)
+
+    sortedLogs.forEach((logEntry) => {
+        // TRICKY: The clickhouse table dedupes logs with the same timestamp - we need to ensure they are unique by simply plus-ing 1ms
+        // if the timestamp is the same as the previous one
+        if (logEntry.timestamp <= previousTimestamp) {
+            logEntry.timestamp = previousTimestamp.plus(1)
+        }
+
+        previousTimestamp = logEntry.timestamp
+
+        const sanitized: HogFunctionLogEntrySerialized = {
+            ...logEntry,
+            team_id: result.invocation.teamId,
+            log_source: 'hog_function',
+            log_source_id: result.invocation.hogFunctionId,
+            instance_id: result.invocation.id,
+            timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
+        }
+        preparedLogs.push(sanitized)
+    })
+
+    return preparedLogs
 }

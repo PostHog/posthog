@@ -7,6 +7,7 @@
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
          any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS fingerprint
   FROM events
   INNER JOIN
@@ -47,7 +48,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
@@ -87,6 +89,7 @@
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
          any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          groupArray(tuple(events.uuid, events.distinct_id, events.distinct_id)) AS events
   FROM events
   INNER JOIN
@@ -126,7 +129,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
   FROM events
   WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), 1, ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), ['SyntaxError']), 0))
   LIMIT 101
@@ -148,6 +152,7 @@
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
          any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS fingerprint
   FROM events
   INNER JOIN
@@ -189,6 +194,7 @@
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
          any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
          groupArray(tuple(events.uuid, events.distinct_id, events.distinct_id)) AS events
   FROM events
   INNER JOIN

@@ -1294,6 +1294,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 
 export interface ErrorTrackingGroup {
     fingerprint: string
+    exception_type: string | null
     merged_fingerprints: string[]
     occurrences: number
     sessions: number

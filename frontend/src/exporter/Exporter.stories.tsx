@@ -15,6 +15,7 @@ const meta: Meta<typeof Exporter> = {
         whitelabel: false,
         noHeader: false,
         legend: false,
+        detailed: false,
     },
     parameters: {
         testOptions: {
@@ -41,6 +42,18 @@ const Template: StoryFn<typeof Exporter> = (props) => {
 
 export const TrendsLineInsight: Story = Template.bind({})
 TrendsLineInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json') }
+
+export const TrendsLineInsightLegend: Story = Template.bind({})
+TrendsLineInsightLegend.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+    legend: true,
+}
+
+export const TrendsLineInsightDetailed: Story = Template.bind({})
+TrendsLineInsightDetailed.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+    detailed: true,
+}
 
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
 export const TrendsLineInsightNoResults: Story = Template.bind({})
@@ -97,6 +110,18 @@ TrendsTableBreakdownInsight.args = {
 
 export const TrendsPieInsight: Story = Template.bind({})
 TrendsPieInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsPie.json') }
+
+export const TrendsPieInsightLegend: Story = Template.bind({})
+TrendsPieInsightLegend.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
+    legend: true,
+}
+
+export const TrendsPieInsightDetailed: Story = Template.bind({})
+TrendsPieInsightDetailed.args = {
+    insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
+    detailed: true,
+}
 
 export const TrendsPieBreakdownInsight: Story = Template.bind({})
 TrendsPieBreakdownInsight.args = {

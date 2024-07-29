@@ -48,6 +48,7 @@ export function SessionRecordingErrors(): JSX.Element {
                         render: (_, cluster) => {
                             return (
                                 <Sparkline
+                                    className="h-8"
                                     labels={Object.keys(cluster.sparkline)}
                                     data={Object.values(cluster.sparkline)}
                                 />

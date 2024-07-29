@@ -5,11 +5,9 @@ import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import {
     HogFunctionAsyncFunctionResponse,
     HogFunctionInvocationResult,
-    HogFunctionLogEntry,
     HogFunctionType,
+    LogEntry,
 } from '../../src/cdp/types'
-import { TimestampFormat } from '../../src/types'
-import { castTimestampOrNow } from '../../src/utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
 
@@ -81,32 +79,16 @@ describe('Hog Executor', () => {
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0].logs).toMatchObject([
                 {
-                    team_id: 1,
-                    log_source: 'hog_function',
-                    log_source_id: hogFunction.id,
-                    instance_id: results[0].invocation.id,
                     timestamp: expect.any(DateTime),
                     level: 'debug',
                     message: 'Executing function',
                 },
                 {
-                    team_id: 1,
-                    log_source: 'hog_function',
-                    log_source_id: hogFunction.id,
-                    instance_id: results[0].invocation.id,
                     timestamp: expect.any(DateTime),
                     level: 'debug',
                     message: "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
                 },
             ])
-
-            expect(castTimestampOrNow(results[0].logs[0].timestamp, TimestampFormat.ClickHouse)).toEqual(
-                '2024-06-07 12:00:00.000'
-            )
-            // Ensure the second log is one more
-            expect(castTimestampOrNow(results[0].logs[1].timestamp, TimestampFormat.ClickHouse)).toEqual(
-                '2024-06-07 12:00:00.001'
-            )
         })
 
         it('redacts secret values from the logs', () => {
@@ -193,7 +175,7 @@ describe('Hog Executor', () => {
         })
 
         it('executes the full function in a loop', () => {
-            const logs: HogFunctionLogEntry[] = []
+            const logs: LogEntry[] = []
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())

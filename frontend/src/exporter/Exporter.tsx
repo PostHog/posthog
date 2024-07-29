@@ -74,7 +74,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 ) : null
             ) : null}
             {insight ? (
-                <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
+                <ExportedInsight insight={insight} exportOptions={exportOptions} />
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}

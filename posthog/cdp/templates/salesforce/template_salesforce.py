@@ -24,7 +24,7 @@ template_create: HogFunctionTemplate = HogFunctionTemplate(
     description="Create objects in Salesforce",
     icon_url="/static/services/salesforce.png",
     hog="""
-fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.path}', {
+let res := fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.path}', {
   'body': inputs.properties,
   'method': 'POST',
   'headers': {
@@ -32,6 +32,10 @@ fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.p
     'Content-Type': 'application/json'
   }
 });
+
+if (res.status >= 400) {
+  print('Bad response:', res.status, res.body)
+}
 """.strip(),
     inputs_schema=[
         common_inputs["oauth"],
@@ -68,7 +72,7 @@ template_update: HogFunctionTemplate = HogFunctionTemplate(
     description="Update objects in Salesforce",
     icon_url="/static/services/salesforce.png",
     hog="""
-fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.path}', {
+let res := fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.path}', {
   'body': inputs.properties,
   'method': 'PATCH',
   'headers': {
@@ -76,6 +80,10 @@ fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.p
     'Content-Type': 'application/json'
   }
 });
+
+if (res.status >= 400) {
+  print('Bad response:', res.status, res.body)
+}
 """.strip(),
     inputs_schema=[
         common_inputs["oauth"],

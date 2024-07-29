@@ -7,6 +7,7 @@ describe('mergeGroups', () => {
         const primaryGroup: ErrorTrackingGroup = {
             assignee: 400,
             description: 'This is the original description',
+            exception_type: 'TypeError',
             fingerprint: 'Fingerprint',
             first_seen: '2024-07-22T13:15:07.074000Z',
             last_seen: '2024-07-20T13:15:50.186000Z',
@@ -35,6 +36,7 @@ describe('mergeGroups', () => {
             {
                 assignee: 100,
                 description: 'This is another description',
+                exception_type: 'SyntaxError',
                 fingerprint: 'Fingerprint2',
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-20T13:15:50.186000Z',
@@ -61,6 +63,7 @@ describe('mergeGroups', () => {
             {
                 assignee: 400,
                 description: 'This is another description',
+                exception_type: 'SyntaxError',
                 fingerprint: 'Fingerprint3',
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
@@ -87,6 +90,7 @@ describe('mergeGroups', () => {
             {
                 assignee: null,
                 description: 'This is another description',
+                exception_type: 'SyntaxError',
                 fingerprint: 'Fingerprint4',
                 first_seen: '2023-07-22T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
@@ -118,6 +122,7 @@ describe('mergeGroups', () => {
             // retains values from primary group
             assignee: 400,
             description: 'This is the original description',
+            exception_type: 'TypeError',
             fingerprint: 'Fingerprint',
             status: 'active',
             // earliest first_seen

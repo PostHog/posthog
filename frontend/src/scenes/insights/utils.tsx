@@ -20,6 +20,7 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
+    GroupTypeIndex,
     InsightShortId,
     InsightType,
     PathType,
@@ -240,11 +241,16 @@ function formatNumericBreakdownLabel(
                 ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
                 : undefined
 
+        const groupIndex = (nestedBreakdown?.group_type_index ?? breakdownFilter?.breakdown_group_type_index) as
+            | GroupTypeIndex
+            | undefined
+
         return (
             formatPropertyValueForDisplay(
                 nestedBreakdown?.property ?? breakdownFilter?.breakdown,
                 breakdown_value,
-                propertyFilterTypeToPropertyDefinitionType(nestedBreakdown?.type ?? breakdownFilter?.breakdown_type)
+                propertyFilterTypeToPropertyDefinitionType(nestedBreakdown?.type ?? breakdownFilter?.breakdown_type),
+                groupIndex
             )?.toString() ?? 'None'
         )
     }

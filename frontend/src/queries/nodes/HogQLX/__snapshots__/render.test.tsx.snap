@@ -3,6 +3,7 @@
 exports[`HogQLX render should render Sparkline 1`] = `
 <ErrorBoundary>
   <Sparkline
+    className="h-8"
     data={
       [
         1,

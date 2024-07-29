@@ -1,7 +1,5 @@
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -66,12 +64,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            [
-                'setInsight',
-                'loadInsightSuccess',
-                'saveInsight as insightLogicSaveInsight',
-                'saveAsNamingSuccess as insightLogicSaveAsNamingSuccess',
-            ],
+            ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
@@ -80,8 +73,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
-        saveAs: (redirectToViewMode?: boolean) => ({ redirectToViewMode }),
-        saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
         cancelChanges: true,
@@ -236,51 +227,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
 
             actions.insightLogicSaveInsight(redirectToViewMode)
-        },
-        saveAs: async ({ redirectToViewMode }) => {
-            LemonDialog.openForm({
-                title: 'Save as new insight',
-                initialValues: {
-                    insightName:
-                        values.queryBasedInsight.name || values.queryBasedInsight.derived_name
-                            ? `${values.queryBasedInsight.name || values.queryBasedInsight.derived_name} (copy)`
-                            : '',
-                },
-                content: (
-                    <LemonField name="insightName">
-                        <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
-                    </LemonField>
-                ),
-                errors: {
-                    insightName: (name) => (!name ? 'You must enter a name' : undefined),
-                },
-                onSubmit: async ({ insightName }) => actions.saveAsNamingSuccess(insightName, redirectToViewMode),
-            })
-        },
-        saveAsNamingSuccess: ({ name, redirectToViewMode }) => {
-            let filters = values.legacyInsight.filters
-            if (isInsightVizNode(values.query)) {
-                const querySource = values.query.source
-                filters = queryNodeToFilter(querySource)
-            } else if (values.isQueryBasedInsight) {
-                filters = {}
-            }
-
-            let query = undefined
-            if (values.isQueryBasedInsight) {
-                query = values.query
-            }
-
-            actions.setInsight(
-                {
-                    ...values.legacyInsight,
-                    filters: filters,
-                    query: query ?? undefined,
-                },
-                { overrideFilter: true, fromPersistentApi: false }
-            )
-
-            actions.insightLogicSaveAsNamingSuccess(name, redirectToViewMode)
         },
         cancelChanges: () => {
             const savedFilters = values.savedInsight.filters

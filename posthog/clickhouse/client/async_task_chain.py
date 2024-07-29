@@ -5,6 +5,7 @@ from functools import partial
 
 from celery import chain
 from celery.canvas import Signature
+from celery.result import EagerResult
 from django.db import transaction
 
 from posthog.schema import QueryStatus
@@ -22,6 +23,9 @@ def kick_off_task(
     task_signature: Signature,
 ) -> None:
     task = task_signature.apply_async()
+    # During end-to-end tests, the task is executed synchronously, so we have to refresh the status.
+    if isinstance(task, EagerResult):
+        query_status = manager.get_query_status()
     query_status.task_id = task.id
     manager.store_query_status(query_status)
 

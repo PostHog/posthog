@@ -1,6 +1,9 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
+import {
+    DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
+    DISPLAY_TYPES_WITHOUT_LEGEND,
+} from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -273,6 +276,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (isTrends, isStickiness, isLifecycle, display) =>
                 (isTrends || isStickiness || isLifecycle) &&
                 !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
+        ],
+
+        hasDetailedResultsTable: [
+            (s) => [s.isTrends, s.display],
+            (isTrends, display) => isTrends && !(display && DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(display)),
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],

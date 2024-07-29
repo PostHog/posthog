@@ -53,6 +53,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": "SyntaxError",
+                    "$exception_type": "SyntaxError",
                     "$exception_message": "this is the same error message",
                 },
             )
@@ -62,6 +63,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": "TypeError",
+                    "$exception_type": "TypeError",
                 },
             )
             _create_event(
@@ -70,6 +72,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": "SyntaxError",
+                    "$exception_type": "SyntaxError",
                     "$exception_message": "this is the same error message",
                 },
             )
@@ -79,6 +82,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": "custom_fingerprint",
+                    "$exception_type": "SyntaxError",
                     "$exception_message": "this is the same error message",
                 },
             )
@@ -102,7 +106,17 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         columns = self._calculate(runner)["columns"]
         self.assertEqual(
-            columns, ["occurrences", "sessions", "users", "last_seen", "first_seen", "description", "fingerprint"]
+            columns,
+            [
+                "occurrences",
+                "sessions",
+                "users",
+                "last_seen",
+                "first_seen",
+                "description",
+                "exception_type",
+                "fingerprint",
+            ],
         )
 
         runner = ErrorTrackingQueryRunner(
@@ -125,6 +139,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "last_seen",
                 "first_seen",
                 "description",
+                "exception_type",
             ],
         )
 
@@ -143,7 +158,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         columns = result["columns"]
         # only adds the events column when fields are specificed in `eventColumns`
         self.assertEqual(
-            columns, ["occurrences", "sessions", "users", "last_seen", "first_seen", "description", "events"]
+            columns,
+            ["occurrences", "sessions", "users", "last_seen", "first_seen", "description", "exception_type", "events"],
         )
 
     @snapshot_clickhouse_queries
@@ -279,6 +295,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {
                     "assignee": self.user.id,
                     "description": "this is the same error message",
+                    "exception_type": "SyntaxError",
                     "events": None,
                     "fingerprint": "SyntaxError",
                     "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
@@ -294,6 +311,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {
                     "assignee": None,
                     "description": None,
+                    "exception_type": "TypeError",
                     "events": None,
                     "fingerprint": "TypeError",
                     "first_seen": datetime(2020, 1, 10, 12, 11, tzinfo=ZoneInfo("UTC")),
