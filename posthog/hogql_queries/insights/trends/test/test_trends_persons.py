@@ -1295,8 +1295,8 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         result = self._get_actors(trends_query=source_query, day="2020-01-12")
         self.assertEqual(len(result), 2)
-        self.assertEqual(set(result[0][0]["distinct_ids"]), {"anon2", "p2"})
-        self.assertEqual(set(result[1][0]["distinct_ids"]), {"anon3"})
+        self.assertEqual(set(result[0][0]["distinct_ids"]), {"anon3"})
+        self.assertEqual(set(result[1][0]["distinct_ids"]), {"anon2", "p2"})
 
     def test_trends_math_first_time_for_user_matches_first_event_only(self):
         timestamp = "2020-01-11T12:00:00Z"
