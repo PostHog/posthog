@@ -4,6 +4,7 @@ import uuid
 
 from temporalio import activity
 
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.data_imports.pipelines.helpers import aremove_reset_pipeline, aupdate_job_count
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
@@ -13,7 +14,6 @@ from posthog.warehouse.models import (
     get_external_data_job,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-import asyncio
 from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
@@ -56,8 +56,6 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
 
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
-        # Cludge: account_id should be checked here too but can deal with nulls
-        # until we require re update of account_ids in stripe so they're all store
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
 
@@ -104,8 +102,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
-    elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
-        from posthog.temporal.data_imports.pipelines.sql_database import postgres_source
+    elif model.pipeline.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
         host = model.pipeline.job_inputs.get("host")
         port = model.pipeline.job_inputs.get("port")
@@ -139,7 +137,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
 
-                source = postgres_source(
+                source = sql_source_for_type(
+                    source_type=model.pipeline.source_type,
                     host=tunnel.local_bind_host,
                     port=tunnel.local_bind_port,
                     user=user,
@@ -154,6 +153,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                     incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                     if schema.is_incremental
                     else None,
+                    team_id=inputs.team_id,
                 )
 
                 return await _run(
@@ -165,7 +165,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                     reset_pipeline=reset_pipeline,
                 )
 
-        source = postgres_source(
+        source = sql_source_for_type(
+            source_type=model.pipeline.source_type,
             host=host,
             port=port,
             user=user,
@@ -178,6 +179,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             incremental_field_type=schema.sync_type_config.get("incremental_field_type")
             if schema.is_incremental
             else None,
+            team_id=inputs.team_id,
         )
 
         return await _run(
@@ -208,6 +210,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             warehouse=warehouse,
             role=role,
             table_names=endpoints,
+            incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+            if schema.is_incremental
+            else None,
         )
 
         return await _run(
@@ -252,15 +258,7 @@ async def _run(
     schema: ExternalDataSchema,
     reset_pipeline: bool,
 ):
-    # Temp background heartbeat for now
-    async def heartbeat() -> None:
-        while True:
-            await asyncio.sleep(10)
-            activity.heartbeat()
-
-    heartbeat_task = asyncio.create_task(heartbeat())
-
-    try:
+    async with Heartbeater():
         table_row_counts = await DataImportPipeline(
             job_inputs, source, logger, reset_pipeline, schema.is_incremental
         ).run()
@@ -268,6 +266,3 @@ async def _run(
 
         await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)
         await aremove_reset_pipeline(inputs.source_id)
-    finally:
-        heartbeat_task.cancel()
-        await asyncio.wait([heartbeat_task])

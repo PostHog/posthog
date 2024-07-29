@@ -129,7 +129,7 @@ describe('compareFilters', () => {
             insight: InsightType.TRENDS,
             breakdowns: [
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
             ],
@@ -143,11 +143,11 @@ describe('compareFilters', () => {
             insight: InsightType.TRENDS,
             breakdowns: [
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
                 {
-                    value: '$prop',
+                    property: '$prop',
                     type: 'event',
                 },
             ],
@@ -156,7 +156,7 @@ describe('compareFilters', () => {
             insight: InsightType.TRENDS,
             breakdowns: [
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
             ],
@@ -170,11 +170,11 @@ describe('compareFilters', () => {
             insight: InsightType.TRENDS,
             breakdowns: [
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
                 {
-                    value: '$prop',
+                    property: '$prop',
                     type: 'event',
                 },
             ],
@@ -183,11 +183,11 @@ describe('compareFilters', () => {
             insight: InsightType.TRENDS,
             breakdowns: [
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'event',
                 },
                 {
-                    value: '$prop',
+                    property: '$prop',
                     type: 'event',
                 },
             ],
@@ -201,13 +201,13 @@ describe('compareFilters', () => {
             insight: InsightType.TRENDS,
             breakdowns: [
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'group',
                     group_type_index: 1,
                     histogram_bin_count: 10,
                 },
                 {
-                    value: '$prop',
+                    property: '$pathname',
                     type: 'group',
                     normalize_url: true,
                 },
@@ -217,13 +217,13 @@ describe('compareFilters', () => {
             insight: InsightType.TRENDS,
             breakdowns: [
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'group',
                     group_type_index: 1,
                     histogram_bin_count: 10,
                 },
                 {
-                    value: '$prop',
+                    property: '$pathname',
                     type: 'group',
                     normalize_url: false,
                 },
@@ -236,13 +236,13 @@ describe('compareFilters', () => {
             insight: InsightType.TRENDS,
             breakdowns: [
                 {
-                    value: '$browser',
+                    property: '$browser',
                     type: 'group',
                     group_type_index: 0,
                     histogram_bin_count: 10,
                 },
                 {
-                    value: '$prop',
+                    property: '$pathname',
                     type: 'group',
                     normalize_url: true,
                 },

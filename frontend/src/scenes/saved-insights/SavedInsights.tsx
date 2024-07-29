@@ -38,7 +38,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { isNonEmptyObject } from 'lib/utils'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -330,7 +330,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
     ...Object.entries(INSIGHT_TYPES_METADATA).map(([value, meta]) => ({
         value,
         label: meta.name,
-        icon: meta.icon ? <meta.icon color="#747EA2" noBackground /> : undefined,
+        icon: meta.icon ? <meta.icon /> : undefined,
     })),
 ]
 
@@ -386,7 +386,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
 
 function SavedInsightsGrid(): JSX.Element {
     const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
-    const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
+    const { insights, insightsLoading, pagination, queryBasedInsightSaving } = useValues(savedInsightsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     const paginationState = usePagination(insights?.results || [], pagination)
@@ -394,22 +394,29 @@ function SavedInsightsGrid(): JSX.Element {
     return (
         <>
             <div className="saved-insights-grid mb-2">
-                {paginationState.dataSourcePage.map((insight: InsightModel) => (
-                    <InsightCard
-                        key={insight.short_id}
-                        insight={{ ...insight }}
-                        rename={() => renameInsight(insight)}
-                        duplicate={() => duplicateInsight(insight)}
-                        deleteWithUndo={async () =>
-                            await deleteWithUndo({
-                                object: insight,
-                                endpoint: `projects/${currentTeamId}/insights`,
-                                callback: loadInsights,
-                            })
-                        }
-                        placement="SavedInsightGrid"
-                    />
-                ))}
+                {paginationState.dataSourcePage.map((legacyInsight: InsightModel) => {
+                    const insight = getQueryBasedInsightModel(legacyInsight)
+                    return (
+                        <InsightCard
+                            key={insight.short_id}
+                            insight={{ ...legacyInsight }}
+                            rename={() => renameInsight(insight)}
+                            duplicate={() => duplicateInsight(insight)}
+                            deleteWithUndo={async () =>
+                                await deleteInsightWithUndo({
+                                    object: insight,
+                                    endpoint: `projects/${currentTeamId}/insights`,
+                                    callback: loadInsights,
+                                    options: {
+                                        writeAsQuery: queryBasedInsightSaving,
+                                        readAsQuery: true,
+                                    },
+                                })
+                            }
+                            placement="SavedInsightGrid"
+                        />
+                    )
+                })}
                 {insightsLoading && (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ minHeight: '30rem' }}>
@@ -425,7 +432,8 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters, sorting, pagination, queryBasedInsightSaving } =
+        useValues(savedInsightsLogic)
     const { hasTagging } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -509,7 +517,8 @@ export function SavedInsights(): JSX.Element {
         },
         {
             width: 0,
-            render: function Render(_, insight) {
+            render: function Render(_, legacyInsight) {
+                const insight = getQueryBasedInsightModel(legacyInsight)
                 return (
                     <More
                         overlay={
@@ -539,10 +548,14 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        void deleteWithUndo({
+                                        void deleteInsightWithUndo({
                                             object: insight,
                                             endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,
+                                            options: {
+                                                writeAsQuery: queryBasedInsightSaving,
+                                                readAsQuery: true,
+                                            },
                                         })
                                     }
                                     data-attr={`insight-item-${insight.short_id}-dropdown-remove`}

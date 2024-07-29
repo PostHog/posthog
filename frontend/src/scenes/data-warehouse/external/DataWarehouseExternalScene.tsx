@@ -1,16 +1,18 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { DataWarehouseTab } from '~/types'
+
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
+import { DataWarehouseManagedSourcesTable } from '../settings/DataWarehouseManagedSourcesTable'
+import { DataWarehouseSelfManagedSourcesTable } from '../settings/DataWarehouseSelfManagedSourcesTable'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
@@ -19,29 +21,55 @@ export const scene: SceneExport = {
     logic: dataWarehouseSceneLogic,
 }
 
+const tabToContent: Partial<Record<DataWarehouseTab, JSX.Element>> = {
+    [DataWarehouseTab.Explore]: <Explore />,
+    [DataWarehouseTab.ManagedSources]: <DataWarehouseManagedSourcesTable />,
+    [DataWarehouseTab.SelfManagedSources]: <DataWarehouseSelfManagedSourcesTable />,
+}
+
+export const humanFriendlyDataWarehouseTabName = (tab: DataWarehouseTab): string => {
+    switch (tab) {
+        case DataWarehouseTab.Explore:
+            return 'Explore'
+        case DataWarehouseTab.ManagedSources:
+            return 'Managed sources'
+        case DataWarehouseTab.SelfManagedSources:
+            return 'Self-Managed sources'
+    }
+}
+
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { insightProps, insightChanged, insightSaving, hasDashboardItemId } = useValues(
+    const { currentTab } = useValues(dataWarehouseSceneLogic)
+
+    const { insightSaving, insightProps } = useValues(
         insightLogic({
             dashboardItemId: 'new',
             cachedInsight: null,
         })
     )
-
-    const { saveInsight, saveAs } = useActions(insightDataLogic(insightProps))
+    const { saveAs } = useActions(
+        insightLogic({
+            dashboardItemId: 'new',
+            cachedInsight: null,
+        })
+    )
+    const { query } = useValues(insightDataLogic(insightProps))
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        <InsightSaveButton
-                            saveAs={saveAs}
-                            saveInsight={saveInsight}
-                            isSaved={hasDashboardItemId}
-                            addingToDashboard={false}
-                            insightSaving={insightSaving}
-                            insightChanged={insightChanged}
-                        />
+                        {currentTab === DataWarehouseTab.Explore && (
+                            <LemonButton
+                                type="primary"
+                                data-attr="save-exploration"
+                                onClick={() => saveAs(query, true)}
+                                loading={insightSaving}
+                            >
+                                Save as insight
+                            </LemonButton>
+                        )}
 
                         <LemonButton
                             type="primary"
@@ -51,19 +79,11 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         >
                             Link source
                         </LemonButton>
-
-                        <LemonButton
-                            type="primary"
-                            icon={<IconGear />}
-                            data-attr="new-data-warehouse-settings-link"
-                            key="new-data-warehouse-settings-link"
-                            onClick={() => router.actions.push(urls.dataWarehouseSettings())}
-                        />
                     </>
                 }
                 caption={
                     <div>
-                        Below are all the sources that can be queried within PostHog with{' '}
+                        Explore all your data in PostHog with{' '}
                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </Link>
@@ -73,9 +93,27 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
             <DataWarehouseInitialBillingLimitNotice />
-            <BindLogic logic={insightSceneLogic} props={{}}>
-                <DataWarehouseTables />
-            </BindLogic>
+            <LemonTabs
+                activeKey={currentTab}
+                onChange={(tab) => router.actions.push(urls.dataWarehouse(tab as DataWarehouseTab))}
+                tabs={Object.entries(tabToContent).map(([tab, content]) => ({
+                    label: (
+                        <span className="flex items-center justify-between gap-1">
+                            {humanFriendlyDataWarehouseTabName(tab as DataWarehouseTab)}{' '}
+                        </span>
+                    ),
+                    key: tab,
+                    content: content,
+                }))}
+            />
         </div>
+    )
+}
+
+function Explore(): JSX.Element {
+    return (
+        <BindLogic logic={insightSceneLogic} props={{}}>
+            <DataWarehouseTables />
+        </BindLogic>
     )
 }

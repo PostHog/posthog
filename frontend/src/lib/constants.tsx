@@ -6,6 +6,7 @@ import { ChartDisplayCategory, ChartDisplayType, Region, SSOProvider } from '../
 export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsStackedBar]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsAreaGraph]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayCategory.CumulativeTimeSeries,
     [ChartDisplayType.BoldNumber]: ChartDisplayCategory.TotalValue,
@@ -167,7 +168,6 @@ export const FEATURE_FLAGS = {
     QUERY_BASED_INSIGHTS_SAVING: 'query-based-insights-saving', // owner: @thmsobrmlr
     HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
-    PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
@@ -187,7 +187,6 @@ export const FEATURE_FLAGS = {
     REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
-    SESSION_REPLAY_FILTER_ORDERING: 'session-replay-filter-ordering', // owner: #team-replay
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
@@ -203,13 +202,13 @@ export const FEATURE_FLAGS = {
     HOG: 'hog', // owner: @mariusandra
     HOG_FUNCTIONS: 'hog-functions', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
-    SESSION_REPLAY_UNIVERSAL_FILTERS: 'session-replay-universal-filters', // owner: #team-replay
     ALERTS: 'alerts', // owner: github.com/nikitaevg
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
     WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
+    FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

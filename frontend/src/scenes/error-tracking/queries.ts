@@ -45,32 +45,16 @@ export const errorTrackingQuery = ({
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
 }): DataTableNode => {
-    const select = [
-        'any(properties) as "context.columns.error"',
-        'properties.$exception_fingerprint',
-        'count() as occurrences',
-        'count(distinct $session_id) as sessions',
-        'count(distinct distinct_id) as users',
-        'max(timestamp) as last_seen',
-        'min(timestamp) as first_seen',
-    ]
+    const select: string[] = []
 
-    const columns = [
-        'context.columns.error',
-        'properties.$exception_fingerprint',
-        'occurrences',
-        'sessions',
-        'users',
-        'last_seen',
-        'first_seen',
-    ]
+    const columns = ['error', 'occurrences', 'sessions', 'users', 'assignee']
 
     if (sparklineSelectedPeriod) {
         const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
         const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
 
-        select.splice(2, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`)
-        columns.splice(2, 0, 'context.columns.volume')
+        select.splice(1, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as volume`)
+        columns.splice(1, 0, 'volume')
     }
 
     return {
@@ -83,7 +67,6 @@ export const errorTrackingQuery = ({
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
         },
-        hiddenColumns: ['properties.$exception_fingerprint', 'last_seen', 'first_seen'],
         showActions: false,
         showTimings: false,
         columns: columns,
@@ -137,7 +120,7 @@ export const errorTrackingGroupQuery = ({
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
-        select: ['uuid', 'properties', 'timestamp', 'person'],
+        eventColumns: ['uuid', 'properties', 'timestamp', 'person'],
         fingerprint: fingerprint,
         dateRange: dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,

@@ -538,7 +538,6 @@ export interface DataTableNode
         | WebTopClicksQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1080,9 +1079,11 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     results?: any
-    /**  @format date-time */
+    /** When was the query execution task picked up by a worker. @format date-time */
+    pickup_time?: string
+    /** When was query execution task enqueued. @format date-time */
     start_time?: string
-    /**  @format date-time */
+    /** When did the query execution task finish (whether successfully or not). @format date-time */
     end_time?: string
     /**  @format date-time */
     expiration_time?: string
@@ -1167,6 +1168,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
@@ -1279,24 +1281,42 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    select: HogQLExpression[]
+    fingerprint?: string
+    select?: HogQLExpression[]
+    eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
-    // Optional as only used when loading a specific group
-    fingerprint?: string
     limit?: integer
     offset?: integer
 }
 
-export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<any[]> {
+export interface ErrorTrackingGroup {
+    fingerprint: string
+    exception_type: string | null
+    merged_fingerprints: string[]
+    occurrences: number
+    sessions: number
+    users: number
+    description: string | null
+    /**  @format date-time */
+    first_seen: string
+    /**  @format date-time */
+    last_seen: string
+    // Sparkline data handled by the DataTable
+    volume?: any
+    assignee: number | null
+    status: 'archived' | 'active' | 'resolved' | 'pending_release'
+    events?: Record<string, any>[]
+}
+
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    columns?: unknown[]
+    columns?: string[]
 }
-
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
 export type InsightQueryNode =
@@ -1587,7 +1607,7 @@ export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    value: string
+    property: string
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin

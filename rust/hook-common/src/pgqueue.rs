@@ -6,7 +6,8 @@ use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use chrono;
-use serde;
+use serde::{self, Serialize};
+use serde_json::Value;
 use sqlx::postgres::any::AnyConnectionBackend;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use thiserror::Error;
@@ -34,6 +35,8 @@ pub enum DatabaseError {
     ConnectionError { error: sqlx::Error },
     #[error("{command} query failed with: {error}")]
     QueryError { command: String, error: sqlx::Error },
+    #[error("could not serialize jsonb field: {error}")]
+    SerializationError { error: serde_json::Error },
     #[error("transaction {command} failed with: {error}")]
     TransactionError { command: String, error: sqlx::Error },
     #[error("transaction was already closed")]
@@ -630,6 +633,12 @@ RETURNING
         job: NewJob<J, M>,
     ) -> PgQueueResult<()> {
         // TODO: Escaping. I think sqlx doesn't support identifiers.
+        let metadata = remove_null_characters_from_json(&job.metadata)
+            .map_err(|error| DatabaseError::SerializationError { error })?;
+        let parameters = remove_null_characters_from_json(&job.parameters)
+            .map_err(|error| DatabaseError::SerializationError { error })?;
+        let target = remove_null_characters_from_string(&job.target);
+
         let base_query = r#"
 INSERT INTO job_queue
     (attempt, created_at, scheduled_at, max_attempts, metadata, parameters, queue, status, target)
@@ -639,10 +648,10 @@ VALUES
 
         sqlx::query(base_query)
             .bind(job.max_attempts)
-            .bind(&job.metadata)
-            .bind(&job.parameters)
+            .bind(metadata)
+            .bind(parameters)
             .bind(&self.name)
-            .bind(&job.target)
+            .bind(&target)
             .execute(&self.pool)
             .await
             .map_err(|error| DatabaseError::QueryError {
@@ -652,6 +661,16 @@ VALUES
 
         Ok(())
     }
+}
+
+fn remove_null_characters_from_string(s: &str) -> String {
+    s.replace('\u{0000}', "")
+}
+
+fn remove_null_characters_from_json<T: Serialize>(value: &T) -> Result<Value, serde_json::Error> {
+    let json_string = serde_json::to_string(value)?;
+    let sanitized_string = json_string.replace("\\u0000", "");
+    serde_json::from_str(&sanitized_string)
 }
 
 #[cfg(test)]
@@ -736,6 +755,18 @@ mod tests {
         tx_job.complete().await.expect("failed to complete job");
 
         batch.commit().await.expect("failed to commit transaction");
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_bad_unicode(db: PgPool) {
+        let job_target = String::from('\0');
+        let json_with_null: serde_json::Value =
+            serde_json::from_str(r#"{"key":"\u0000"}"#).expect("failed to serialize json");
+
+        let queue = PgQueue::new_from_pool("test_bad_unicode", db).await;
+
+        let new_job = NewJob::new(1, json_with_null.clone(), json_with_null, &job_target);
+        queue.enqueue(new_job).await.expect("failed to enqueue job");
     }
 
     #[sqlx::test(migrations = "../migrations")]

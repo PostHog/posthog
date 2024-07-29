@@ -33,7 +33,7 @@ describe('VMs are extra lazy 💤', () => {
 
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.vm = lazyVm
+        pluginConfig.instance = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
@@ -58,7 +58,7 @@ describe('VMs are extra lazy 💤', () => {
 
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.vm = lazyVm
+        pluginConfig.instance = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
@@ -80,7 +80,7 @@ describe('VMs are extra lazy 💤', () => {
         await resetTestDatabase(indexJs)
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.vm = lazyVm
+        pluginConfig.instance = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
@@ -88,7 +88,7 @@ describe('VMs are extra lazy 💤', () => {
         expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
         expect(fetch).not.toHaveBeenCalled()
 
-        await lazyVm.getOnEvent()
+        await lazyVm.getPluginMethod('onEvent')
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).toHaveBeenCalled()
         expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
@@ -107,14 +107,14 @@ describe('VMs are extra lazy 💤', () => {
         await resetTestDatabase(indexJs)
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.vm = lazyVm
+        pluginConfig.instance = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
         lazyVm.ready = false
         lazyVm.inErroredState = true
 
-        const onEvent = await lazyVm.getOnEvent()
+        const onEvent = await lazyVm.getPluginMethod('onEvent')
         expect(onEvent).toBeNull()
         expect(lazyVm.ready).toEqual(false)
         expect(lazyVm.setupPluginIfNeeded).toHaveBeenCalled()

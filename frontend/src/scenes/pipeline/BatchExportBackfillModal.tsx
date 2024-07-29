@@ -7,7 +7,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { batchExportRunsLogic, BatchExportRunsLogicProps } from './batchExportRunsLogic'
 
-export function BatchExportBackfill({ id }: BatchExportRunsLogicProps): JSX.Element {
+export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX.Element {
     const logic = batchExportRunsLogic({ id })
 
     const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting } = useValues(logic)

@@ -1,14 +1,16 @@
+import json
 from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
 
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
@@ -16,7 +18,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.services.icons import CDPIconsService
+from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
+from posthog.constants import AvailableFeature
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
@@ -47,6 +51,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "hog",
             "filters",
             "icon_url",
+            "template",
         ]
         read_only_fields = fields
 
@@ -86,17 +91,50 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "status",
         ]
         extra_kwargs = {
+            "hog": {"required": False},
+            "inputs_schema": {"required": False},
             "template_id": {"write_only": True},
             "deleted": {"write_only": True},
         }
 
-    def validate_inputs_schema(self, value):
-        return validate_inputs_schema(value)
-
     def validate(self, attrs):
         team = self.context["get_team"]()
         attrs["team"] = team
+
+        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+
+        if not has_addon:
+            template_id = attrs.get("template_id", instance.template_id if instance else None)
+            template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
+
+            # In this case they are only allowed to create or update the function with free templates
+            if not template:
+                raise serializers.ValidationError(
+                    {"template_id": "The Data Pipelines addon is required to create custom functions."}
+                )
+
+            if template.status != "free":
+                raise serializers.ValidationError(
+                    {"template_id": "The Data Pipelines addon is required for this template."}
+                )
+
+            if attrs.get("hog"):
+                raise serializers.ValidationError(
+                    {"hog": "The Data Pipelines addon is required to create custom functions."}
+                )
+
+            if attrs.get("inputs_schema"):
+                raise serializers.ValidationError(
+                    {"inputs_schema": "The Data Pipelines addon is required to create custom functions."}
+                )
+
+            # Without the addon, they cannot deviate from the template
+            attrs["inputs_schema"] = template.inputs_schema
+            attrs["hog"] = template.hog
+
+        if "inputs_schema" in attrs:
+            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
         if self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
@@ -156,7 +194,9 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     logs = serializers.ListField(read_only=True)
 
 
-class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class HogFunctionViewSet(
+    TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
+):
     scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -165,6 +205,7 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
     log_source = "hog_function"
+    app_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
@@ -172,6 +213,13 @@ class HogFunctionViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, ForbidDestroyMod
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
+
+        if self.request.GET.get("filters"):
+            try:
+                filters = json.loads(self.request.GET["filters"])
+                queryset = queryset.filter(filters__contains=filters)
+            except Exception:
+                raise exceptions.ValidationError({"filter": f"Invalid filter"})
 
         return queryset
 

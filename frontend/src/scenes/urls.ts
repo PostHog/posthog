@@ -11,13 +11,13 @@ import {
     AnyPartialFilterType,
     AppMetricsUrlParams,
     DashboardType,
-    DataWarehouseSettingsTab,
-    FilterType,
+    DataWarehouseTab,
     InsightShortId,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
+    RecordingUniversalFilters,
     ReplayTabs,
     SDKKey,
 } from '~/types'
@@ -108,13 +108,11 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
+    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
-    replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
-    replaySingle: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
-    replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+    replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
+    replaySingle: (id: string): string => `/replay/${id}`,
+    replayFilePlayback: (): string => '/replay/file-playback',
 
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
@@ -157,9 +155,12 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (query?: string | Record<string, any>): string =>
-        combineUrl('/data-warehouse', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
-            .url,
+    dataWarehouse: (tab?: DataWarehouseTab | ':tab', query?: string | Record<string, any>): string =>
+        combineUrl(
+            `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
+            {},
+            query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
+        ).url,
     dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
         combineUrl(
             `/data-warehouse/view/${id}`,
@@ -167,11 +168,11 @@ export const urls = {
             query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
         ).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
-        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
+    dataWarehouseSettings: (tab?: DataWarehouseTab | ':tab'): string =>
+        `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
-    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseSettingsTab | ':tab'): string =>
-        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}/${id}`,
+    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseTab.ManagedSources}/${id}`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
