@@ -4,6 +4,7 @@ import { Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
+import { HogFunctionGlobalsManager } from './hog-function-globals-manager'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     HogFunctionInvocation,
@@ -93,14 +94,17 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
 }
 
 export class HogExecutor {
-    constructor(private hogFunctionManager: HogFunctionManager) {}
+    constructor(
+        private hogFunctionManager: HogFunctionManager,
+        private hogFunctionGlobalsManager: HogFunctionGlobalsManager
+    ) {}
 
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
         nonMatchingFunctions: HogFunctionType[]
     } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
-        const filtersGlobals = convertToHogFunctionFilterGlobal(event)
+        const filtersGlobals = await this.hogFunctionGlobalsManager.loadFiltersGlobals(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []
         const matchingFunctions: HogFunctionType[] = []
@@ -148,10 +152,10 @@ export class HogExecutor {
     /**
      * Intended to be invoked as a starting point from an event
      */
-    executeFunction(
+    async executeFunction(
         event: HogFunctionInvocationGlobals,
         functionOrId: HogFunctionType | HogFunctionType['id']
-    ): HogFunctionInvocationResult | undefined {
+    ): Promise<HogFunctionInvocationResult | undefined> {
         const hogFunction =
             typeof functionOrId === 'string'
                 ? this.hogFunctionManager.getTeamHogFunction(event.project.id, functionOrId)
@@ -170,7 +174,7 @@ export class HogExecutor {
             },
         }
 
-        return this.execute(hogFunction, {
+        return await this.execute(hogFunction, {
             id: new UUIDT().toString(),
             globals: modifiedGlobals,
             teamId: hogFunction.team_id,
@@ -182,10 +186,10 @@ export class HogExecutor {
     /**
      * Intended to be invoked as a continuation from an async function
      */
-    executeAsyncResponse(
+    async executeAsyncResponse(
         invocation: HogFunctionInvocation,
         asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse']
-    ): HogFunctionInvocationResult {
+    ): Promise<HogFunctionInvocationResult> {
         if (!invocation.hogFunctionId) {
             throw new Error('No hog function id provided')
         }
@@ -214,7 +218,7 @@ export class HogExecutor {
         invocation.vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
         invocation.timings.push(...(asyncFunctionResponse.timings ?? []))
 
-        const res = this.execute(hogFunction, invocation)
+        const res = await this.execute(hogFunction, invocation)
 
         // Add any timings and logs from the async function
         res.logs = [...(asyncFunctionResponse.logs ?? []), ...res.logs]
@@ -222,7 +226,10 @@ export class HogExecutor {
         return res
     }
 
-    execute(hogFunction: HogFunctionType, invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+    async execute(
+        hogFunction: HogFunctionType,
+        invocation: HogFunctionInvocation
+    ): Promise<HogFunctionInvocationResult> {
         const loggingContext = {
             hogFunctionId: hogFunction.id,
             hogFunctionName: hogFunction.name,

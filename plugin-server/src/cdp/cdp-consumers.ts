@@ -73,6 +73,8 @@ export interface TeamIDWithConfig {
     consoleLogIngestionEnabled: boolean
 }
 
+// TODO: Add a thread-release checker - it should be code that checks since the last heartbeat and waits for some time (like 50ms) if needed to release the thread
+
 abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
     hogFunctionManager: HogFunctionManager
@@ -116,6 +118,11 @@ abstract class CdpConsumerBase {
             results.push(await this.runWithHeartbeat(() => func(item)))
         }
         return results
+    }
+
+    protected async runManyParallelWithHeartbeat<T, R>(items: T[], func: (item: T) => Promise<R> | R): Promise<R[]> {
+        // Helper to ensure we trigger the heartbeat and release the event loop for health checks
+        return await Promise.all(items.map((item) => this.runWithHeartbeat(() => func(item))))
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
