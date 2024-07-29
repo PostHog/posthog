@@ -179,7 +179,7 @@ export class HogFunctionManager {
             item.used_globals = {
                 all: new Set([...functionGlobals, ...filtersGlobals]),
                 filters: filtersGlobals,
-                function: functionGlobals,
+                hog_function: functionGlobals,
             }
 
             console.log('GLOBALS', item.used_globals)

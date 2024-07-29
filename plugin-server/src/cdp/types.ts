@@ -229,7 +229,7 @@ export type HogFunctionType = {
     used_globals?: {
         all: Set<string>
         filters: Set<string>
-        function: Set<string>
+        hog_function: Set<string>
     }
 }
 
