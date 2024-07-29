@@ -113,7 +113,7 @@ function InsightCardInternal(
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
-        cachedInsight: legacyInsight, // TODO: use query based insight here
+        cachedInsight: insight,
         loadPriority,
         doNotLoad,
     }
@@ -159,7 +159,7 @@ function InsightCardInternal(
                     <div className="InsightCard__viz">
                         <Query
                             query={insight.query}
-                            cachedResults={legacyInsight}
+                            cachedResults={insight.result}
                             context={{
                                 insightProps: insightLogicProps,
                             }}
