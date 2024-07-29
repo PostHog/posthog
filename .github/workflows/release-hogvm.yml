@@ -47,7 +47,7 @@ jobs:
               id: publish-package
               if: steps.check-package-version.outputs.is-new-version == 'true'
               run: |
-                  pnpm publish --access public --tag latest
+                  pnpm publish --access public --tag latest --force
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
                   VERSION: ${{ steps.check-package-version.outputs.committed-version }}
