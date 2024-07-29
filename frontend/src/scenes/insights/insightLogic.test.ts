@@ -26,7 +26,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {
@@ -575,11 +574,8 @@ describe('insightLogic', () => {
         })
         logic.mount()
 
-        const dataLogic = insightDataLogic(logic.values.insightProps)
-        dataLogic.mount()
-
         await expectLogic(logic, () => {
-            logic.actions.saveAsConfirmation('New Insight (copy)', dataLogic.values.query)
+            logic.actions.saveAsConfirmation('New Insight (copy)')
         })
             .toDispatchActions(['setInsight'])
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
@@ -737,24 +733,24 @@ describe('insightLogic', () => {
             jest.spyOn(api, 'create')
 
             await expectLogic(logic, () => {
-                logic.actions.setInsight(
-                    { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
-                    { overrideFilter: true }
-                )
-                logic.actions.saveInsight()
+                // logic.actions.setInsight(
+                //     { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                //     { overrideFilter: true }
+                // )
+                logic.actions.saveInsight({ kind: NodeKind.DataTableNode } as DataTableNode)
             })
 
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
                     `api/projects/${MOCK_TEAM_ID}/insights/`,
-                    {
+                    expect.objectContaining({
                         derived_name: 'DataTableNode query',
                         query: {
                             kind: 'DataTableNode',
                         },
                         saved: true,
-                    },
+                    }),
                 ],
             ])
         })
