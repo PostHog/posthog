@@ -34,12 +34,17 @@ import {
     HogFunctionInvocationAsyncResponse,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
-    HogFunctionLogEntry,
     HogFunctionMessageToProduce,
     HogFunctionOverflowedGlobals,
     HogFunctionType,
 } from './types'
-import { convertToCaptureEvent, convertToHogFunctionInvocationGlobals, gzipObject, unGzipObject } from './utils'
+import {
+    convertToCaptureEvent,
+    convertToHogFunctionInvocationGlobals,
+    gzipObject,
+    prepareLogEntriesForClickhouse,
+    unGzipObject,
+} from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -164,7 +169,7 @@ abstract class CdpConsumerBase {
         )
     }
 
-    protected logAppMetrics(
+    protected produceAppMetric(
         metric: Pick<AppMetric2Type, 'team_id' | 'app_source_id' | 'metric_kind' | 'metric_name' | 'count'>
     ) {
         const appMetric: AppMetric2Type = {
@@ -182,16 +187,15 @@ abstract class CdpConsumerBase {
         counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
     }
 
-    protected logLogEntry(logEntry: HogFunctionLogEntry) {
-        const sanitized = {
-            ...logEntry,
-            timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
-        }
-        // Convert timestamps to ISO strings
-        this.messagesToProduce.push({
-            topic: KAFKA_LOG_ENTRIES,
-            value: sanitized,
-            key: sanitized.instance_id,
+    protected producelogs(result: HogFunctionInvocationResult) {
+        const logs = prepareLogEntriesForClickhouse(result)
+
+        logs.forEach((logEntry) => {
+            this.messagesToProduce.push({
+                topic: KAFKA_LOG_ENTRIES,
+                value: logEntry,
+                key: logEntry.instance_id,
+            })
         })
     }
 
@@ -202,10 +206,8 @@ abstract class CdpConsumerBase {
                 await Promise.all(
                     results.map(async (result) => {
                         // Tricky: We want to pull all the logs out as we don't want them to be passed around to any subsequent functions
-                        const logs = result.logs
-                        result.logs = []
 
-                        this.logAppMetrics({
+                        this.produceAppMetric({
                             team_id: result.invocation.teamId,
                             app_source_id: result.invocation.hogFunctionId,
                             metric_kind: result.error ? 'failure' : 'success',
@@ -213,7 +215,7 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
 
-                        logs.forEach((x) => this.logLogEntry(x))
+                        this.producelogs(result)
 
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
@@ -288,7 +290,7 @@ abstract class CdpConsumerBase {
                         // We don't report overflowed metric to appmetrics as it is sort of a meta-metric
                         counterFunctionInvocation.inc({ outcome: 'overflowed' })
                     } else if (functionState > HogWatcherState.disabledForPeriod) {
-                        this.logAppMetrics({
+                        this.produceAppMetric({
                             team_id: item.teamId,
                             app_source_id: item.hogFunctionId,
                             metric_kind: 'failure',
@@ -346,7 +348,7 @@ abstract class CdpConsumerBase {
                     const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
 
                     nonMatchingFunctions.forEach((item) =>
-                        this.logAppMetrics({
+                        this.produceAppMetric({
                             team_id: item.team_id,
                             app_source_id: item.id,
                             metric_kind: 'other',
@@ -384,7 +386,7 @@ abstract class CdpConsumerBase {
                     }
 
                     hogFunctionsByState[HogWatcherState.disabledForPeriod]?.forEach((item) => {
-                        this.logAppMetrics({
+                        this.produceAppMetric({
                             team_id: item.team_id,
                             app_source_id: item.id,
                             metric_kind: 'failure',
@@ -394,7 +396,7 @@ abstract class CdpConsumerBase {
                     })
 
                     hogFunctionsByState[HogWatcherState.disabledIndefinitely]?.forEach((item) => {
-                        this.logAppMetrics({
+                        this.produceAppMetric({
                             team_id: item.team_id,
                             app_source_id: item.id,
                             metric_kind: 'failure',
@@ -647,7 +649,7 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
                     await this.runManyWithHeartbeat(invocations, (item) => {
                         const state = this.hogWatcher.getFunctionState(item.hogFunctionId)
                         if (state >= HogWatcherState.disabledForPeriod) {
-                            this.logAppMetrics({
+                            this.produceAppMetric({
                                 team_id: item.globals.project.id,
                                 app_source_id: item.hogFunctionId,
                                 metric_kind: 'failure',

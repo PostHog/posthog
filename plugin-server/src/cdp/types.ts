@@ -128,19 +128,22 @@ export type HogFunctionFilterGlobals = {
 }
 
 export type HogFunctionLogEntrySource = 'system' | 'hog' | 'console'
-export type HogFunctionLogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
+export type LogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 
-export type HogFunctionLogEntry = {
+export type LogEntry = {
+    timestamp: DateTime
+    level: LogEntryLevel
+    message: string
+}
+
+export type HogFunctionInvocationLogEntry = LogEntry & {
     team_id: number
     log_source: string // The kind of source (hog_function)
     log_source_id: string // The id of the hog function
     instance_id: string // The id of the specific invocation
-    timestamp: DateTime
-    level: HogFunctionLogEntryLevel
-    message: string
 }
 
-export type HogFunctionLogEntrySerialized = Omit<HogFunctionLogEntry, 'timestamp'> & {
+export type HogFunctionLogEntrySerialized = Omit<HogFunctionInvocationLogEntry, 'timestamp'> & {
     timestamp: ClickHouseTimestamp
 }
 
@@ -152,7 +155,7 @@ export interface HogFunctionTiming {
 // This is the "persistent" state of a hog function invocation
 export type HogFunctionInvocation = {
     id: string
-    globals: HogFunctionInvocationGlobals
+    globals: Partial<HogFunctionInvocationGlobals>
     teamId: number
     hogFunctionId: HogFunctionType['id']
     // The current vmstate (set if the invocation is paused)
@@ -171,7 +174,7 @@ export type HogFunctionAsyncFunctionResponse = {
     /** The data to be passed to the Hog function from the response */
     response: any
     timings?: HogFunctionTiming[]
-    logs?: HogFunctionLogEntry[]
+    logs?: LogEntry[]
 }
 
 // The result of an execution
@@ -180,7 +183,7 @@ export type HogFunctionInvocationResult = {
     finished: boolean
     error?: any
     asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
-    logs: HogFunctionLogEntry[]
+    logs: LogEntry[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
 }
 

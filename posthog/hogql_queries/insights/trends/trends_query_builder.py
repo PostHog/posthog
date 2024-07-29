@@ -235,9 +235,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 sample_value=self._sample_value(),
                 event_name_filter=self._event_or_action_where_expr(),
             )
-            orchestrator.events_query_builder.extend_select(
-                self._aggregation_operation.transform_breakdowns_for_query_orchestration(breakdown.column_exprs)
-            )
+            orchestrator.events_query_builder.extend_select(breakdown.column_exprs, aggregate=True)
             orchestrator.parent_query_builder.extend_select(breakdown.alias_exprs)
             orchestrator.parent_query_builder.extend_group_by(breakdown.field_exprs)
             return orchestrator.build()

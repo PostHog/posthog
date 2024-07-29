@@ -42,8 +42,11 @@ export class HogFunctionGlobalsManager {
 
     public async loadGlobals(
         context: HogFunctionInvocationGlobals,
-        globalsRequired: Set<string>
+        globalsRequired: Set<string> | undefined
     ): Promise<Partial<HogFunctionInvocationGlobals>> {
+        if (!globalsRequired) {
+            return {}
+        }
         const obj: Partial<HogFunctionInvocationGlobals> = {}
         const loaders: Promise<any>[] = []
 
@@ -67,8 +70,11 @@ export class HogFunctionGlobalsManager {
 
     public async loadFiltersGlobals(
         context: HogFunctionInvocationGlobals,
-        globalsRequired: Set<string>
+        globalsRequired: Set<string> | undefined
     ): Promise<Partial<HogFunctionFilterGlobals>> {
+        if (!globalsRequired) {
+            return {}
+        }
         const groupsNeeded = Array.from(globalsRequired).some((x) => x.startsWith('group_'))
         let groups: HogFunctionInvocationGlobals['groups'] = {}
 
