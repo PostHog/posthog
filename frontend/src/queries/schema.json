@@ -3295,7 +3295,10 @@
                 },
                 "merged_fingerprints": {
                     "items": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -3348,7 +3351,10 @@
                     "type": "boolean"
                 },
                 "fingerprint": {
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",

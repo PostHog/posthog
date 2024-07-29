@@ -1281,7 +1281,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    fingerprint?: string
+    fingerprint?: string[]
     select?: HogQLExpression[]
     eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'

@@ -344,7 +344,7 @@ class ErrorTrackingGroup(BaseModel):
     fingerprint: list[str]
     first_seen: AwareDatetime
     last_seen: AwareDatetime
-    merged_fingerprints: list[str]
+    merged_fingerprints: list[list[str]]
     occurrences: float
     sessions: float
     status: Status
@@ -4067,7 +4067,7 @@ class ErrorTrackingQuery(BaseModel):
     eventColumns: Optional[list[str]] = None
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
-    fingerprint: Optional[str] = None
+    fingerprint: Optional[list[str]] = None
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
