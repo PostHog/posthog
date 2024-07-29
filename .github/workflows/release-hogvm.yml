@@ -32,6 +32,7 @@ jobs:
               if: steps.check-package-version.outputs.is-new-version == 'true'
               with:
                   node-version: 18.12.1
+                  registry-url: https://registry.npmjs.org
                   cache: pnpm
                   cache-dependency-path: hogvm/typescript/pnpm-lock.yaml
 
