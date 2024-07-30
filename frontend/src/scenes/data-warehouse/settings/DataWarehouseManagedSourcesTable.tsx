@@ -36,6 +36,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
             dataSource={dataWarehouseSources?.results ?? []}
             loading={dataWarehouseSourcesLoading}
             disableTableWhileLoading={false}
+            pagination={{ pageSize: 10 }}
             columns={[
                 {
                     width: 0,
