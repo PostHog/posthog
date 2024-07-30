@@ -2,7 +2,6 @@ import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -41,14 +40,18 @@ export const humanFriendlyDataWarehouseTabName = (tab: DataWarehouseTab): string
 export function DataWarehouseExternalScene(): JSX.Element {
     const { currentTab } = useValues(dataWarehouseSceneLogic)
 
-    const { insightProps, insightSaving } = useValues(
+    const { insightSaving } = useValues(
         insightLogic({
-            dashboardItemId: 'new',
+            dashboardItemId: 'new-dataWarehouse',
             cachedInsight: null,
         })
     )
-
-    const { saveAs } = useActions(insightDataLogic(insightProps))
+    const { saveAs } = useActions(
+        insightLogic({
+            dashboardItemId: 'new-dataWarehouse',
+            cachedInsight: null,
+        })
+    )
 
     return (
         <div>
@@ -93,7 +96,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 onChange={(tab) => router.actions.push(urls.dataWarehouse(tab as DataWarehouseTab))}
                 tabs={Object.entries(tabToContent).map(([tab, content]) => ({
                     label: (
-                        <span className="flex justify-center items-center justify-between gap-1">
+                        <span className="flex items-center justify-between gap-1">
                             {humanFriendlyDataWarehouseTabName(tab as DataWarehouseTab)}{' '}
                         </span>
                     ),

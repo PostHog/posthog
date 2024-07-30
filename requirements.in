@@ -54,6 +54,7 @@ orjson==3.9.10
 pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
+pdpyras==5.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
 PyMySQL==1.1.1
@@ -95,7 +96,7 @@ phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0
 nh3==0.2.14
-hogql-parser==1.0.31
+hogql-parser==1.0.32
 zxcvbn==4.4.28
 zstd==1.5.5.1
 xmlsec==1.3.13 # Do not change this version - it will break SAML

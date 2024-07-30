@@ -893,3 +893,52 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [[None, 1.0, 1.0]],
             results,
         )
+
+    def test_same_user_multiple_sessions(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-07-30"))
+        s2 = str(uuid7("2024-07-30"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={"$session_id": s1, "utm_source": "google", "$pathname": "/path"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={"$session_id": s2, "utm_source": "google", "$pathname": "/path"},
+        )
+
+        # Try this with a query that uses session properties
+        results_session = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+        ).results
+        self.assertEqual(
+            [["google", 1, 2]],
+            results_session,
+        )
+
+        # Try this with a query that uses event properties
+        results_event = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+
+        self.assertEqual(
+            [["/path", 1, 2]],
+            results_event,
+        )

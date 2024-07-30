@@ -93,6 +93,7 @@ class BaseMathType(StrEnum):
     WEEKLY_ACTIVE = "weekly_active"
     MONTHLY_ACTIVE = "monthly_active"
     UNIQUE_SESSION = "unique_session"
+    FIRST_TIME_FOR_USER = "first_time_for_user"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -339,6 +340,7 @@ class ErrorTrackingGroup(BaseModel):
     assignee: Optional[float] = None
     description: Optional[str] = None
     events: Optional[list[dict[str, Any]]] = None
+    exception_type: Optional[str] = None
     fingerprint: str
     first_seen: AwareDatetime
     last_seen: AwareDatetime
@@ -844,7 +846,9 @@ class QueryStatus(BaseModel):
         ),
     )
     dashboard_id: Optional[int] = None
-    end_time: Optional[AwareDatetime] = None
+    end_time: Optional[AwareDatetime] = Field(
+        default=None, description="When did the query execution task finish (whether successfully or not)."
+    )
     error: Optional[bool] = Field(
         default=False,
         description=(
@@ -856,10 +860,13 @@ class QueryStatus(BaseModel):
     id: str
     insight_id: Optional[int] = None
     labels: Optional[list[str]] = None
+    pickup_time: Optional[AwareDatetime] = Field(
+        default=None, description="When was the query execution task picked up by a worker."
+    )
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryProgress] = None
     results: Optional[Any] = None
-    start_time: Optional[AwareDatetime] = None
+    start_time: Optional[AwareDatetime] = Field(default=None, description="When was query execution task enqueued.")
     task_id: Optional[str] = None
     team_id: int
 

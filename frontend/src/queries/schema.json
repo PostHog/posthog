@@ -390,7 +390,7 @@
             "type": "object"
         },
         "BaseMathType": {
-            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session"],
+            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session", "first_time_for_user"],
             "type": "string"
         },
         "BinCountValue": {
@@ -3276,6 +3276,9 @@
                     },
                     "type": "array"
                 },
+                "exception_type": {
+                    "type": ["string", "null"]
+                },
                 "fingerprint": {
                     "type": "string"
                 },
@@ -3310,6 +3313,7 @@
             },
             "required": [
                 "fingerprint",
+                "exception_type",
                 "merged_fingerprints",
                 "occurrences",
                 "sessions",
@@ -7669,6 +7673,7 @@
                     "type": "integer"
                 },
                 "end_time": {
+                    "description": "When did the query execution task finish (whether successfully or not).",
                     "format": "date-time",
                     "type": "string"
                 },
@@ -7697,6 +7702,11 @@
                     },
                     "type": "array"
                 },
+                "pickup_time": {
+                    "description": "When was the query execution task picked up by a worker.",
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "query_async": {
                     "const": true,
                     "default": true,
@@ -7708,6 +7718,7 @@
                 },
                 "results": {},
                 "start_time": {
+                    "description": "When was query execution task enqueued.",
                     "format": "date-time",
                     "type": "string"
                 },

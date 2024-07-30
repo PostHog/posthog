@@ -9,7 +9,6 @@ import {
     LemonSwitch,
     LemonTextArea,
     Link,
-    Spinner,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -170,7 +169,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         {({ value, onChange }) => (
                                             <HogFunctionIconEditable
                                                 logicKey={id ?? templateId ?? 'new'}
-                                                search={configuration.name}
                                                 src={value}
                                                 onChange={(val) => onChange(val)}
                                             />
@@ -300,9 +298,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                     This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
                             </div>
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
+                            <div className="relative border bg-bg-light rounded p-3 space-y-2">
                                 <LemonLabel>Expected volume</LemonLabel>
-                                {sparkline ? (
+                                {sparkline && !sparklineLoading ? (
                                     <>
                                         {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
                                             <LemonBanner type="warning">
@@ -322,21 +320,20 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 in the last 7 days.
                                             </p>
                                         )}
-                                        <div className="relative">
-                                            {sparklineLoading ? <Spinner className="absolute bottom-0 left-0" /> : null}
-                                            <Sparkline
-                                                type="bar"
-                                                className="w-full"
-                                                data={[{ name: 'Matching events', values: sparkline.data }]}
-                                                labels={sparkline.labels}
-                                            />
-                                        </div>
+                                        <Sparkline
+                                            type="bar"
+                                            className="w-full h-20"
+                                            data={sparkline.data}
+                                            labels={sparkline.labels}
+                                        />
                                     </>
                                 ) : sparklineLoading ? (
-                                    <div>
-                                        <Spinner />
+                                    <div className="min-h-20">
+                                        <SpinnerOverlay />
                                     </div>
-                                ) : null}
+                                ) : (
+                                    <p>The expected volume could not be calculated</p>
+                                )}
                             </div>
                         </div>
 
