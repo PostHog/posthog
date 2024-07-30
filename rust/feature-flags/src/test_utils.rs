@@ -1,11 +1,13 @@
 use anyhow::Error;
+use axum::async_trait;
 use serde_json::{json, Value};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
     config::{Config, DEFAULT_TEST_CONFIG},
-    database::{Client as DatabaseClientTrait, PgClient},
+    database::{Client, CustomDatabaseError, PgClient},
     flag_definitions::{self, FeatureFlag, FeatureFlagRow},
     redis::{Client as RedisClientTrait, RedisClient},
     team::{self, Team},
@@ -137,6 +139,30 @@ pub async fn setup_pg_client(config: Option<&Config>) -> Arc<PgClient> {
     )
 }
 
+pub struct MockPgClient;
+
+#[async_trait]
+impl Client for MockPgClient {
+    async fn run_query(
+        &self,
+        _query: String,
+        _parameters: Vec<String>,
+        _timeout_ms: Option<u64>,
+    ) -> Result<Vec<PgRow>, CustomDatabaseError> {
+        // Simulate a database connection failure
+        Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
+    }
+
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        // Simulate a database connection failure
+        Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
+    }
+}
+
+pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
+    Arc::new(MockPgClient)
+}
+
 pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
@@ -184,7 +210,7 @@ pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error>
     Ok(team)
 }
 
-pub async fn insert_flags_for_team_in_pg(
+pub async fn insert_flag_for_team_in_pg(
     client: Arc<PgClient>,
     team_id: i32,
     flag: Option<FeatureFlagRow>,
@@ -272,210 +298,4 @@ pub async fn insert_person_for_team_in_pg(
     assert_eq!(res.rows_affected(), 1);
 
     Ok(())
-}
-
-pub async fn insert_deleted_flag_for_team_in_pg(
-    client: Arc<PgClient>,
-    team_id: i32,
-) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
-
-    let deleted_flag = FeatureFlagRow {
-        id,
-        key: "deleted_flag".to_string(),
-        name: Some("Deleted Flag".to_string()),
-        active: false,
-        deleted: true,
-        ensure_experience_continuity: false,
-        team_id,
-        filters: json!({
-            "groups": []
-        }),
-    };
-
-    let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
-        r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')"#
-    ).bind(deleted_flag.id)
-     .bind(team_id)
-     .bind(&deleted_flag.name)
-     .bind(&deleted_flag.key)
-     .bind(&deleted_flag.filters)
-     .bind(deleted_flag.deleted)
-     .bind(deleted_flag.active)
-     .bind(deleted_flag.ensure_experience_continuity)
-     .execute(&mut *conn)
-     .await?;
-
-    assert_eq!(res.rows_affected(), 1);
-
-    Ok(deleted_flag)
-}
-
-pub async fn insert_inactive_flag_for_team_in_pg(
-    client: Arc<PgClient>,
-    team_id: i32,
-) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
-
-    let inactive_flag = FeatureFlagRow {
-        id,
-        key: "inactive_flag".to_string(),
-        name: Some("Inactive Flag".to_string()),
-        active: false,
-        deleted: false,
-        ensure_experience_continuity: false,
-        team_id,
-        filters: json!({
-            "groups": [
-                {
-                    "properties": [],
-                    "rollout_percentage": 0
-                }
-            ]
-        }),
-    };
-
-    let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
-        r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')"#
-    ).bind(inactive_flag.id)
-     .bind(team_id)
-     .bind(&inactive_flag.name)
-     .bind(&inactive_flag.key)
-     .bind(&inactive_flag.filters)
-     .bind(inactive_flag.deleted)
-     .bind(inactive_flag.active)
-     .bind(inactive_flag.ensure_experience_continuity)
-     .execute(&mut *conn)
-     .await?;
-
-    assert_eq!(res.rows_affected(), 1);
-
-    Ok(inactive_flag)
-}
-
-pub async fn insert_flag_with_ensure_experience_continuity(
-    client: Arc<PgClient>,
-    team_id: i32,
-) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
-
-    let flag = FeatureFlagRow {
-        id,
-        key: "continuity_flag".to_string(),
-        name: Some("Continuity Flag".to_string()),
-        active: true,
-        deleted: false,
-        ensure_experience_continuity: true,
-        team_id,
-        filters: json!({
-            "groups": [
-                {
-                    "properties": [],
-                    "rollout_percentage": 100
-                }
-            ]
-        }),
-    };
-
-    let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
-        r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')"#
-    ).bind(flag.id)
-     .bind(team_id)
-     .bind(&flag.name)
-     .bind(&flag.key)
-     .bind(&flag.filters)
-     .bind(flag.deleted)
-     .bind(flag.active)
-     .bind(flag.ensure_experience_continuity)
-     .execute(&mut *conn)
-     .await?;
-
-    assert_eq!(res.rows_affected(), 1);
-
-    Ok(flag)
-}
-
-pub async fn insert_flag_with_invalid_filters(
-    client: Arc<PgClient>,
-    team_id: i32,
-) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
-
-    let flag = FeatureFlagRow {
-        id,
-        key: "invalid_filters_flag".to_string(),
-        name: Some("Invalid Filters Flag".to_string()),
-        active: true,
-        deleted: false,
-        ensure_experience_continuity: false,
-        team_id,
-        filters: json!("This is not a valid JSON object"),
-    };
-
-    let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
-        r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')"#
-    ).bind(flag.id)
-     .bind(team_id)
-     .bind(&flag.name)
-     .bind(&flag.key)
-     .bind(&flag.filters)
-     .bind(flag.deleted)
-     .bind(flag.active)
-     .bind(flag.ensure_experience_continuity)
-     .execute(&mut *conn)
-     .await?;
-
-    assert_eq!(res.rows_affected(), 1);
-
-    Ok(flag)
-}
-
-pub async fn insert_flag_with_empty_filters(
-    client: Arc<PgClient>,
-    team_id: i32,
-) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
-
-    let flag = FeatureFlagRow {
-        id,
-        key: "empty_filters_flag".to_string(),
-        name: Some("Empty Filters Flag".to_string()),
-        active: true,
-        deleted: false,
-        ensure_experience_continuity: false,
-        team_id,
-        filters: json!({}),
-    };
-
-    let mut conn = client.get_connection().await?;
-    let res = sqlx::query(
-        r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')"#
-    ).bind(flag.id)
-     .bind(team_id)
-     .bind(&flag.name)
-     .bind(&flag.key)
-     .bind(&flag.filters)
-     .bind(flag.deleted)
-     .bind(flag.active)
-     .bind(flag.ensure_experience_continuity)
-     .execute(&mut *conn)
-     .await?;
-
-    assert_eq!(res.rows_affected(), 1);
-
-    Ok(flag)
 }

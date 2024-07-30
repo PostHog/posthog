@@ -64,8 +64,6 @@ pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
 }
 
-// TODO: test name with https://www.fileformat.info/info/charset/UTF-16/list.htm values, like '𝖕𝖗𝖔𝖕𝖊𝖗𝖙𝖞': `𝓿𝓪𝓵𝓾𝓮`
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct FlagFilters {
     pub groups: Vec<FlagGroupType>,
@@ -195,15 +193,13 @@ impl FeatureFlagList {
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
     use serde_json::json;
 
     use super::*;
     use crate::test_utils::{
-        insert_deleted_flag_for_team_in_pg, insert_flag_with_empty_filters,
-        insert_flag_with_ensure_experience_continuity, insert_flag_with_invalid_filters,
-        insert_flags_for_team_in_pg, insert_flags_for_team_in_redis,
-        insert_inactive_flag_for_team_in_pg, insert_new_team_in_pg, insert_new_team_in_redis,
-        setup_pg_client, setup_redis_client,
+        insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
+        insert_new_team_in_redis, setup_invalid_pg_client, setup_pg_client, setup_redis_client,
     };
 
     #[tokio::test]
@@ -264,7 +260,7 @@ mod tests {
             .await
             .expect("Failed to insert team in pg");
 
-        insert_flags_for_team_in_pg(client.clone(), team.id, None)
+        insert_flag_for_team_in_pg(client.clone(), team.id, None)
             .await
             .expect("Failed to insert flags");
 
@@ -419,37 +415,66 @@ mod tests {
         }
     }
 
-    // #[tokio::test]
-    // async fn test_fetch_flags_db_connection_failure() {
-    //     // Simulate a database connection failure by using an invalid client setup
-    //     let client = setup_invalid_pg_client().await; // This function should return an invalid client
+    #[tokio::test]
+    async fn test_fetch_flags_db_connection_failure() {
+        // Simulate a database connection failure by using an invalid client setup
+        let client = setup_invalid_pg_client().await;
 
-    //     match FeatureFlagList::from_pg(client, 1).await {
-    //         Err(FlagError::DatabaseUnavailable) => (),
-    //         other => panic!("Expected DatabaseUnavailable error, got: {:?}", other),
-    //     }
-    // }
+        match FeatureFlagList::from_pg(client, 1).await {
+            Err(FlagError::DatabaseUnavailable) => (),
+            other => panic!("Expected DatabaseUnavailable error, got: {:?}", other),
+        }
+    }
 
-    // #[tokio::test]
-    // async fn test_fetch_multiple_flags_from_pg() {
-    //     let client = setup_pg_client(None).await;
+    #[tokio::test]
+    async fn test_fetch_multiple_flags_from_pg() {
+        let client = setup_pg_client(None).await;
 
-    //     let team = insert_new_team_in_pg(client.clone())
-    //         .await
-    //         .expect("Failed to insert team in pg");
+        let team = insert_new_team_in_pg(client.clone())
+            .await
+            .expect("Failed to insert team in pg");
 
-    //     // Insert multiple flags for the team
-    //     insert_flags_for_team_in_pg(client.clone(), team.id, Some(3))
-    //         .await
-    //         .expect("Failed to insert flags");
+        let random_id_1 = rand::thread_rng().gen_range(0..10_000_000);
+        let random_id_2 = rand::thread_rng().gen_range(0..10_000_000);
 
-    //     let flags_from_pg = FeatureFlagList::from_pg(client.clone(), team.id)
-    //         .await
-    //         .expect("Failed to fetch flags from pg");
+        let flag1 = FeatureFlagRow {
+            id: random_id_1,
+            team_id: team.id,
+            name: Some("Test Flag".to_string()),
+            key: "test_flag".to_string(),
+            filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+        };
 
-    //     assert_eq!(flags_from_pg.flags.len(), 3);
-    //     for flag in &flags_from_pg.flags {
-    //         assert_eq!(flag.team_id, team.id);
-    //     }
-    // }
+        let flag2 = FeatureFlagRow {
+            id: random_id_2,
+            team_id: team.id,
+            name: Some("Test Flag 2".to_string()),
+            key: "test_flag_2".to_string(),
+            filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+        };
+
+        // Insert multiple flags for the team
+        insert_flag_for_team_in_pg(client.clone(), team.id, Some(flag1))
+            .await
+            .expect("Failed to insert flags");
+
+        insert_flag_for_team_in_pg(client.clone(), team.id, Some(flag2))
+            .await
+            .expect("Failed to insert flags");
+
+        let flags_from_pg = FeatureFlagList::from_pg(client.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
+
+        assert_eq!(flags_from_pg.flags.len(), 2);
+        for flag in &flags_from_pg.flags {
+            assert_eq!(flag.team_id, team.id);
+        }
+    }
 }
