@@ -37,7 +37,7 @@ const examples = [
     EXAMPLE_LIFECYCLE,
     EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY,
     EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY,
-][]
+] as unknown as InsightModel[]
 
 const meta: Meta = {
     title: 'Components/Cards/Insight Card',
@@ -81,7 +81,7 @@ export const InsightCard: Story = (args) => {
                         ...EXAMPLE_TRENDS,
                         name: args.insightName,
                         description: args.insightDescription,
-                    })}
+                    } as unknown as InsightModel)}
                     ribbonColor={insightColor}
                     loading={args.loading}
                     apiErrored={args.apiErrored}
@@ -102,7 +102,7 @@ export const InsightCard: Story = (args) => {
                     description:
                         'Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.',
                     tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
-                })}
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -118,7 +118,7 @@ export const InsightCard: Story = (args) => {
                     name: '',
                     description: '',
                     last_modified_by: null,
-                })}
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -134,7 +134,7 @@ export const InsightCard: Story = (args) => {
                     short_id: 'funnel_empty' as InsightShortId,
                     filters: { ...EXAMPLE_FUNNEL.filters, events: EXAMPLE_FUNNEL.filters.events?.slice(0, 1) },
                     name: 'What a pitiful funnel',
-                })}
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -148,7 +148,7 @@ export const InsightCard: Story = (args) => {
                 insight={getQueryBasedInsightModel({
                     ...EXAMPLE_FUNNEL,
                     name: 'What a plentiful funnel',
-                })}
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -165,7 +165,7 @@ export const InsightCard: Story = (args) => {
                         ...EXAMPLE_TRENDS.filters,
                         display: 'totally_wrong_display_type' as ChartDisplayType,
                     } as TrendsFilterType,
-                })}
+                } as unknown as InsightModel)}
                 rename={() => {}}
                 duplicate={() => {}}
                 placement="SavedInsightGrid"
@@ -178,7 +178,7 @@ export const InsightCard: Story = (args) => {
             {examples.map((e) => (
                 <InsightCardComponent
                     key={e.id}
-                    insight={getQueryBasedInsightModel(e)}
+                    insight={getQueryBasedInsightModel(e as unknown as InsightModel)}
                     rename={() => {}}
                     duplicate={() => {}}
                     placement="SavedInsightGrid"
