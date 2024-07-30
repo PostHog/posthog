@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -27,7 +27,7 @@ import type { savedInsightsLogicType } from './savedInsightsLogicType'
 export const INSIGHTS_PER_PAGE = 30
 
 export interface InsightsResult {
-    results: InsightModel[]
+    results: QueryBasedInsightModel[]
     count: number
     previous?: string
     next?: string
@@ -84,8 +84,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             redirectToInsight,
         }),
         loadInsights: (debounce: boolean = true) => ({ debounce }),
-        setInsight: (insight: InsightModel) => ({ insight }),
-        addInsight: (insight: InsightModel) => ({ insight }),
+        setInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+        addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -107,9 +107,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const insight: InsightModel = await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/`
-                        )
+                        const insight = await insightsApi.getByNumericId(Number(filters.search), { readAsQuery: true })
                         return {
                             ...response,
                             count: response.count + 1,
@@ -133,11 +131,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 return { ...response, filters, offset: params.offset }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
-                const response = await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
+                const response = await insightsApi.update(
+                    insight.id,
                     {
                         favorited,
-                    }
+                    },
+                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: true }
                 )
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i
@@ -346,13 +345,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 // `fromItem` for legacy /insights url redirect support
                 const insightNumericId = parseInt(hashParams.fromItem)
                 try {
-                    const { short_id }: InsightModel = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`
-                    )
-                    if (!short_id) {
-                        throw new Error('Could not find short_id')
+                    const insight = await insightsApi.getByNumericId(insightNumericId, { readAsQuery: true })
+                    if (!insight?.short_id) {
+                        throw new Error('Could not find insight or missing short_id')
                     }
-                    router.actions.replace(hashParams.edit ? urls.insightEdit(short_id) : urls.insightView(short_id))
+                    router.actions.replace(
+                        hashParams.edit ? urls.insightEdit(insight.short_id) : urls.insightView(insight.short_id)
+                    )
                 } catch (e) {
                     lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())

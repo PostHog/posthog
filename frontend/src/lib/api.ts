@@ -914,6 +914,9 @@ const api = {
                 )
                 .get()
         },
+        async get(id: number): Promise<InsightModel | null> {
+            return await new ApiRequest().insight(id).get()
+        },
         async create(data: any): Promise<InsightModel> {
             return await new ApiRequest().insights().create({ data })
         },

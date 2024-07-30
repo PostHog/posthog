@@ -9,6 +9,10 @@ export type InsightsApiOptions<Flag> = {
     readAsQuery: Flag
 }
 
+export type ReadOnlyInsightsApiOptions<Flag> = {
+    readAsQuery: Flag
+}
+
 type ReturnedInsightModelByFlag<Flag extends boolean> = Flag extends true ? QueryBasedInsightModel : InsightModel
 
 export function getInsightModel<Flag extends boolean>(
@@ -38,6 +42,15 @@ async function _perform<Flag extends boolean>(
 
 export const insightsApi = {
     _perform,
+    async getByNumericId<Flag extends boolean>(
+        numericId: number,
+        options: ReadOnlyInsightsApiOptions<Flag>
+    ): Promise<ReturnedInsightModelByFlag<Flag> | null> {
+        const legacyInsight = await api.insights.get(numericId)
+        const response =
+            options.readAsQuery && legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
+        return response as ReturnedInsightModelByFlag<Flag>
+    },
     async create<Flag extends boolean>(
         insight: Partial<QueryBasedInsightModel>,
         options: InsightsApiOptions<Flag>
