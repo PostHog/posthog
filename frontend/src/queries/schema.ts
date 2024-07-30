@@ -551,9 +551,18 @@ export interface GoalLine {
 
 export interface ChartAxis {
     column: string
+    settings?: {
+        formatting?: ChartSettingsFormatting
+    }
 }
 
-interface ChartSettings {
+export interface ChartSettingsFormatting {
+    prefix?: string
+    suffix?: string
+    style?: 'none' | 'number' | 'percent'
+}
+
+export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
