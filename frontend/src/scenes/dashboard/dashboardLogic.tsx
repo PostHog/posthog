@@ -31,6 +31,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
 import { DashboardFilter, RefreshType } from '~/queries/schema'
 import {
@@ -45,6 +46,7 @@ import {
     InsightColor,
     InsightModel,
     InsightShortId,
+    QueryBasedInsightModel,
     TextModel,
     TileLayout,
 } from '~/types'
@@ -131,12 +133,12 @@ const layoutsByTile = (layouts: Layouts): Record<number, Record<DashboardLayoutS
 
 async function getSingleInsight(
     currentTeamId: number | null,
-    insight: InsightModel,
+    insight: QueryBasedInsightModel,
     dashboardId: number,
     queryId: string,
     refresh: RefreshType,
     methodOptions?: ApiMethodOptions
-): Promise<InsightModel> {
+): Promise<QueryBasedInsightModel | null> {
     const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
         refresh,
         from_dashboard: dashboardId, // needed to load insight in correct context
@@ -144,7 +146,8 @@ async function getSingleInsight(
         session_id: currentSessionId(),
     })}`
     const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-    return await getJSONOrNull(insightResponse)
+    const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
+    return legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
 }
 
 export const dashboardLogic = kea<dashboardLogicType>([
@@ -461,7 +464,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles[tileIndex] = {
                         ...tiles[tileIndex],
                         insight: {
-                            ...(tiles[tileIndex].insight as InsightModel),
+                            ...(tiles[tileIndex].insight as QueryBasedInsightModel),
                             name: item.name,
                             last_modified_at: item.last_modified_at,
                         },
@@ -612,7 +615,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                       type: 'INSIGHT',
                                       name: tile.insight.name,
                                       description: tile.insight.description || '',
-                                      filters: tile.insight.filters,
                                       query: tile.insight.query,
                                       layouts: tile.layouts,
                                       color: tile.color,
@@ -989,7 +991,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 })
                 .map((t) => t.insight)
-                .filter((i): i is InsightModel => !!i)
+                .filter((i): i is QueryBasedInsightModel => !!i)
 
             // Don't do anything if there's nothing to refresh
             if (insightsToRefresh.length === 0) {

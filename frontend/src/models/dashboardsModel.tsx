@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardBasicType, DashboardTile, DashboardType, InsightModel, InsightShortId } from '~/types'
+import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { dashboardsModelType } from './dashboardsModelType'
 
@@ -32,7 +32,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
         // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
         // if an update is made against an insight it will hold color in dashboard context
-        updateDashboardInsight: (insight: InsightModel, extraDashboardIds?: number[]) => ({
+        updateDashboardInsight: (insight: QueryBasedInsightModel, extraDashboardIds?: number[]) => ({
             insight,
             extraDashboardIds,
         }),

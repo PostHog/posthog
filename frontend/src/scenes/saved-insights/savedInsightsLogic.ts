@@ -279,7 +279,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         duplicateInsight: async ({ insight, redirectToInsight }) => {
             const newInsight = await insightsApi.duplicate(insight, {
                 writeAsQuery: values.queryBasedInsightSaving,
-                readAsQuery: false,
+                readAsQuery: true,
             })
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))

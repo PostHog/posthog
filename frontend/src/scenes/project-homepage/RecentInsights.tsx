@@ -8,13 +8,13 @@ import { useEffect } from 'react'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
-import { InsightModel } from '~/types'
+import { InsightModel, QueryBasedInsightModel } from '~/types'
 
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 import { projectHomepageLogic } from './projectHomepageLogic'
 
 interface InsightRowProps {
-    insight: InsightModel
+    insight: QueryBasedInsightModel
 }
 
 export function InsightRow({ insight }: InsightRowProps): JSX.Element {
@@ -53,7 +53,7 @@ export function RecentInsights(): JSX.Element {
                     buttonTo: urls.savedInsights(),
                 }}
                 items={recentInsights.slice(0, 5)}
-                renderRow={(insight: InsightModel, index) => <InsightRow key={index} insight={insight} />}
+                renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
             />
         </>
     )

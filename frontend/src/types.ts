@@ -1664,7 +1664,7 @@ export interface Tileable {
 
 export interface DashboardTile extends Tileable {
     id: number
-    insight?: InsightModel
+    insight?: QueryBasedInsightModel
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
@@ -2001,9 +2001,9 @@ export interface RawAnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number | null
-    insight_short_id?: InsightModel['short_id'] | null
-    insight_name?: InsightModel['name'] | null
-    insight_derived_name?: InsightModel['derived_name'] | null
+    insight_short_id?: QueryBasedInsightModel['short_id'] | null
+    insight_name?: QueryBasedInsightModel['name'] | null
+    insight_derived_name?: QueryBasedInsightModel['derived_name'] | null
     dashboard_id?: DashboardBasicType['id'] | null
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
@@ -2338,7 +2338,7 @@ export interface InsightEditorFilter {
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
-    valueSelector?: (insight: Partial<InsightModel>) => any
+    valueSelector?: (insight: Partial<QueryBasedInsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: EditorFilterProps) => JSX.Element | null
 }
@@ -2577,7 +2577,7 @@ export interface InsightLogicProps {
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** cached insight */
-    cachedInsight?: Partial<InsightModel> | null
+    cachedInsight?: Partial<QueryBasedInsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
