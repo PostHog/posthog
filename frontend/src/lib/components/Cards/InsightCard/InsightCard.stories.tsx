@@ -207,11 +207,12 @@ export const QueryInsightCard: Story = (args) => {
                     kind: NodeKind.InsightVizNode,
                     source: filtersToQueryNode(insight.filters),
                 }
+                const { filters: _, ...baseInsight } = insight
                 return (
                     <InsightCardComponent
                         key={insight.id}
                         insight={{
-                            ...insight,
+                            ...baseInsight,
                             query,
                         }}
                         rename={() => {}}
