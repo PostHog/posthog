@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { examples } from '~/queries/examples'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
@@ -588,7 +589,7 @@ describe('insightLogic', () => {
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
-                filters: { insight: InsightType.FUNNELS },
+                query: { kind: NodeKind.InsightVizNode, source: examples.InsightFunnelsQuery },
             },
         }
 
