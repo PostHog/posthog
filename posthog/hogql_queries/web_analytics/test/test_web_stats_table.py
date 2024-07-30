@@ -920,17 +920,18 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": s2, "utm_source": "google", "$pathname": "/path"},
         )
 
+        # Try this with a query that uses session properties
         results_session = self._run_web_stats_table_query(
             "all",
             "2024-06-27",
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
         ).results
-
         self.assertEqual(
             [["google", 1, 2]],
             results_session,
         )
 
+        # Try this with a query that uses event properties
         results_event = self._run_web_stats_table_query(
             "all",
             "2024-06-27",
