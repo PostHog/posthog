@@ -5,15 +5,13 @@ import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import {
     HogFunctionAsyncFunctionResponse,
     HogFunctionInvocationResult,
-    HogFunctionLogEntry,
     HogFunctionType,
+    LogEntry,
 } from '../../src/cdp/types'
-import { TimestampFormat } from '../../src/types'
-import { castTimestampOrNow } from '../../src/utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
 
-const createAsyncFunctionResponse = (): HogFunctionAsyncFunctionResponse => {
+const createAsyncFunctionResponse = (response?: Record<string, any>): HogFunctionAsyncFunctionResponse => {
     return {
         timings: [
             {
@@ -24,6 +22,7 @@ const createAsyncFunctionResponse = (): HogFunctionAsyncFunctionResponse => {
         response: {
             status: 200,
             body: 'success',
+            ...response,
         },
     }
 }
@@ -81,32 +80,16 @@ describe('Hog Executor', () => {
                 .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
             expect(results[0].logs).toMatchObject([
                 {
-                    team_id: 1,
-                    log_source: 'hog_function',
-                    log_source_id: hogFunction.id,
-                    instance_id: results[0].invocation.id,
                     timestamp: expect.any(DateTime),
                     level: 'debug',
                     message: 'Executing function',
                 },
                 {
-                    team_id: 1,
-                    log_source: 'hog_function',
-                    log_source_id: hogFunction.id,
-                    instance_id: results[0].invocation.id,
                     timestamp: expect.any(DateTime),
                     level: 'debug',
                     message: "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
                 },
             ])
-
-            expect(castTimestampOrNow(results[0].logs[0].timestamp, TimestampFormat.ClickHouse)).toEqual(
-                '2024-06-07 12:00:00.000'
-            )
-            // Ensure the second log is one more
-            expect(castTimestampOrNow(results[0].logs[1].timestamp, TimestampFormat.ClickHouse)).toEqual(
-                '2024-06-07 12:00:00.001'
-            )
         })
 
         it('redacts secret values from the logs', () => {
@@ -193,7 +176,7 @@ describe('Hog Executor', () => {
         })
 
         it('executes the full function in a loop', () => {
-            const logs: HogFunctionLogEntry[] = []
+            const logs: LogEntry[] = []
             const globals = createHogExecutionGlobals()
             const results = executor
                 .findMatchingFunctions(createHogExecutionGlobals())
@@ -211,6 +194,34 @@ describe('Hog Executor', () => {
                 "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":"success"}',
+                'Function completed in 100ms. Sync: 0ms. Mem: 589 bytes. Ops: 22.',
+            ])
+        })
+
+        it('parses the responses body if a string', () => {
+            const logs: LogEntry[] = []
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            const splicedLogs = results[0].logs.splice(0, 100)
+            logs.push(...splicedLogs)
+
+            const asyncExecResult = executor.executeAsyncResponse(
+                results[0].invocation,
+                createAsyncFunctionResponse({
+                    body: JSON.stringify({ foo: 'bar' }),
+                })
+            )
+
+            logs.push(...asyncExecResult.logs)
+            expect(asyncExecResult.error).toBeUndefined()
+            expect(asyncExecResult.finished).toBe(true)
+            expect(logs.map((log) => log.message)).toEqual([
+                'Executing function',
+                "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
+                'Resuming function',
+                'Fetch response:, {"status":200,"body":{"foo":"bar"}}', // The body is parsed
                 'Function completed in 100ms. Sync: 0ms. Mem: 589 bytes. Ops: 22.',
             ])
         })

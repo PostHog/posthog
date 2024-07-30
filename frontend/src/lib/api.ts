@@ -2082,8 +2082,16 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
-        async jobs(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataJob[]> {
-            return await new ApiRequest().externalDataSource(sourceId).withAction('jobs').get()
+        async jobs(
+            sourceId: ExternalDataStripeSource['id'],
+            before: string | null,
+            after: string | null
+        ): Promise<ExternalDataJob[]> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('jobs')
+                .withQueryString({ before, after })
+                .get()
         },
     },
 

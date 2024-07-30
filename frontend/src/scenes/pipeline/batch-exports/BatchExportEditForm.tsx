@@ -256,11 +256,11 @@ export function BatchExportsEditFields({
                 ) : batchExportConfigForm.destination === 'Snowflake' ? (
                     <>
                         <LemonField name="user" label="User">
-                            <LemonInput placeholder="my-user" />
+                            <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>
 
                         <LemonField name="password" label="Password">
-                            <LemonInput placeholder="my-password" type="password" />
+                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
                         </LemonField>
 
                         <LemonField name="account" label="Account">
@@ -307,11 +307,11 @@ export function BatchExportsEditFields({
                 ) : batchExportConfigForm.destination === 'Postgres' ? (
                     <>
                         <LemonField name="user" label="User">
-                            <LemonInput placeholder="my-user" />
+                            <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>
 
                         <LemonField name="password" label="Password">
-                            <LemonInput placeholder="my-password" type="password" />
+                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
                         </LemonField>
 
                         <LemonField name="host" label="Host">
@@ -372,11 +372,11 @@ export function BatchExportsEditFields({
                 ) : batchExportConfigForm.destination === 'Redshift' ? (
                     <>
                         <LemonField name="user" label="User">
-                            <LemonInput placeholder="my-user" />
+                            <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>
 
                         <LemonField name="password" label="Password">
-                            <LemonInput placeholder="my-password" type="password" />
+                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
                         </LemonField>
 
                         <LemonField name="host" label="Host">

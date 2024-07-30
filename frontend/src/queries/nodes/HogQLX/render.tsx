@@ -35,7 +35,7 @@ export function renderHogQLX(value: any): JSX.Element {
             const { data, type, ...props } = rest
             return (
                 <ErrorBoundary>
-                    <Sparkline {...props} data={data ?? []} type={type} />
+                    <Sparkline className="h-8" {...props} data={data ?? []} type={type} />
                 </ErrorBoundary>
             )
         } else if (tag === 'a') {

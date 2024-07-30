@@ -1,9 +1,10 @@
-import { captureException } from '@sentry/react'
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
@@ -25,7 +26,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getInsightFilterOrQueryForPersistance } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightVizNode } from '~/queries/schema'
+import { InsightVizNode, Node } from '~/queries/schema'
 import {
     FilterType,
     InsightLogicProps,
@@ -88,7 +89,12 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAsNamingSuccess: (name: string, redirectToViewMode?: boolean) => ({ name, redirectToViewMode }),
+        saveAs: (query: Node, redirectToViewMode?: boolean) => ({ query, redirectToViewMode }),
+        saveAsConfirmation: (name: string, query: Node, redirectToViewMode?: boolean) => ({
+            name,
+            query,
+            redirectToViewMode,
+        }),
         cancelChanges: true,
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -100,7 +106,11 @@ export const insightLogic = kea<insightLogicType>([
             insightUpdate,
             callback,
         }),
-        setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
+        setInsightMetadata: (
+            metadataUpdate: Partial<Pick<QueryBasedInsightModel, 'name' | 'description' | 'tags' | 'favorited'>>
+        ) => ({
+            metadataUpdate,
+        }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
     loaders(({ actions, values, props }) => ({
@@ -142,41 +152,29 @@ export const insightLogic = kea<insightLogicType>([
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
                     return updatedInsight
                 },
-                setInsightMetadata: async ({ metadata }, breakpoint) => {
+                setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
                     const editMode =
                         insightSceneLogic.isMounted() &&
-                        insightSceneLogic.values.legacyInsight === values.legacyInsight &&
+                        insightSceneLogic.values.queryBasedInsight === values.queryBasedInsight &&
                         insightSceneLogic.values.insightMode === ItemMode.Edit
 
                     if (editMode) {
-                        return { ...values.legacyInsight, ...metadata }
-                    }
-
-                    if (metadata.filters || metadata.query) {
-                        const error = new Error(`Will not override filters or query in setInsightMetadata`)
-                        captureException(error)
-                        throw error
+                        return { ...values.legacyInsight, ...metadataUpdate }
                     }
 
                     const beforeUpdates = {}
-                    for (const key of Object.keys(metadata)) {
+                    for (const key of Object.keys(metadataUpdate)) {
                         beforeUpdates[key] = values.savedInsight[key]
                     }
 
-                    const response = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${values.legacyInsight.id}`,
-                        metadata
-                    )
+                    const response = await insightsApi.update(values.queryBasedInsight.id, metadataUpdate, {
+                        writeAsQuery: values.queryBasedInsightSaving,
+                        readAsQuery: false,
+                    })
                     breakpoint()
 
-                    // only update the fields that we changed
-                    const updatedInsight = { ...values.legacyInsight } as InsightModel
-                    for (const key of Object.keys(metadata)) {
-                        updatedInsight[key] = response[key]
-                    }
-
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
-                    dashboardsModel.actions.updateDashboardInsight(updatedInsight)
+                    dashboardsModel.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
                     lemonToast.success(`Updated insight`, {
@@ -184,23 +182,18 @@ export const insightLogic = kea<insightLogicType>([
                             label: 'Undo',
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
-                                const response = await api.update(
-                                    `api/projects/${teamLogic.values.currentTeamId}/insights/${values.queryBasedInsight.id}`,
-                                    beforeUpdates
-                                )
-                                // only update the fields that we changed
-                                const revertedInsight = { ...values.legacyInsight } as InsightModel
-                                for (const key of Object.keys(beforeUpdates)) {
-                                    revertedInsight[key] = response[key]
-                                }
+                                const response = await insightsApi.update(values.queryBasedInsight.id, beforeUpdates, {
+                                    writeAsQuery: values.queryBasedInsightSaving,
+                                    readAsQuery: false,
+                                })
                                 savedInsightsLogic.findMounted()?.actions.loadInsights()
-                                dashboardsModel.actions.updateDashboardInsight(revertedInsight)
-                                actions.setInsight(revertedInsight, { overrideFilter: false, fromPersistentApi: true })
+                                dashboardsModel.actions.updateDashboardInsight(response)
+                                actions.setInsight(response, { overrideFilter: false, fromPersistentApi: true })
                                 lemonToast.success('Insight change reverted')
                             },
                         },
                     })
-                    return updatedInsight
+                    return response
                 },
             },
         ],
@@ -232,7 +225,7 @@ export const insightLogic = kea<insightLogicType>([
                     query: clearInsightQuery ? undefined : state.query,
                 }
             },
-            setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
+            setInsightMetadata: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
@@ -434,17 +427,38 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAsNamingSuccess: async ({ name, redirectToViewMode }) => {
-            const { filters, query } = getInsightFilterOrQueryForPersistance(
-                values.queryBasedInsight,
-                values.queryBasedInsightSaving
-            )
-            const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
-                name,
-                filters,
-                query,
-                saved: true,
+        saveAs: async ({ query, redirectToViewMode }) => {
+            LemonDialog.openForm({
+                title: 'Save as new insight',
+                initialValues: {
+                    name:
+                        values.queryBasedInsight.name || values.queryBasedInsight.derived_name
+                            ? `${values.queryBasedInsight.name || values.queryBasedInsight.derived_name} (copy)`
+                            : '',
+                },
+                content: (
+                    <LemonField name="name">
+                        <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
+                    </LemonField>
+                ),
+                errors: {
+                    name: (name) => (!name ? 'You must enter a name' : undefined),
+                },
+                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, query, redirectToViewMode),
             })
+        },
+        saveAsConfirmation: async ({ name, query, redirectToViewMode }) => {
+            const insight = await insightsApi.create(
+                {
+                    name,
+                    query,
+                    saved: true,
+                },
+                {
+                    writeAsQuery: values.queryBasedInsightSaving,
+                    readAsQuery: false,
+                }
+            )
             lemonToast.info(
                 `You're now working on a copy of ${
                     values.queryBasedInsight.name || values.queryBasedInsight.derived_name || name

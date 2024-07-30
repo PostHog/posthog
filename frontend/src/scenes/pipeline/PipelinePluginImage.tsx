@@ -2,12 +2,14 @@ import { IconTerminal } from '@posthog/icons'
 import { parseGithubRepoURL } from 'lib/utils'
 import imgPluginDefault from 'public/plugin-default.svg'
 import IconTransformationSemverFlattener from 'public/transformations/semver-flattener.png'
+import IconTransformationUserAgent from 'public/transformations/user-agent.png'
 import { useEffect, useState } from 'react'
 
 import { PluginType } from '~/types'
 
 const pluginImageOverrides: Record<string, any> = {
     'inline://semver-flattener': IconTransformationSemverFlattener,
+    'inline://user-agent': IconTransformationUserAgent,
 }
 
 export type PluginImageSize = 'small' | 'medium' | 'large'

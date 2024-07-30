@@ -93,6 +93,7 @@ class BaseMathType(StrEnum):
     WEEKLY_ACTIVE = "weekly_active"
     MONTHLY_ACTIVE = "monthly_active"
     UNIQUE_SESSION = "unique_session"
+    FIRST_TIME_FOR_USER = "first_time_for_user"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -339,6 +340,7 @@ class ErrorTrackingGroup(BaseModel):
     assignee: Optional[float] = None
     description: Optional[str] = None
     events: Optional[list[dict[str, Any]]] = None
+    exception_type: Optional[str] = None
     fingerprint: str
     first_seen: AwareDatetime
     last_seen: AwareDatetime
