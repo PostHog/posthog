@@ -16,7 +16,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -35,6 +35,11 @@ const statusText = {
 export function ManagedReverseProxy(): JSX.Element {
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
+
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
 
     const maxRecordsReached = proxyRecords.length >= MAX_PROXY_RECORDS
 
@@ -87,10 +92,7 @@ export function ManagedReverseProxy(): JSX.Element {
             render: function Render(_, { id, status }) {
                 return (
                     status != 'deleting' &&
-                    !useRestrictedArea({
-                        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-                        scope: RestrictionScope.Organization,
-                    }) && (
+                    !restrictionReason && (
                         <LemonMenu
                             items={[
                                 {
@@ -146,20 +148,14 @@ export function ManagedReverseProxy(): JSX.Element {
                         </LemonBanner>
                     ) : (
                         <div className="flex space-y-2">
-                            <RestrictedArea
-                                Component={({ isRestricted, restrictionReason }) => (
-                                    <LemonButton
-                                        onClick={showForm}
-                                        type="secondary"
-                                        icon={<IconPlus />}
-                                        disabledReason={isRestricted ? restrictionReason : undefined}
-                                    >
-                                        New managed proxy
-                                    </LemonButton>
-                                )}
-                                minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                                scope={RestrictionScope.Organization}
-                            />
+                            <LemonButton
+                                onClick={showForm}
+                                type="secondary"
+                                icon={<IconPlus />}
+                                disabledReason={restrictionReason}
+                            >
+                                New managed proxy
+                            </LemonButton>
                         </div>
                     )
                 ) : (

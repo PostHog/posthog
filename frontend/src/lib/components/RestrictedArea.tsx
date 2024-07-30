@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useMemo } from 'react'
 
 import { organizationLogic } from '../../scenes/organizationLogic'
@@ -60,20 +59,4 @@ export function useRestrictedArea({ scope, minimumAccessLevel }: UseRestrictedAr
     }, [currentOrganization])
 
     return restrictionReason
-}
-
-export function RestrictedArea({
-    Component,
-    minimumAccessLevel,
-    scope = RestrictionScope.Organization,
-}: RestrictedAreaProps): JSX.Element {
-    const restrictionReason = useRestrictedArea({ minimumAccessLevel, scope })
-
-    return restrictionReason ? (
-        <Tooltip title={restrictionReason} placement="top-start" delayMs={0}>
-            <Component isRestricted={true} restrictionReason={restrictionReason} />
-        </Tooltip>
-    ) : (
-        <Component isRestricted={false} restrictionReason={null} />
-    )
 }
