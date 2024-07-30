@@ -167,7 +167,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
 class DecideRateThrottle(BaseThrottle):
     """
     This is a custom throttle that is used to limit the number of requests to the /decide endpoint.
-    It is different from the TeamRateThrottle in that it does not use the Django cache, but instead
+    It is different from the PersonalApiKeyRateThrottle in that it does not use the Django cache, but instead
     uses the Limiter from the `token-bucket` library.
     This uses the token bucket algorithm to limit the number of requests to the endpoint. It's a lot
     more performant than DRF's SimpleRateThrottle, which inefficiently uses the Django cache.
