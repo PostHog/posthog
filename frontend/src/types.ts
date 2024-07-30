@@ -676,6 +676,8 @@ export enum PipelineNodeTab {
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
+    Schemas = 'schemas',
+    Syncs = 'syncs',
 }
 
 export enum ProgressStatus {
@@ -4400,9 +4402,4 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
-}
-
-export enum DataWarehouseTab {
-    ManagedSources = 'managed-sources',
-    SelfManagedSources = 'self-managed-sources',
 }

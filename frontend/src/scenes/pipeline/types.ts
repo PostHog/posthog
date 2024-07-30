@@ -11,6 +11,7 @@ export enum PipelineBackend {
     BatchExport = 'batch_export',
     Plugin = 'plugin',
     HogFunction = 'hog_function',
+    ManagedSource = 'managed_source',
 }
 
 // Base - we're taking a discriminated union approach here, so that TypeScript can discern types for free

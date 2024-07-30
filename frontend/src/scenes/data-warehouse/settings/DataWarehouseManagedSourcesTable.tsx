@@ -15,7 +15,7 @@ import IconStripe from 'public/services/stripe.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseTab, manualLinkSources } from '~/types'
+import { manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -49,7 +49,11 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     render: function RenderName(_, source) {
                         return (
                             <LemonTableLink
-                                to={urls.dataWarehouseSourceSettings(source.id, DataWarehouseTab.ManagedSources)}
+                                to={urls.pipelineNode(
+                                    PipelineStage.Source,
+                                    `managed-${source.id}`,
+                                    PipelineNodeTab.Schemas
+                                )}
                                 title={source.source_type}
                                 description={source.prefix}
                             />

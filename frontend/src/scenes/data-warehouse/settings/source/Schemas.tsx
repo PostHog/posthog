@@ -11,7 +11,7 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
@@ -24,12 +24,16 @@ import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from '../dataWarehouseSourcesTableSyncMethodModalLogic'
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 
-export const Schemas = (): JSX.Element => {
-    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic)
+interface SchemasProps {
+    id: string
+}
+
+export const Schemas = ({ id }: SchemasProps): JSX.Element => {
+    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id }))
     return (
-        <>
+        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id }}>
             <SchemaTable schemas={source?.schemas ?? []} isLoading={sourceLoading} />
-        </>
+        </BindLogic>
     )
 }
 
