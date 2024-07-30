@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
-import { InsightModel, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 import { projectHomepageLogic } from './projectHomepageLogic'
