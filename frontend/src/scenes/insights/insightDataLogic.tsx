@@ -6,6 +6,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { examples } from '~/queries/examples'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -100,12 +101,17 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         query: [
-            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault],
-            (propsQuery, insight, internalQuery, filterTestAccountsDefault) =>
+            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault, s.isSQLStudio],
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault, isSQLStudio) =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
-                queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
+                (isSQLStudio ? examples.DataWarehouse : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)),
+        ],
+
+        isSQLStudio: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps) => props.dashboardItemId?.startsWith('new-SQL'),
         ],
 
         propsQuery: [

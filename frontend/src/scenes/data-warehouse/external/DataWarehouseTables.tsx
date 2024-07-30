@@ -10,31 +10,22 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
-import { examples } from '~/queries/examples'
 import { Query } from '~/queries/Query/Query'
-import { DatabaseSchemaTable, InsightVizNode } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema'
+import { InsightLogicProps } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { DeleteTableModal, TableData } from './TableData'
 
-export const DataWarehouseTables = (): JSX.Element => {
-    // treat data warehouse explorer as adhoc insight
+interface DataWarehousetTablesProps {
+    insightProps: InsightLogicProps
+}
 
-    // insightLogic
-    const logic = insightLogic({
-        dashboardItemId: 'new-AdHoc.',
-        cachedInsight: null,
-    })
-    const { insightProps } = useValues(logic)
+export const DataWarehouseTables = ({ insightProps }: DataWarehousetTablesProps): JSX.Element => {
     // insightDataLogic
-    const { query } = useValues(
-        insightDataLogic({
-            ...insightProps,
-            query: examples.DataWarehouse as InsightVizNode,
-        })
-    )
+    const { query } = useValues(insightDataLogic(insightProps))
 
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 

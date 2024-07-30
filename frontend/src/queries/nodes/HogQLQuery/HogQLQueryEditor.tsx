@@ -196,6 +196,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             .getModels()
                                             .find((model) => model.uri.path === uri.path)
                                         activeModel && editor?.setModel(activeModel)
+                                        const val = activeModel?.getValue()
+                                        if (val) {
+                                            setQueryInput(val)
+                                            saveQuery()
+                                        }
                                         setModel(uri)
                                     } else if (newModels.length) {
                                         setModel(newModels[0])

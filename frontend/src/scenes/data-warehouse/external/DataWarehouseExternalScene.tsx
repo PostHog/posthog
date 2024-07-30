@@ -19,19 +19,17 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { insightSaving, insightProps } = useValues(
-        insightLogic({
-            dashboardItemId: 'new',
-            cachedInsight: null,
-        })
-    )
-    const { saveAs } = useActions(
-        insightLogic({
-            dashboardItemId: 'new',
-            cachedInsight: null,
-        })
-    )
-    const { query } = useValues(insightDataLogic(insightProps))
+    const logic = insightLogic({
+        dashboardItemId: 'new-SQL',
+        cachedInsight: null,
+    })
+    const { insightSaving, insightProps } = useValues(logic)
+    const { saveAs } = useActions(logic)
+
+    const insightDataLogicProps = {
+        ...insightProps,
+    }
+    const { query } = useValues(insightDataLogic(insightDataLogicProps))
 
     return (
         <div>
@@ -64,7 +62,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
             />
             <DataWarehouseInitialBillingLimitNotice />
             <BindLogic logic={insightSceneLogic} props={{}}>
-                <DataWarehouseTables />
+                <DataWarehouseTables insightProps={insightDataLogicProps} />
             </BindLogic>
         </div>
     )

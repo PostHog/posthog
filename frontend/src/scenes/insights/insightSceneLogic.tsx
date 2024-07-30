@@ -188,8 +188,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
-        '/sql': () => {
+        '/sql': (_, __, { q }) => {
             actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
+            insightLogic({
+                dashboardItemId: 'new-AdHoc.SQL',
+                cachedInsight: null,
+            }).actions.setInsight(
+                {
+                    ...createEmptyInsight('new', false),
+                    ...(q ? { query: JSON.parse(q) } : {}),
+                },
+                {
+                    fromPersistentApi: false,
+                    overrideFilter: false,
+                }
+            )
         },
         '/data-warehouse/view/:id': (_, __, { q }) => {
             actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
