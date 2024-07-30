@@ -1,14 +1,17 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { DateTime } from 'luxon'
+import { gunzip, gzip } from 'zlib'
 
-import { RawClickHouseEvent, Team } from '../types'
+import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
-import { clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationResult,
+    HogFunctionLogEntrySerialized,
     ParsedClickhouseEvent,
 } from './types'
 
@@ -135,4 +138,64 @@ export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Tea
         sent_at: DateTime.now().toISO(),
         token: team.api_token,
     }
+}
+
+export const gzipObject = async <T extends object>(object: T): Promise<string> => {
+    const payload = JSON.stringify(object)
+    const buffer = await new Promise<Buffer>((res, rej) =>
+        gzip(payload, (err, result) => (err ? rej(err) : res(result)))
+    )
+    const res = buffer.toString('base64')
+
+    // NOTE: Base64 encoding isn't as efficient but we would need to change the kafka producer/consumers to use ucs2 or something
+    // as well in order to support binary data better
+
+    return res
+}
+
+export const unGzipObject = async <T extends object>(data: string): Promise<T> => {
+    const res = await new Promise<Buffer>((res, rej) =>
+        gunzip(Buffer.from(data, 'base64'), (err, result) => (err ? rej(err) : res(result)))
+    )
+
+    return JSON.parse(res.toString())
+}
+
+export const prepareLogEntriesForClickhouse = (
+    result: HogFunctionInvocationResult
+): HogFunctionLogEntrySerialized[] => {
+    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+    const logs = result.logs
+    result.logs = [] // Clear it to ensure it isn't passed on anywhere else
+
+    const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
+
+    if (sortedLogs.length === 0) {
+        return []
+    }
+
+    // Start with a timestamp that is guaranteed to be before the first log entry
+    let previousTimestamp = sortedLogs[0].timestamp.minus(1)
+
+    sortedLogs.forEach((logEntry) => {
+        // TRICKY: The clickhouse table dedupes logs with the same timestamp - we need to ensure they are unique by simply plus-ing 1ms
+        // if the timestamp is the same as the previous one
+        if (logEntry.timestamp <= previousTimestamp) {
+            logEntry.timestamp = previousTimestamp.plus(1)
+        }
+
+        previousTimestamp = logEntry.timestamp
+
+        const sanitized: HogFunctionLogEntrySerialized = {
+            ...logEntry,
+            team_id: result.invocation.teamId,
+            log_source: 'hog_function',
+            log_source_id: result.invocation.hogFunctionId,
+            instance_id: result.invocation.id,
+            timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
+        }
+        preparedLogs.push(sanitized)
+    })
+
+    return preparedLogs
 }

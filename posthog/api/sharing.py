@@ -296,6 +296,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"showInspector": True})
         if "legend" in request.GET:
             exported_data.update({"legend": True})
+        if "detailed" in request.GET:
+            exported_data.update({"detailed": True})
 
         if request.path.endswith(f".json"):
             return response.Response(exported_data)
