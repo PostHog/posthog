@@ -1,15 +1,15 @@
 from posthog.test.base import APIBaseTest
 from posthog.models import Team, ErrorTrackingGroup
+from django.utils.http import urlsafe_base64_encode
+import json
 
 
 class TestErrorTracking(APIBaseTest):
     def send_request(self, fingerprint, data, endpoint=""):
-        # myString = json.dump(fingerprint)
-        # stringified_fingerprint = urlsafe_base64_encode(b"this is a string")
-        # data = base64.b64encode(string.encode())
-
-        self.client.patch(
-            f"/api/projects/{self.team.id}/error_tracking/{stringified_fingerprint}/{endpoint}",
+        base64_fingerprint = urlsafe_base64_encode(json.dumps(fingerprint).encode("utf-8"))
+        request_method = self.client.patch if endpoint == "" else self.client.post
+        request_method(
+            f"/api/projects/{self.team.id}/error_tracking/{base64_fingerprint}/{endpoint}",
             data=data,
         )
 

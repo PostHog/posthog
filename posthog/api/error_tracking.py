@@ -24,7 +24,6 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def safely_get_object(self, queryset) -> QuerySet:
         stringified_fingerprint = self.kwargs["pk"]
         fingerprint = json.loads(urlsafe_base64_decode(stringified_fingerprint))
-        print(fingerprint)
         group, _ = queryset.get_or_create(fingerprint=fingerprint, team=self.team)
         return group
 
