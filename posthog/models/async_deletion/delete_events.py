@@ -8,6 +8,8 @@ from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 
+logger.setLevel("DEBUG")
+
 deletions_counter = Counter("deletions_executed", "Total number of deletions sent to clickhouse", ["deletion_type"])
 
 MAX_PREDICATE_SIZE = 240_000  # 240KB
@@ -48,8 +50,11 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
         # Split the deletions into chunks to avoid hitting the max query size
         query_predicate = []
-        for condition in conditions:
+        args_predicate = list(args.items())
+        args_collector = []
+        for i, condition in enumerate(conditions):
             query_predicate.append(condition)
+            args_collector.append(args_predicate[i])
 
             # Get estimated  byte size of the query
             str_predicate = " OR ".join(query_predicate)
@@ -59,24 +64,23 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             logger.debug(f"Query size: {query_size}")
             logger.debug(f"Query: {query}")
             logger.debug(f"Query Predicate: {query_predicate}")
-            logger.debug(f"Query Args: {args}")
+            logger.debug(f"Args Collector: {args_collector}")
 
             # If the query size is greater than the max predicate size, execute the query and reset the query predicate
             if query_size > MAX_PREDICATE_SIZE:
-                next_args, rest_args = split_dict(args, len(query_predicate) - 1)
                 sync_execute(
                     query,
-                    next_args,
+                    dict(args_collector),
                     settings={},
                 )
                 # Reset the query predicate and predicate args
-                args = rest_args
+                args_collector = []
                 query_predicate = []
 
         # This is the default condition if we don't hit the MAX_PREDICATE_SIZE
         sync_execute(
             query,
-            args,
+            dict(args_collector),
             settings={},
         )
 
@@ -157,13 +161,3 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                     f"key{suffix}": async_deletion.key,
                 },
             )
-
-
-def split_dict(original_dict, n):
-    items = list(original_dict.items())
-
-    # Split the items
-    first_n = dict(items[:n])
-    rest = dict(items[n:])
-
-    return first_n, rest
