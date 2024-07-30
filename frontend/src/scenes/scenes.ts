@@ -9,7 +9,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { EventsQuery } from '~/queries/schema'
-import { ActivityScope, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
+import { ActivityScope, InsightShortId, PipelineStage, PipelineTab, PropertyFilterType, ReplayTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -450,6 +450,10 @@ export const redirects: Record<
     '/me/settings': urls.settings('user'),
     '/pipeline': urls.pipeline(),
     '/instance': urls.instanceStatus(),
+    '/batch_exports/:id': ({ id }) => urls.pipelineNode(PipelineStage.Destination, id),
+    '/batch_exports': urls.pipeline(PipelineTab.Destinations),
+    '/apps': urls.pipeline(PipelineTab.Overview),
+    '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
 }
 
 export const routes: Record<string, Scene> = {
