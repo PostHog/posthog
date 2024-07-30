@@ -65,9 +65,28 @@ export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
+const getQueryBasedDashboard = (
+    dashboard: DashboardType<InsightModel> | null
+): DashboardType<QueryBasedInsightModel> | null => {
+    if (dashboard == null) {
+        return null
+    }
+
+    return {
+        ...dashboard,
+        tiles: dashboard.tiles.map(
+            (tile) =>
+                ({
+                    ...tile,
+                    insight: tile.insight != null ? getQueryBasedInsightModel(tile.insight) : null,
+                } as DashboardTile<QueryBasedInsightModel>)
+        ),
+    }
+}
+
 export interface DashboardLogicProps {
     id: number
-    dashboard?: DashboardType
+    dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
 }
 
@@ -246,14 +265,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
-                        if (dashboard) {
-                            dashboard.tiles = dashboard.tiles.map((tile) => ({
-                                ...tile,
-                                insight: getQueryBasedInsightModel(tile.insight),
-                            }))
-                        }
-
-                        return dashboard as DashboardType<QueryBasedInsightModel> | null
+                        return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
                         if (error.status === 404) {
                             return null
@@ -265,9 +277,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.abortAnyRunningQuery()
 
                     try {
-                        return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                            filters: values.filters,
-                        })
+                        const dashboard = await api.update<DashboardType<InsightModel>>(
+                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                            {
+                                filters: values.filters,
+                            }
+                        )
+                        return getQueryBasedDashboard(dashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboardFilters: ' + String(e))
                         return values.dashboard
@@ -296,7 +312,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return {
                             ...values.dashboard,
                             tiles: values.tiles.filter((t) => t.id !== tile.id),
-                        } as DashboardType
+                        } as DashboardType<QueryBasedInsightModel>
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + String(e))
                         return values.dashboard
@@ -309,9 +325,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (newTile.text) {
                             newTile.text = { body: newTile.text.body } as TextModel
                         }
-                        return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                            tiles: [newTile],
-                        } as Partial<InsightModel>)
+
+                        const dashboard: DashboardType<InsightModel> = await api.update(
+                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                            {
+                                tiles: [newTile],
+                            }
+                        )
+                        return getQueryBasedDashboard(dashboard)
                     } catch (e) {
                         lemonToast.error('Could not duplicate tile: ' + String(e))
                         return values.dashboard
@@ -325,13 +346,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (fromDashboard !== props.id) {
                         return values.dashboard
                     }
-                    return await api.update(
+                    const dashboard: DashboardType<InsightModel> = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
                         {
                             tile,
                             toDashboard,
                         }
                     )
+                    return getQueryBasedDashboard(dashboard)
                 },
             },
         ],

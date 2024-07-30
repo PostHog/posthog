@@ -12,11 +12,11 @@ import React from 'react'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardBasicType, DashboardTile } from '~/types'
+import { DashboardBasicType, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
-    textTile: DashboardTile
+    textTile: DashboardTile<QueryBasedInsightModel>
     children?: JSX.Element
     removeFromDashboard?: () => void
     duplicate?: () => void

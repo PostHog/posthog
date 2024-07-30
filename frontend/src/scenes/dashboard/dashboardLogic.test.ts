@@ -583,11 +583,12 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+            const insight = logic.values.insightTiles[0].insight!
             expect(logic.values.dashboard?.tiles).toHaveLength(2)
-            expect(logic.values.insightTiles[0].insight!.short_id).toEqual('800')
-            expect(logic.values.insightTiles[0].insight!.filters.date_from).toBeUndefined()
-            expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('day')
-            expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
+            expect(insight.short_id).toEqual('800')
+            expect(insight.query?.source?.dateRange?.date_from).toBeUndefined()
+            expect(insight.query?.source?.interval).toEqual('day')
+            expect(insight.name).toEqual('donut')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 
