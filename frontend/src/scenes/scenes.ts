@@ -240,16 +240,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse',
         defaultDocsPath: '/docs/data-warehouse/setup',
     },
-    [Scene.DataWarehouseSettings]: {
-        projectBased: true,
-        name: 'Data warehouse settings',
-        defaultDocsPath: '/docs/data-warehouse',
-    },
-    [Scene.dataWarehouseSourceSettings]: {
-        projectBased: true,
-        name: 'Data warehouse source settings',
-        defaultDocsPath: '/docs/data-warehouse',
-    },
     [Scene.DataWarehouseRedirect]: {
         name: 'Data warehouse redirect',
     },
