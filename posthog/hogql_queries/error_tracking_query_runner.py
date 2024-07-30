@@ -14,6 +14,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.util import get_persons_by_distinct_ids
 from django.db.models import Prefetch
 from posthog.models import Person
+import json
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -100,14 +101,26 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 # replaces exceptions in "merged_fingerprints" with the group fingerprint
                 args.extend(
                     [
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["properties", "$exception_fingerprint"]),
-                            right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
-                            op=ast.CompareOperationOp.In,
+                        ast.Call(
+                            name="has",
+                            args=[
+                                ast.Array(exprs=[group["fingerprint"], *group["merged_fingerprints"]]),
+                                ast.Field(chain=["properties", "$exception_fingerprint"]),
+                            ],
                         ),
                         ast.Constant(value=group["fingerprint"]),
                     ]
                 )
+                # args.extend(
+                #     [
+                #         ast.CompareOperation(
+                #             left=ast.Field(chain=["properties", "$exception_fingerprint"]),
+                #             right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
+                #             op=ast.CompareOperationOp.In,
+                #         ),
+                #         ast.Constant(value=group["fingerprint"]),
+                #     ]
+                # )
 
             # default to $exception_fingerprint property for exception events that don't match a group
             args.append(ast.Field(chain=["properties", "$exception_fingerprint"]))
@@ -116,10 +129,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 args=args,
             )
 
-        return ast.Alias(
-            alias="fingerprint",
-            expr=expr,
-        )
+        # return ast.Alias(
+        #     alias="fingerprint",
+        #     expr=ast.Call(name="JSONExtractArrayRaw", args=[expr]),
+        # )
+        return ast.Alias(alias="fingerprint", expr=expr)
 
     def where(self):
         exprs: list[ast.Expr] = [
@@ -133,13 +147,28 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         if self.query.fingerprint:
             group = self.group_or_default(self.query.fingerprint)
+            merged_fingerprints = [ast.Constant(value=fp) for fp in group["merged_fingerprints"]]
             exprs.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["properties", "$exception_fingerprint"]),
-                    right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
-                    op=ast.CompareOperationOp.In,
+                ast.Call(
+                    name="has",
+                    args=[
+                        ast.Array(exprs=[ast.Constant(value=group["fingerprint"]), *merged_fingerprints]),
+                        # ast.Constant(value=["SyntaxError"]),
+                        # replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')
+                        # ast.Call(
+                        #     name="JSONExtractArrayRaw", args=[ast.Field(chain=["properties", "$exception_fingerprint"])]
+                        # ),
+                        ast.Field(chain=["properties", "$exception_fingerprint"]),
+                    ],
                 ),
             )
+            # exprs.append(
+            #     ast.CompareOperation(
+            #         left=ast.Field(chain=["properties", "$exception_fingerprint"]),
+            #         right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
+            #         op=ast.CompareOperationOp.In,
+            #     ),
+            # )
 
         return ast.And(exprs=exprs)
 
@@ -147,6 +176,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return None if self.query.fingerprint else [ast.Field(chain=["fingerprint"])]
 
     def calculate(self):
+        print(self.to_query())
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
@@ -177,7 +207,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         results = []
         for result_dict in mapped_results:
-            fingerprint = self.query.fingerprint if self.query.fingerprint else result_dict["fingerprint"]
+            fingerprint = self.query.fingerprint if self.query.fingerprint else json.loads(result_dict["fingerprint"])
             group = self.group_or_default(fingerprint)
 
             if self.query.eventColumns:
@@ -185,7 +215,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     self.query.eventColumns, result_dict.get("events", [])
                 )
 
-            results.append(group | result_dict)
+            results.append(result_dict | group)
 
         return results
 
@@ -244,7 +274,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def group_or_default(self, fingerprint):
         return self.error_tracking_groups.get(
-            fingerprint,
+            str(fingerprint),
             {
                 "fingerprint": fingerprint,
                 "assignee": None,
@@ -262,4 +292,4 @@ class ErrorTrackingQueryRunner(QueryRunner):
             else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
         )
         groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
-        return {item["fingerprint"]: item for item in groups}
+        return {str(item["fingerprint"]): item for item in groups}
