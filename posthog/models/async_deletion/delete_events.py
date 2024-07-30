@@ -10,7 +10,6 @@ from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 deletions_counter = Counter("deletions_executed", "Total number of deletions sent to clickhouse", ["deletion_type"])
 
-
 MAX_PREDICATE_SIZE = 240_000  # 240KB
 
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
@@ -54,17 +53,19 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
             # Get estimated  byte size of the query
             str_predicate = " OR ".join(query_predicate)
-            query_size = len(str_predicate.encode("utf-8"))
+            query = f"DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {str_predicate}"
+            query_size = len(query.encode("utf-8"))
+
+            logger.debug(f"Query size: {query_size}")
+            logger.debug(f"Query: {query}")
+            logger.debug(f"Query Predicate: {query_predicate}")
+            logger.debug(f"Query Args: {args}")
 
             # If the query size is greater than the max predicate size, execute the query and reset the query predicate
             if query_size > MAX_PREDICATE_SIZE:
                 next_args, rest_args = split_dict(args, len(query_predicate) - 1)
                 sync_execute(
-                    f"""
-                    DELETE FROM posthog.sharded_events
-                    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                    WHERE {str_predicate}
-                    """,
+                    query,
                     next_args,
                     settings={},
                 )
@@ -74,11 +75,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
         # This is the default condition if we don't hit the MAX_PREDICATE_SIZE
         sync_execute(
-            f"""
-            DELETE FROM sharded_events
-            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-            WHERE {str_predicate}
-            """,
+            query,
             args,
             settings={},
         )
@@ -99,12 +96,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         )
         conditions, args = self._conditions(team_deletions)
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
+            query = f"""DELETE FROM {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {" OR ".join(conditions)}"""
             sync_execute(
-                f"""
-                DELETE FROM {table}
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                WHERE {" OR ".join(conditions)}
-                """,
+                query,
                 args,
                 settings={},
             )
