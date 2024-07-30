@@ -5,7 +5,7 @@ import { PluginsServerConfig, ValueMatcher } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
 import { RustyHook } from '../worker/rusty-hook'
-import { HogFunctionInvocationAsyncResponse, HogFunctionInvocationResult } from './types'
+import { HogFunctionInvocationAsyncRequest, HogFunctionInvocationAsyncResponse } from './types'
 
 export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 2024, 4096, 10240, Infinity]
 
@@ -33,7 +33,7 @@ export class AsyncFunctionExecutor {
     }
 
     async execute(
-        request: HogFunctionInvocationResult,
+        request: HogFunctionInvocationAsyncRequest,
         options: AsyncFunctionExecutorOptions = { sync: false }
     ): Promise<HogFunctionInvocationAsyncResponse | undefined> {
         if (!request.asyncFunctionRequest) {
@@ -42,7 +42,6 @@ export class AsyncFunctionExecutor {
 
         const loggingContext = {
             hogFunctionId: request.hogFunctionId,
-            invocationId: request.id,
             asyncFunctionName: request.asyncFunctionRequest.name,
         }
         status.info('🦔', `[AsyncFunctionExecutor] Executing async function`, loggingContext)
@@ -61,7 +60,7 @@ export class AsyncFunctionExecutor {
     }
 
     private async asyncFunctionFetch(
-        request: HogFunctionInvocationResult,
+        request: HogFunctionInvocationAsyncRequest,
         options?: AsyncFunctionExecutorOptions
     ): Promise<HogFunctionInvocationAsyncResponse | undefined> {
         if (!request.asyncFunctionRequest) {
@@ -69,6 +68,7 @@ export class AsyncFunctionExecutor {
         }
 
         const asyncFunctionResponse: HogFunctionInvocationAsyncResponse['asyncFunctionResponse'] = {
+            response: null,
             timings: [],
         }
 
@@ -130,7 +130,7 @@ export class AsyncFunctionExecutor {
 
             const duration = performance.now() - start
 
-            asyncFunctionResponse.timings.push({
+            asyncFunctionResponse.timings!.push({
                 kind: 'async_function',
                 duration_ms: duration,
             })
@@ -145,7 +145,9 @@ export class AsyncFunctionExecutor {
         }
 
         const response: HogFunctionInvocationAsyncResponse = {
-            ...request,
+            state: request.state,
+            teamId: request.teamId,
+            hogFunctionId: request.hogFunctionId,
             asyncFunctionResponse,
         }
 

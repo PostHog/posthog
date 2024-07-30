@@ -29,7 +29,7 @@ export type ErrorTrackingGroupEvent = {
         distinct_id: string
         uuid?: string
         created_at?: string
-        properties?: string
+        properties?: Record<string, any>
     }
 }
 

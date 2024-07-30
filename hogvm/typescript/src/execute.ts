@@ -175,6 +175,20 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             throw new HogVMException(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
         }
     }
+    function getFinishedState(): VMState {
+        return {
+            bytecode: [],
+            stack: [],
+            callStack: [],
+            throwStack: [],
+            declaredFunctions: {},
+            ip: -1,
+            ops,
+            asyncSteps,
+            syncDuration: syncDuration + (Date.now() - startTime),
+            maxMemUsed,
+        }
+    }
 
     for (; ip < bytecode.length; ip++) {
         ops += 1
@@ -314,6 +328,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     return {
                         result: popStack(),
                         finished: true,
+                        state: getFinishedState(),
                     } satisfies ExecResult
                 }
             case Operation.GET_LOCAL:
@@ -477,9 +492,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     if (stack.length > 1) {
         throw new HogVMException('Invalid bytecode. More than one value left on stack')
-    } else if (stack.length === 0) {
-        return { result: null, finished: true } satisfies ExecResult
     }
 
-    return { result: popStack() ?? null, finished: true } satisfies ExecResult
+    if (stack.length === 0) {
+        return { result: null, finished: true, state: getFinishedState() } satisfies ExecResult
+    }
+
+    return { result: popStack() ?? null, finished: true, state: getFinishedState() } satisfies ExecResult
 }

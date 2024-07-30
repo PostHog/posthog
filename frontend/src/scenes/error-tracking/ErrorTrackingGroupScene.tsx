@@ -4,8 +4,7 @@ import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ErrorTrackingActions } from './ErrorTrackingActions'
-import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { ErrorGroupTab, errorTrackingGroupSceneLogic } from './errorTrackingGroupSceneLogic'
 import { BreakdownsTab } from './groups/BreakdownsTab'
 import { OverviewTab } from './groups/OverviewTab'
@@ -23,10 +22,10 @@ export function ErrorTrackingGroupScene(): JSX.Element {
     const { setErrorGroupTab } = useActions(errorTrackingGroupSceneLogic)
 
     return (
-        <div className="space-y-4">
-            <ErrorTrackingFilters />
-            <LemonDivider />
-            <ErrorTrackingActions showOrder={false} />
+        <>
+            <ErrorTrackingFilters.FilterGroup />
+            <LemonDivider className="mt-2" />
+            <ErrorTrackingFilters.Options showOrder={false} />
 
             <LemonTabs
                 activeKey={errorGroupTab}
@@ -44,6 +43,6 @@ export function ErrorTrackingGroupScene(): JSX.Element {
                     },
                 ]}
             />
-        </div>
+        </>
     )
 }

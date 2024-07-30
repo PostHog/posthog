@@ -17,17 +17,29 @@ const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
 const createResult = (id: string, finished = true, error?: string): HogFunctionInvocationResult => {
     return {
-        hogFunctionId: id,
+        invocation: {
+            id: 'invocation-id',
+            teamId: 2,
+            hogFunctionId: id,
+            globals: {} as any,
+            timings: [],
+        },
         finished,
         error,
-    } as HogFunctionInvocationResult
+        logs: [],
+    }
 }
 
 const createAsyncResponse = (id: string, success = true): HogFunctionInvocationAsyncResponse => {
     return {
+        state: '',
+        teamId: 2,
         hogFunctionId: id,
-        error: success ? null : 'error',
-    } as HogFunctionInvocationAsyncResponse
+        asyncFunctionResponse: {
+            error: !success ? 'error' : null,
+            response: {},
+        },
+    }
 }
 
 const config = defaultConfig
@@ -104,7 +116,6 @@ describe('HogWatcher', () => {
 
         const advanceTime = (ms: number) => {
             now += ms
-            console.log(`[TEST] Advancing time by ${ms}ms to ${now}`)
             mockNow.mockReturnValue(now)
         }
 
