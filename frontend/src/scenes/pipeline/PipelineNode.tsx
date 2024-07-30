@@ -22,7 +22,7 @@ export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineSta
     [PipelineTab.Destinations]: PipelineStage.Destination,
     [PipelineTab.SiteApps]: PipelineStage.SiteApp,
     [PipelineTab.ImportApps]: PipelineStage.ImportApp,
-    [PipelineTab.DataImport]: PipelineStage.DataImport,
+    [PipelineTab.Sources]: PipelineStage.Source,
 }
 
 const paramsToProps = ({

@@ -17,7 +17,7 @@ import IconStripe from 'public/services/stripe.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseTab, manualLinkSources, ProductKey } from '~/types'
+import { DataWarehouseTab, manualLinkSources, PipelineStage, ProductKey } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -42,7 +42,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                 description="Use data warehouse sources to import data from your external data into PostHog."
                 isEmpty={dataWarehouseSources?.results.length == 0}
                 docsURL="https://posthog.com/docs/data-warehouse"
-                action={() => router.actions.push(urls.pipelineNodeDataWarehouseNew())}
+                action={() => router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))}
             />
         )
     }

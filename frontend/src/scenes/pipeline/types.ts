@@ -83,10 +83,6 @@ export type NewDestinationFilters = {
     kind?: PipelineBackend
 }
 
-export interface DataImportApp extends PluginBasedNode {
-    stage: PipelineStage.DataImport
-}
-
 // Legacy: Site apps
 export interface SiteApp extends PluginBasedNode {
     stage: PipelineStage.SiteApp
@@ -99,7 +95,7 @@ export interface ImportApp extends PluginBasedNode {
 
 // Final
 
-export type PipelineNode = Transformation | Destination | SiteApp | ImportApp | DataImportApp
+export type PipelineNode = Transformation | Destination | SiteApp | ImportApp
 
 // Utils
 
@@ -116,8 +112,6 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? Transformation
     : S extends PipelineStage.Destination
     ? Destination
-    : S extends PipelineStage.DataImport
-    ? DataImportApp
     : S extends PipelineStage.SiteApp
     ? SiteApp
     : S extends PipelineStage.ImportApp
@@ -139,10 +133,7 @@ export function convertToPipelineNode<S extends PipelineStage>(
             hog_function: candidate,
         }
     } else if (isPluginConfig(candidate)) {
-        const almostNode: Omit<
-            Transformation | WebhookDestination | SiteApp | ImportApp | DataImportApp,
-            'frequency' | 'order'
-        > = {
+        const almostNode: Omit<Transformation | WebhookDestination | SiteApp | ImportApp, 'frequency' | 'order'> = {
             stage: stage,
             backend: PipelineBackend.Plugin,
             id: candidate.id,

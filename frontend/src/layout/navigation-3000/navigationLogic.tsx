@@ -35,7 +35,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DataWarehouseTab, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -503,21 +503,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                         {
-                            identifier: Scene.DataWarehouseSettings,
-                            label: 'Data import',
-                            icon: <IconServer />,
-                            to: isUsingSidebar
-                                ? undefined
-                                : urls.dataWarehouseSettings(DataWarehouseTab.ManagedSources),
+                            identifier: Scene.Pipeline,
+                            label: 'Data pipelines',
+                            icon: <IconDecisionTree />,
+                            to: urls.pipeline(),
                         },
-                        hasOnboardedAnyProduct
-                            ? {
-                                  identifier: Scene.Pipeline,
-                                  label: 'Data export',
-                                  icon: <IconDecisionTree />,
-                                  to: urls.pipeline(),
-                              }
-                            : null,
                     ].filter(isNotNil),
                 ]
             },

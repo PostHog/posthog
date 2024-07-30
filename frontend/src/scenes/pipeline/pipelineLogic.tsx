@@ -1,5 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -9,22 +10,7 @@ import { Breadcrumb, PipelineTab } from '~/types'
 import type { pipelineLogicType } from './pipelineLogicType'
 
 export const humanFriendlyTabName = (tab: PipelineTab): string => {
-    switch (tab) {
-        case PipelineTab.Overview:
-            return 'Overview'
-        case PipelineTab.Transformations:
-            return 'Transformations'
-        case PipelineTab.Destinations:
-            return 'Destinations'
-        case PipelineTab.DataImport:
-            return 'Data import'
-        case PipelineTab.SiteApps:
-            return 'Site apps'
-        case PipelineTab.ImportApps:
-            return 'Legacy sources'
-        case PipelineTab.AppsManagement:
-            return 'Apps management'
-    }
+    return capitalizeFirstLetter(tab).replace(/[-_]/g, ' ')
 }
 
 export const pipelineLogic = kea<pipelineLogicType>([

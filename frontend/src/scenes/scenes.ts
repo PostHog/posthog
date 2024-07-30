@@ -9,7 +9,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { EventsQuery } from '~/queries/schema'
-import { ActivityScope, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
+import { ActivityScope, InsightShortId, PipelineTab, PropertyFilterType, ReplayTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -171,12 +171,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'People & groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
-    },
-    [Scene.pipelineNodeDataWarehouseNew]: {
-        projectBased: true,
-        name: 'Data warehouse new source',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/data-warehouse',
     },
     [Scene.PipelineNodeNew]: {
         projectBased: true,
@@ -493,6 +487,8 @@ export const redirects: Record<
     '/project/apps': preserveParams(urls.projectApps()),
     '/project/apps/:id': ({ id }) => urls.projectApp(id),
     '/instance': urls.instanceStatus(),
+    '/data-management/database': urls.pipeline(PipelineTab.Sources),
+    '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
 }
 
 export const routes: Record<string, Scene> = {
@@ -543,7 +539,6 @@ export const routes: Record<string, Scene> = {
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
-    [urls.pipelineNodeDataWarehouseNew()]: Scene.pipelineNodeDataWarehouseNew,
     [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
     [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,

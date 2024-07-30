@@ -657,7 +657,7 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
-    DataImport = 'data-import',
+    Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
 }
@@ -665,9 +665,9 @@ export enum PipelineTab {
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
+    Source = 'source',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
-    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
