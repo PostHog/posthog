@@ -8,11 +8,11 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
-import { ActionsEditingToolbarMenu } from '~/toolbar/actions/ActionsEditingToolbarMenu'
-import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { ExperimentsEditingToolbarMenu } from '~/toolbar/experiments/ExperimentsEditingToolbarMenu'
+import { ExperimentsListView } from '~/toolbar/experiments/ExperimentsListView'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 const ExperimentsListToolbarMenu = (): JSX.Element => {
@@ -48,7 +48,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
                             <Spinner />
                         </div>
                     ) : (
-                        <ActionsListView actions={sortedActions} />
+                        <ExperimentsListView actions={sortedActions} />
                     )}
                 </div>
             </ToolbarMenu.Body>
@@ -68,5 +68,5 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
 
 export const ExperimentsToolbarMenu = (): JSX.Element => {
     const { selectedAction } = useValues(actionsTabLogic)
-    return selectedAction ? <ActionsEditingToolbarMenu /> : <ExperimentsListToolbarMenu />
+    return selectedAction ? <ExperimentsEditingToolbarMenu /> : <ExperimentsListToolbarMenu />
 }

@@ -1,5 +1,12 @@
+import json
+
 from django.db import models
 from django.utils import timezone
+
+
+class ExperimentVariantEncoder(json.JSONEncoder):
+    def default(self, obj):
+        return json.JSONEncoder.default(self, obj)
 
 
 class Experiment(models.Model):
@@ -22,6 +29,8 @@ class Experiment(models.Model):
 
     # A list of filters for secondary metrics
     secondary_metrics: models.JSONField = models.JSONField(default=list, null=True)
+
+    variants: models.JSONField = models.JSONField(encoder=ExperimentVariantEncoder, null=True)
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", blank=False, on_delete=models.RESTRICT)
