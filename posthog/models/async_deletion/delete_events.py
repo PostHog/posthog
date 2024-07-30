@@ -46,41 +46,36 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             },
         )
 
-        conditions, args = self._conditions(deletions)
+        conditions, args = [], {}
+        for i, deletion in enumerate(deletions):
+            condition, arg = self._condition(deletion, str(i))
 
-        # Split the deletions into chunks to avoid hitting the max query size
-        query_predicate = []
-        args_predicate = list(args.items())
-        args_collector = []
-        for i, condition in enumerate(conditions):
-            query_predicate.append(condition)
-            args_collector.append(args_predicate[i])
+            conditions.append(condition)
+            args.update(arg)
 
             # Get estimated  byte size of the query
-            str_predicate = " OR ".join(query_predicate)
+            str_predicate = " OR ".join(conditions)
             query = f"DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {str_predicate}"
             query_size = len(query.encode("utf-8"))
 
             logger.debug(f"Query size: {query_size}")
             logger.debug(f"Query: {query}")
-            logger.debug(f"Query Predicate: {query_predicate}")
-            logger.debug(f"Args Collector: {args_collector}")
+            logger.debug(f"Query deletions: {deletions}")
 
             # If the query size is greater than the max predicate size, execute the query and reset the query predicate
             if query_size > MAX_PREDICATE_SIZE:
+                logger.debug(f"Executing query with args: {args}")
                 sync_execute(
                     query,
-                    dict(args_collector),
+                    args,
                     settings={},
                 )
-                # Reset the query predicate and predicate args
-                args_collector = []
-                query_predicate = []
 
+        logger.debug(f"Executing query with args: {args}")
         # This is the default condition if we don't hit the MAX_PREDICATE_SIZE
         sync_execute(
             query,
-            dict(args_collector),
+            args,
             settings={},
         )
 
