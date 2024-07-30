@@ -155,14 +155,9 @@ export class HogExecutor {
             },
         }
 
-        const hogGlobals = await this.hogFunctionGlobalsManager.loadGlobals(
-            modifiedGlobals,
-            hogFunction.used_globals?.hog_function
-        )
-
         return await this.execute(hogFunction, {
             id: new UUIDT().toString(),
-            globals: hogGlobals,
+            globals: modifiedGlobals,
             teamId: hogFunction.team_id,
             hogFunctionId: hogFunction.id,
             timings: [],
@@ -290,6 +285,10 @@ export class HogExecutor {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'event' property")
                             }
 
+                            if (typeof event.distinct_id !== 'string') {
+                                throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
+                            }
+
                             if (result.capturedPostHogEvents!.length > 0) {
                                 throw new Error(
                                     'postHogCapture was called more than once. Only one call is allowed per function'
@@ -309,7 +308,7 @@ export class HogExecutor {
                             result.capturedPostHogEvents!.push({
                                 team_id: invocation.teamId,
                                 timestamp: DateTime.utc().toISO(),
-                                distinct_id: event.distinct_id || invocation.globals.event.distinct_id,
+                                distinct_id: event.distinct_id,
                                 event: event.event,
                                 properties: {
                                     ...event.properties,
