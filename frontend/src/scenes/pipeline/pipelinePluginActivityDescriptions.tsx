@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { ActivityScope } from '~/types'
 
-import { SECRET_FIELD_VALUE } from '../pipeline/configUtils'
+import { SECRET_FIELD_VALUE } from './configUtils'
 
 export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.PLUGIN && logItem.scope !== ActivityScope.PLUGIN_CONFIG) {
