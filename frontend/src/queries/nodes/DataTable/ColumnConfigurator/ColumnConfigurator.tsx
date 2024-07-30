@@ -8,7 +8,7 @@ import { IconPencil, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
+import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -185,21 +185,17 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 </div>
                 {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
                     <RestrictedArea
-                        Component={function SaveColumnsAsDefault({
-                            isRestricted,
-                        }: RestrictedComponentProps): JSX.Element {
-                            return (
-                                <LemonCheckbox
-                                    label="Save as default for all project members"
-                                    className="mt-2"
-                                    data-attr="events-table-save-columns-as-default-toggle"
-                                    bordered
-                                    checked={saveAsDefault}
-                                    onChange={toggleSaveAsDefault}
-                                    disabled={isRestricted}
-                                />
-                            )
-                        }}
+                        Component={({ isRestricted, restrictionReason }) => (
+                            <LemonCheckbox
+                                label="Save as default for all project members"
+                                className="mt-2"
+                                data-attr="events-table-save-columns-as-default-toggle"
+                                bordered
+                                checked={saveAsDefault}
+                                onChange={toggleSaveAsDefault}
+                                disabledReason={isRestricted ? restrictionReason : undefined}
+                            />
+                        )}
                         minimumAccessLevel={TeamMembershipLevel.Admin}
                         scope={RestrictionScope.Project}
                     />

@@ -17,7 +17,7 @@ import { AvailableFeature } from '~/types'
 
 import { teamMembersLogic } from './teamMembersLogic'
 
-export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {
+export function AddMembersModalWithButton({ isRestricted, restrictionReason }: RestrictedComponentProps): JSX.Element {
     const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -42,7 +42,7 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                     })
                 }
                 icon={<IconPlus />}
-                disabled={isRestricted}
+                disabledReason={isRestricted ? restrictionReason : undefined}
             >
                 Add members to project
             </LemonButton>

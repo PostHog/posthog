@@ -71,9 +71,7 @@ export function RestrictedArea({
 
     return restrictionReason ? (
         <Tooltip title={restrictionReason} placement="top-start" delayMs={0}>
-            <span>
-                <Component isRestricted={true} restrictionReason={restrictionReason} />
-            </span>
+            <Component isRestricted={true} restrictionReason={restrictionReason} />
         </Tooltip>
     ) : (
         <Component isRestricted={false} restrictionReason={null} />

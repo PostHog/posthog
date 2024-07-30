@@ -16,7 +16,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
+import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -141,22 +141,18 @@ export function ManagedReverseProxy(): JSX.Element {
                             There is a maximum of {MAX_PROXY_RECORDS} records allowed per organization
                         </LemonBanner>
                     ) : (
-                        <div className="space-y-2">
+                        <div className="flex space-y-2">
                             <RestrictedArea
-                                Component={function NewManagedProxy({
-                                    isRestricted,
-                                }: RestrictedComponentProps): JSX.Element {
-                                    return (
-                                        <LemonButton
-                                            onClick={showForm}
-                                            type="secondary"
-                                            icon={<IconPlus />}
-                                            disabled={isRestricted}
-                                        >
-                                            New managed proxy
-                                        </LemonButton>
-                                    )
-                                }}
+                                Component={({ isRestricted, restrictionReason }) => (
+                                    <LemonButton
+                                        onClick={showForm}
+                                        type="secondary"
+                                        icon={<IconPlus />}
+                                        disabledReason={isRestricted ? restrictionReason : undefined}
+                                    >
+                                        New managed proxy
+                                    </LemonButton>
+                                )}
                                 minimumAccessLevel={OrganizationMembershipLevel.Admin}
                                 scope={RestrictionScope.Organization}
                             />
