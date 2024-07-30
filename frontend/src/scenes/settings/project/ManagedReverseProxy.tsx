@@ -16,7 +16,12 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
+import {
+    RestrictedArea,
+    RestrictedComponentProps,
+    RestrictionScope,
+    useRestrictedArea,
+} from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -86,7 +91,11 @@ export function ManagedReverseProxy(): JSX.Element {
             className: 'flex justify-center',
             render: function Render(_, { id, status }) {
                 return (
-                    status != 'deleting' && (
+                    status != 'deleting' &&
+                    !useRestrictedArea({
+                        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+                        scope: RestrictionScope.Organization,
+                    }) && (
                         <LemonMenu
                             items={[
                                 {
@@ -141,7 +150,7 @@ export function ManagedReverseProxy(): JSX.Element {
                             There is a maximum of {MAX_PROXY_RECORDS} records allowed per organization
                         </LemonBanner>
                     ) : (
-                        <div className="space-y-2">
+                        <div className="inline-flex space-y-2">
                             <RestrictedArea
                                 Component={function NewManagedProxy({
                                     isRestricted,
