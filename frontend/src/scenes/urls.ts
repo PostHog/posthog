@@ -84,21 +84,28 @@ export const urls = {
         filters?: AnyPartialFilterType,
         dashboardId?: DashboardType['id'] | null,
         query?: string | Record<string, any>
-    ): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+    ): string => {
+        if (query) {
+            return combineUrl(`/sql`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
+                .url
+        }
+        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-        }).url,
+        }).url
+    },
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
-        urls.insightNew(
-            undefined,
-            undefined,
-            JSON.stringify({
-                kind: 'DataTableNode',
-                full: true,
-                source: { kind: 'HogQLQuery', query, filters },
-            })
-        ),
+        combineUrl(
+            `/sql`,
+            {},
+            {
+                q: JSON.stringify({
+                    kind: 'DataTableNode',
+                    full: true,
+                    source: { kind: 'HogQLQuery', query, filters },
+                }),
+            }
+        ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,

@@ -403,6 +403,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               icon: <IconLive />,
                               to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
                           },
+                          {
+                              identifier: Scene.DataWarehouse,
+                              label: 'SQL Studio',
+                              icon: <IconServer />,
+                              to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                          },
                       ]
                     : [
                           {
@@ -428,12 +434,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 tooltip: 'New insight',
                                 identifier: Scene.Insight,
                             },
-                        },
-                        {
-                            identifier: Scene.DataWarehouse,
-                            label: 'SQL',
-                            icon: <IconServer />,
-                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                         },
                         {
                             identifier: Scene.WebAnalytics,
