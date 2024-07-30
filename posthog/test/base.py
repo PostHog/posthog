@@ -1003,7 +1003,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITION_DATA_SQL,
+                CHANNEL_DEFINITION_DATA_SQL(),
                 SESSIONS_TABLE_MV_SQL(),
                 RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
@@ -1057,7 +1057,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
                 SESSIONS_VIEW_SQL(),
                 RAW_SESSIONS_VIEW_SQL(),
-                CHANNEL_DEFINITION_DATA_SQL,
+                CHANNEL_DEFINITION_DATA_SQL(),
             ]
         )
 

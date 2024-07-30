@@ -54,6 +54,7 @@ orjson==3.9.10
 pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
+pdpyras==5.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
 PyMySQL==1.1.1

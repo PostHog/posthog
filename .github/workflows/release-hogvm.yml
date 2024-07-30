@@ -1,0 +1,52 @@
+name: 'Publish HogVM package'
+
+on:
+    push:
+        branches:
+            - main
+            - master
+
+jobs:
+    release:
+        name: Publish
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: hogvm/typescript
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v4
+
+            - name: Check package version and detect an update
+              id: check-package-version
+              uses: PostHog/check-package-version@v2
+              with:
+                  path: hogvm/typescript
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Set up Node
+              uses: actions/setup-node@v4
+              if: steps.check-package-version.outputs.is-new-version == 'true'
+              with:
+                  node-version: 18.12.1
+                  registry-url: https://registry.npmjs.org
+                  cache: pnpm
+                  cache-dependency-path: hogvm/typescript/pnpm-lock.yaml
+
+            - name: Install dependencies
+              if: steps.check-package-version.outputs.is-new-version == 'true'
+              run: pnpm i --frozen-lockfile
+
+            - name: Build
+              if: steps.check-package-version.outputs.is-new-version == 'true'
+              run: pnpm build
+
+            - name: Publish the package in the npm registry
+              id: publish-package
+              if: steps.check-package-version.outputs.is-new-version == 'true'
+              run: |
+                  pnpm publish --access public --tag latest
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

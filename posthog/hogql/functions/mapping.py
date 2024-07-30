@@ -494,7 +494,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "subtractSeconds": HogQLFunctionMeta("subtractSeconds", 2, 2),
     "subtractQuarters": HogQLFunctionMeta("subtractQuarters", 2, 2),
     "timeSlots": HogQLFunctionMeta("timeSlots", 2, 3),
-    "formatDateTime": HogQLFunctionMeta("formatDateTime", 2, 2),
+    "formatDateTime": HogQLFunctionMeta("formatDateTime", 2, 3),
     "dateName": HogQLFunctionMeta("dateName", 2, 2),
     "monthName": HogQLFunctionMeta("monthName", 1, 1),
     "fromUnixTimestamp": HogQLFunctionMeta(

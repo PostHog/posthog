@@ -390,7 +390,7 @@
             "type": "object"
         },
         "BaseMathType": {
-            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session"],
+            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session", "first_time_for_user"],
             "type": "string"
         },
         "BinCountValue": {
