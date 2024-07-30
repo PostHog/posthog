@@ -845,7 +845,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.cancelWizard()
 
             if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
-                router.actions.push(urls.dataWarehouse(DataWarehouseTab.ManagedSources))
+                router.actions.push(urls.dataWarehouseSettings(DataWarehouseTab.ManagedSources))
             } else if (router.values.location.pathname.includes(urls.pipelineNodeDataWarehouseNew())) {
                 router.actions.push(urls.pipeline(PipelineTab.DataImport))
             }

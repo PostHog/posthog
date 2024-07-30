@@ -84,21 +84,28 @@ export const urls = {
         filters?: AnyPartialFilterType,
         dashboardId?: DashboardType['id'] | null,
         query?: string | Record<string, any>
-    ): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+    ): string => {
+        if (query) {
+            return combineUrl(`/sql`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
+                .url
+        }
+        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-        }).url,
+        }).url
+    },
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
-        urls.insightNew(
-            undefined,
-            undefined,
-            JSON.stringify({
-                kind: 'DataTableNode',
-                full: true,
-                source: { kind: 'HogQLQuery', query, filters },
-            })
-        ),
+        combineUrl(
+            `/sql`,
+            {},
+            {
+                q: JSON.stringify({
+                    kind: 'DataTableNode',
+                    full: true,
+                    source: { kind: 'HogQLQuery', query, filters },
+                }),
+            }
+        ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
@@ -155,12 +162,8 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (tab?: DataWarehouseTab | ':tab', query?: string | Record<string, any>): string =>
-        combineUrl(
-            `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
-            {},
-            query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
-        ).url,
+    dataWarehouse: (query?: string | Record<string, any>): string =>
+        combineUrl(`/sql`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
         combineUrl(
             `/data-warehouse/view/${id}`,
@@ -169,7 +172,7 @@ export const urls = {
         ).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehouseSettings: (tab?: DataWarehouseTab | ':tab'): string =>
-        `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
+        `/data-warehouse/${tab ? tab : DataWarehouseTab.ManagedSources}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseTab | ':tab'): string =>
         `/data-warehouse/settings/${tab ? tab : DataWarehouseTab.ManagedSources}/${id}`,

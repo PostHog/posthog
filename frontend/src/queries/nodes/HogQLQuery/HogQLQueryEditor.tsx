@@ -12,11 +12,10 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { activemodelStateKey, codeEditorLogic, editorModelsStateKey } from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable, Uri } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery } from '~/queries/schema'
-import { DataWarehouseTab } from '~/types'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 
@@ -36,9 +35,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
 
     const [key] = useState(() =>
-        router.values.location.pathname.includes(urls.dataWarehouse(DataWarehouseTab.Explore))
-            ? urls.dataWarehouse(DataWarehouseTab.Explore)
-            : uniqueNode++
+        router.values.location.pathname.includes(urls.dataWarehouse()) ? urls.dataWarehouse() : uniqueNode++
     )
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
