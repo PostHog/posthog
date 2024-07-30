@@ -42,13 +42,13 @@ export function DataWarehouseExternalScene(): JSX.Element {
 
     const { insightSaving } = useValues(
         insightLogic({
-            dashboardItemId: 'new',
+            dashboardItemId: 'new-dataWarehouse',
             cachedInsight: null,
         })
     )
     const { saveAs } = useActions(
         insightLogic({
-            dashboardItemId: 'new',
+            dashboardItemId: 'new-dataWarehouse',
             cachedInsight: null,
         })
     )
