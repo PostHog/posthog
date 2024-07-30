@@ -909,36 +909,45 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$pageview",
             distinct_id=d1,
-            timestamp="2024-06-26",
+            timestamp="2024-07-30",
             properties={"$session_id": s1, "utm_source": "google", "$pathname": "/path"},
         )
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=d1,
-            timestamp="2024-06-26",
+            timestamp="2024-07-30",
             properties={"$session_id": s2, "utm_source": "google", "$pathname": "/path"},
         )
 
         # Try this with a query that uses session properties
         results_session = self._run_web_stats_table_query(
             "all",
-            "2024-06-27",
+            "2024-07-31",
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
         ).results
-        self.assertEqual(
-            [["google", 1, 2]],
-            results_session,
-        )
+        assert [["google", 1, 2]] == results_session
 
         # Try this with a query that uses event properties
         results_event = self._run_web_stats_table_query(
             "all",
-            "2024-06-27",
+            "2024-07-31",
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
+        assert [["/path", 1, 2]] == results_event
 
-        self.assertEqual(
-            [["/path", 1, 2]],
-            results_event,
-        )
+        # Try this with a query using the bounce rate
+        results_event = self._run_web_stats_table_query(
+            "all", "2024-07-31", breakdown_by=WebStatsBreakdown.PAGE, include_bounce_rate=True
+        ).results
+        assert [["/path", 1, 2, None]] == results_event
+
+        # Try this with a query using the scroll depth
+        results_event = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            include_scroll_depth=True,
+        ).results
+        assert [["/path", 1, 2, None, None, None]] == results_event

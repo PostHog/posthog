@@ -45,6 +45,7 @@ import {
     EntityType,
     Experiment,
     FilterLogicalOperator,
+    FilterType,
     FunnelCorrelation,
     HelpType,
     InsightModel,
@@ -291,7 +292,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         // insights
         reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
-        reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
+        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             query: Node | null,
@@ -635,10 +636,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
             posthog.capture('insight created', { insight: insightType })
         },
-        reportInsightSaved: async ({ query, isNewInsight }) => {
+        reportInsightSaved: async ({ filters, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
-                ...sanitizeQuery(query),
+                ...filters,
                 is_new_insight: isNewInsight,
             })
         },
