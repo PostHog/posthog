@@ -21,7 +21,7 @@ import { DeleteTableModal, TableData } from './TableData'
 export const DataWarehouseTables = (): JSX.Element => {
     // insightLogic
     const logic = insightLogic({
-        dashboardItemId: 'new-dataWarehouse',
+        dashboardItemId: 'new',
         cachedInsight: null,
     })
     const { insightProps } = useValues(logic)

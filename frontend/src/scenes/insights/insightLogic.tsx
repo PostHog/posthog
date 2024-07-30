@@ -24,8 +24,9 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
+import { getInsightFilterOrQueryForPersistance } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Node } from '~/queries/schema'
+import { InsightVizNode, Node } from '~/queries/schema'
 import {
     FilterType,
     InsightLogicProps,
@@ -37,10 +38,9 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { insightDataLogic } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
-import { insightsApi, InsightsApiOptions } from './utils/api'
+import { insightsApi } from './utils/api'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -89,10 +89,10 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAs: (redirectToViewMode?: boolean) => ({ redirectToViewMode }),
-        saveAsConfirmation: (name: string, redirectToViewMode?: boolean) => ({
+        saveAs: (query: Node, redirectToViewMode?: boolean) => ({ query, redirectToViewMode }),
+        saveAsConfirmation: (name: string, query: Node, redirectToViewMode?: boolean) => ({
             name,
-
+            query,
             redirectToViewMode,
         }),
         cancelChanges: true,
@@ -294,10 +294,6 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     selectors({
-        query: [
-            (s) => [s.insightProps],
-            (insightProps): Node | null => insightDataLogic.find(insightProps).values.query,
-        ],
         queryBasedInsightSaving: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
@@ -318,9 +314,9 @@ export const insightLogic = kea<insightLogicType>([
             ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
         ],
         derivedName: [
-            (s) => [s.query, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
-            (query, aggregationLabel, cohortsById, mathDefinitions) =>
-                summarizeInsight(query, {
+            (s) => [s.queryBasedInsight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
+            (insight, aggregationLabel, cohortsById, mathDefinitions) =>
+                summarizeInsight(insight.query, {
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
@@ -348,7 +344,7 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
-        showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
+        showPersonsModal: [() => [(_, p) => p.query], (query?: InsightVizNode) => !query || !query.hidePersonsModal],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {
@@ -358,28 +354,32 @@ export const insightLogic = kea<insightLogicType>([
             const { name, description, favorited, deleted, dashboards, tags } = values.legacyInsight
 
             let savedInsight: InsightModel
+            const { filters, query } = getInsightFilterOrQueryForPersistance(
+                values.queryBasedInsight,
+                values.queryBasedInsightSaving
+            )
 
             try {
                 // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
-                const insightRequest: Partial<QueryBasedInsightModel> = {
+                const insightRequest: Partial<InsightModel> = {
                     name,
                     derived_name: values.derivedName,
                     description,
                     favorited,
-                    query: values.query,
+                    filters,
+                    query,
                     deleted,
                     saved: true,
                     dashboards,
                     tags,
                 }
 
-                const options: InsightsApiOptions<false> = {
-                    writeAsQuery: values.queryBasedInsightSaving,
-                    readAsQuery: false,
-                }
                 savedInsight = insightNumericId
-                    ? await insightsApi.update(insightNumericId, insightRequest, options)
-                    : await insightsApi.create(insightRequest, options)
+                    ? await api.update(
+                          `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
+                          insightRequest
+                      )
+                    : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 actions.saveInsightSuccess()
             } catch (e) {
@@ -389,9 +389,9 @@ export const insightLogic = kea<insightLogicType>([
 
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
-            const result = savedInsight.result || (values.query ? values.legacyInsight.result : null)
+            const result = savedInsight.result || (query ? values.legacyInsight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
-            eventUsageLogic.actions.reportInsightSaved(values.query, insightNumericId === undefined)
+            eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
@@ -427,7 +427,7 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAs: async ({ redirectToViewMode }) => {
+        saveAs: async ({ query, redirectToViewMode }) => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
@@ -444,14 +444,14 @@ export const insightLogic = kea<insightLogicType>([
                 errors: {
                     name: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode),
+                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, query, redirectToViewMode),
             })
         },
-        saveAsConfirmation: async ({ name, redirectToViewMode }) => {
+        saveAsConfirmation: async ({ name, query, redirectToViewMode }) => {
             const insight = await insightsApi.create(
                 {
                     name,
-                    query: values.query,
+                    query,
                     saved: true,
                 },
                 {
