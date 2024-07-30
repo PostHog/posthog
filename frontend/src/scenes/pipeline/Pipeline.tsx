@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab } from '~/types'
+import { ActivityScope, PipelineTab } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
 import { Destinations } from './destinations/Destinations'
@@ -43,17 +44,15 @@ export function Pipeline(): JSX.Element {
         }
     }
 
+    tabToContent[PipelineTab.History] = <ActivityLog scope={ActivityScope.PLUGIN} />
+
     return (
         <div className="pipeline-scene">
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
                 tabs={Object.entries(tabToContent).map(([tab, content]) => ({
-                    label: (
-                        <span className="flex justify-center items-center justify-between gap-1">
-                            {humanFriendlyTabName(tab as PipelineTab)}{' '}
-                        </span>
-                    ),
+                    label: humanFriendlyTabName(tab as PipelineTab),
                     key: tab,
                     content: content,
                 }))}
