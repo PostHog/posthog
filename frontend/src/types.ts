@@ -1584,7 +1584,7 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | null | undefined
+        [key: string]: string | number | null | undefined
     }
     billing_period?: {
         current_period_start: Dayjs
