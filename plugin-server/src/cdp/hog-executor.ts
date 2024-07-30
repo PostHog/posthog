@@ -188,6 +188,13 @@ export class HogExecutor {
             return errorRes(asyncFunctionResponse.error ?? 'No VM state provided for async response')
         }
 
+        if (asyncFunctionResponse.response?.body && typeof asyncFunctionResponse.response?.body === 'string') {
+            // TODO: Ensure this is done in rusty hook
+            try {
+                asyncFunctionResponse.response.body = JSON.parse(asyncFunctionResponse.response.body)
+            } catch (e) {}
+        }
+
         // Add the response to the stack to continue execution
         invocation.vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
         invocation.timings.push(...(asyncFunctionResponse.timings ?? []))

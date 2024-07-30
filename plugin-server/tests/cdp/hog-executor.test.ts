@@ -11,7 +11,7 @@ import {
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, insertHogFunction as _insertHogFunction } from './fixtures'
 
-const createAsyncFunctionResponse = (): HogFunctionAsyncFunctionResponse => {
+const createAsyncFunctionResponse = (response?: Record<string, any>): HogFunctionAsyncFunctionResponse => {
     return {
         timings: [
             {
@@ -22,6 +22,7 @@ const createAsyncFunctionResponse = (): HogFunctionAsyncFunctionResponse => {
         response: {
             status: 200,
             body: 'success',
+            ...response,
         },
     }
 }
@@ -193,6 +194,34 @@ describe('Hog Executor', () => {
                 "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":"success"}',
+                'Function completed in 100ms. Sync: 0ms. Mem: 589 bytes. Ops: 22.',
+            ])
+        })
+
+        it('parses the responses body if a string', () => {
+            const logs: LogEntry[] = []
+            const globals = createHogExecutionGlobals()
+            const results = executor
+                .findMatchingFunctions(createHogExecutionGlobals())
+                .matchingFunctions.map((x) => executor.executeFunction(globals, x) as HogFunctionInvocationResult)
+            const splicedLogs = results[0].logs.splice(0, 100)
+            logs.push(...splicedLogs)
+
+            const asyncExecResult = executor.executeAsyncResponse(
+                results[0].invocation,
+                createAsyncFunctionResponse({
+                    body: JSON.stringify({ foo: 'bar' }),
+                })
+            )
+
+            logs.push(...asyncExecResult.logs)
+            expect(asyncExecResult.error).toBeUndefined()
+            expect(asyncExecResult.finished).toBe(true)
+            expect(logs.map((log) => log.message)).toEqual([
+                'Executing function',
+                "Suspending function due to async function call 'fetch'. Payload: 1299 bytes",
+                'Resuming function',
+                'Fetch response:, {"status":200,"body":{"foo":"bar"}}', // The body is parsed
                 'Function completed in 100ms. Sync: 0ms. Mem: 589 bytes. Ops: 22.',
             ])
         })
