@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ConcreteLemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -23,38 +23,32 @@ export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
     const { hasEnabledImportApps } = useValues(importAppsLogic)
 
-    let tabToContent: Partial<Record<PipelineTab, JSX.Element>> = {
-        [PipelineTab.Overview]: <Overview />,
-        [PipelineTab.Transformations]: <Transformations />,
-        [PipelineTab.Destinations]: <Destinations />,
-        [PipelineTab.SiteApps]: <FrontendApps />,
-        [PipelineTab.DataImport]: <DataWarehouseManagedSourcesTable />,
-    }
+    const tabs: Pick<ConcreteLemonTab<PipelineTab>, 'key' | 'content'>[] = [
+        { key: PipelineTab.Overview, content: <Overview /> },
+        { key: PipelineTab.Transformations, content: <Transformations /> },
+        { key: PipelineTab.Destinations, content: <Destinations /> },
+        { key: PipelineTab.SiteApps, content: <FrontendApps /> },
+        { key: PipelineTab.DataImport, content: <DataWarehouseManagedSourcesTable /> },
+    ]
+
     // Import apps are deprecated, we only show the tab if there are some still enabled
     if (hasEnabledImportApps) {
-        tabToContent = {
-            ...tabToContent,
-            [PipelineTab.ImportApps]: <ImportApps />,
-        }
+        tabs.push({ key: PipelineTab.ImportApps, content: <ImportApps /> })
     }
     if (canGloballyManagePlugins) {
-        tabToContent = {
-            ...tabToContent,
-            [PipelineTab.AppsManagement]: <AppsManagement />,
-        }
+        tabs.push({ key: PipelineTab.AppsManagement, content: <AppsManagement /> })
     }
 
-    tabToContent[PipelineTab.History] = <ActivityLog scope={ActivityScope.PLUGIN} />
+    tabs.push({ key: PipelineTab.History, content: <ActivityLog scope={ActivityScope.PLUGIN} /> })
 
     return (
         <div className="pipeline-scene">
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
-                tabs={Object.entries(tabToContent).map(([tab, content]) => ({
-                    label: humanFriendlyTabName(tab as PipelineTab),
-                    key: tab,
-                    content: content,
+                tabs={tabs.map((tab) => ({
+                    ...tab,
+                    label: humanFriendlyTabName(tab.key),
                 }))}
             />
         </div>
