@@ -31,7 +31,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
 import { DashboardFilter, RefreshType } from '~/queries/schema'
 import {
@@ -64,25 +64,6 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
 export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-
-const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | null
-): DashboardType<QueryBasedInsightModel> | null => {
-    if (dashboard == null) {
-        return null
-    }
-
-    return {
-        ...dashboard,
-        tiles: dashboard.tiles.map(
-            (tile) =>
-                ({
-                    ...tile,
-                    insight: tile.insight != null ? getQueryBasedInsightModel(tile.insight) : null,
-                } as DashboardTile<QueryBasedInsightModel>)
-        ),
-    }
-}
 
 export interface DashboardLogicProps {
     id: number

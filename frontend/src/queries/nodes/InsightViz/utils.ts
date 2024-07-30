@@ -3,7 +3,7 @@ import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 
 import { InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { isInsightQueryWithSeries } from '~/queries/utils'
-import { ActionType, FilterType, InsightModel, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardTile, DashboardType, FilterType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
@@ -90,4 +90,24 @@ export function getQueryFromInsightLike(insight: {
     }
 
     return query
+}
+
+/** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
+export const getQueryBasedDashboard = (
+    dashboard: DashboardType<InsightModel> | null
+): DashboardType<QueryBasedInsightModel> | null => {
+    if (dashboard == null) {
+        return null
+    }
+
+    return {
+        ...dashboard,
+        tiles: dashboard.tiles.map(
+            (tile) =>
+                ({
+                    ...tile,
+                    insight: tile.insight != null ? getQueryBasedInsightModel(tile.insight) : null,
+                } as DashboardTile<QueryBasedInsightModel>)
+        ),
+    }
 }
