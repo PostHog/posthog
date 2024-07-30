@@ -18,12 +18,12 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode, legacyInsight } = useValues(insightSceneLogic)
+    const { insightMode, queryBasedInsight } = useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
-        cachedInsight: legacyInsight?.short_id === insightId ? legacyInsight : null,
+        cachedInsight: queryBasedInsight?.short_id === insightId ? queryBasedInsight : null,
     })
     const { insightProps } = useValues(logic)
 
