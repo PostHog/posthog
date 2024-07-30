@@ -515,6 +515,10 @@ ORDER BY "context.columns.visitors" DESC,
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+                return parse_expr(
+                    "breakdown_value IS NOT NULL AND breakdown_value != ''"
+                )  # we need to check for empty strings as well due to how the left join works
             case _:
                 return parse_expr("breakdown_value IS NOT NULL")
 
