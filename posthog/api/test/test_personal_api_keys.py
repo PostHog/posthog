@@ -49,6 +49,12 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             {"label": i, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
         )
         assert response.status_code == 400
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "You can only have 10 personal API keys. Remove an existing key before creating a new one.",
+            "attr": None,
+        }
 
     def test_create_personal_api_key_label_required(self):
         response = self.client.post("/api/personal_api_keys/", {"label": ""})
