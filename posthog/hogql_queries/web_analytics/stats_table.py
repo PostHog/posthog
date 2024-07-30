@@ -505,8 +505,6 @@ ORDER BY "context.columns.visitors" DESC,
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
             case WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
-                return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
