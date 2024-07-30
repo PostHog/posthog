@@ -232,7 +232,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
     loaders(({ actions, props, values }) => ({
         dashboard: [
-            null as DashboardType | null,
+            null as DashboardType<QueryBasedInsightModel> | null,
             {
                 loadDashboard: async ({ refresh, action }, breakpoint) => {
                     const dashboardQueryId = uuid()
@@ -242,11 +242,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         const apiUrl = values.apiUrl(refresh || 'async')
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
-                        const dashboard: DashboardType = await getJSONOrNull(dashboardResponse)
+                        const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
-                        return dashboard
+                        if (dashboard) {
+                            dashboard.tiles = dashboard.tiles.map((tile) => ({
+                                ...tile,
+                                insight: getQueryBasedInsightModel(tile.insight),
+                            }))
+                        }
+
+                        return dashboard as DashboardType<QueryBasedInsightModel> | null
                     } catch (error: any) {
                         if (error.status === 404) {
                             return null

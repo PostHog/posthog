@@ -340,11 +340,7 @@ export function InsightIcon({
 }): JSX.Element | null {
     let Icon: (props?: any) => JSX.Element | null = () => null
 
-    if ('filters' in insight && isNonEmptyObject(insight.filters)) {
-        const insightType = insight.filters.insight || InsightType.TRENDS
-        const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
-        Icon = insightMetadata && insightMetadata.icon
-    } else if ('query' in insight && isNonEmptyObject(insight.query)) {
+    if ('query' in insight && isNonEmptyObject(insight.query)) {
         const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
         const insightMetadata = QUERY_TYPES_METADATA[insightType]
         Icon = insightMetadata && insightMetadata.icon

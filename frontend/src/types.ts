@@ -1662,9 +1662,9 @@ export interface Tileable {
     color: InsightColor | null
 }
 
-export interface DashboardTile extends Tileable {
+export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
-    insight?: QueryBasedInsightModel
+    insight?: T
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
@@ -1748,19 +1748,19 @@ export interface DashboardTemplateListParams {
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
-export interface DashboardType extends DashboardBasicType {
-    tiles: DashboardTile[]
+export interface DashboardType<T = InsightModel> extends DashboardBasicType {
+    tiles: DashboardTile<T>[]
     filters: DashboardFilter
 }
 
-export interface DashboardTemplateType {
+export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
     created_at?: string
     template_name: string
     dashboard_description?: string
     dashboard_filters?: DashboardFilter
-    tiles: DashboardTile[]
+    tiles: DashboardTile<T>[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
