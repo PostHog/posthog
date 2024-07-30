@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AvailableFeature, Realm } from '~/types'
 
@@ -114,6 +115,17 @@ export const PayGateMiniLimitFeatureProjects = (): JSX.Element => {
                     },
                 },
             ],
+        },
+    })
+    return <Template feature={AvailableFeature.ORGANIZATIONS_PROJECTS} currentUsage={2} />
+}
+
+export const PayGateMiniFree = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing/': {
+                ...billingUnsubscribedJson,
+            },
         },
     })
     return <Template feature={AvailableFeature.ORGANIZATIONS_PROJECTS} currentUsage={2} />
