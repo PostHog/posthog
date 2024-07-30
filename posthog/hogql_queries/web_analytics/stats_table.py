@@ -58,7 +58,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
     SELECT
@@ -97,7 +97,7 @@ ORDER BY "context.columns.visitors" DESC,
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
     SELECT
@@ -139,7 +139,7 @@ ORDER BY "context.columns.visitors" DESC,
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views",
     avg(is_bounce) AS "context.columns.bounce_rate"
 FROM (
