@@ -1,91 +1,20 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+import {
+    LemonBanner,
+    LemonCalendarSelectInput,
+    LemonCheckbox,
+    LemonFileInput,
+    LemonInput,
+    LemonInputSelect,
+    LemonSelect,
+    Tooltip,
+} from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportConfigurationForm, batchExportsEditLogic, BatchExportsEditLogicProps } from './batchExportEditLogic'
-
-export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Element {
-    const logic = batchExportsEditLogic(props)
-    const { isNew, batchExportConfigForm, isBatchExportConfigFormSubmitting, batchExportConfigLoading } =
-        useValues(logic)
-    const { submitBatchExportConfigForm, cancelEditing } = useActions(logic)
-    const { user } = useValues(userLogic)
-
-    return (
-        <>
-            {batchExportConfigLoading ? (
-                <>
-                    <LemonSkeleton />
-                    <LemonSkeleton />
-                    <LemonSkeleton />
-                    <LemonSkeleton />
-                </>
-            ) : (
-                <>
-                    <Form
-                        logic={batchExportsEditLogic}
-                        props={props}
-                        formKey="batchExportConfigForm"
-                        className="space-y-4"
-                    >
-                        <BatchExportGeneralEditFields isNew={isNew} batchExportConfigForm={batchExportConfigForm} />
-                        <div className="space-y-4 max-w-200 w-full ">
-                            <LemonDivider />
-                            <LemonField name="destination" label="Destination">
-                                <LemonSelect
-                                    options={[
-                                        { value: 'BigQuery', label: 'BigQuery' },
-                                        { value: 'Postgres', label: 'PostgreSQL' },
-                                        { value: 'Redshift', label: 'Redshift' },
-                                        { value: 'S3', label: 'S3' },
-                                        { value: 'Snowflake', label: 'Snowflake' },
-                                        ...(user?.is_impersonated ? [{ value: 'HTTP', label: 'HTTP' }] : []),
-                                    ]}
-                                />
-                            </LemonField>
-                        </div>
-                        {!batchExportConfigForm.destination ? (
-                            <p className="text-muted-alt italic">Select a destination to continue configuring</p>
-                        ) : (
-                            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={batchExportConfigForm} />
-                        )}
-
-                        <div className="flex gap-4">
-                            <LemonButton
-                                data-attr="cancel-batch-export"
-                                type="secondary"
-                                onClick={() => cancelEditing()}
-                                disabledReason={isBatchExportConfigFormSubmitting ? 'Currently being saved' : undefined}
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                data-attr="save-batch-export"
-                                htmlType="submit"
-                                type="primary"
-                                onClick={submitBatchExportConfigForm}
-                                loading={isBatchExportConfigFormSubmitting}
-                            >
-                                {isNew ? 'Create' : 'Save'}
-                            </LemonButton>
-                        </div>
-                    </Form>
-                </>
-            )}
-        </>
-    )
-}
+import { BatchExportConfigurationForm } from './types'
 
 export function BatchExportGeneralEditFields({
     isNew,
