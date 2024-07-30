@@ -212,7 +212,6 @@ export const QueryInsightCard: Story = (args) => {
                         key={insight.id}
                         insight={{
                             ...insight,
-                            filters: {},
                             query,
                         }}
                         rename={() => {}}
