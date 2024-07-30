@@ -10,19 +10,31 @@ class Command(BaseCommand):
         parser.add_argument("config_ids", type=str, help="Plugin config ID or list of ID's, separated by commas")
         parser.add_argument("new_plugin_id", type=int, help="New Plugin ID")
         parser.add_argument("--dry-run", type=bool, help="Print information instead of storing it")
+        parser.add_argument(
+            "--bulk-mode",
+            type=bool,
+            help="Switches to running in bulk mode. config_ids is interpreted as a list of plugin ids, and ANY plugin config referencing any of them will be modified to reference the new_plugin_id",
+        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         config_ids = options["config_ids"]
         new_plugin_id = options["new_plugin_id"]
+        bulk_mode = options["bulk_mode"]
 
         if "," in config_ids:
             config_ids = {int(x) for x in config_ids.split(",")}
         else:
             config_ids = {int(config_ids)}
 
+        if bulk_mode:
+            print("Running in bulk mode")  # noqa T201
+            found_configs = PluginConfig.objects.filter(plugin_id__in=config_ids)
+        else:
+            print("Running in per-config mode")  # noqa T201
+            found_configs = PluginConfig.objects.filter(id__in=config_ids)
+
         new_plugin = Plugin.objects.get(id=new_plugin_id)
-        found_configs = PluginConfig.objects.filter(id__in=config_ids)
 
         existing_plugins = [(config.id, Plugin.objects.get(id=config.plugin_id).name) for config in found_configs]
 
