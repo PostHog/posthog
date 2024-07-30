@@ -1,3 +1,4 @@
+from dateutil import parser
 import uuid
 from typing import Any
 
@@ -867,8 +868,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True)
     def jobs(self, request: Request, *arg: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
+        after = request.query_params.get("after", None)
+        before = request.query_params.get("before", None)
 
-        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at").all()
+        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at")
+
+        if after:
+            after_date = parser.parse(after)
+            jobs = jobs.filter(created_at__gt=after_date)
+        if before:
+            before_date = parser.parse(before)
+            jobs = jobs.filter(created_at__lt=before_date)
+
+        jobs = jobs[:50]
 
         return Response(
             status=status.HTTP_200_OK,
