@@ -153,7 +153,7 @@ export enum AvailableFeature {
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
-    CUSTOMM_MSA = 'custom_msa',
+    CUSTOM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
