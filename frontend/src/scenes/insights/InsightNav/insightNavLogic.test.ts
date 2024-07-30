@@ -4,6 +4,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
@@ -91,7 +92,7 @@ describe('insightNavLogic', () => {
             it('takes view from cached insight filters', async () => {
                 const props = {
                     dashboardItemId: 'insight' as InsightShortId,
-                    cachedInsight: { filters: { insight: InsightType.FUNNELS } },
+                    cachedInsight: { query: { kind: NodeKind.InsightVizNode, source: examples.InsightFunnelsQuery } },
                 }
                 const buildInsightLogicWithCachedInsight = insightLogic(props)
                 buildInsightLogicWithCachedInsight.mount()

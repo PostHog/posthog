@@ -4,8 +4,9 @@ import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, InsightLogicProps, InsightType } from '~/types'
+import { AvailableFeature, InsightLogicProps } from '~/types'
 
 import { funnelCorrelationFeedbackLogic } from './funnelCorrelationFeedbackLogic'
 
@@ -22,13 +23,16 @@ describe('funnelCorrelationFeedbackLogic', () => {
         dashboardItemId: undefined,
         cachedInsight: {
             short_id: undefined,
-            filters: {
-                insight: InsightType.FUNNELS,
-                actions: [
-                    { id: '$pageview', order: 0 },
-                    { id: '$pageview', order: 1 },
-                ],
-            },
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.ActionsNode, id: 1 },
+                        { kind: NodeKind.ActionsNode, id: 1 },
+                    ],
+                },
+            } as InsightVizNode,
             result: [],
         },
     }

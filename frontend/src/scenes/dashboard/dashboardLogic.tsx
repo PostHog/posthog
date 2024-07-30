@@ -400,7 +400,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         dashboard: [
-            null as DashboardType | null,
+            null as DashboardType<QueryBasedInsightModel> | null,
             {
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
@@ -408,7 +408,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return {
                         ...state,
                         tiles: state?.tiles?.map((tile) => ({ ...tile, layouts: itemLayouts[tile.id] })),
-                    } as DashboardType
+                    } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
                     if (state?.id === dashboardId) {
