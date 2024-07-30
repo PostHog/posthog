@@ -455,7 +455,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
                 {
                     writeAsQuery: values.queryBasedInsightSaving,
-                    readAsQuery: false,
+                    readAsQuery: true,
                 }
             )
             lemonToast.info(
