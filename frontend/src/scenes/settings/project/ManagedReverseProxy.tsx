@@ -147,7 +147,7 @@ export function ManagedReverseProxy(): JSX.Element {
                             There is a maximum of {MAX_PROXY_RECORDS} records allowed per organization
                         </LemonBanner>
                     ) : (
-                        <div className="flex space-y-2">
+                        <div className="flex">
                             <LemonButton
                                 onClick={showForm}
                                 type="secondary"
