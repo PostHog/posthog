@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { dashboardsModelType } from './dashboardsModelType'
@@ -69,7 +70,12 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     // looking at a fully exported dashboard, return its contents
                     const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
                     if (exportedDashboard?.id && exportedDashboard?.tiles) {
-                        return { count: 1, next: null, previous: null, results: [exportedDashboard] }
+                        return {
+                            count: 1,
+                            next: null,
+                            previous: null,
+                            results: [getQueryBasedDashboard(exportedDashboard) as DashboardBasicType],
+                        }
                     }
 
                     if (!isUserLoggedIn()) {
