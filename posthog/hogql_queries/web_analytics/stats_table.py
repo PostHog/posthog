@@ -194,7 +194,7 @@ SELECT
 FROM (
     SELECT
         breakdown_value,
-        count(person_id) AS visitors,
+        uniq(person_id) AS visitors,
         sum(filtered_pageview_count) AS views
     FROM (
         SELECT
@@ -301,7 +301,7 @@ SELECT
 FROM (
     SELECT
         breakdown_value,
-        count(person_id) AS visitors,
+        uniq(person_id) AS visitors,
         sum(filtered_pageview_count) AS views
     FROM (
         SELECT
