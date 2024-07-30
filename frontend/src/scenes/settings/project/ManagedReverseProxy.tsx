@@ -16,7 +16,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
+import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -86,7 +86,11 @@ export function ManagedReverseProxy(): JSX.Element {
             className: 'flex justify-center',
             render: function Render(_, { id, status }) {
                 return (
-                    status != 'deleting' && (
+                    status != 'deleting' &&
+                    !useRestrictedArea({
+                        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+                        scope: RestrictionScope.Organization,
+                    }) && (
                         <LemonMenu
                             items={[
                                 {
