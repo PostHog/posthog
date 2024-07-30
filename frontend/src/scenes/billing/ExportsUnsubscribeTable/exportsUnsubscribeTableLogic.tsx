@@ -100,7 +100,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                         description: pluginConfig.description,
                         icon: <RenderApp plugin={pluginConfig.plugin_info} imageSize="small" />,
                         disabled: !pluginConfig.enabled,
-                        url: urls.pipelineNode(PipelineStage.SiteApp, pluginConfig.id),
+                        url: urls.pipelineNode(PipelineStage.Destination, pluginConfig.id),
                     } as ItemToDisable
                 })
                 const batchExports = Object.values(batchExportConfigs).map((batchExportConfig) => {
