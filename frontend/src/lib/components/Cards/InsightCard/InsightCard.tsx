@@ -11,7 +11,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
-import { QueryContext } from '~/queries/types'
 import {
     DashboardBasicType,
     DashboardPlacement,
@@ -62,17 +61,6 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
-}
-
-export interface FilterBasedCardContentProps
-    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style' | 'stale'> {
-    insightProps: InsightLogicProps
-    tooFewFunnelSteps?: boolean
-    validationError?: string | null
-    empty?: boolean
-    setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
-    /** pass in information from queries, e.g. what text to use for empty states*/
-    context?: QueryContext
 }
 
 function InsightCardInternal(
