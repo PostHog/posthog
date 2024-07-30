@@ -158,8 +158,6 @@ export const urls = {
             query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
         ).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (tab?: DataWarehouseTab | ':tab'): string =>
-        `/data-warehouse/${tab ? tab : DataWarehouseTab.ManagedSources}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseTab | ':tab'): string =>
         `/data-warehouse/settings/${tab ? tab : DataWarehouseTab.ManagedSources}/${id}`,

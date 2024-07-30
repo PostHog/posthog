@@ -4,7 +4,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSettingsTab } from '~/types'
+import { DataWarehouseSettingsTab, PipelineTab } from '~/types'
 
 import {
     dataWarehouseSourceSettingsLogic,
@@ -46,14 +46,14 @@ const FriendlyTabNames: Record<DataWarehouseSourceSettingsTabs, string> = {
 }
 
 export function DataWarehouseSourceSettingsScene(): JSX.Element {
-    const { parentSettingsTab, currentTab } = useValues(dataWarehouseSourceSettingsLogic)
+    const { currentTab } = useValues(dataWarehouseSourceSettingsLogic)
     const { setCurrentTab } = useActions(dataWarehouseSourceSettingsLogic)
 
     return (
         <div>
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.dataWarehouseSettings(parentSettingsTab)}>
+                    <LemonButton type="primary" to={urls.pipeline(PipelineTab.Sources)}>
                         Return to sources
                     </LemonButton>
                 }
