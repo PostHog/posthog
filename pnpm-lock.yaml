@@ -238,6 +238,9 @@ dependencies:
   kea-window-values:
     specifier: ^3.0.0
     version: 3.0.0(kea@3.1.5)
+  lodash.merge:
+    specifier: ^4.6.2
+    version: 4.6.2
   maplibre-gl:
     specifier: ^3.5.1
     version: 3.5.1
@@ -263,8 +266,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.151.0
-    version: 1.151.0
+    specifier: 1.151.2
+    version: 1.151.2
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -488,6 +491,9 @@ devDependencies:
   '@types/jest-image-snapshot':
     specifier: ^6.1.0
     version: 6.1.0
+  '@types/lodash.merge':
+    specifier: ^4.6.9
+    version: 4.6.9
   '@types/node':
     specifier: ^18.11.9
     version: 18.11.9
@@ -8355,6 +8361,12 @@ packages:
     resolution: {integrity: sha512-PecSzorDGdabF57OBeQO/xFbAkYWo88g4Xvnsx7LRwqLC17I7OoKtA3bQB9uXkY6UkMWCOsA8HSVpaoitscdXw==}
     dev: false
 
+  /@types/lodash.merge@4.6.9:
+    resolution: {integrity: sha512-23sHDPmzd59kUgWyKGiOMO2Qb9YtqRO/x4IhkgNUiPQ1+5MUVqi6bCZeq9nBJ17msjIMbEIO5u+XW4Kz6aGUhQ==}
+    dependencies:
+      '@types/lodash': 4.14.188
+    dev: true
+
   /@types/lodash@4.14.188:
     resolution: {integrity: sha512-zmEmF5OIM3rb7SbLCFYoQhO4dGt2FRM9AMkxvA3LaADOF1n8in/zGJlWji9fmafLoNyz+FoL6FE0SLtGIArD7w==}
     dev: true
@@ -15659,7 +15671,6 @@ packages:
 
   /lodash.merge@4.6.2:
     resolution: {integrity: sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==}
-    dev: true
 
   /lodash.once@4.1.1:
     resolution: {integrity: sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==}
@@ -17728,8 +17739,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.151.0:
-    resolution: {integrity: sha512-KcafRksGNYNar230VpGWicUc4FhezSDVd7zw8uX0ohtUgPiq6OSek48YUC4uF+0i1s/zbpFeD3zky1o0zqFacw==}
+  /posthog-js@1.151.2:
+    resolution: {integrity: sha512-sNvyh24jrZbqurLXWqbaISXK+nzQM0S08ttG4OnF8xhvb6KW62uUKcAfx2PTU1UiHuOWP68JmDZ+3K6ixknPtg==}
     dependencies:
       fflate: 0.4.8
       preact: 10.23.1

@@ -660,6 +660,7 @@ export enum PipelineTab {
     Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
+    History = 'history',
 }
 
 export enum PipelineStage {

@@ -5,7 +5,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Breadcrumb, PipelineTab } from '~/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { ActivityScope, Breadcrumb, PipelineTab } from '~/types'
 
 import type { pipelineLogicType } from './pipelineLogicType'
 
@@ -32,7 +33,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
     selectors(() => ({
         breadcrumbs: [
             (s) => [s.currentTab],
-            (tab): Breadcrumb[] => {
+            (tab: PipelineTab): Breadcrumb[] => {
                 return [
                     { key: Scene.Pipeline, name: 'Data pipeline' },
                     {
@@ -40,6 +41,15 @@ export const pipelineLogic = kea<pipelineLogicType>([
                         name: humanFriendlyTabName(tab),
                     },
                 ]
+            },
+        ],
+
+        activityFilters: [
+            () => [],
+            (): ActivityFilters | null => {
+                return {
+                    scope: ActivityScope.PLUGIN,
+                }
             },
         ],
     })),

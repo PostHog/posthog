@@ -4,7 +4,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
 
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
 import { NODE_STAGE_TO_PIPELINE_TAB } from './pipelineNodeNewLogic'
@@ -75,6 +76,18 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                     name: breadcrumbTitle,
                 },
             ],
+        ],
+
+        activityFilters: [
+            (s) => [s.node],
+            (node): ActivityFilters | null => {
+                return node.backend === PipelineBackend.Plugin
+                    ? {
+                          scope: ActivityScope.PLUGIN,
+                          item_id: `${node.id}`,
+                      }
+                    : null
+            },
         ],
 
         nodeBackend: [
