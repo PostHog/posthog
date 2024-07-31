@@ -2561,12 +2561,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     vector<string> nested =
         nested_identifier_ctx ? any_cast<vector<string>>(visit(nested_identifier_ctx)) : vector<string>();
 
-    std::ostringstream os;
-    std::copy(nested.begin(), nested.end() - 1, std::ostream_iterator<std::string>(os, "."));
-    os << nested.back();
-    string name = os.str();
-
-    RETURN_NEW_AST_NODE("Placeholder", "{s:s#}", "field", name.data(), name.size());
+    RETURN_NEW_AST_NODE("Placeholder", "{s:N}", "chain", X_PyList_FromStrings(nested));
   }
 
   VISIT_UNSUPPORTED(EnumValue)

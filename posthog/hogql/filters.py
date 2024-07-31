@@ -52,7 +52,7 @@ class ReplaceFilters(CloningVisitor):
         return node
 
     def visit_placeholder(self, node):
-        if node.field == "filters":
+        if node.chain == ["filters"]:
             if self.filters is None:
                 return ast.Constant(value=True)
 
@@ -131,7 +131,7 @@ class ReplaceFilters(CloningVisitor):
             if len(exprs) == 1:
                 return exprs[0]
             return ast.And(exprs=exprs)
-        if node.field == "filters.dateRange.dateFrom":
+        if node.chain == ["filters", "dateRange", "from"]:
             compare_op_wrapper = self.compare_operations[-1]
 
             if self.filters is None:
@@ -149,7 +149,7 @@ class ReplaceFilters(CloningVisitor):
             else:
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
-        if node.field == "filters.dateRange.dateTo":
+        if node.chain == ["filters", "dateRange", "to"]:
             compare_op_wrapper = self.compare_operations[-1]
 
             if self.filters is None:

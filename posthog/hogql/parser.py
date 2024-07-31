@@ -1121,7 +1121,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
         nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
-        return ast.Placeholder(field=".".join(identifier for identifier in nested))
+        return ast.Placeholder(chain=nested)
 
     def visitColumnExprTemplateString(self, ctx: HogQLParser.ColumnExprTemplateStringContext):
         return self.visit(ctx.templateString())
