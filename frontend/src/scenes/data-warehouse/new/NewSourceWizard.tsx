@@ -7,7 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
-import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
+import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
@@ -62,15 +62,17 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
 
         return (
             <div className="mt-4 flex flex-row justify-end gap-2">
-                <LemonButton
-                    type="secondary"
-                    center
-                    data-attr="source-modal-back-button"
-                    onClick={onBack}
-                    disabledReason={!canGoBack && 'You cant go back from here'}
-                >
-                    Back
-                </LemonButton>
+                {canGoBack && (
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-modal-back-button"
+                        onClick={onBack}
+                        disabledReason={!canGoBack && 'You cant go back from here'}
+                    >
+                        Back
+                    </LemonButton>
+                )}
                 <LemonButton
                     loading={isLoading || manualLinkIsLoading}
                     disabledReason={!canGoNext && 'You cant click next yet'}
@@ -239,7 +241,7 @@ function SecondStep(): JSX.Element {
 function ThirdStep(): JSX.Element {
     return (
         <ModalPage page={3}>
-            <PostgresSchemaForm />
+            <SchemaForm />
         </ModalPage>
     )
 }

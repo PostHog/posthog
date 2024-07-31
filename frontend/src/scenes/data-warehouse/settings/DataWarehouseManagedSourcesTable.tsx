@@ -10,13 +10,14 @@ import Iconazure from 'public/services/azure.png'
 import IconCloudflare from 'public/services/cloudflare.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
+import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconSnowflake from 'public/services/snowflake.png'
 import IconStripe from 'public/services/stripe.png'
 import IconZendesk from 'public/services/zendesk.png'
 import { urls } from 'scenes/urls'
 
-import { manualLinkSources, ProductKey } from '~/types'
+import { DataWarehouseTab, manualLinkSources, ProductKey } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -28,7 +29,7 @@ const StatusTagSetting = {
 }
 
 export function DataWarehouseManagedSourcesTable(): JSX.Element {
-    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById, currentTab } =
+    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
 
@@ -64,7 +65,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     render: function RenderName(_, source) {
                         return (
                             <LemonTableLink
-                                to={urls.dataWarehouseSourceSettings(source.id, currentTab)}
+                                to={urls.dataWarehouseSourceSettings(source.id, DataWarehouseTab.ManagedSources)}
                                 title={source.source_type}
                                 description={source.prefix}
                             />
@@ -187,6 +188,7 @@ export function RenderDataWarehouseSourceIcon({
         Hubspot: IconHubspot,
         Zendesk: IconZendesk,
         Postgres: IconPostgres,
+        MySQL: IconMySQL,
         Snowflake: IconSnowflake,
         aws: IconAwsS3,
         'google-cloud': IconGoogleCloudStorage,

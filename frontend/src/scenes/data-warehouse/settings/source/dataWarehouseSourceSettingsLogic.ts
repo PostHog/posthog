@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import {
     Breadcrumb,
     DataWarehouseSettingsTab,
+    DataWarehouseTab,
     ExternalDataJob,
     ExternalDataSourceSchema,
     ExternalDataStripeSource,
@@ -35,10 +36,11 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     key(({ id }) => id),
     actions({
         setCurrentTab: (tab: DataWarehouseSourceSettingsTabs) => ({ tab }),
-        setParentSettingsTab: (tab: DataWarehouseSettingsTab) => ({ tab }),
+        setParentSettingsTab: (tab: DataWarehouseTab) => ({ tab }),
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
+        setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -69,7 +71,28 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             [] as ExternalDataJob[],
             {
                 loadJobs: async () => {
-                    return await api.externalDataSources.jobs(values.sourceId)
+                    if (values.jobs.length === 0) {
+                        return await api.externalDataSources.jobs(values.sourceId, null, null)
+                    }
+
+                    const newJobs = await api.externalDataSources.jobs(values.sourceId, null, values.jobs[0].created_at)
+                    return [...newJobs, ...values.jobs]
+                },
+                loadMoreJobs: async () => {
+                    const hasJobs = values.jobs.length >= 0
+                    if (hasJobs) {
+                        const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
+                        const oldJobs = await api.externalDataSources.jobs(values.sourceId, lastJobCreatedAt, null)
+
+                        if (oldJobs.length === 0) {
+                            actions.setCanLoadMoreJobs(false)
+                            return values.jobs
+                        }
+
+                        return [...values.jobs, ...oldJobs]
+                    }
+
+                    return values.jobs
                 },
             },
         ],
@@ -82,7 +105,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         ],
         parentSettingsTab: [
-            DataWarehouseSettingsTab.Managed as DataWarehouseSettingsTab,
+            DataWarehouseTab.ManagedSources as DataWarehouseTab,
             {
                 setParentSettingsTab: (_, { tab }) => tab,
             },
@@ -91,6 +114,13 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             '' as string,
             {
                 setSourceId: (_, { id }) => id,
+            },
+        ],
+        canLoadMoreJobs: [
+            true as boolean,
+            {
+                setCanLoadMoreJobs: (_, { canLoadMoreJobs }) => canLoadMoreJobs,
+                setSourceId: () => true,
             },
         ],
     }),
@@ -106,7 +136,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 {
                     key: Scene.DataWarehouseSettings,
                     name: 'Data Warehouse Settings',
-                    path: urls.dataWarehouseSettings(parentSettingsTab),
+                    path: urls.dataWarehouse(parentSettingsTab),
                 },
                 {
                     key: Scene.dataWarehouseSourceSettings,
@@ -195,7 +225,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             }
 
             if (parentTab !== values.parentSettingsTab) {
-                actions.setParentSettingsTab(parentTab as DataWarehouseSettingsTab)
+                actions.setParentSettingsTab(parentTab as DataWarehouseTab)
             }
         },
     })),

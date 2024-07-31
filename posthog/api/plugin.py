@@ -30,6 +30,7 @@ from posthog.models.activity_logging.activity_log import (
     Detail,
     Trigger,
     dict_changes_between,
+    load_activity,
     load_all_activity,
     log_activity,
 )
@@ -290,7 +291,10 @@ class PluginSerializer(serializers.ModelSerializer):
         return None
 
     def get_organization_name(self, plugin: Plugin) -> str:
-        return plugin.organization.name
+        if plugin.organization:
+            return plugin.organization.name
+        else:
+            return "posthog-inline"
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
@@ -889,6 +893,17 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         content = f"export function getFrontendApp () {'{'} return {json.dumps(obj)} {'}'}"
         return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
+
+    @action(methods=["GET"], url_path="activity", detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(
+            "PluginConfig", team_id=self.team_id, item_ids=[self.get_object().id], limit=limit, page=page
+        )
+
+        return activity_page_response(activity_page, limit, page, request)
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:

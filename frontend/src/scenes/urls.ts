@@ -1,5 +1,4 @@
 import { combineUrl } from 'kea-router'
-import { toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
@@ -9,21 +8,19 @@ import {
     ActivityTab,
     AnnotationType,
     AnyPartialFilterType,
-    AppMetricsUrlParams,
     DashboardType,
-    DataWarehouseSettingsTab,
-    FilterType,
+    DataWarehouseTab,
     InsightShortId,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
+    RecordingUniversalFilters,
     ReplayTabs,
     SDKKey,
 } from '~/types'
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
-import { PluginTab } from './plugins/types'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -73,11 +70,6 @@ export const urls = {
     events: (): string => `/events`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
-    batchExports: (): string => '/batch_exports',
-    batchExportNew: (): string => `/batch_exports/new`,
-    batchExport: (id: string, params?: { runId?: string }): string =>
-        `/batch_exports/${id}` + (params ? `?${toParams(params)}` : ''),
-    batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insights: (): string => '/insights',
     insightNew: (
@@ -108,13 +100,11 @@ export const urls = {
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webAnalytics: (): string => `/web`,
 
-    replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
+    replay: (tab?: ReplayTabs, filters?: Partial<RecordingUniversalFilters>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
-    replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
-    replaySingle: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
-    replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
+    replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
+    replaySingle: (id: string): string => `/replay/${id}`,
+    replayFilePlayback: (): string => '/replay/file-playback',
 
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
@@ -157,9 +147,12 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (query?: string | Record<string, any>): string =>
-        combineUrl('/data-warehouse', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
-            .url,
+    dataWarehouse: (tab?: DataWarehouseTab | ':tab', query?: string | Record<string, any>): string =>
+        combineUrl(
+            `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
+            {},
+            query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
+        ).url,
     dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
         combineUrl(
             `/data-warehouse/view/${id}`,
@@ -167,26 +160,13 @@ export const urls = {
             query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
         ).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (tab?: DataWarehouseSettingsTab | ':tab'): string =>
-        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}`,
+    dataWarehouseSettings: (tab?: DataWarehouseTab | ':tab'): string =>
+        `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
-    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseSettingsTab | ':tab'): string =>
-        `/data-warehouse/settings/${tab ? tab : DataWarehouseSettingsTab.Managed}/${id}`,
+    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseTab | ':tab'): string =>
+        `/data-warehouse/settings/${tab ? tab : DataWarehouseTab.ManagedSources}/${id}`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
-    projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
-    projectApp: (id: string | number): string => `/apps/${id}`,
-    projectAppSearch: (name: string): string => `/apps?name=${name}`,
-    projectAppLogs: (id: string | number): string => `/apps/${id}/logs`,
-    projectAppSource: (id: string | number): string => `/apps/${id}/source`,
-    frontendApp: (id: string | number): string => `/app/${id}`,
-    appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
-        combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
-    appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
-    appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
-        combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
-    appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
-        combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',

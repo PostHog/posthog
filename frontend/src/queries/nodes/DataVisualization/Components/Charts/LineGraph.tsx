@@ -12,13 +12,14 @@ import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { hexToRGBA } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
 
 Chart.register(annotationPlugin)
@@ -31,7 +32,10 @@ export const LineGraph = (): JSX.Element => {
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
     const { xData, yData, presetChartHeight, visualizationType, showEditingUI } = useValues(dataVisualizationLogic)
-    const isBarChart = visualizationType === ChartDisplayType.ActionsBar
+    const isBarChart =
+        visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
+    const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
+    const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
 
     const { goalLines } = useValues(displayLogic)
 
@@ -44,11 +48,12 @@ export const LineGraph = (): JSX.Element => {
             labels: xData.data,
             datasets: yData.map(({ data }, index) => {
                 const color = getSeriesColor(index)
+                const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
 
                 return {
                     data,
                     borderColor: color,
-                    backgroundColor: color,
+                    backgroundColor: backgroundColor,
                     borderWidth: isBarChart ? 0 : 2,
                     pointRadius: 0,
                     hitRadius: 0,
@@ -56,6 +61,7 @@ export const LineGraph = (): JSX.Element => {
                     hoverBorderWidth: isBarChart ? 0 : 2,
                     hoverBorderRadius: isBarChart ? 0 : 2,
                     type: isBarChart ? GraphType.Bar : GraphType.Line,
+                    fill: isAreaChart ? 'origin' : false,
                 } as ChartData['datasets'][0]
             }),
         }
@@ -87,15 +93,14 @@ export const LineGraph = (): JSX.Element => {
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 'normal',
             },
         }
 
         const gridOptions: Partial<GridLineOptions> = {
             color: colors.axisLine as Color,
-            borderColor: colors.axisLine as Color,
             tickColor: colors.axisLine as Color,
-            borderDash: [4, 2],
+            tickBorderDash: [4, 2],
         }
 
         const options: ChartOptions = {
@@ -174,9 +179,9 @@ export const LineGraph = (): JSX.Element => {
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={yData.map(({ data, column }) => ({
+                                        dataSource={yData.map(({ data, column, settings }) => ({
                                             series: column.name,
-                                            data: data[referenceDataPoint.dataIndex],
+                                            data: formatDataWithSettings(data[referenceDataPoint.dataIndex], settings),
                                         }))}
                                         columns={[
                                             {
@@ -239,6 +244,7 @@ export const LineGraph = (): JSX.Element => {
                 x: {
                     display: true,
                     beginAtZero: true,
+                    stacked: isStackedBarChart,
                     ticks: tickOptions,
                     grid: {
                         ...gridOptions,
@@ -249,7 +255,7 @@ export const LineGraph = (): JSX.Element => {
                 y: {
                     display: true,
                     beginAtZero: true,
-                    stacked: false,
+                    stacked: isAreaChart || isStackedBarChart,
                     ticks: {
                         display: true,
                         ...tickOptions,

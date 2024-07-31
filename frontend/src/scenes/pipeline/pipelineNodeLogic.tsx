@@ -4,7 +4,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
 
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
 import { NODE_STAGE_TO_PIPELINE_TAB } from './pipelineNodeNewLogic'
@@ -73,6 +74,18 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             ],
         ],
 
+        activityFilters: [
+            (s) => [s.node],
+            (node): ActivityFilters | null => {
+                return node.backend === PipelineBackend.Plugin
+                    ? {
+                          scope: ActivityScope.PLUGIN,
+                          item_id: `${node.id}`,
+                      }
+                    : null
+            },
+        ],
+
         nodeBackend: [
             (s) => [s.node],
             (node): PipelineBackend => {
@@ -107,8 +120,8 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             setCurrentTab: () => [urls.pipelineNode(props.stage as PipelineStage, props.id, values.currentTab)],
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        '/pipeline/:stage/:id/:nodeTab': ({ nodeTab }) => {
+    urlToAction(({ props, actions, values }) => ({
+        [urls.pipelineNode(props.stage as PipelineStage, props.id, ':nodeTab')]: ({ nodeTab }) => {
             if (nodeTab !== values.currentTab && Object.values(PipelineNodeTab).includes(nodeTab as PipelineNodeTab)) {
                 actions.setCurrentTab(nodeTab as PipelineNodeTab)
             }

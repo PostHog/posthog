@@ -161,9 +161,8 @@ async function expectStoryToMatchSnapshot(
     })
 
     // Wait for all images to load
-    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => i.complete))
     await waitForPageReady(page)
-    await page.waitForLoadState('networkidle')
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
     await page.waitForTimeout(2000)
 
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
@@ -174,9 +173,8 @@ async function expectStoryToMatchSnapshot(
     })
 
     // Wait for all images to load
-    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => i.complete))
     await waitForPageReady(page)
-    await page.waitForLoadState('networkidle')
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
     await page.waitForTimeout(100)
 
     await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)

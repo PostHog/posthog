@@ -18,8 +18,14 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
     const isLocalPlugin = plugin?.plugin_type === 'local'
 
     if (!plugin) {
-        pluginConfig.vm?.failInitialization!()
+        pluginConfig.instance?.failInitialization!()
         return false
+    }
+
+    // Inline plugins don't need "loading", and have no source files.
+    if (plugin.plugin_type === 'inline') {
+        await pluginConfig.instance?.initialize!('', pluginDigest(plugin))
+        return true
     }
 
     try {
@@ -32,7 +38,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             try {
                 config = JSON.parse(configJson)
             } catch (e) {
-                pluginConfig.vm?.failInitialization!()
+                pluginConfig.instance?.failInitialization!()
                 await processError(hub, pluginConfig, `Could not load "plugin.json" for ${pluginDigest(plugin)}`)
                 return false
             }
@@ -46,11 +52,11 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                   readFileIfExists(hub.BASE_DIR, plugin, 'index.ts')
             : plugin.source__index_ts
         if (pluginSource) {
-            void pluginConfig.vm?.initialize!(pluginSource, pluginDigest(plugin))
+            void pluginConfig.instance?.initialize!(pluginSource, pluginDigest(plugin))
             return true
         } else {
             // always call this if no backend app present, will signal that the VM is done
-            pluginConfig.vm?.failInitialization!()
+            pluginConfig.instance?.failInitialization!()
 
             // if there is a frontend or site app, don't save an error if no backend app
             const hasFrontend = isLocalPlugin
@@ -72,7 +78,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             }
         }
     } catch (error) {
-        pluginConfig.vm?.failInitialization!()
+        pluginConfig.instance?.failInitialization!()
         await processError(hub, pluginConfig, error)
     }
     return false

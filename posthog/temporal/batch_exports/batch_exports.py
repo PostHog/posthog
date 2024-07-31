@@ -48,6 +48,9 @@ FROM
         interval_end={interval_end}
     ) AS persons
 FORMAT ArrowStream
+-- This is half of configured MAX_MEMORY_USAGE for batch exports.
+-- TODO: Make the setting available to all queries.
+SETTINGS max_bytes_before_external_group_by=50000000000
 """
 
 SELECT_FROM_EVENTS_VIEW = Template("""
@@ -434,15 +437,16 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        logger.error("Batch export failed with non-retryable error: %s", batch_export_run.latest_error)
+        logger.error("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
 
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
-            logger.info("Sending failure notification email for run %s", inputs.id)
             await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
         except Exception:
             logger.exception("Failure email notification could not be sent")
+        else:
+            logger.info("Failure notification email for run %s has been sent", inputs.id)
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,

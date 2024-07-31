@@ -64,7 +64,15 @@ describe('cleanFilters', () => {
             breakdown_type: 'event',
         } as TrendsFilterType)
 
-        expect(cleanedFilters).toHaveProperty('breakdown_normalize_url', true)
+        expect(cleanedFilters).toMatchObject({
+            breakdowns: [
+                {
+                    property: '$current_url',
+                    type: 'event',
+                    normalize_url: true,
+                },
+            ],
+        })
     })
 
     it('defaults to normalizing URL for breakdown by $current_url', () => {
@@ -82,7 +90,15 @@ describe('cleanFilters', () => {
             breakdown_type: 'event',
         } as TrendsFilterType)
 
-        expect(cleanedFilters).toHaveProperty('breakdown_normalize_url', true)
+        expect(cleanedFilters).toMatchObject({
+            breakdowns: [
+                {
+                    property: '$pathname',
+                    type: 'event',
+                    normalize_url: true,
+                },
+            ],
+        })
     })
 
     it('defaults to normalizing URL for breakdown by $pathname', () => {
@@ -172,37 +188,27 @@ describe('cleanFilters', () => {
 
     it('keeps multiple breakdowns', () => {
         const cleanedFilters = cleanFilters({
-            breakdowns: [{ value: 'any', type: 'event' }],
-            insight: InsightType.TRENDS,
-        } as TrendsFilterType)
-
-        expect(cleanedFilters).toHaveProperty('breakdowns', [{ value: 'any', type: 'event' }])
-    })
-
-    it('keeps normalize_url for multiple breakdowns', () => {
-        const cleanedFilters = cleanFilters({
-            breakdowns: [{ value: '$current_url', type: 'event', normalize_url: true }],
-            insight: InsightType.TRENDS,
-        } as TrendsFilterType)
-
-        expect(cleanedFilters).toHaveProperty('breakdowns', [
-            { value: '$current_url', type: 'event', normalize_url: true },
-        ])
-
-        cleanedFilters.breakdowns![0].normalize_url = false
-        expect(cleanedFilters).toHaveProperty('breakdowns', [
-            { value: '$current_url', type: 'event', normalize_url: false },
-        ])
-    })
-
-    it('restores legacy multiple breakdowns', () => {
-        const cleanedFilters = cleanFilters({
             breakdowns: [{ property: 'any', type: 'event' }],
             insight: InsightType.TRENDS,
         } as TrendsFilterType)
 
-        expect(cleanedFilters).toHaveProperty('breakdown', 'any')
-        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
+        expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: 'any', type: 'event' }])
+    })
+
+    it('keeps normalize_url for multiple breakdowns', () => {
+        const cleanedFilters = cleanFilters({
+            breakdowns: [{ property: '$current_url', type: 'event', normalize_url: true }],
+            insight: InsightType.TRENDS,
+        } as TrendsFilterType)
+
+        expect(cleanedFilters).toHaveProperty('breakdowns', [
+            { property: '$current_url', type: 'event', normalize_url: true },
+        ])
+
+        cleanedFilters.breakdowns![0].normalize_url = false
+        expect(cleanedFilters).toHaveProperty('breakdowns', [
+            { property: '$current_url', type: 'event', normalize_url: false },
+        ])
     })
 
     it('restores a breakdown type for legacy multiple breakdowns', () => {
@@ -212,20 +218,19 @@ describe('cleanFilters', () => {
             insight: InsightType.TRENDS,
         } as TrendsFilterType)
 
-        expect(cleanedFilters).toHaveProperty('breakdown', 'any')
-        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
-        expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: 'any', type: 'event' }])
+        expect(cleanedFilters.breakdown_type).toBeUndefined()
     })
 
     it('cleans a breakdown when multiple breakdowns are used', () => {
         const cleanedFilters = cleanFilters({
-            breakdowns: [{ value: 'any', type: 'event' }],
+            breakdowns: [{ property: 'any', type: 'event' }],
             breakdown_type: 'event',
             breakdown: 'test',
             insight: InsightType.TRENDS,
         } as TrendsFilterType)
 
-        expect(cleanedFilters).toHaveProperty('breakdowns', [{ value: 'any', type: 'event' }])
+        expect(cleanedFilters).toHaveProperty('breakdowns', [{ property: 'any', type: 'event' }])
         expect(cleanedFilters).toHaveProperty('breakdown_type', undefined)
         expect(cleanedFilters).toHaveProperty('breakdown', undefined)
     })
@@ -279,7 +284,7 @@ describe('cleanFilters', () => {
         expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', undefined)
     })
 
-    it('keeps the first multi property filter for trends', () => {
+    it('keeps a multi property breakdown for trends', () => {
         const cleanedFilters = cleanFilters({
             breakdowns: [
                 { property: 'one thing', type: 'event' },
@@ -289,10 +294,11 @@ describe('cleanFilters', () => {
             insight: InsightType.TRENDS,
         })
 
-        expect(cleanedFilters).toHaveProperty('breakdowns', undefined)
-        expect(cleanedFilters).toHaveProperty('breakdown', 'one thing')
-        expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
-        expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', undefined)
+        expect(cleanedFilters).toHaveProperty('breakdowns', [
+            { property: 'one thing', type: 'event' },
+            { property: 'two thing', type: 'event' },
+        ])
+        expect(cleanedFilters.breakdown_type).toBeUndefined()
     })
 
     it('reads "smoothing_intervals" and "interval" from URL when viewing and corrects bad pairings', () => {

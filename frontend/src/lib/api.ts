@@ -8,11 +8,20 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { DatabaseSerializedFieldType, QuerySchema, QueryStatusResponse, RefreshType } from '~/queries/schema'
+import {
+    DatabaseSerializedFieldType,
+    ErrorTrackingGroup,
+    QuerySchema,
+    QueryStatusResponse,
+    RefreshType,
+} from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
     AlertType,
+    AppMetricsTotalsV2Response,
+    AppMetricsV2RequestParams,
+    AppMetricsV2Response,
     BatchExportConfiguration,
     BatchExportRun,
     CohortType,
@@ -655,6 +664,19 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent('activity')
     }
 
+    // Error tracking
+    public errorTracking(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('error_tracking')
+    }
+
+    public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent(fingerprint)
+    }
+
+    public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
+        return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -889,6 +911,12 @@ const api = {
                 )
                 .get()
         },
+        async create(data: any): Promise<InsightModel> {
+            return await new ApiRequest().insights().create({ data })
+        },
+        async update(id: number, data: any): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data })
+        },
     },
 
     featureFlags: {
@@ -997,10 +1025,14 @@ const api = {
                     return new ApiRequest().insightsActivity(teamId)
                 },
                 [ActivityScope.PLUGIN]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
                     return new ApiRequest().dataManagementActivity()
@@ -1602,8 +1634,8 @@ const api = {
     },
 
     hogFunctions: {
-        async list(): Promise<PaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest().hogFunctions().get()
+        async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().withQueryString(params).get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).get()
@@ -1619,6 +1651,18 @@ const api = {
             params: LogEntryRequestParams = {}
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
+        },
+        async metrics(
+            id: HogFunctionType['id'],
+            params: AppMetricsV2RequestParams = {}
+        ): Promise<AppMetricsV2Response> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics').withQueryString(params).get()
+        },
+        async metricsTotals(
+            id: HogFunctionType['id'],
+            params: Partial<AppMetricsV2RequestParams> = {}
+        ): Promise<AppMetricsTotalsV2Response> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
 
         async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
@@ -1674,6 +1718,24 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().annotations().assembleEndpointUrl()
+        },
+    },
+
+    errorTracking: {
+        async update(
+            fingerprint: ErrorTrackingGroup['fingerprint'],
+            data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
+        ): Promise<ErrorTrackingGroup> {
+            return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
+        },
+
+        async merge(
+            primaryFingerprint: ErrorTrackingGroup['fingerprint'],
+            mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingMerge(primaryFingerprint)
+                .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
     },
 
@@ -2024,8 +2086,16 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
-        async jobs(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataJob[]> {
-            return await new ApiRequest().externalDataSource(sourceId).withAction('jobs').get()
+        async jobs(
+            sourceId: ExternalDataStripeSource['id'],
+            before: string | null,
+            after: string | null
+        ): Promise<ExternalDataJob[]> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('jobs')
+                .withQueryString({ before, after })
+                .get()
         },
     },
 

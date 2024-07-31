@@ -9,7 +9,6 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -27,6 +26,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {
@@ -39,6 +39,8 @@ const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
 const Insight43 = '43' as InsightShortId
 const Insight44 = '44' as InsightShortId
+
+const MOCK_DASHBOARD_ID = 34
 
 const partialInsight43 = {
     id: 43,
@@ -61,6 +63,7 @@ const patchResponseFor = (
         description: id === '42' ? undefined : 'Lorem ipsum.',
         tags: id === '42' ? undefined : ['good'],
         dashboards: payload['dashboards'],
+        dashboard_tiles: id === '43' ? [{ dashboard_id: MOCK_DASHBOARD_ID }] : undefined,
     }
 }
 
@@ -185,6 +188,23 @@ describe('insightLogic', () => {
                             insight: {
                                 id: 42,
                                 short_id: Insight42,
+                                result: 'result!',
+                                filters: { insight: InsightType.TRENDS, interval: 'month' },
+                                tags: ['bla'],
+                            },
+                        },
+                    ],
+                },
+                '/api/projects/:team/dashboards/34/': {
+                    id: 33,
+                    filters: {},
+                    tiles: [
+                        {
+                            layouts: {},
+                            color: null,
+                            insight: {
+                                id: 42,
+                                short_id: Insight43,
                                 result: 'result!',
                                 filters: { insight: InsightType.TRENDS, interval: 'month' },
                                 tags: ['bla'],
@@ -508,25 +528,33 @@ describe('insightLogic', () => {
         logic.actions.saveInsight()
         await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
 
-        logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
+        logic.actions.updateInsight({ name: 'my new name' })
         await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.setInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
+        const dashLogic = dashboardLogic({ id: MOCK_DASHBOARD_ID })
+        dashLogic.mount()
+        await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
+
         savedInsightsLogic.mount()
+
         logic = insightLogic({
             dashboardItemId: Insight43,
         })
         logic.mount()
-
         logic.actions.saveInsight()
-        await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardInsight'])
+
+        await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
     })
 
     test('updateInsight updates dashboards', async () => {
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
+            cachedInsight: {
+                id: 3,
+            },
         })
         logic.mount()
 
@@ -547,8 +575,11 @@ describe('insightLogic', () => {
         })
         logic.mount()
 
+        const dataLogic = insightDataLogic(logic.values.insightProps)
+        dataLogic.mount()
+
         await expectLogic(logic, () => {
-            logic.actions.saveAsNamingSuccess('New Insight (copy)')
+            logic.actions.saveAsConfirmation('New Insight (copy)', dataLogic.values.query)
         })
             .toDispatchActions(['setInsight'])
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
@@ -564,42 +595,6 @@ describe('insightLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: '/insights/12/edit' }),
             })
-    })
-
-    describe('emptyFilters', () => {
-        let theEmptyFiltersLogic: ReturnType<typeof insightLogic.build>
-        beforeEach(() => {
-            const insight = {
-                result: ['result from api'],
-            }
-            theEmptyFiltersLogic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            theEmptyFiltersLogic.mount()
-            silenceKeaLoadersErrors()
-        })
-        afterEach(resumeKeaLoadersErrors)
-
-        it('does not call the api on update when empty filters and no query', async () => {
-            await expectLogic(theEmptyFiltersLogic, () => {
-                theEmptyFiltersLogic.actions.updateInsight({
-                    name: 'name',
-                    filters: {},
-                    query: undefined,
-                })
-            }).toNotHaveDispatchedActions(['updateInsightSuccess'])
-        })
-
-        it('does call the api on update when empty filters but query is present', async () => {
-            await expectLogic(theEmptyFiltersLogic, () => {
-                theEmptyFiltersLogic.actions.updateInsight({
-                    name: 'name',
-                    filters: {},
-                    query: { kind: NodeKind.DataTableNode } as DataTableNode,
-                })
-            }).toDispatchActions(['updateInsightSuccess'])
-        })
     })
 
     describe('reacts to external changes', () => {
