@@ -29,6 +29,10 @@ use crate::error::{
 };
 use crate::util::first_n_bytes_of_response;
 
+// TODO: Either make this configurable or adjust it once we don't produce results to Kafka, where
+// our size limit is relatively low.
+const MAX_RESPONSE_BODY: usize = 256 * 1024;
+
 /// A WebhookJob is any `PgQueueJob` with `WebhookJobParameters` and `Value`.
 trait WebhookJob: PgQueueJob + std::marker::Send {
     fn parameters(&self) -> &WebhookJobParameters;
@@ -426,11 +430,13 @@ async fn process_webhook_job<W: WebhookJob>(
             // First, read the body if needed so that the read time is included in `duration`.
             let status = response.status();
             let body = if read_body {
-                match first_n_bytes_of_response(response, 1024 * 1024).await {
+                match first_n_bytes_of_response(response, MAX_RESPONSE_BODY).await {
                     Ok(body) => Some(body), // Once told me...
-                    Err(e) => {
+                    Err(_) => {
                         webhook_job
-                            .fail(WebhookJobError::new_parse(&e.to_string()))
+                            .fail(WebhookJobError::new_timeout(
+                                "timeout while reading response body",
+                            ))
                             .await
                             .map_err(|job_error| {
                                 metrics::counter!("webhook_jobs_database_error", &labels)
@@ -441,11 +447,12 @@ async fn process_webhook_job<W: WebhookJob>(
                         metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
                         return Ok(WebhookResult::Failed(
-                            "failed to read response body".to_owned(),
+                            "timeout while reading response body".to_owned(),
                         ));
                     }
                 }
             } else {
+                // Caller didn't expect us to read the response body.
                 None
             };
 
@@ -636,8 +643,9 @@ async fn send_webhook(
                 Err(WebhookError::Request(
                     WebhookRequestError::RetryableRequestError {
                         error: err,
-                        // TODO: Make amount of bytes configurable.
-                        response: first_n_bytes_of_response(response, 10 * 1024).await.ok(),
+                        response: first_n_bytes_of_response(response, MAX_RESPONSE_BODY)
+                            .await
+                            .ok(),
                         retry_after,
                     },
                 ))
@@ -645,7 +653,9 @@ async fn send_webhook(
                 Err(WebhookError::Request(
                     WebhookRequestError::NonRetryableRetryableRequestError {
                         error: err,
-                        response: first_n_bytes_of_response(response, 10 * 1024).await.ok(),
+                        response: first_n_bytes_of_response(response, MAX_RESPONSE_BODY)
+                            .await
+                            .ok(),
                     },
                 ))
             }
@@ -1072,7 +1082,7 @@ mod tests {
         let headers = collections::HashMap::new();
         // This is double the current hardcoded amount of bytes.
         // TODO: Make this configurable and change it here too.
-        let body = (0..20 * 1024).map(|_| "a").collect::<Vec<_>>().concat();
+        let body = (0..512 * 1024).map(|_| "a").collect::<Vec<_>>().concat();
 
         let err = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
             .await
@@ -1082,9 +1092,9 @@ mod tests {
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {
             assert_eq!(request_error.status(), Some(StatusCode::BAD_REQUEST));
-            assert!(request_error.to_string().contains(&body[0..10 * 1024]));
-            // The 81 bytes account for the reqwest erorr message as described below.
-            assert_eq!(request_error.to_string().len(), 10 * 1024 + 81);
+            assert!(request_error.to_string().contains(&body[0..256 * 1024]));
+            // The 81 bytes account for the reqwest error message as described below.
+            assert_eq!(request_error.to_string().len(), 256 * 1024 + 81);
             // This is the display implementation of reqwest. Just checking it is still there.
             // See: https://github.com/seanmonstar/reqwest/blob/master/src/error.rs
             assert!(request_error.to_string().contains(
