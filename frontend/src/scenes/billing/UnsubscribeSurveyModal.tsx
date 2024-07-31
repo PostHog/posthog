@@ -25,7 +25,9 @@ export const UnsubscribeSurveyModal = ({
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element | null => {
     const { surveyID, surveyResponse, isAddonProduct } = useValues(billingProductLogic({ product }))
-    const { setSurveyResponse, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
+    const { setSurveyResponse, toggleSurveyReason, reportSurveyDismissed } = useActions(
+        billingProductLogic({ product })
+    )
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
@@ -117,29 +119,10 @@ export const UnsubscribeSurveyModal = ({
                                     : 'border-1 border-border hover:border-border-bold'
                             } rounded-md rounded-[6px] cursor-pointer`}
                             tabIndex={0}
-                            onClick={() => {
-                                if (surveyResponse['$survey_reasons'].includes(reason)) {
-                                    setSurveyResponse(
-                                        '$survey_reasons',
-                                        surveyResponse['$survey_reasons'].filter((r) => r !== reason)
-                                    )
-                                } else {
-                                    setSurveyResponse('$survey_reasons', [...surveyResponse['$survey_reasons'], reason])
-                                }
-                            }}
+                            onClick={() => toggleSurveyReason(reason)}
                             onKeyPress={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
-                                    if (surveyResponse['$survey_reasons'].includes(reason)) {
-                                        setSurveyResponse(
-                                            '$survey_reasons',
-                                            surveyResponse['$survey_reasons'].filter((r) => r !== reason)
-                                        )
-                                    } else {
-                                        setSurveyResponse('$survey_reasons', [
-                                            ...surveyResponse['$survey_reasons'],
-                                            reason,
-                                        ])
-                                    }
+                                    toggleSurveyReason(reason)
                                 }
                             }}
                         >

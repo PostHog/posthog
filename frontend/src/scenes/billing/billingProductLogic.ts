@@ -52,6 +52,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         toggleIsPricingModalOpen: true,
         toggleIsPlanComparisonModalOpen: (highlightedFeatureKey?: string) => ({ highlightedFeatureKey }),
         setSurveyResponse: (key: string, value: string | string[]) => ({ key, value }),
+        toggleSurveyReason: (reason: string) => ({ reason }),
         reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
         reportSurveySent: (surveyID: string, surveyResponse: Record<string, string | string[]>) => ({
             surveyID,
@@ -114,6 +115,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             {
                 setSurveyResponse: (state, { key, value }) => {
                     return { ...state, [key]: value }
+                },
+                toggleSurveyReason: (state, { reason }) => {
+                    const reasons = state.$survey_reasons.includes(reason)
+                        ? state.$survey_reasons.filter((r) => r !== reason)
+                        : [...state.$survey_reasons, reason]
+                    return { ...state, $survey_reasons: reasons }
                 },
             },
         ],
