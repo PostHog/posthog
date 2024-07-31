@@ -105,22 +105,23 @@ class ErrorTrackingQueryRunner(QueryRunner):
                             name="has",
                             args=[
                                 ast.Array(exprs=[group["fingerprint"], *group["merged_fingerprints"]]),
-                                ast.Field(chain=["properties", "$exception_fingerprint"]),
+                                ast.Call(
+                                    name="JSONExtractArrayRaw",
+                                    args=[
+                                        ast.Call(
+                                            name="ifNull",
+                                            args=[
+                                                ast.Field(chain=["properties", "$exception_fingerprint"]),
+                                                ast.Constant(value="[]"),
+                                            ],
+                                        ),
+                                    ],
+                                ),
                             ],
                         ),
                         ast.Constant(value=group["fingerprint"]),
                     ]
                 )
-                # args.extend(
-                #     [
-                #         ast.CompareOperation(
-                #             left=ast.Field(chain=["properties", "$exception_fingerprint"]),
-                #             right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
-                #             op=ast.CompareOperationOp.In,
-                #         ),
-                #         ast.Constant(value=group["fingerprint"]),
-                #     ]
-                # )
 
             # default to $exception_fingerprint property for exception events that don't match a group
             args.append(ast.Field(chain=["properties", "$exception_fingerprint"]))
@@ -129,10 +130,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 args=args,
             )
 
-        # return ast.Alias(
-        #     alias="fingerprint",
-        #     expr=ast.Call(name="JSONExtractArrayRaw", args=[expr]),
-        # )
         return ast.Alias(alias="fingerprint", expr=expr)
 
     def where(self):
@@ -153,22 +150,21 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     name="has",
                     args=[
                         ast.Array(exprs=[ast.Constant(value=group["fingerprint"]), *merged_fingerprints]),
-                        # ast.Constant(value=["SyntaxError"]),
-                        # replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '')
-                        # ast.Call(
-                        #     name="JSONExtractArrayRaw", args=[ast.Field(chain=["properties", "$exception_fingerprint"])]
-                        # ),
-                        ast.Field(chain=["properties", "$exception_fingerprint"]),
+                        ast.Call(
+                            name="JSONExtractArrayRaw",
+                            args=[
+                                ast.Call(
+                                    name="ifNull",
+                                    args=[
+                                        ast.Field(chain=["properties", "$exception_fingerprint"]),
+                                        ast.Constant(value="[]"),
+                                    ],
+                                ),
+                            ],
+                        ),
                     ],
                 ),
             )
-            # exprs.append(
-            #     ast.CompareOperation(
-            #         left=ast.Field(chain=["properties", "$exception_fingerprint"]),
-            #         right=ast.Constant(value=[group["fingerprint"], *group["merged_fingerprints"]]),
-            #         op=ast.CompareOperationOp.In,
-            #     ),
-            # )
 
         return ast.And(exprs=exprs)
 
