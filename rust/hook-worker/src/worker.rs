@@ -443,25 +443,55 @@ async fn process_webhook_job<W: WebhookJob>(
                 match first_n_bytes_of_response(response, MAX_RESPONSE_BODY).await {
                     Ok(body) => Some(body), // Once told me...
                     Err(_) => {
-                        webhook_job
-                            .fail(WebhookJobError::new_timeout(
-                                "timeout while reading response body",
-                            ))
+                        // TODO: Consolidate this retry-or-fail logic which is mostly repeated below.
+                        let retry_interval =
+                            retry_policy.retry_interval(webhook_job.attempt() as u32, None);
+                        let current_queue = webhook_job.queue();
+                        let retry_queue = retry_policy.retry_queue(&current_queue);
+
+                        return match webhook_job
+                            .retry(
+                                WebhookJobError::new_timeout("timeout while reading response body"),
+                                retry_interval,
+                                retry_queue,
+                            )
                             .await
-                            .map_err(|job_error| {
+                        {
+                            Ok(_) => {
+                                metrics::counter!("webhook_jobs_retried", &labels).increment(1);
+
+                                Ok(WebhookResult::WillRetry)
+                            }
+                            Err(RetryError::RetryInvalidError(RetryInvalidError {
+                                job: webhook_job,
+                                ..
+                            })) => {
+                                webhook_job
+                                    .fail(WebhookJobError::new_timeout(
+                                        "timeout while reading response body",
+                                    ))
+                                    .await
+                                    .map_err(|job_error| {
+                                        metrics::counter!("webhook_jobs_database_error", &labels)
+                                            .increment(1);
+                                        job_error
+                                    })?;
+
+                                metrics::counter!("webhook_jobs_failed", &labels).increment(1);
+
+                                Ok(WebhookResult::Failed(WebhookFailed {
+                                    error: "timeout while reading response body".to_owned(),
+                                    status_code: Some(status),
+                                    duration: now.elapsed(),
+                                    body: None,
+                                }))
+                            }
+                            Err(RetryError::DatabaseError(job_error)) => {
                                 metrics::counter!("webhook_jobs_database_error", &labels)
                                     .increment(1);
-                                job_error
-                            })?;
-
-                        metrics::counter!("webhook_jobs_failed", &labels).increment(1);
-
-                        return Ok(WebhookResult::Failed(WebhookFailed {
-                            error: "timeout while reading response body".to_owned(),
-                            status_code: Some(status),
-                            duration: now.elapsed(),
-                            body: None,
-                        }));
+                                Err(WorkerError::from(job_error))
+                            }
+                        };
                     }
                 }
             } else {
