@@ -500,8 +500,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
-                    ].filter(isNotNil),
-                    [
                         {
                             identifier: Scene.Pipeline,
                             label: 'Data pipelines',
