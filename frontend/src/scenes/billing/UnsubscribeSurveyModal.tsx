@@ -26,7 +26,7 @@ export const UnsubscribeSurveyModal = ({
         (product.type == 'product_analytics' &&
             (product as BillingProductV2Type)?.addons?.filter((addon) => addon.type === 'data_pipelines')[0]
                 ?.subscribed) ||
-        billing?.subscription_level === 'paid'
+        (billing?.subscription_level === 'paid' && !isAddonProduct)
 
     let action = 'Unsubscribe'
     let actionVerb = 'unsubscribing'
