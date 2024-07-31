@@ -73,7 +73,7 @@ describe('Insights', () => {
             cy.clickNavMenu('activity')
             cy.get('[data-attr="data-table-export-menu"]').click()
             cy.get('[data-attr="open-json-editor-button"]').click()
-            cy.get('[data-attr="insight-json-tab"]').should('exist')
+            cy.get('[data-attr="save-exploration"]').should('exist')
         })
 
         it('does not show the json tab usually', () => {
