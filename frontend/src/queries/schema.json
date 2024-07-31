@@ -1993,6 +1993,15 @@
             "properties": {
                 "column": {
                     "type": "string"
+                },
+                "settings": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "formatting": {
+                            "$ref": "#/definitions/ChartSettingsFormatting"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["column"],
@@ -2012,6 +2021,46 @@
                 "WorldMap"
             ],
             "type": "string"
+        },
+        "ChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "goalLines": {
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
+                },
+                "xAxis": {
+                    "$ref": "#/definitions/ChartAxis"
+                },
+                "yAxis": {
+                    "items": {
+                        "$ref": "#/definitions/ChartAxis"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "ChartSettingsFormatting": {
+            "additionalProperties": false,
+            "properties": {
+                "decimalPlaces": {
+                    "type": "number"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "style": {
+                    "enum": ["none", "number", "percent"],
+                    "type": "string"
+                },
+                "suffix": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "ClickhouseQueryProgress": {
             "additionalProperties": false,
@@ -2670,25 +2719,7 @@
             "additionalProperties": false,
             "properties": {
                 "chartSettings": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "goalLines": {
-                            "items": {
-                                "$ref": "#/definitions/GoalLine"
-                            },
-                            "type": "array"
-                        },
-                        "xAxis": {
-                            "$ref": "#/definitions/ChartAxis"
-                        },
-                        "yAxis": {
-                            "items": {
-                                "$ref": "#/definitions/ChartAxis"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/ChartSettings"
                 },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"

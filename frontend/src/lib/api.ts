@@ -1025,10 +1025,14 @@ const api = {
                     return new ApiRequest().insightsActivity(teamId)
                 },
                 [ActivityScope.PLUGIN]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
                     return new ApiRequest().dataManagementActivity()

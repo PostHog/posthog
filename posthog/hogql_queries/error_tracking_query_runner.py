@@ -128,7 +128,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 left=ast.Field(chain=["event"]),
                 right=ast.Constant(value="$exception"),
             ),
-            ast.Placeholder(field="filters"),
+            ast.Placeholder(chain=["filters"]),
         ]
 
         if self.query.fingerprint:
