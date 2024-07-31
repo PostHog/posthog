@@ -99,16 +99,20 @@ pub async fn post_hoghook(
     // the original payload unmodified so that it can be passed through exactly as it came to us.
     let async_function_request = payload
         .get("asyncFunctionRequest")
-        .ok_or_else(|| bad_request("missing required field 'asyncFunctionRequest'"))?
+        .ok_or_else(|| bad_request("missing required field 'asyncFunctionRequest'".to_owned()))?
         .clone();
     let async_function_request: HoghookAsyncFunctionRequest =
         serde_json::from_value(async_function_request).map_err(|err| {
-            let msg = format!("unable to deserialize 'asyncFunctionRequest': {}", err);
-            bad_request(&msg)
+            bad_request(format!(
+                "unable to deserialize 'asyncFunctionRequest': {}",
+                err
+            ))
         })?;
 
     if async_function_request.name != "fetch" {
-        return Err(bad_request("asyncFunctionRequest.name must be 'fetch'"));
+        return Err(bad_request(
+            "asyncFunctionRequest.name must be 'fetch'".to_owned(),
+        ));
     }
 
     // Note that the URL is parsed (and thus validated as a valid URL) as part of
@@ -145,13 +149,11 @@ pub async fn post_hoghook(
     Ok(Json(WebhookPostResponse { error: None }))
 }
 
-fn bad_request(msg: &str) -> (StatusCode, Json<WebhookPostResponse>) {
+fn bad_request(msg: String) -> (StatusCode, Json<WebhookPostResponse>) {
     error!(msg);
     (
         StatusCode::BAD_REQUEST,
-        Json(WebhookPostResponse {
-            error: Some(msg.to_owned()),
-        }),
+        Json(WebhookPostResponse { error: Some(msg) }),
     )
 }
 
@@ -169,11 +171,11 @@ where
 }
 
 fn get_hostname(url_str: &str) -> Result<String, (StatusCode, Json<WebhookPostResponse>)> {
-    let url = Url::parse(url_str).map_err(|_| bad_request("could not parse url"))?;
+    let url = Url::parse(url_str).map_err(|_| bad_request("could not parse url".to_owned()))?;
 
     match url.host_str() {
         Some(hostname) => Ok(hostname.to_owned()),
-        None => Err(bad_request("couldn't extract hostname from url")),
+        None => Err(bad_request("couldn't extract hostname from url".to_owned())),
     }
 }
 
