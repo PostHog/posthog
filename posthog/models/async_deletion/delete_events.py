@@ -12,7 +12,9 @@ logger.setLevel("DEBUG")
 
 deletions_counter = Counter("deletions_executed", "Total number of deletions sent to clickhouse", ["deletion_type"])
 
-MAX_PREDICATE_SIZE = 240_000  # 240KB
+# We purposely set this lower than the 256KB limit in ClickHouse to account for the potential overhead of the argument
+# substitution and settings injection. This is a conservative estimate, but it's better to be safe than hit the limit.
+MAX_QUERY_SIZE = 230_000  # 230KB which is less than 256KB limit in ClickHouse
 
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
 TABLES_TO_DELETE_TEAM_DATA_FROM = [
@@ -63,7 +65,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             logger.debug(f"Query deletions: {deletions}")
 
             # If the query size is greater than the max predicate size, execute the query and reset the query predicate
-            if query_size > MAX_PREDICATE_SIZE:
+            if query_size > MAX_QUERY_SIZE:
                 logger.debug(f"Executing query with args: {args}")
                 sync_execute(
                     query,
@@ -74,7 +76,8 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 conditions, args = [], {}
 
         logger.debug(f"Executing query with args: {args}")
-        # This is the default condition if we don't hit the MAX_PREDICATE_SIZE
+
+        # This is the default condition if we don't hit the MAX_QUERY_SIZE
         sync_execute(
             query,
             args,
