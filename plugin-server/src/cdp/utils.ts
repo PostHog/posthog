@@ -170,6 +170,10 @@ export const prepareLogEntriesForClickhouse = (
 
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
+    if (sortedLogs.length === 0) {
+        return []
+    }
+
     // Start with a timestamp that is guaranteed to be before the first log entry
     let previousTimestamp = sortedLogs[0].timestamp.minus(1)
 
