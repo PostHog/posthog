@@ -2,7 +2,6 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -17,7 +16,7 @@ import { AvailableFeature } from '~/types'
 
 import { teamMembersLogic } from './teamMembersLogic'
 
-export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {
+export function AddMembersModalWithButton({ disabledReason }: { disabledReason: string | null }): JSX.Element {
     const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -42,7 +41,7 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                     })
                 }
                 icon={<IconPlus />}
-                disabled={isRestricted}
+                disabledReason={disabledReason}
             >
                 Add members to project
             </LemonButton>
