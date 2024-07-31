@@ -81,14 +81,12 @@ def execute_hogql_query(
         ):
             select_query = replace_filters(select_query, filters, team)
 
-            removed_placeholders: list[str] = []
+            leftover_placeholders: list[str] = []
             for placeholder in placeholders_in_query:
-                if placeholder == "filters":
-                    removed_placeholders.append(placeholder)
-                elif placeholder.startswith("filters."):
-                    removed_placeholders.append(placeholder)
+                if placeholder != "filters" and not placeholder.startswith("filters."):
+                    leftover_placeholders.append(placeholder)
 
-            placeholders_in_query = [n for n in placeholders_in_query if n not in removed_placeholders]
+            placeholders_in_query = leftover_placeholders
 
         if len(placeholders_in_query) > 0:
             if len(placeholders) == 0:
