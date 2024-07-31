@@ -26,7 +26,6 @@ interface DataWarehousetTablesProps {
 export const DataWarehouseTables = ({ insightProps }: DataWarehousetTablesProps): JSX.Element => {
     // insightDataLogic
     const { query } = useValues(insightDataLogic(insightProps))
-
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     return (

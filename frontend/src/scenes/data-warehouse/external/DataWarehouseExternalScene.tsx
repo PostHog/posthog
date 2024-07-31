@@ -1,5 +1,6 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -30,6 +31,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
         ...insightProps,
     }
     const { query } = useValues(insightDataLogic(insightDataLogicProps))
+    const isDraft = Object.keys(router.values.hashParams).length > 0
 
     return (
         <div>
@@ -44,9 +46,15 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         >
                             Save as insight
                         </LemonButton>
-                        <LemonButton type="secondary" to={urls.pipeline(PipelineTab.Sources)}>
-                            Manage sources
-                        </LemonButton>
+                        {isDraft ? (
+                            <LemonButton type="secondary" to={urls.dataWarehouse()}>
+                                Discard
+                            </LemonButton>
+                        ) : (
+                            <LemonButton type="secondary" to={urls.pipeline(PipelineTab.Sources)}>
+                                Manage sources
+                            </LemonButton>
+                        )}
                     </>
                 }
                 caption={

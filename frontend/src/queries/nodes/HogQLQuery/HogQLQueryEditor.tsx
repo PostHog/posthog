@@ -51,7 +51,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, prompt, aiAvailable, promptError, promptLoading, multitab } = useValues(logic)
-
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
@@ -60,6 +59,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         query: queryInput,
         language: 'hogQL',
         metadataFilters: props.query.filters,
+        multitab,
     }
     const { hasErrors, error, isValidView, activeModelUri, allModels } = useValues(
         codeEditorLogic(codeEditorLogicProps)
@@ -79,7 +79,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     }, [])
 
     useEffect(() => {
-        if (monaco && activeModelUri) {
+        if (monaco && activeModelUri && multitab) {
             const _model = monaco.editor.getModel(activeModelUri)
             const val = _model?.getValue()
             if (val) {

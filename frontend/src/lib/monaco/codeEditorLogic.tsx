@@ -45,6 +45,7 @@ export interface CodeEditorLogicProps {
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
     globals?: Record<string, any>
+    multitab?: boolean
 }
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
@@ -137,7 +138,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             {
                 setModel: (_, { modelName }) => {
                     const path = modelName.path.split('/').pop()
-                    path && localStorage.setItem(activemodelStateKey(props.key), path)
+                    path && props.multitab && localStorage.setItem(activemodelStateKey(props.key), path)
                     return modelName
                 },
             },
@@ -155,7 +156,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             path: model.path.split('/').pop(),
                         }
                     })
-                    localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
+                    props.multitab && localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
                     return newModels
                 },
                 removeModel: (state, { modelName }) => {
@@ -168,7 +169,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             path: model.path.split('/').pop(),
                         }
                     })
-                    localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
+                    props.multitab && localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
                     return newModels
                 },
                 setModels: (_, { models }) => models,
@@ -207,7 +208,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     path: model.path.split('/').pop(),
                 }
             })
-            localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
+            props.multitab && localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
         createModel: () => {
             let currentModelCount = 1

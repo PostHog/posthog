@@ -7,7 +7,6 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
-import { DataWarehouseTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -28,7 +27,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     actions(({ values }) => ({
         selectRow: (row: DatabaseSchemaTable | null) => ({ row }),
-        setSceneTab: (tab: DataWarehouseTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
         toggleEditSchemaMode: (inEditSchemaMode?: boolean) => ({ inEditSchemaMode }),
         updateSelectedSchema: (columnKey: string, columnType: DatabaseSerializedFieldType) => ({
@@ -138,12 +136,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             null as string | null,
             {
                 setEditingView: (_, { id }) => id,
-            },
-        ],
-        currentTab: [
-            DataWarehouseTab.Explore as DataWarehouseTab,
-            {
-                setSceneTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -262,14 +254,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions }) => ({
         '/data-warehouse/view/:id': ({ id }) => {
             actions.setEditingView(id as string)
-        },
-        '/data-warehouse/:tab': ({ tab }) => {
-            if (tab !== values.currentTab) {
-                actions.setSceneTab(tab as DataWarehouseTab)
-            }
         },
     })),
 ])

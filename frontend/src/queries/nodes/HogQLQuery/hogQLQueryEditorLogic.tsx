@@ -18,7 +18,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema'
-import { DataWarehouseTab } from '~/types'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 
@@ -76,7 +75,9 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
         multitab: [
             () => [],
-            () => router.values.location.pathname.includes(urls.dataWarehouse(DataWarehouseTab.Explore)),
+            () =>
+                router.values.location.pathname.includes(urls.dataWarehouse()) &&
+                Object.keys(router.values.hashParams).length === 0,
         ],
     }),
     listeners(({ actions, props, values }) => ({
