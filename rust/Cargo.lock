@@ -357,6 +357,7 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 name = "autocomplete"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "envconfig",
  "lru",
  "rdkafka",
@@ -365,7 +366,6 @@ dependencies = [
  "serde_repr",
  "sqlx",
  "thiserror",
- "time",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
@@ -685,9 +685,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.33"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f13690e35a5e4ace198e7beea2895d29f3a9cc55015fcebe6336bd2010af9eb"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",

@@ -1,6 +1,6 @@
 use std::env;
 
-use autocomplete::{cache::PropertyCacheManager, config::Config, types::Event};
+use autocomplete::{property_cache::PropertyCacheManager, config::Config, types::Event};
 use envconfig::Envconfig;
 use rdkafka::{consumer::{Consumer, StreamConsumer}, ClientConfig, Message};
 use tracing::{debug, info, warn};
