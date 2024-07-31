@@ -67,7 +67,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
         {
             "key": "is_excluded_from_campaigns",
             "type": "boolean",
-            "label": "Is Excluded From Campaigns",
+            "label": "Is excluded from campaigns",
             "description": "Whether the contact should be excluded from campaigns",
             "default": False,
             "secret": False,
@@ -76,7 +76,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
         {
             "key": "contact_list_id",
             "type": "string",
-            "label": "",
+            "label": "Contract list ID",
             "description": "Where to find the email for the user to be checked with Mailjet",
             "default": "{person.properties.email}",
             "secret": False,
