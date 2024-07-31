@@ -90,7 +90,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-mailjet-update-contact-list",
-    name="Add contacts to Mailjet",
+    name="Update a Mailjet contact list",
     description="Updates a contact in Mailjet",
     icon_url="/static/services/mailjet.png",
     hog="""
