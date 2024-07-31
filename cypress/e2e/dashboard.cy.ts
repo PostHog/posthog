@@ -76,9 +76,6 @@ describe('Dashboard', () => {
         cy.get('h4').contains('Refreshing').should('not.exist')
         cy.get('main').contains('There are no matching events for this query').should('not.exist')
 
-        // intercept cache query
-        // /api/projects/1/query/cache_d7c9854c5e2a1a655343ea481ec2b55f/
-
         cy.intercept('GET', /\/api\/projects\/\d+\/dashboard_templates/, (req) => {
             req.reply((response) => {
                 response.body.results[0].variables = [
