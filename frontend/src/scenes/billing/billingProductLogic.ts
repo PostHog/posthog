@@ -51,9 +51,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
         toggleIsPlanComparisonModalOpen: (highlightedFeatureKey?: string) => ({ highlightedFeatureKey }),
-        setSurveyResponse: (surveyResponse: string, key: string) => ({ surveyResponse, key }),
+        setSurveyResponse: (key: string, value: string | string[]) => ({ key, value }),
         reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
-        reportSurveySent: (surveyID: string, surveyResponse: Record<string, string>) => ({
+        reportSurveySent: (surveyID: string, surveyResponse: Record<string, string | string[]>) => ({
             surveyID,
             surveyResponse,
         }),
@@ -110,10 +110,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         surveyResponse: [
-            {},
+            { $survey_reasons: [], $survey_response: '' } as { $survey_reasons: string[]; $survey_response: string },
             {
-                setSurveyResponse: (state, { surveyResponse, key }) => {
-                    return { ...state, [key]: surveyResponse }
+                setSurveyResponse: (state, { key, value }) => {
+                    return { ...state, [key]: value }
                 },
             },
         ],
@@ -287,8 +287,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         deactivateProductSuccess: async (_, breakpoint) => {
             if (!values.unsubscribeError) {
+                const hasSurveyReasons = values.surveyResponse['$survey_reasons']?.length > 0
                 const textAreaNotEmpty = values.surveyResponse['$survey_response']?.length > 0
-                textAreaNotEmpty
+                const shouldReportSurvey = hasSurveyReasons || textAreaNotEmpty
+                shouldReportSurvey
                     ? actions.reportSurveySent(values.surveyID, values.surveyResponse)
                     : actions.reportSurveyDismissed(values.surveyID)
             }

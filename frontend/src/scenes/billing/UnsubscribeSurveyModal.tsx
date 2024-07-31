@@ -1,6 +1,6 @@
 import './UnsubscribeSurveyModal.scss'
 
-import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -8,6 +8,16 @@ import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
+
+const UNSUBSCRIBE_REASONS = [
+    'Too expensive',
+    'Not getting enough value',
+    'Not using the product',
+    'Found a better alternative',
+    'Poor customer support',
+    'Too difficult to use',
+    'Other',
+]
 
 export const UnsubscribeSurveyModal = ({
     product,
@@ -42,11 +52,7 @@ export const UnsubscribeSurveyModal = ({
                 resetUnsubscribeError()
             }}
             width="max(44vw)"
-            title={
-                billing?.subscription_level === 'paid'
-                    ? `Why are you ${actionVerb}?`
-                    : `Why are you ${actionVerb} from ${product.name}?`
-            }
+            title={action}
             footer={
                 <>
                     <LemonButton
@@ -75,33 +81,85 @@ export const UnsubscribeSurveyModal = ({
             }
         >
             <div className="flex flex-col gap-3.5">
-                {unsubscribeError ? (
+                {unsubscribeError && (
                     <LemonBanner type="error">
                         <p>
                             {unsubscribeError.detail} {unsubscribeError.link}
                         </p>
                     </LemonBanner>
-                ) : (
-                    <LemonBanner type="info">
-                        <p>
-                            Any outstanding invoices will be billed immediately.{' '}
-                            <Link to={billing?.stripe_portal_url} target="_blank">
-                                View invoices
-                            </Link>
-                        </p>
-                    </LemonBanner>
                 )}
+                {isAddonProduct ? (
+                    <p>We're sorry to see you go! Please note, you'll lose access to the addon features immediately.</p>
+                ) : (
+                    <p>
+                        We're sorry to see you go! Please note, you'll lose access to platform features and usage limits
+                        will apply immediately. And if you have any outstanding invoices, they will be billed
+                        immediately.{' '}
+                        <Link to={billing?.stripe_portal_url} target="_blank">
+                            View invoices
+                        </Link>
+                    </p>
+                )}
+
+                <LemonLabel>
+                    {billing?.subscription_level === 'paid'
+                        ? `Why are you ${actionVerb}?`
+                        : `Why are you ${actionVerb} from ${product.name}?`}{' '}
+                    (select multiple)
+                </LemonLabel>
+                <div className="grid grid-cols-2 gap-2">
+                    {UNSUBSCRIBE_REASONS.map((reason) => (
+                        <div
+                            key={reason}
+                            className={`p-2 bg-white border ${
+                                surveyResponse['$survey_reasons'].includes(reason)
+                                    ? 'border-primary-3000 border-2 -m-[1px]'
+                                    : 'border-1 border-border hover:border-border-bold'
+                            } rounded-md rounded-[6px] cursor-pointer`}
+                            tabIndex={0}
+                            onClick={() => {
+                                if (surveyResponse['$survey_reasons'].includes(reason)) {
+                                    setSurveyResponse(
+                                        '$survey_reasons',
+                                        surveyResponse['$survey_reasons'].filter((r) => r !== reason)
+                                    )
+                                } else {
+                                    setSurveyResponse('$survey_reasons', [...surveyResponse['$survey_reasons'], reason])
+                                }
+                            }}
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    if (surveyResponse['$survey_reasons'].includes(reason)) {
+                                        setSurveyResponse(
+                                            '$survey_reasons',
+                                            surveyResponse['$survey_reasons'].filter((r) => r !== reason)
+                                        )
+                                    } else {
+                                        setSurveyResponse('$survey_reasons', [
+                                            ...surveyResponse['$survey_reasons'],
+                                            reason,
+                                        ])
+                                    }
+                                }
+                            }}
+                        >
+                            {reason}
+                        </div>
+                    ))}
+                </div>
+
                 <LemonTextArea
                     data-attr="unsubscribe-reason-survey-textarea"
-                    placeholder={`Reason for ${actionVerb}...`}
+                    placeholder="Share your feedback here so we can improve PostHog!"
                     value={surveyResponse['$survey_response']}
                     onChange={(value) => {
-                        setSurveyResponse(value, '$survey_response')
+                        setSurveyResponse('$survey_response', value)
                     }}
                 />
+
                 <LemonBanner type="info">
                     <p>
-                        {'Need to control your costs? Learn about ways to '}
+                        {'Are you looking to control your costs? Learn about ways to '}
                         <Link
                             to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
                             target="_blank"
