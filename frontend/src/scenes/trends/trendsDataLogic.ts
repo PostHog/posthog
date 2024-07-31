@@ -158,7 +158,23 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                             defaultLifecyclesOrder.indexOf(String(a.status))
                     )
                 }
-                return indexedResults.map((result, index) => ({ ...result, id: index }))
+                const colors = {}
+                return indexedResults.map((item, index) => {
+                    let colorIndex = index
+                    if (item.compare) {
+                        if (item.compare_label !== 'previous') {
+                            colorIndex = index
+                            colors[item.label] = index
+                        } else {
+                            colorIndex = colors[item.label]
+                            if (colorIndex === undefined) {
+                                colorIndex = Object.keys(colors).length
+                                colors[item.label] = colorIndex
+                            }
+                        }
+                    }
+                    return { ...item, colorIndex: colorIndex, id: index }
+                })
             },
         ],
 
