@@ -2,9 +2,6 @@
 #include <Python.h>
 #include <boost/algorithm/string.hpp>
 #include <string>
-#include <sstream>
-#include <iostream>
-#include <iterator>
 
 #include "HogQLLexer.h"
 #include "HogQLParser.h"
