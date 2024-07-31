@@ -391,6 +391,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: urls.notebooks(),
                           },
                           {
+                              identifier: Scene.DataManagement,
+                              label: 'Data management',
+                              icon: <IconDatabase />,
+                              logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                              to: isUsingSidebar ? undefined : urls.eventDefinitions(),
+                          },
+                          {
                               identifier: Scene.PersonsManagement,
                               label: 'People',
                               icon: <IconPeople />,
@@ -495,13 +502,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             : null,
                     ].filter(isNotNil),
                     [
-                        {
-                            identifier: Scene.DataManagement,
-                            label: 'Events management',
-                            icon: <IconDatabase />,
-                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
-                        },
                         {
                             identifier: Scene.Pipeline,
                             label: 'Data pipelines',
