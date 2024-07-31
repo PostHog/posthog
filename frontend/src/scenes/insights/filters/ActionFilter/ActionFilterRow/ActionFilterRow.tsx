@@ -3,8 +3,8 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconCopy, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import { IconCopy, IconFilter, IconPencil, IconPerson, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonDivider, LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -16,6 +16,7 @@ import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/Taxonom
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
@@ -61,6 +62,7 @@ const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element
 export enum MathAvailability {
     All,
     ActorsOnly,
+    FunnelsOnly,
     None,
 }
 
@@ -176,20 +178,30 @@ export function ActionFilterRow({
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
     }
-    const onMathSelect = (_: unknown, selectedMath: string): void => {
-        updateFilterMath({
-            ...mathTypeToApiValues(selectedMath),
-            math_property:
-                mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
-                    ? mathProperty ?? '$time'
-                    : undefined,
-            math_hogql:
-                mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                    ? mathHogQL ?? 'count()'
-                    : undefined,
-            type: filter.type,
-            index,
-        })
+    const onMathSelect = (_: unknown, selectedMath?: string): void => {
+        if (selectedMath) {
+            updateFilterMath({
+                ...mathTypeToApiValues(selectedMath),
+                math_property:
+                    mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
+                        ? mathProperty ?? '$time'
+                        : undefined,
+                math_hogql:
+                    mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
+                        ? mathHogQL ?? 'count()'
+                        : undefined,
+                type: filter.type,
+                index,
+            })
+        } else {
+            updateFilterMath({
+                index,
+                math_property: undefined,
+                math_hogql: undefined,
+                math_group_type_index: undefined,
+                math: undefined,
+            })
+        }
     }
     const onMathPropertySelect = (_: unknown, property: string): void => {
         updateFilterMath({
@@ -284,18 +296,23 @@ export function ActionFilterRow({
         </IconWithCount>
     )
 
+    const enablePopup = mathAvailability === MathAvailability.FunnelsOnly
+
     const renameRowButton = (
         <LemonButton
             key="rename"
             icon={<IconPencil />}
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
-            noPadding
+            noPadding={!enablePopup}
             onClick={() => {
                 selectFilter(filter)
                 onRenameClick()
             }}
-        />
+            fullWidth={enablePopup}
+        >
+            {enablePopup ? 'Rename' : undefined}
+        </LemonButton>
     )
 
     const duplicateRowButton = (
@@ -304,22 +321,28 @@ export function ActionFilterRow({
             icon={<IconCopy />}
             title="Duplicate graph series"
             data-attr={`show-prop-duplicate-${index}`}
-            noPadding
+            noPadding={!enablePopup}
             onClick={() => {
                 duplicateFilter(filter)
             }}
-        />
+            fullWidth={enablePopup}
+        >
+            {enablePopup ? 'Duplicate' : undefined}
+        </LemonButton>
     )
 
     const deleteButton = (
         <LemonButton
             key="delete"
             icon={<IconTrash />}
-            title="Delete graph series"
+            // title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
-            noPadding
+            noPadding={!enablePopup}
             onClick={onClose}
-        />
+            fullWidth={enablePopup}
+        >
+            {enablePopup ? 'Delete' : undefined}
+        </LemonButton>
     )
 
     const rowStartElements = [
@@ -329,7 +352,7 @@ export function ActionFilterRow({
 
     const rowEndElements = !readOnly
         ? [
-              !hideFilter && propertyFiltersButton,
+              !hideFilter && !enablePopup && propertyFiltersButton,
               !hideRename && renameRowButton,
               !hideDuplicate && !singleFilter && duplicateRowButton,
               !hideDeleteBtn && !singleFilter && deleteButton,
@@ -369,111 +392,149 @@ export function ActionFilterRow({
                         <div className="ActionFilterRow__center">
                             <div className="flex-auto overflow-hidden">{filterElement}</div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
-                            {mathAvailability !== MathAvailability.None && (
-                                <>
-                                    <MathSelector
-                                        math={math}
-                                        mathGroupTypeIndex={mathGroupTypeIndex}
-                                        index={index}
-                                        onMathSelect={onMathSelect}
-                                        disabled={readOnly}
-                                        style={{ maxWidth: '100%', width: 'initial' }}
-                                        mathAvailability={mathAvailability}
-                                        trendsDisplayCategory={trendsDisplayCategory}
-                                    />
-                                    {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
-                                        MathCategory.PropertyValue && (
-                                        <div className="flex-auto overflow-hidden">
-                                            <TaxonomicStringPopover
-                                                groupType={TaxonomicFilterGroupType.NumericalEventProperties}
-                                                groupTypes={[
-                                                    TaxonomicFilterGroupType.DataWarehouseProperties,
-                                                    TaxonomicFilterGroupType.NumericalEventProperties,
-                                                    TaxonomicFilterGroupType.SessionProperties,
-                                                ]}
-                                                schemaColumns={
-                                                    filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                                        ? Object.values(
-                                                              dataWarehouseTablesMap[filter.name]?.fields ?? []
-                                                          )
-                                                        : []
-                                                }
-                                                value={mathProperty}
-                                                onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
-                                                eventNames={name ? [name] : []}
-                                                data-attr="math-property-select"
-                                                renderValue={(currentValue) => (
-                                                    <Tooltip
-                                                        title={
-                                                            currentValue === '$session_duration' ? (
-                                                                <>
-                                                                    Calculate{' '}
-                                                                    {mathDefinitions[math ?? ''].name.toLowerCase()} of
-                                                                    the session duration. This is based on the{' '}
-                                                                    <code>$session_id</code> property associated with
-                                                                    events. The duration is derived from the time
-                                                                    difference between the first and last event for each
-                                                                    distinct <code>$session_id</code>.
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    Calculate{' '}
-                                                                    {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
-                                                                    from property <code>{currentValue}</code>. Note that
-                                                                    only {name} occurences where{' '}
-                                                                    <code>{currentValue}</code> is set with a numeric
-                                                                    value will be taken into account.
-                                                                </>
-                                                            )
-                                                        }
-                                                        placement="right"
-                                                    >
-                                                        <PropertyKeyInfo
-                                                            value={currentValue}
-                                                            disablePopover
-                                                            type={TaxonomicFilterGroupType.EventProperties}
-                                                        />
-                                                    </Tooltip>
-                                                )}
-                                            />
-                                        </div>
-                                    )}
-                                    {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
-                                        MathCategory.HogQLExpression && (
-                                        <div className="flex-auto overflow-hidden">
-                                            <LemonDropdown
-                                                visible={isHogQLDropdownVisible}
-                                                closeOnClickInside={false}
-                                                onClickOutside={() => setIsHogQLDropdownVisible(false)}
-                                                overlay={
-                                                    // eslint-disable-next-line react/forbid-dom-props
-                                                    <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                                                        <HogQLEditor
-                                                            value={mathHogQL}
-                                                            onChange={(currentValue) => {
-                                                                onMathHogQLSelect(index, currentValue)
-                                                                setIsHogQLDropdownVisible(false)
-                                                            }}
-                                                        />
-                                                    </div>
-                                                }
-                                            >
-                                                <LemonButton
-                                                    fullWidth
-                                                    type="secondary"
-                                                    data-attr={`math-hogql-select-${index}`}
-                                                    onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
+                            {mathAvailability !== MathAvailability.None &&
+                                mathAvailability !== MathAvailability.FunnelsOnly && (
+                                    <>
+                                        <MathSelector
+                                            math={math}
+                                            mathGroupTypeIndex={mathGroupTypeIndex}
+                                            index={index}
+                                            onMathSelect={onMathSelect}
+                                            disabled={readOnly}
+                                            style={{ maxWidth: '100%', width: 'initial' }}
+                                            mathAvailability={mathAvailability}
+                                            trendsDisplayCategory={trendsDisplayCategory}
+                                        />
+                                        {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                            MathCategory.PropertyValue && (
+                                            <div className="flex-auto overflow-hidden">
+                                                <TaxonomicStringPopover
+                                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                    groupTypes={[
+                                                        TaxonomicFilterGroupType.DataWarehouseProperties,
+                                                        TaxonomicFilterGroupType.NumericalEventProperties,
+                                                        TaxonomicFilterGroupType.SessionProperties,
+                                                    ]}
+                                                    schemaColumns={
+                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
+                                                        filter.name
+                                                            ? Object.values(
+                                                                  dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                              )
+                                                            : []
+                                                    }
+                                                    value={mathProperty}
+                                                    onChange={(currentValue) =>
+                                                        onMathPropertySelect(index, currentValue)
+                                                    }
+                                                    eventNames={name ? [name] : []}
+                                                    data-attr="math-property-select"
+                                                    renderValue={(currentValue) => (
+                                                        <Tooltip
+                                                            title={
+                                                                currentValue === '$session_duration' ? (
+                                                                    <>
+                                                                        Calculate{' '}
+                                                                        {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
+                                                                        of the session duration. This is based on the{' '}
+                                                                        <code>$session_id</code> property associated
+                                                                        with events. The duration is derived from the
+                                                                        time difference between the first and last event
+                                                                        for each distinct <code>$session_id</code>.
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        Calculate{' '}
+                                                                        {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
+                                                                        from property <code>{currentValue}</code>. Note
+                                                                        that only {name} occurences where{' '}
+                                                                        <code>{currentValue}</code> is set with a
+                                                                        numeric value will be taken into account.
+                                                                    </>
+                                                                )
+                                                            }
+                                                            placement="right"
+                                                        >
+                                                            <PropertyKeyInfo
+                                                                value={currentValue}
+                                                                disablePopover
+                                                                type={TaxonomicFilterGroupType.EventProperties}
+                                                            />
+                                                        </Tooltip>
+                                                    )}
+                                                />
+                                            </div>
+                                        )}
+                                        {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                            MathCategory.HogQLExpression && (
+                                            <div className="flex-auto overflow-hidden">
+                                                <LemonDropdown
+                                                    visible={isHogQLDropdownVisible}
+                                                    closeOnClickInside={false}
+                                                    onClickOutside={() => setIsHogQLDropdownVisible(false)}
+                                                    overlay={
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                                            <HogQLEditor
+                                                                value={mathHogQL}
+                                                                onChange={(currentValue) => {
+                                                                    onMathHogQLSelect(index, currentValue)
+                                                                    setIsHogQLDropdownVisible(false)
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    }
                                                 >
-                                                    <code>{mathHogQL}</code>
-                                                </LemonButton>
-                                            </LemonDropdown>
-                                        </div>
-                                    )}
-                                </>
-                            )}
+                                                    <LemonButton
+                                                        fullWidth
+                                                        type="secondary"
+                                                        data-attr={`math-hogql-select-${index}`}
+                                                        onClick={() =>
+                                                            setIsHogQLDropdownVisible(!isHogQLDropdownVisible)
+                                                        }
+                                                    >
+                                                        <code>{mathHogQL}</code>
+                                                    </LemonButton>
+                                                </LemonDropdown>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                         </div>
                         {/* right section fixed */}
-                        {rowEndElements.length ? <div className="ActionFilterRow__end">{rowEndElements}</div> : null}
+                        {rowEndElements.length ? (
+                            <div className="ActionFilterRow__end">
+                                {mathAvailability === MathAvailability.FunnelsOnly ? (
+                                    <>
+                                        {!hideFilter && propertyFiltersButton}
+                                        <More
+                                            overlay={
+                                                <>
+                                                    <LemonButton
+                                                        icon={<IconPerson />}
+                                                        data-attr={`math-first-time-for-user-${index}`}
+                                                        onClick={() => {
+                                                            onMathSelect(index, BaseMathType.FirstTimeForUser)
+                                                        }}
+                                                        fullWidth
+                                                    >
+                                                        {mathProperty === BaseMathType.FirstTimeForUser
+                                                            ? 'Remove first time for user'
+                                                            : 'First time for user'}
+                                                    </LemonButton>
+                                                    <LemonDivider />
+                                                    {rowEndElements}
+                                                </>
+                                            }
+                                            noPadding
+                                            size="medium"
+                                        />
+                                    </>
+                                ) : (
+                                    rowEndElements
+                                )}
+                            </div>
+                        ) : null}
                     </>
                 )}
             </div>
