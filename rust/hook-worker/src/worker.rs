@@ -265,50 +265,48 @@ async fn process_batch<'a>(
     let mut kafka_ack_futures = Vec::new();
     for (result, mut metadata) in iter::zip(results, metadata_vec) {
         match result {
-            Ok(result) => {
-                if hog_mode {
-                    if let Some(payload) = create_hoghook_kafka_payload(result, &mut metadata).await
-                    {
-                        match kafka_producer.send_result(FutureRecord {
-                            topic: cdp_function_callbacks_topic,
-                            payload: Some(&payload),
-                            partition: None,
-                            key: None::<&str>,
-                            timestamp: None,
-                            headers: None,
-                        }) {
-                            Ok(future) => kafka_ack_futures.push(future),
-                            Err((
-                                KafkaError::MessageProduction(
-                                    RDKafkaErrorCode::MessageSizeTooLarge,
-                                ),
-                                _,
-                            )) => {
-                                // HACK: While under development, we are dropping messages that
-                                // are too large. This is temporary, as we expect the webhook
-                                // handler for Hog to change soon. In the meantime, nobody needs
-                                // to be alerted about this.
-                                let team_id = metadata
-                                    .get("teamId")
-                                    .and_then(|t| t.as_number())
-                                    .map(|t| t.to_string())
-                                    .unwrap_or_else(|| "?".to_string());
+            Ok(result) if hog_mode => {
+                if let Some(payload) = create_hoghook_kafka_payload(result, &mut metadata).await {
+                    match kafka_producer.send_result(FutureRecord {
+                        topic: cdp_function_callbacks_topic,
+                        payload: Some(&payload),
+                        partition: None,
+                        key: None::<&str>,
+                        timestamp: None,
+                        headers: None,
+                    }) {
+                        Ok(future) => kafka_ack_futures.push(future),
+                        Err((
+                            KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge),
+                            _,
+                        )) => {
+                            // HACK: While under development, we are dropping messages that
+                            // are too large. This is temporary, as we expect the webhook
+                            // handler for Hog to change soon. In the meantime, nobody needs
+                            // to be alerted about this.
+                            let team_id = metadata
+                                .get("teamId")
+                                .and_then(|t| t.as_number())
+                                .map(|t| t.to_string())
+                                .unwrap_or_else(|| "?".to_string());
 
-                                let hog_function_id = metadata
-                                    .get("hogFunctionId")
-                                    .and_then(|h| h.as_str())
-                                    .map(|h| h.to_string())
-                                    .unwrap_or_else(|| "?".to_string());
+                            let hog_function_id = metadata
+                                .get("hogFunctionId")
+                                .and_then(|h| h.as_str())
+                                .map(|h| h.to_string())
+                                .unwrap_or_else(|| "?".to_string());
 
-                                error!("dropping message due to size limit, team_id: {}, hog_function_id: {}", team_id, hog_function_id);
-                            }
-                            Err((error, _)) => {
-                                // Return early to avoid committing the batch.
-                                return log_kafka_error_and_sleep("send", Some(error)).await;
-                            }
-                        };
-                    }
+                            error!("dropping message due to size limit, team_id: {}, hog_function_id: {}", team_id, hog_function_id);
+                        }
+                        Err((error, _)) => {
+                            // Return early to avoid committing the batch.
+                            return log_kafka_error_and_sleep("send", Some(error)).await;
+                        }
+                    };
                 }
+            }
+            Ok(_) => {
+                // Nothing to do if we're not in hog_mode.
             }
             Err(e) => {
                 error!("error processing webhook job: {}", e)
