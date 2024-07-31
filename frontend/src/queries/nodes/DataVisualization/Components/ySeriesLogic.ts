@@ -9,7 +9,7 @@ import {
 } from '../dataVisualizationLogic'
 import type { ySeriesLogicType } from './ySeriesLogicType'
 
-interface YSeriesLogicProps {
+export interface YSeriesLogicProps {
     series: AxisSeries<number>
     seriesIndex: number
     dataVisualizationProps: DataVisualizationLogicProps

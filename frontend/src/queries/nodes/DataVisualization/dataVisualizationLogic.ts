@@ -44,7 +44,7 @@ export interface DataVisualizationLogicProps {
     cachedResults?: AnyResponseType
 }
 
-interface SelectedYAxis {
+export interface SelectedYAxis {
     name: string
     settings: AxisSeriesSettings
 }
