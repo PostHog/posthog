@@ -159,6 +159,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     )
                 }
                 const colors = {}
+                // Give current and previous versions of the same dataset the same colorIndex
                 return indexedResults.map((item, index) => {
                     let colorIndex = index
                     if (item.compare) {
