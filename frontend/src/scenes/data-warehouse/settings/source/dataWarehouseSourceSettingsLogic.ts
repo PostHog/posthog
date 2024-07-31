@@ -93,8 +93,8 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 setSourceId: () => true,
             },
         ],
-    }),
-    
+    })),
+
     listeners(({ values, actions, cache }) => ({
         loadSourceSuccess: () => {
             clearTimeout(cache.sourceRefreshTimeout)
