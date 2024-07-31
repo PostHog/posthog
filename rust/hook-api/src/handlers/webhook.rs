@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{body::Bytes, extract::State, http::StatusCode, Json};
 use hook_common::webhook::{WebhookJobMetadata, WebhookJobParameters};
 use serde_derive::Deserialize;
 use serde_json::Value;
@@ -34,8 +34,21 @@ fn default_max_attempts() -> u32 {
 
 pub async fn post_webhook(
     State(pg_queue): State<PgQueue>,
-    Json(payload): Json<WebhookPostRequestBody>,
+    body: Bytes,
 ) -> Result<Json<WebhookPostResponse>, (StatusCode, Json<WebhookPostResponse>)> {
+    let payload: WebhookPostRequestBody = {
+        // We don't use a `Json(payload): Json<WebhookPostRequestBody>` parameter above because we
+        // want to strip out null characters while it's still a single string.
+
+        let body_str = String::from_utf8(body.to_vec())
+            .map_err(|e| bad_request(format!("invalid utf8: {}", e)))?;
+
+        let sanitized_str = replace_null_characters_in_stringified_json(&body_str);
+
+        serde_json::from_str(&sanitized_str)
+            .map_err(|e| bad_request(format!("invalid json: {}", e)))?
+    };
+
     debug!("received payload: {:?}", payload);
 
     let url_hostname = get_hostname(&payload.parameters.url)?;
@@ -91,8 +104,21 @@ struct HoghookAsyncFunctionRequest {
 
 pub async fn post_hoghook(
     State(pg_queue): State<PgQueue>,
-    Json(payload): Json<Value>,
+    body: Bytes,
 ) -> Result<Json<WebhookPostResponse>, (StatusCode, Json<WebhookPostResponse>)> {
+    let payload: Value = {
+        // We don't use a `Json(payload): Json<Value>` parameter above because we want to strip
+        // out null characters while it's still a single string.
+
+        let body_str = String::from_utf8(body.to_vec())
+            .map_err(|e| bad_request(format!("invalid utf8: {}", e)))?;
+
+        let sanitized_str = replace_null_characters_in_stringified_json(&body_str);
+
+        serde_json::from_str(&sanitized_str)
+            .map_err(|e| bad_request(format!("invalid json: {}", e)))?
+    };
+
     debug!("received payload: {:?}", payload);
 
     // We deserialize a copy of the `asyncFunctionRequest` field here because we want to leave
@@ -171,12 +197,18 @@ where
 }
 
 fn get_hostname(url_str: &str) -> Result<String, (StatusCode, Json<WebhookPostResponse>)> {
-    let url = Url::parse(url_str).map_err(|_| bad_request("could not parse url".to_owned()))?;
+    let url =
+        Url::parse(url_str).map_err(|e| bad_request(format!("could not parse url: {}", e)))?;
 
     match url.host_str() {
         Some(hostname) => Ok(hostname.to_owned()),
         None => Err(bad_request("couldn't extract hostname from url".to_owned())),
     }
+}
+
+// TypeScript equivalent: https://github.com/PostHog/posthog/blob/ab059c4f05cbf9736390fc9386234dcade7aea40/plugin-server/src/utils/db/utils.ts#L185
+fn replace_null_characters_in_stringified_json(s: &str) -> String {
+    s.replace("\\u0000", "\\uFFFD")
 }
 
 #[cfg(test)]
@@ -299,7 +331,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[sqlx::test(migrations = "../migrations")]
@@ -400,6 +432,11 @@ mod tests {
                 r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com", {"method": "GET", "body": "hello, world", "headers": {"k": "v"}}]}, "otherField": true}"#,
                 r#"{"body": "hello, world", "headers": {"k": "v"}, "method": "GET", "url": "http://example.com"}"#,
             ),
+            // Test that null unicode code points are replaced, since they aren't allowed in Postgres.
+            (
+                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com/\\u0000", {"method": "GET", "body": "\\u0000", "headers": {"k": "v"}}]}, "otherField": true}"#,
+                r#"{"body": "\\uFFFD", "headers": {"k": "v"}, "method": "GET", "url": "http://example.com/\\uFFFD"}"#,
+            ),
         ];
 
         for (payload, expected_parameters) in valid_payloads {
@@ -438,7 +475,10 @@ mod tests {
             );
             assert_eq!(
                 row.metadata,
-                serde_json::from_str::<Value>(payload).unwrap()
+                serde_json::from_str::<Value>(&replace_null_characters_in_stringified_json(
+                    payload
+                ))
+                .unwrap()
             );
             assert_eq!(row.target, "example.com");
 
