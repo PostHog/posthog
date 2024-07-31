@@ -155,7 +155,7 @@ export const LineGraph = (): JSX.Element => {
                 // TODO: A lot of this is v similar to the trends LineGraph - considering merging these
                 tooltip: {
                     enabled: false,
-                    mode: 'nearest',
+                    mode: 'index',
                     intersect: false,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
                         if (!canvasRef.current) {
