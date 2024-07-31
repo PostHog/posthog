@@ -1,16 +1,27 @@
+import uuid
 from datetime import datetime
 from typing import cast
-import uuid
+
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
+
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
+    assert_funnel_results_equal,
+    funnel_breakdown_group_test_factory,
+    funnel_breakdown_test_factory,
+)
+from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
+    funnel_conversion_time_test_factory,
+)
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action, Element
 from posthog.models.cohort.cohort import Cohort
@@ -20,14 +31,15 @@ from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import (
     ActorsQuery,
+    BaseMathType,
     BreakdownFilter,
     BreakdownType,
-    FunnelConversionWindowTimeUnit,
-    FunnelsFilter,
-    InsightDateRange,
     EventsNode,
+    FunnelConversionWindowTimeUnit,
     FunnelsActorsQuery,
+    FunnelsFilter,
     FunnelsQuery,
+    InsightDateRange,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -39,15 +51,6 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
-from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
-    funnel_conversion_time_test_factory,
-)
-from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    funnel_breakdown_test_factory,
-    funnel_breakdown_group_test_factory,
-    assert_funnel_results_equal,
-)
-from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.test.test_journeys import journeys_for
 
 
@@ -3767,6 +3770,56 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             assert result.average_conversion_time == 210
             assert result.bins == [[60, 1], [210, 0], [360, 1]]
+
+        def test_first_time_for_user_funnel_basic(self):
+            _create_person(
+                distinct_ids=[f"user_1"],
+                team=self.team,
+            )
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 46),
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 47),
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
+                    EventsNode(event="$pageview"),
+                ],
+                dateRange=InsightDateRange(
+                    date_from="2024-03-22",
+                    date_to="2024-03-22",
+                ),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[1]["count"], 1)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
+                    EventsNode(event="$pageview", math=BaseMathType.FIRST_TIME_FOR_USER),
+                ],
+                dateRange=InsightDateRange(
+                    date_from="2024-03-22",
+                    date_to="2024-03-22",
+                ),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[1]["count"], 0)
 
     return TestGetFunnel
 
