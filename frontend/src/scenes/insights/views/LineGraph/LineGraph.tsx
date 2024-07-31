@@ -1,7 +1,7 @@
 import 'chartjs-adapter-dayjs-3'
 
 import { LegendOptions } from 'chart.js'
-import { _DeepPartialObject } from 'chart.js/types/utils'
+import { DeepPartial } from 'chart.js/dist/types/utils'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -236,7 +236,7 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
-    legend?: _DeepPartialObject<LegendOptions<ChartType>>
+    legend?: DeepPartial<LegendOptions<ChartType>>
     yAxisScaleType?: string | null
 }
 
@@ -401,14 +401,13 @@ export function LineGraph_({
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 'normal',
             },
         }
         const gridOptions: Partial<GridLineOptions> = {
             color: colors.axisLine as Color,
-            borderColor: colors.axisLine as Color,
             tickColor: colors.axisLine as Color,
-            borderDash: [4, 2],
+            tickBorderDash: [4, 2],
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -625,7 +624,7 @@ export function LineGraph_({
                                   padding: 10,
                                   font: {
                                       size: 14,
-                                      weight: '600',
+                                      weight: 'bold',
                                   },
                               }
                             : {}),

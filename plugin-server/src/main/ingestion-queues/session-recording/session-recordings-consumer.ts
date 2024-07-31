@@ -119,6 +119,11 @@ export const sessionInfoSummary = new Summary({
     percentiles: [0.1, 0.25, 0.5, 0.9, 0.99],
 })
 
+const gaugeBatchUtilization = new Gauge({
+    name: 'recording_blob_ingestion_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+})
+
 type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
@@ -342,6 +347,8 @@ export class SessionRecordingIngester {
                 assignedPartitions: this.assignedPartitions,
             })
         }
+
+        gaugeBatchUtilization.set(messages.length / this.config.SESSION_RECORDING_KAFKA_BATCH_SIZE)
 
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,

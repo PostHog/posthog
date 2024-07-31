@@ -1027,10 +1027,14 @@ const api = {
                     return new ApiRequest().insightsActivity(teamId)
                 },
                 [ActivityScope.PLUGIN]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
                     return new ApiRequest().dataManagementActivity()
@@ -2084,8 +2088,16 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
-        async jobs(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataJob[]> {
-            return await new ApiRequest().externalDataSource(sourceId).withAction('jobs').get()
+        async jobs(
+            sourceId: ExternalDataStripeSource['id'],
+            before: string | null,
+            after: string | null
+        ): Promise<ExternalDataJob[]> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('jobs')
+                .withQueryString({ before, after })
+                .get()
         },
     },
 
