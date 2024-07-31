@@ -54,7 +54,7 @@ export const UnsubscribeSurveyModal = ({
                 resetUnsubscribeError()
             }}
             width="max(44vw)"
-            title={`${action} from ${product.name}`}
+            title={isAddonProduct ? action : `${action} from ${product.name}`}
             footer={
                 <>
                     <LemonButton
