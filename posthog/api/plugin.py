@@ -899,8 +899,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        plugin_config = self.get_object()
-
         activity_page = load_activity(
             "PluginConfig", team_id=self.team_id, item_ids=[self.get_object().id], limit=limit, page=page
         )
