@@ -11,7 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable, NodeKind } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
@@ -125,7 +125,12 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             {table.type == 'view' && (
                 <LemonButton
                     onClick={() => {
-                        router.actions.push(urls.dataWarehouseView(table.id, table.query))
+                        router.actions.push(
+                            urls.dataWarehouseView(table.id, {
+                                kind: NodeKind.DataVisualizationNode,
+                                source: table.query,
+                            })
+                        )
                     }}
                     data-attr="schema-list-item-edit"
                     fullWidth

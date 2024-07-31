@@ -7,7 +7,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseTab } from '~/types'
+import { PipelineTab } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import { dataWarehouseExternalSceneLogic } from './dataWarehouseExternalSceneLogic'
@@ -44,7 +44,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         >
                             Save as insight
                         </LemonButton>
-                        <LemonButton type="secondary" to={urls.dataWarehouseSettings(DataWarehouseTab.ManagedSources)}>
+                        <LemonButton type="secondary" to={urls.pipeline(PipelineTab.Sources)}>
                             Manage sources
                         </LemonButton>
                     </>

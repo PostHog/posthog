@@ -19,7 +19,7 @@ import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
 
 Chart.register(annotationPlugin)
@@ -93,15 +93,14 @@ export const LineGraph = (): JSX.Element => {
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 'normal',
             },
         }
 
         const gridOptions: Partial<GridLineOptions> = {
             color: colors.axisLine as Color,
-            borderColor: colors.axisLine as Color,
             tickColor: colors.axisLine as Color,
-            borderDash: [4, 2],
+            tickBorderDash: [4, 2],
         }
 
         const options: ChartOptions = {
@@ -180,9 +179,9 @@ export const LineGraph = (): JSX.Element => {
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={yData.map(({ data, column }) => ({
+                                        dataSource={yData.map(({ data, column, settings }) => ({
                                             series: column.name,
-                                            data: data[referenceDataPoint.dataIndex],
+                                            data: formatDataWithSettings(data[referenceDataPoint.dataIndex], settings),
                                         }))}
                                         columns={[
                                             {
