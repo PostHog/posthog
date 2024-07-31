@@ -560,6 +560,7 @@ export interface ChartSettingsFormatting {
     prefix?: string
     suffix?: string
     style?: 'none' | 'number' | 'percent'
+    decimalPlaces?: number
 }
 
 export interface ChartSettings {

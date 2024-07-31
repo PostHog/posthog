@@ -169,6 +169,7 @@ class ChartSettingsFormatting(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    decimalPlaces: Optional[float] = None
     prefix: Optional[str] = None
     style: Optional[Style] = None
     suffix: Optional[str] = None

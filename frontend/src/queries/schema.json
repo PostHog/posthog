@@ -2046,6 +2046,9 @@
         "ChartSettingsFormatting": {
             "additionalProperties": false,
             "properties": {
+                "decimalPlaces": {
+                    "type": "number"
+                },
                 "prefix": {
                     "type": "string"
                 },
