@@ -352,7 +352,7 @@ async fn create_hoghook_kafka_payload(
                         "duration_ms": response.duration.as_millis().try_into().unwrap_or(u32::MAX)
                     }],
                     "response": {
-                        "status": response.status_code,
+                        "status": response.status_code.as_u16(),
                         "body": response.body
                     }
                 });
@@ -361,7 +361,7 @@ async fn create_hoghook_kafka_payload(
             }
             WebhookResult::Failed(error) => {
                 let async_function_response = json!({
-                    "error": error.to_string(),
+                    "error": error.error.to_string(),
                 });
 
                 object.insert("asyncFunctionResponse".to_owned(), async_function_response);
@@ -378,15 +378,25 @@ async fn create_hoghook_kafka_payload(
 }
 
 struct WebhookSuccess {
-    status_code: u16,
+    status_code: StatusCode,
     duration: Duration,
+    body: Option<String>,
+}
+
+struct WebhookFailed {
+    error: String,
+    #[allow(dead_code)]
+    status_code: Option<StatusCode>,
+    #[allow(dead_code)]
+    duration: Duration,
+    #[allow(dead_code)]
     body: Option<String>,
 }
 
 enum WebhookResult {
     Success(WebhookSuccess),
     WillRetry,
-    Failed(String),
+    Failed(WebhookFailed),
 }
 
 /// Process a webhook job by transitioning it to its appropriate state after its request is sent.
@@ -427,8 +437,8 @@ async fn process_webhook_job<W: WebhookJob>(
 
     match send_result {
         Ok(response) => {
-            // First, read the body if needed so that the read time is included in `duration`.
             let status = response.status();
+            // First, read the body if needed so that the read time is included in `duration`.
             let body = if read_body {
                 match first_n_bytes_of_response(response, MAX_RESPONSE_BODY).await {
                     Ok(body) => Some(body), // Once told me...
@@ -446,9 +456,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
                         metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-                        return Ok(WebhookResult::Failed(
-                            "timeout while reading response body".to_owned(),
-                        ));
+                        return Ok(WebhookResult::Failed(WebhookFailed {
+                            error: "timeout while reading response body".to_owned(),
+                            status_code: Some(status),
+                            duration: now.elapsed(),
+                            body: None,
+                        }));
                     }
                 }
             } else {
@@ -481,7 +494,7 @@ async fn process_webhook_job<W: WebhookJob>(
                 .record(duration.as_secs_f64());
 
             Ok(WebhookResult::Success(WebhookSuccess {
-                status_code: status.as_u16(),
+                status_code: status,
                 duration,
                 body,
             }))
@@ -497,7 +510,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(WebhookResult::Failed(e.to_string()))
+            Ok(WebhookResult::Failed(WebhookFailed {
+                error: e.to_string(),
+                status_code: None,
+                duration: now.elapsed(),
+                body: None,
+            }))
         }
         Err(WebhookError::Parse(WebhookParseError::ParseHttpMethodError(e))) => {
             webhook_job
@@ -510,7 +528,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(WebhookResult::Failed(e.to_string()))
+            Ok(WebhookResult::Failed(WebhookFailed {
+                error: e.to_string(),
+                status_code: None,
+                duration: now.elapsed(),
+                body: None,
+            }))
         }
         Err(WebhookError::Parse(WebhookParseError::ParseUrlError(e))) => {
             webhook_job
@@ -523,7 +546,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(WebhookResult::Failed(e.to_string()))
+            Ok(WebhookResult::Failed(WebhookFailed {
+                error: e.to_string(),
+                status_code: None,
+                duration: now.elapsed(),
+                body: None,
+            }))
         }
         Err(WebhookError::Request(request_error)) => {
             let webhook_job_error = WebhookJobError::from(&request_error);
@@ -561,7 +589,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
                             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-                            Ok(WebhookResult::Failed(error.to_string()))
+                            Ok(WebhookResult::Failed(WebhookFailed {
+                                error: error.to_string(),
+                                status_code: None,
+                                duration: now.elapsed(),
+                                body: None,
+                            }))
                         }
                         Err(RetryError::DatabaseError(job_error)) => {
                             metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
@@ -580,7 +613,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
                     metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-                    Ok(WebhookResult::Failed(error.to_string()))
+                    Ok(WebhookResult::Failed(WebhookFailed {
+                        error: error.to_string(),
+                        status_code: None,
+                        duration: now.elapsed(),
+                        body: None,
+                    }))
                 }
             }
         }
@@ -620,11 +658,13 @@ async fn send_webhook(
             if is_error_source::<NoPublicIPv4Error>(&e) {
                 WebhookRequestError::NonRetryableRetryableRequestError {
                     error: e,
+                    status: None,
                     response: None,
                 }
             } else {
                 WebhookRequestError::RetryableRequestError {
                     error: e,
+                    status: None,
                     response: None,
                     retry_after: None,
                 }
@@ -643,6 +683,7 @@ async fn send_webhook(
                 Err(WebhookError::Request(
                     WebhookRequestError::RetryableRequestError {
                         error: err,
+                        status: Some(response.status()),
                         response: first_n_bytes_of_response(response, MAX_RESPONSE_BODY)
                             .await
                             .ok(),
@@ -653,6 +694,7 @@ async fn send_webhook(
                 Err(WebhookError::Request(
                     WebhookRequestError::NonRetryableRetryableRequestError {
                         error: err,
+                        status: Some(response.status()),
                         response: first_n_bytes_of_response(response, MAX_RESPONSE_BODY)
                             .await
                             .ok(),
