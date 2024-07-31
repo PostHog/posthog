@@ -16,7 +16,7 @@ import { dataManagementActivityDescriber } from 'scenes/data-management/dataMana
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
-import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
+import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/teamActivityDescriber'
@@ -159,12 +159,8 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG),
             [urls.savedInsights()]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
-            [urls.projectApps()]: (_, searchParams, hashParams) =>
-                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
-            [urls.appHistory(':pluginConfigId')]: (_, searchParams, hashParams) =>
-                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN, true),
         }
     }),
     events(({ actions }) => ({

@@ -54,6 +54,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 alias="description",
                 expr=ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
             ),
+            ast.Alias(
+                alias="exception_type",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_type"])]),
+            ),
         ]
 
         if self.query.eventColumns:
@@ -124,7 +128,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 left=ast.Field(chain=["event"]),
                 right=ast.Constant(value="$exception"),
             ),
-            ast.Placeholder(field="filters"),
+            ast.Placeholder(chain=["filters"]),
         ]
 
         if self.query.fingerprint:

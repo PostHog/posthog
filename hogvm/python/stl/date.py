@@ -1,15 +1,9 @@
 import datetime
-from typing import Optional, Any
+from typing import Optional
 
 import pytz
 
-
-def is_hog_date(obj: Any) -> bool:
-    return isinstance(obj, dict) and "__hogDate__" in obj and "year" in obj and "month" in obj and "day" in obj
-
-
-def is_hog_datetime(obj: Any) -> bool:
-    return isinstance(obj, dict) and "__hogDateTime__" in obj and "dt" in obj and "zone" in obj
+from hogvm.python.objects import is_hog_date, is_hog_datetime
 
 
 def to_hog_date(year: int, month: int, day: int):

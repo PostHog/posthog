@@ -673,6 +673,10 @@ class ApiRequest {
         return this.errorTracking(teamId).addPathComponent(fingerprint)
     }
 
+    public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
+        return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -895,16 +899,14 @@ const api = {
     insights: {
         loadInsight(
             shortId: InsightModel['short_id'],
-            basic?: boolean,
-            refresh?: RefreshType
+            basic?: boolean
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        basic,
-                        refresh,
+                        basic: basic,
                     })
                 )
                 .get()
@@ -1023,10 +1025,14 @@ const api = {
                     return new ApiRequest().insightsActivity(teamId)
                 },
                 [ActivityScope.PLUGIN]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
                     return new ApiRequest().dataManagementActivity()
@@ -1628,8 +1634,8 @@ const api = {
     },
 
     hogFunctions: {
-        async list(): Promise<PaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest().hogFunctions().get()
+        async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().withQueryString(params).get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).get()
@@ -1721,6 +1727,15 @@ const api = {
             data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
         ): Promise<ErrorTrackingGroup> {
             return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
+        },
+
+        async merge(
+            primaryFingerprint: ErrorTrackingGroup['fingerprint'],
+            mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingMerge(primaryFingerprint)
+                .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
     },
 
@@ -2071,8 +2086,16 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
-        async jobs(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataJob[]> {
-            return await new ApiRequest().externalDataSource(sourceId).withAction('jobs').get()
+        async jobs(
+            sourceId: ExternalDataStripeSource['id'],
+            before: string | null,
+            after: string | null
+        ): Promise<ExternalDataJob[]> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('jobs')
+                .withQueryString({ before, after })
+                .get()
         },
     },
 

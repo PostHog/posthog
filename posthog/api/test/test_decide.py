@@ -356,8 +356,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["recordCanvas"], True)
-        self.assertEqual(response["sessionRecording"]["canvasFps"], 4)
-        self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.6")
+        self.assertEqual(response["sessionRecording"]["canvasFps"], 3)
+        self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.4")
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching

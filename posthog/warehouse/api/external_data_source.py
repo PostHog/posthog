@@ -1,3 +1,4 @@
+from dateutil import parser
 import uuid
 from typing import Any
 
@@ -441,7 +442,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-        if not self._validate_postgres_host(host, self.team_id):
+        if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
             raise InternalPostgresError()
 
         new_source_model = ExternalDataSource.objects.create(
@@ -686,10 +687,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
 
             # Validate internal postgres
-            if not self._validate_postgres_host(host, self.team_id):
+            if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Cannot use internal Postgres database"},
+                    data={"message": "Cannot use internal database"},
                 )
 
             try:
@@ -867,8 +868,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True)
     def jobs(self, request: Request, *arg: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
+        after = request.query_params.get("after", None)
+        before = request.query_params.get("before", None)
 
-        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at").all()
+        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at")
+
+        if after:
+            after_date = parser.parse(after)
+            jobs = jobs.filter(created_at__gt=after_date)
+        if before:
+            before_date = parser.parse(before)
+            jobs = jobs.filter(created_at__lt=before_date)
+
+        jobs = jobs[:50]
 
         return Response(
             status=status.HTTP_200_OK,
@@ -893,7 +905,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return value
         return None
 
-    def _validate_postgres_host(self, host: str, team_id: int) -> bool:
+    def _validate_database_host(self, host: str, team_id: int, using_ssh_tunnel: bool) -> bool:
+        if using_ssh_tunnel:
+            return True
+
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):
             if is_cloud():
                 region = get_instance_region()

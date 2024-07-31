@@ -985,8 +985,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           source: {
                                               kind: NodeKind.TrendsQuery,
                                               breakdownFilter: {
+                                                  // use the event level country code rather than person, to work better with personless users
                                                   breakdown: '$geoip_country_code',
-                                                  breakdown_type: 'person',
+                                                  breakdown_type: 'event',
                                               },
                                               dateRange,
                                               series: [

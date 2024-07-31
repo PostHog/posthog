@@ -69,6 +69,20 @@ export interface FunctionDestination extends HogFunctionBasedNode {
 }
 export type Destination = BatchExportDestination | WebhookDestination | FunctionDestination
 
+export type NewDestinationItemType = {
+    icon: JSX.Element
+    url: string
+    name: string
+    description: string
+    backend: PipelineBackend
+    status?: 'stable' | 'beta' | 'alpha' | 'free'
+}
+
+export type NewDestinationFilters = {
+    search?: string
+    kind?: PipelineBackend
+}
+
 export interface DataImportApp extends PluginBasedNode {
     stage: PipelineStage.DataImport
 }

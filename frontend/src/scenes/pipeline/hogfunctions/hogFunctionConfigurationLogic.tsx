@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -14,8 +15,15 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { performQuery } from '~/queries/query'
+import { EventsNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     AvailableFeature,
+    BaseMathType,
+    ChartDisplayType,
+    FilterLogicalOperator,
     FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
@@ -27,6 +35,8 @@ import {
     PipelineTab,
     PluginConfigFilters,
     PluginConfigTypeNew,
+    PropertyFilterType,
+    PropertyGroupFilter,
 } from '~/types'
 
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
@@ -35,6 +45,8 @@ export interface HogFunctionConfigurationLogicProps {
     templateId?: string
     id?: string
 }
+
+export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -135,6 +147,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
     }),
     reducers({
         showSource: [
@@ -144,7 +157,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -194,6 +207,52 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     lemonToast.success('Configuration saved')
 
                     return res
+                },
+            },
+        ],
+
+        sparkline: [
+            null as null | {
+                data: { name: string; values: number[]; color: string }[]
+                count: number
+                labels: string[]
+            },
+            {
+                sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
+                    if (values.sparkline === null) {
+                        await breakpoint(100)
+                    } else {
+                        await breakpoint(1000)
+                    }
+                    const result = await performQuery(sparklineQuery)
+                    breakpoint()
+
+                    const dataValues: number[] = result?.results?.[0]?.data ?? []
+                    const [underThreshold, overThreshold] = dataValues.reduce(
+                        (acc, val: number) => {
+                            acc[0].push(Math.min(val, EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+                            acc[1].push(Math.max(0, val - EVENT_VOLUME_DAILY_WARNING_THRESHOLD))
+
+                            return acc
+                        },
+                        [[], []] as [number[], number[]]
+                    )
+
+                    const data = [
+                        {
+                            name: 'Low volume',
+                            values: underThreshold,
+                            color: 'success',
+                        },
+                        {
+                            name: 'High volume',
+                            values: overThreshold,
+                            color: 'warning',
+                        },
+                    ]
+                    const count = result?.results?.[0]?.count
+                    const labels = result?.results?.[0]?.labels
+                    return { data, count, labels }
                 },
             },
         ],
@@ -281,7 +340,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         return
                     }
 
-                    if (input.required && !value) {
+                    const missing = value === undefined || value === null || value === ''
+                    if (input.required && missing) {
                         inputErrors[key] = 'This field is required'
                     }
 
@@ -375,6 +435,69 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     inputs,
                 }
             },
+        ],
+        sparklineQuery: [
+            (s) => [s.configuration],
+            (configuration): TrendsQuery => {
+                const properties: PropertyGroupFilter = {
+                    type: FilterLogicalOperator.Or,
+                    values: [],
+                }
+                for (const event of configuration.filters?.events ?? []) {
+                    const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
+                    if (event.id) {
+                        eventProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: hogql`event = ${event.id}`,
+                        })
+                    }
+                    if (eventProperties.length === 0) {
+                        eventProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: 'true',
+                        })
+                    }
+                    properties.values.push({
+                        type: FilterLogicalOperator.And,
+                        values: eventProperties,
+                    })
+                }
+                for (const action of configuration.filters?.actions ?? []) {
+                    const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
+                    if (action.id) {
+                        actionProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: hogql`matchesAction(${parseInt(action.id)})`,
+                        })
+                    }
+                    properties.values.push({
+                        type: FilterLogicalOperator.And,
+                        values: actionProperties,
+                    })
+                }
+
+                return {
+                    kind: NodeKind.TrendsQuery,
+                    filterTestAccounts: configuration.filters?.filter_test_accounts,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: null,
+                            name: 'All Events',
+                            math: BaseMathType.TotalCount,
+                        } satisfies EventsNode,
+                    ],
+                    properties,
+                    interval: 'day',
+                    dateRange: {
+                        date_from: '-7d',
+                    },
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsBar,
+                    },
+                }
+            },
+            { resultEqualityCheck: equal },
         ],
     })),
 
@@ -523,7 +646,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         }
     }),
 
-    subscriptions(({ props, cache }) => ({
+    subscriptions(({ props, cache, actions }) => ({
         configuration: (configuration) => {
             if (!Object.keys(configuration).length) {
                 return
@@ -545,6 +668,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`, PipelineNodeTab.Configuration)
                 )
             }
+        },
+
+        sparklineQuery: async (sparklineQuery) => {
+            actions.sparklineQueryChanged(sparklineQuery)
         },
     })),
 ])
