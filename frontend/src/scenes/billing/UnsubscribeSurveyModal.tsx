@@ -54,7 +54,7 @@ export const UnsubscribeSurveyModal = ({
                 resetUnsubscribeError()
             }}
             width="max(44vw)"
-            title={action}
+            title={`${action} from ${product.name}`}
             footer={
                 <>
                     <LemonButton
@@ -119,6 +119,7 @@ export const UnsubscribeSurveyModal = ({
                                     : 'border-1 border-border hover:border-border-bold'
                             } rounded-md rounded-[6px] cursor-pointer`}
                             tabIndex={0}
+                            data-attr={`unsubscribe-reason-${reason.replace(/\s+/g, '-').toLowerCase()}`}
                             onClick={() => toggleSurveyReason(reason)}
                             onKeyPress={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
