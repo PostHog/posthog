@@ -33,7 +33,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
     selectors(() => ({
         breadcrumbs: [
             (s) => [s.currentTab],
-            (tab): Breadcrumb[] => {
+            (tab: PipelineTab): Breadcrumb[] => {
                 return [
                     { key: Scene.Pipeline, name: 'Data pipeline' },
                     {

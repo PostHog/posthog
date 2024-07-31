@@ -75,12 +75,12 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
         ],
 
         activityFilters: [
-            (s) => [s.nodeBackend],
-            (nodeBackend): ActivityFilters | null => {
-                return nodeBackend.backend === PipelineBackend.Plugin
+            (s) => [s.node],
+            (node): ActivityFilters | null => {
+                return node.backend === PipelineBackend.Plugin
                     ? {
                           scope: ActivityScope.PLUGIN,
-                          item_id: `${nodeBackend.id}`,
+                          item_id: `${node.id}`,
                       }
                     : null
             },
