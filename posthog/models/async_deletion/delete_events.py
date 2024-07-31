@@ -71,6 +71,8 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                     settings={},
                 )
 
+                conditions, args = [], {}
+
         logger.debug(f"Executing query with args: {args}")
         # This is the default condition if we don't hit the MAX_PREDICATE_SIZE
         sync_execute(
