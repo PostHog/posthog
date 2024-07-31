@@ -16,6 +16,10 @@ export interface IndexedTrendResult extends TrendResult {
      * specific order (e.g. for pie chart). The series index is used e.g. to
      * get series color correctly. */
     seriesIndex: number
+    /** An index computed in trendsDataLogic that is used to generate colors. This index is the same for current and previous
+     * series with the same label. The previous series is given a slightly lighter version of the same color.
+     * */
+    colorIndex: number
 }
 
 export interface TrendActors {
