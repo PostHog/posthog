@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 
-# See https://dashboard.Mailjet.com/docs#enrichment-api-combined-api
+# See https://dev.mailjet.com/email/reference/contacts/contact-list/
 
 common_inputs_schemas = [
     {
