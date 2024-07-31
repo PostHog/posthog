@@ -73,15 +73,6 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
             "secret": False,
             "required": False,
         },
-        {
-            "key": "contact_list_id",
-            "type": "string",
-            "label": "Contract list ID",
-            "description": "Where to find the email for the user to be checked with Mailjet",
-            "default": "{person.properties.email}",
-            "secret": False,
-            "required": True,
-        },
     ],
     filters=common_filters,
 )
@@ -119,7 +110,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
         {
             "key": "contact_list_id",
             "type": "string",
-            "label": "Contact List ID",
+            "label": "Contact list ID",
             "description": "ID of the contact list",
             "secret": False,
             "required": True,
