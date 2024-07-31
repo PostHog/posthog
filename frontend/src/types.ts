@@ -153,7 +153,7 @@ export enum AvailableFeature {
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
-    CUSTOMM_MSA = 'custom_msa',
+    CUSTOM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
@@ -1584,7 +1584,7 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | null | undefined
+        [key: string]: string | number | null | undefined
     }
     billing_period?: {
         current_period_start: Dayjs
