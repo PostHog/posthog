@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import {
     Breadcrumb,
-    DataWarehouseTab,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,

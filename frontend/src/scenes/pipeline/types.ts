@@ -11,6 +11,7 @@ export enum PipelineBackend {
     BatchExport = 'batch_export',
     Plugin = 'plugin',
     HogFunction = 'hog_function',
+    ManagedSource = 'managed_source',
 }
 
 // Base - we're taking a discriminated union approach here, so that TypeScript can discern types for free
@@ -93,9 +94,13 @@ export interface ImportApp extends PluginBasedNode {
     stage: PipelineStage.ImportApp
 }
 
+export interface Source extends PluginBasedNode {
+    stage: PipelineStage.Source
+}
+
 // Final
 
-export type PipelineNode = Transformation | Destination | SiteApp | ImportApp
+export type PipelineNode = Transformation | Destination | SiteApp | ImportApp | Source
 
 // Utils
 
@@ -116,6 +121,8 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? SiteApp
     : S extends PipelineStage.ImportApp
     ? ImportApp
+    : S extends PipelineStage.Source
+    ? Source
     : never {
     let node: PipelineNode
     // check if type is a hog function
@@ -133,7 +140,10 @@ export function convertToPipelineNode<S extends PipelineStage>(
             hog_function: candidate,
         }
     } else if (isPluginConfig(candidate)) {
-        const almostNode: Omit<Transformation | WebhookDestination | SiteApp | ImportApp, 'frequency' | 'order'> = {
+        const almostNode: Omit<
+            Transformation | WebhookDestination | SiteApp | ImportApp | Source,
+            'frequency' | 'order'
+        > = {
             stage: stage,
             backend: PipelineBackend.Plugin,
             id: candidate.id,

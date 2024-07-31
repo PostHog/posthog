@@ -1,14 +1,12 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
-import { Breadcrumb, DataWarehouseTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -29,7 +27,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     actions(({ values }) => ({
         selectRow: (row: DatabaseSchemaTable | null) => ({ row }),
-        setSceneTab: (tab: DataWarehouseTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
         toggleEditSchemaMode: (inEditSchemaMode?: boolean) => ({ inEditSchemaMode }),
         updateSelectedSchema: (columnKey: string, columnType: DatabaseSerializedFieldType) => ({
@@ -141,12 +138,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 setEditingView: (_, { id }) => id,
             },
         ],
-        currentTab: [
-            DataWarehouseTab.ManagedSources as DataWarehouseTab,
-            {
-                setSceneTab: (_, { tab }) => tab,
-            },
-        ],
     }),
     selectors({
         dataWarehouseTablesBySourceType: [
@@ -172,18 +163,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dataWarehouseTables, s.views],
             (dataWarehouseTables, views): DatabaseSchemaTable[] => {
                 return [...dataWarehouseTables, ...views]
-            },
-        ],
-        breadcrumbs: [
-            (s) => [s.currentTab],
-            (currentTab): Breadcrumb[] => {
-                return [
-                    {
-                        key: Scene.DataWarehouseSettings,
-                        name: 'Data warehouse settings',
-                        path: urls.dataWarehouseSettings(currentTab),
-                    },
-                ]
             },
         ],
     }),
@@ -272,13 +251,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     query: newViewQuery,
                 }
                 actions.updateDataWarehouseSavedQuery(newView)
-            }
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '/data-warehouse/:tab': ({ tab }) => {
-            if (tab !== values.currentTab) {
-                actions.setSceneTab(tab as DataWarehouseTab)
             }
         },
     })),

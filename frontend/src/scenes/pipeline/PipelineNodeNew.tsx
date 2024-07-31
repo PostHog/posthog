@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
-import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
+import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -107,7 +107,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     } else if (stage === PipelineStage.SiteApp) {
         return <SiteAppOptionsTable />
     } else if (stage === PipelineStage.Source) {
-        return <NewSourcesWizard />
+        return <NewSourceWizardScene />
     }
     return <NotFound object="pipeline new options" />
 }

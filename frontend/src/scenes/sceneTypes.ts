@@ -48,8 +48,6 @@ export enum Scene {
     DataWarehouse = 'SQL',
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseTable = 'DataWarehouseTable',
-    DataWarehouseSettings = 'DataWarehouseSettings',
-    dataWarehouseSourceSettings = 'DataWarehouseSourceSettings',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',

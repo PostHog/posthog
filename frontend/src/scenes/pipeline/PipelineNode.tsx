@@ -4,6 +4,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
+import { Syncs } from 'scenes/data-warehouse/settings/source/Syncs'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -55,13 +57,22 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         return <NotFound object="pipeline stage" />
     }
 
-    const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> = {
-        [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
-    }
-
-    tabToContent[PipelineNodeTab.Metrics] =
-        node.backend === PipelineBackend.HogFunction ? <PipelineNodeMetricsV2 /> : <PipelineNodeMetrics id={id} />
-    tabToContent[PipelineNodeTab.Logs] = <PipelineNodeLogs id={id} stage={stage} />
+    const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> =
+        node.backend === PipelineBackend.ManagedSource
+            ? {
+                  [PipelineNodeTab.Schemas]: <Schemas id={node.id} />,
+                  [PipelineNodeTab.Syncs]: <Syncs id={node.id} />,
+              }
+            : {
+                  [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
+                  [PipelineNodeTab.Metrics]:
+                      node.backend === PipelineBackend.HogFunction ? (
+                          <PipelineNodeMetricsV2 />
+                      ) : (
+                          <PipelineNodeMetrics id={id} />
+                      ),
+                  [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
+              }
 
     if (node.backend === PipelineBackend.BatchExport) {
         tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
