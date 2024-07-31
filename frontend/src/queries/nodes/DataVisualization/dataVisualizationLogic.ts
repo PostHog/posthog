@@ -1,10 +1,11 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import mergeObject from 'lodash.merge'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, ChartAxis, DataVisualizationNode } from '~/queries/schema'
+import { AnyResponseType, ChartAxis, ChartSettingsFormatting, DataVisualizationNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
 
@@ -24,9 +25,14 @@ export interface Column {
     dataIndex: number
 }
 
+export interface AxisSeriesSettings {
+    formatting?: ChartSettingsFormatting
+}
+
 export interface AxisSeries<T> {
     column: Column
     data: T[]
+    settings?: AxisSeriesSettings
 }
 
 export interface DataVisualizationLogicProps {
@@ -36,6 +42,50 @@ export interface DataVisualizationLogicProps {
     context?: QueryContext
     setQuery?: (node: DataVisualizationNode) => void
     cachedResults?: AnyResponseType
+}
+
+export interface SelectedYAxis {
+    name: string
+    settings: AxisSeriesSettings
+}
+
+export const EmptyYAxisSeries: AxisSeries<number> = {
+    column: {
+        name: 'None',
+        type: 'None',
+        label: 'None',
+        dataIndex: -1,
+    },
+    data: [],
+}
+
+const DefaultAxisSettings: AxisSeriesSettings = {
+    formatting: {
+        prefix: '',
+        suffix: '',
+    },
+}
+
+export const formatDataWithSettings = (data: number, settings?: AxisSeriesSettings): string => {
+    let dataAsString = `${data}`
+
+    if (settings?.formatting?.style === 'number') {
+        dataAsString = data.toLocaleString()
+    }
+
+    if (settings?.formatting?.style === 'percent') {
+        dataAsString = `${(data * 100).toLocaleString()}%`
+    }
+
+    if (settings?.formatting?.prefix) {
+        dataAsString = `${settings.formatting.prefix}${dataAsString}`
+    }
+
+    if (settings?.formatting?.suffix) {
+        dataAsString = `${dataAsString}${settings.formatting.suffix}`
+    }
+
+    return dataAsString
 }
 
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
@@ -63,11 +113,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateXSeries: (columnName: string) => ({
             columnName,
         }),
-        updateYSeries: (seriesIndex: number, columnName: string) => ({
+        updateYSeries: (seriesIndex: number, columnName: string, settings?: AxisSeriesSettings) => ({
             seriesIndex,
             columnName,
+            settings,
         }),
-        addYSeries: (columnName?: string) => ({ columnName }),
+        addYSeries: (columnName?: string, settings?: AxisSeriesSettings) => ({ columnName, settings }),
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
@@ -88,28 +139,36 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         selectedYAxis: [
-            null as (string | null)[] | null,
+            null as (SelectedYAxis | null)[] | null,
             {
                 clearAxis: () => null,
-                addYSeries: (state, { columnName }) => {
+                addYSeries: (state, { columnName, settings }) => {
                     if (!state && columnName !== undefined) {
-                        return [columnName]
+                        return [{ name: columnName, settings: settings ?? DefaultAxisSettings }]
                     }
 
                     if (!state) {
                         return [null]
                     }
 
-                    return [...state, columnName === undefined ? null : columnName]
+                    return [
+                        ...state,
+                        columnName === undefined
+                            ? null
+                            : { name: columnName, settings: settings ?? DefaultAxisSettings },
+                    ]
                 },
-                updateYSeries: (state, { seriesIndex, columnName }) => {
+                updateYSeries: (state, { seriesIndex, columnName, settings }) => {
                     if (!state) {
                         return null
                     }
 
                     const ySeries = [...state]
 
-                    ySeries[seriesIndex] = columnName
+                    ySeries[seriesIndex] = {
+                        name: columnName,
+                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                    }
                     return ySeries
                 },
                 deleteYSeries: (state, { seriesIndex }) => {
@@ -192,30 +251,22 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         yData: [
             (state) => [state.selectedYAxis, state.response, state.columns],
-            (ySeries, response, columns): null | AxisSeries<number>[] => {
+            (ySeries, response, columns): AxisSeries<number>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
-                    return null
+                    return [EmptyYAxisSeries]
                 }
 
                 const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 return ySeries
-                    .map((name): AxisSeries<number> | null => {
-                        if (!name) {
-                            return {
-                                column: {
-                                    name: 'None',
-                                    type: 'None',
-                                    label: 'None',
-                                    dataIndex: -1,
-                                },
-                                data: [],
-                            }
+                    .map((series): AxisSeries<number> | null => {
+                        if (!series) {
+                            return EmptyYAxisSeries
                         }
 
-                        const column = columns.find((n) => n.name === name)
+                        const column = columns.find((n) => n.name === series.name)
                         if (!column) {
-                            return null
+                            return EmptyYAxisSeries
                         }
 
                         return {
@@ -227,6 +278,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                     return 0
                                 }
                             }),
+                            settings: series.settings,
                         }
                     })
                     .filter((series): series is AxisSeries<number> => Boolean(series))
@@ -260,6 +312,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
             },
         ],
+        dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
     }),
     listeners(({ props }) => ({
         setQuery: ({ node }) => {
@@ -290,7 +343,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             if (yAxis && yAxis.length) {
                 yAxis.forEach((axis) => {
-                    actions.addYSeries(axis.column)
+                    actions.addYSeries(axis.column, axis.settings)
                 })
             }
         }
@@ -325,22 +378,23 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         },
         selectedXAxis: (value: string | null) => {
             if (props.setQuery) {
-                const yColumns = values.selectedYAxis?.filter((n: string | null): n is string => Boolean(n)) ?? []
+                const yColumns =
+                    values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
                 const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
 
                 props.setQuery({
                     ...props.query,
                     chartSettings: {
                         ...(props.query.chartSettings ?? {}),
-                        yAxis: yColumns.map((n) => ({ column: n })),
+                        yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                         xAxis: xColumn,
                     },
                 })
             }
         },
-        selectedYAxis: (value: (string | null)[] | null) => {
+        selectedYAxis: (value: (SelectedYAxis | null)[] | null) => {
             if (props.setQuery) {
-                const yColumns = value?.filter((n: string | null): n is string => Boolean(n)) ?? []
+                const yColumns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
                 const xColumn: ChartAxis | undefined =
                     values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
 
@@ -348,7 +402,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     ...props.query,
                     chartSettings: {
                         ...(props.query.chartSettings ?? {}),
-                        yAxis: yColumns.map((n) => ({ column: n })),
+                        yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                         xAxis: xColumn,
                     },
                 })

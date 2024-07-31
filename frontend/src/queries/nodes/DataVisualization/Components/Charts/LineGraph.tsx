@@ -19,7 +19,7 @@ import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
 
 Chart.register(annotationPlugin)
@@ -179,9 +179,9 @@ export const LineGraph = (): JSX.Element => {
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={yData.map(({ data, column }) => ({
+                                        dataSource={yData.map(({ data, column, settings }) => ({
                                             series: column.name,
-                                            data: data[referenceDataPoint.dataIndex],
+                                            data: formatDataWithSettings(data[referenceDataPoint.dataIndex], settings),
                                         }))}
                                         columns={[
                                             {
