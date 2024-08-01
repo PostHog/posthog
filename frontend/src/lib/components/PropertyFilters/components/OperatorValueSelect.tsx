@@ -8,6 +8,7 @@ import {
     isOperatorMulti,
     isOperatorRange,
     isOperatorRegex,
+    isString,
 } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
@@ -37,6 +38,10 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     defaultOpen?: boolean
 }
 
+function variableHasSpace(val: any): boolean {
+    return isString(val) && val.includes(' ')
+}
+
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     if (isOperatorRegex(operator)) {
         try {
@@ -52,6 +57,15 @@ function getValidationError(operator: PropertyOperator, value: any, property?: s
             message += `. If you'd like to compare dates and times, make sure ${propertyReference} is typed as DateTime in Data Management. You will then be able to use operators "before" and "after"`
         }
         return message
+    }
+
+    // URL properties shouldn't allow for spaces in value
+    if (
+        property &&
+        property.toLowerCase().includes('url') &&
+        (variableHasSpace(value) || (Array.isArray(value) && value.some(variableHasSpace)))
+    ) {
+        return `URL properties can't match spaces`
     }
     return null
 }
