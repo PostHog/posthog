@@ -2043,6 +2043,10 @@
                         "$ref": "#/definitions/ChartAxis"
                     },
                     "type": "array"
+                },
+                "yAxisAtZero": {
+                    "description": "Whether the Y axis should start at zero",
+                    "type": "boolean"
                 }
             },
             "type": "object"
