@@ -363,7 +363,7 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
 NewSurveyWithHTMLQuestionDescription.parameters = {
     testOptions: {
         waitForSelector:
-            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div > div:nth-child(2) > div.description > strong',
+            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div:nth-child(2) > div:nth-child(1) > div.description > strong',
     },
 }
 
@@ -387,7 +387,7 @@ export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn 
 NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
     testOptions: {
         waitForSelector:
-            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div > div:nth-child(2) > div.description',
+            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div:nth-child(2) > div:nth-child(1) > div.description',
     },
 }
 

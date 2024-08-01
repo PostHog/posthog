@@ -951,3 +951,42 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_scroll_depth=True,
         ).results
         assert [["/path", 1, 2, None, None, None]] == results_event
+
+    def test_no_session_id(self):
+        d1 = "d1"
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"utm_source": "google", "$pathname": "/path"},
+        )
+
+        # Don't show session property breakdowns type of sessions with no session id
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        ).results
+        assert [] == results
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+        ).results
+        assert [] == results
+
+        # Do show event property breakdowns of events of events with no session id
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+        assert [["/path", 1, 1]] == results

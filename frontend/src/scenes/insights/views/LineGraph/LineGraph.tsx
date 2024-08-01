@@ -313,13 +313,12 @@ export function LineGraph_({
         }
     }, [])
 
-    function processDataset(dataset: ChartDataset<any>, totalDatasets: number): ChartDataset<any> {
+    function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
-        const adjustedIndex = isPrevious ? dataset.seriesIndex - totalDatasets / 2 : dataset.seriesIndex
 
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getTrendLikeSeriesColor(adjustedIndex, isPrevious && !isArea)
+            : getTrendLikeSeriesColor(dataset?.colorIndex ?? dataset.seriesIndex, isPrevious && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
         const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
@@ -391,7 +390,7 @@ export function LineGraph_({
             }
         }
 
-        datasets = datasets.map((dataset) => processDataset(dataset, datasets.length))
+        datasets = datasets.map(processDataset)
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))

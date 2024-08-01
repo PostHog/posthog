@@ -899,14 +899,16 @@ const api = {
     insights: {
         loadInsight(
             shortId: InsightModel['short_id'],
-            basic?: boolean
+            basic?: boolean,
+            refresh?: RefreshType
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        basic: basic,
+                        basic,
+                        refresh,
                     })
                 )
                 .get()
@@ -1025,10 +1027,14 @@ const api = {
                     return new ApiRequest().insightsActivity(teamId)
                 },
                 [ActivityScope.PLUGIN]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
                     return new ApiRequest().dataManagementActivity()

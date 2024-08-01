@@ -219,10 +219,13 @@ def get_redshift_fields_from_record_schema(
             if pa_field.name in known_super_columns and use_super is True:
                 pg_type = "SUPER"
             else:
-                pg_type = "TEXT"
+                # Redshift treats `TEXT` as `VARCHAR(256)`, not as unlimited length like PostgreSQL.
+                # So, instead of `TEXT` we use the largest possible `VARCHAR`.
+                # See: https://docs.aws.amazon.com/redshift/latest/dg/r_Character_types.html
+                pg_type = "VARCHAR(65535)"
 
-        elif pa.types.is_signed_integer(pa_field.type):
-            if pa.types.is_int64(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            if pa.types.is_uint64(pa_field.type) or pa.types.is_int64(pa_field.type):
                 pg_type = "BIGINT"
             else:
                 pg_type = "INTEGER"
@@ -296,31 +299,32 @@ async def insert_records_to_redshift(
 
     total_rows_exported = 0
 
-    async with redshift_client.async_client_cursor() as cursor:
-        batch = []
-        pre_query_str = pre_query.as_string(cursor).encode("utf-8")
-
-        async def flush_to_redshift(batch):
-            nonlocal total_rows_exported
-
-            values = b",".join(batch).replace(b" E'", b" '")
-            await cursor.execute(pre_query_str + values)
-            rows_exported.add(len(batch))
-            total_rows_exported += len(batch)
-            # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
-            # the byte size of each batch the way things are currently written. We can revisit this
-            # in the future if we decide it's useful enough.
-
-        async for record in records_iterator:
-            batch.append(cursor.mogrify(template, record).encode("utf-8"))
-            if len(batch) < batch_size:
-                continue
-
-            await flush_to_redshift(batch)
+    async with redshift_client.connection.transaction():
+        async with redshift_client.async_client_cursor() as cursor:
             batch = []
+            pre_query_str = pre_query.as_string(cursor).encode("utf-8")
 
-        if len(batch) > 0:
-            await flush_to_redshift(batch)
+            async def flush_to_redshift(batch):
+                nonlocal total_rows_exported
+
+                values = b",".join(batch).replace(b" E'", b" '")
+                await cursor.execute(pre_query_str + values)
+                rows_exported.add(len(batch))
+                total_rows_exported += len(batch)
+                # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
+                # the byte size of each batch the way things are currently written. We can revisit this
+                # in the future if we decide it's useful enough.
+
+            async for record in records_iterator:
+                batch.append(cursor.mogrify(template, record).encode("utf-8"))
+                if len(batch) < batch_size:
+                    continue
+
+                await flush_to_redshift(batch)
+                batch = []
+
+            if len(batch) > 0:
+                await flush_to_redshift(batch)
 
     return total_rows_exported
 
