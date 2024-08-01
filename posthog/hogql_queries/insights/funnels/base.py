@@ -10,7 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql_queries.insights.funnels.aggregation_operations import FirstTimeForUserAggregationQuery
+from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import (

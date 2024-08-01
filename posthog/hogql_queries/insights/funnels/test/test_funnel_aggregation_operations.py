@@ -6,13 +6,13 @@ from freezegun import freeze_time
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql_queries.insights.funnels.aggregation_operations import FirstTimeForUserAggregationQuery
+from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.schema import EventsNode, FunnelsFilter, FunnelsQuery, InsightDateRange
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
+class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
     def test_first_time_for_user_aggregation_outer_query(self):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
@@ -23,11 +23,8 @@ class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         filters = parse_expr("1 = 1")
         event_filter = parse_expr("2 = 2")
 
-        with freeze_time("2024-07-31"):
-            builder = FirstTimeForUserAggregationQuery(
-                context=ctx, filters=filters, event_or_action_filter=event_filter
-            )
-            query = builder.to_query()
+        builder = FirstTimeForUserAggregationQuery(context=ctx, filters=filters, event_or_action_filter=event_filter)
+        query = builder.to_query()
 
         assert isinstance(query.select[0], ast.Field)
         assert query.select[0].chain == ["uuid"]
@@ -40,11 +37,12 @@ class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
             dateRange=InsightDateRange(date_from="-14d"),
         )
-        ctx = FunnelQueryContext(funnels_query, self.team)
-        filters = parse_expr("1 = 1")
-        event_filter = parse_expr("2 = 2")
 
         with freeze_time("2024-07-31"):
+            ctx = FunnelQueryContext(funnels_query, self.team)
+            filters = parse_expr("1 = 1")
+            event_filter = parse_expr("2 = 2")
+
             builder = FirstTimeForUserAggregationQuery(
                 context=ctx, filters=filters, event_or_action_filter=event_filter
             )
@@ -92,11 +90,12 @@ class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
             dateRange=InsightDateRange(date_from="-14d"),
         )
-        ctx = FunnelQueryContext(funnels_query, self.team)
-        filters = parse_expr("1 = 1")
-        event_filter = parse_expr("2 = 2")
 
         with freeze_time("2024-07-31"):
+            ctx = FunnelQueryContext(funnels_query, self.team)
+            filters = parse_expr("1 = 1")
+            event_filter = parse_expr("2 = 2")
+
             builder = FirstTimeForUserAggregationQuery(
                 context=ctx, filters=filters, event_or_action_filter=event_filter
             )
@@ -118,9 +117,9 @@ class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
             dateRange=InsightDateRange(date_from="-14d"),
         )
-        ctx = FunnelQueryContext(funnels_query, self.team)
 
         with freeze_time("2024-07-31"):
+            ctx = FunnelQueryContext(funnels_query, self.team)
             builder = FirstTimeForUserAggregationQuery(context=ctx)
             query = builder.to_query()
 
@@ -148,9 +147,8 @@ class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 
-        with freeze_time("2024-07-31"):
-            builder = FirstTimeForUserAggregationQuery(context=ctx)
-            query = builder.to_query()
+        builder = FirstTimeForUserAggregationQuery(context=ctx)
+        query = builder.to_query()
 
         assert query.select_from is not None
         query = cast(ast.SelectQuery, query.select_from.table)
@@ -167,9 +165,8 @@ class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 
-        with freeze_time("2024-07-31"):
-            builder = FirstTimeForUserAggregationQuery(context=ctx)
-            query = builder.to_query()
+        builder = FirstTimeForUserAggregationQuery(context=ctx)
+        query = builder.to_query()
 
         assert query.select_from is not None
         query = cast(ast.SelectQuery, query.select_from.table)
@@ -191,9 +188,8 @@ class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 
-        with freeze_time("2024-07-31"):
-            builder = FirstTimeForUserAggregationQuery(context=ctx)
-            query = builder.to_query()
+        builder = FirstTimeForUserAggregationQuery(context=ctx)
+        query = builder.to_query()
 
         assert query.select_from is not None
         query = cast(ast.SelectQuery, query.select_from.table)
@@ -210,9 +206,8 @@ class TestAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 
-        with freeze_time("2024-07-31"):
-            builder = FirstTimeForUserAggregationQuery(context=ctx)
-            query = builder.to_query()
+        builder = FirstTimeForUserAggregationQuery(context=ctx)
+        query = builder.to_query()
 
         assert query.select_from is not None
         query = cast(ast.SelectQuery, query.select_from.table)
