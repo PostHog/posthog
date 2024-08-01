@@ -67,14 +67,16 @@ const DefaultAxisSettings: AxisSeriesSettings = {
 }
 
 export const formatDataWithSettings = (data: number, settings?: AxisSeriesSettings): string => {
-    let dataAsString = `${data}`
+    const decimalPlaces = settings?.formatting?.decimalPlaces
+
+    let dataAsString = `${decimalPlaces ? data.toFixed(decimalPlaces) : data}`
 
     if (settings?.formatting?.style === 'number') {
-        dataAsString = data.toLocaleString()
+        dataAsString = data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })
     }
 
     if (settings?.formatting?.style === 'percent') {
-        dataAsString = `${(data * 100).toLocaleString()}%`
+        dataAsString = `${data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })}%`
     }
 
     if (settings?.formatting?.prefix) {
@@ -273,7 +275,20 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                             column,
                             data: data.map((n) => {
                                 try {
-                                    return parseInt(n[column.dataIndex], 10)
+                                    const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
+
+                                    if (series.settings.formatting?.decimalPlaces) {
+                                        return parseFloat(
+                                            (parseFloat(n[column.dataIndex]) * multiplier).toFixed(
+                                                series.settings.formatting.decimalPlaces
+                                            )
+                                        )
+                                    }
+
+                                    const isInt = Number.isInteger(n[column.dataIndex])
+                                    return isInt
+                                        ? parseInt(n[column.dataIndex], 10) * multiplier
+                                        : parseFloat(n[column.dataIndex]) * multiplier
                                 } catch {
                                     return 0
                                 }

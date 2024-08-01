@@ -95,6 +95,9 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                         <LemonField name="suffix" label="Suffix">
                             <LemonInput placeholder="USD" />
                         </LemonField>
+                        <LemonField name="decimalPlaces" label="Decimal places">
+                            <LemonInput type="number" min={0} />
+                        </LemonField>
                     </Form>
                 }
                 visible={isSettingsOpen}
