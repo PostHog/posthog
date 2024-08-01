@@ -27,8 +27,8 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
 
     const { featureFlags } = useValues(featureFlagLogic)
     const mathAvialability = featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]
-        ? MathAvailability.All
-        : MathAvailability.FunnelsOnly
+        ? MathAvailability.FunnelsOnly
+        : MathAvailability.None
 
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
