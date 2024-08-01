@@ -219,7 +219,10 @@ def get_redshift_fields_from_record_schema(
             if pa_field.name in known_super_columns and use_super is True:
                 pg_type = "SUPER"
             else:
-                pg_type = "TEXT"
+                # Redshift treats `TEXT` as `VARCHAR(256)`, not as unlimited length like PostgreSQL.
+                # So, instead of `TEXT` we use the largest possible `VARCHAR`.
+                # See: https://docs.aws.amazon.com/redshift/latest/dg/r_Character_types.html
+                pg_type = "VARCHAR(65535)"
 
         elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
             if pa.types.is_uint64(pa_field.type) or pa.types.is_int64(pa_field.type):
