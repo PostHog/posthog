@@ -26,7 +26,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
-        addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
+        addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
         // this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         // can provide extra dashboard ids if not all listeners will choose to respond to this action
@@ -55,8 +55,17 @@ export const dashboardsModel = kea<dashboardsModelType>([
             show: show || false,
             duplicateTiles: duplicateTiles || false,
         }),
-        tileMovedToDashboard: (tile: DashboardTile, dashboardId: number) => ({ tile, dashboardId }),
-        tileRemovedFromDashboard: ({ tile, dashboardId }: { tile?: DashboardTile; dashboardId?: number }) => ({
+        tileMovedToDashboard: (tile: DashboardTile<QueryBasedInsightModel>, dashboardId: number) => ({
+            tile,
+            dashboardId,
+        }),
+        tileRemovedFromDashboard: ({
+            tile,
+            dashboardId,
+        }: {
+            tile?: DashboardTile<QueryBasedInsightModel>
+            dashboardId?: number
+        }) => ({
             tile,
             dashboardId,
         }),
@@ -181,7 +190,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
         ],
         rawDashboards: [
-            {} as Record<string, DashboardBasicType | DashboardType>,
+            {} as Record<string, DashboardBasicType | DashboardType<QueryBasedInsightModel>>,
             {
                 loadDashboardsSuccess: (state, { pagedDashboards }) => {
                     if (!pagedDashboards) {
