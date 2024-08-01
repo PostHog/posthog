@@ -86,7 +86,7 @@ class Command(BaseCommand):
             )
 
             OrganizationDomain.objects.create(
-                id=settings.E2E_SAML_ORGANIZATION_ID,
+                id=settings.E2E_SAML_ORGANIZATION_DOMAIN_ID,
                 organization=saml_organization,
                 domain=settings.E2E_SAML_DOMAIN,
                 verified_at=timezone.now(),
