@@ -75,16 +75,11 @@ export const urls = {
         filters?: AnyPartialFilterType,
         dashboardId?: DashboardType['id'] | null,
         query?: string | Record<string, any>
-    ): string => {
-        if (query) {
-            return combineUrl(`/sql`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
-                .url
-        }
-        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+    ): string =>
+        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-        }).url
-    },
+        }).url,
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
         combineUrl(
             `/sql`,
