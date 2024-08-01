@@ -272,13 +272,14 @@ async fn process_batch<'a>(
         // already true on batch commit, but now it's true on kafka send as well. We could add a
         // "returned" state to the state machine that indicates "we made the request but haven't
         // pushed it to kafka yet", but we need to decide that's something we care about first.
-        if let Err(_) = push_hoghook_results_to_kafka(
+        if (push_hoghook_results_to_kafka(
             results,
             metadata_vec,
             kafka_producer,
             cdp_function_callbacks_topic,
         )
-        .await
+        .await)
+            .is_err()
         {
             return;
         }
@@ -332,7 +333,10 @@ async fn push_hoghook_results_to_kafka(
                         }
                         Err((error, _)) => {
                             // Return early to avoid committing the batch.
-                            return Err(log_kafka_error_and_sleep("send", Some(error)).await);
+                            return {
+                                log_kafka_error_and_sleep("send", Some(error)).await;
+                                Err(())
+                            };
                         }
                     };
                 }
@@ -348,12 +352,18 @@ async fn push_hoghook_results_to_kafka(
             Ok(Ok(_)) => {}
             Ok(Err((error, _))) => {
                 // Return early to avoid committing the batch.
-                return Err(log_kafka_error_and_sleep("ack", Some(error)).await);
+                return {
+                    log_kafka_error_and_sleep("ack", Some(error)).await;
+                    Err(())
+                };
             }
             Err(Canceled) => {
                 // Cancelled due to timeout while retrying
                 // Return early to avoid committing the batch.
-                return Err(log_kafka_error_and_sleep("timeout", None).await);
+                return {
+                    log_kafka_error_and_sleep("timeout", None).await;
+                    Err(())
+                };
             }
         }
     }
