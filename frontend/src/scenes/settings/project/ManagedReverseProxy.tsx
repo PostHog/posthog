@@ -16,6 +16,8 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -33,6 +35,11 @@ const statusText = {
 export function ManagedReverseProxy(): JSX.Element {
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
+
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
 
     const maxRecordsReached = proxyRecords.length >= MAX_PROXY_RECORDS
 
@@ -84,7 +91,8 @@ export function ManagedReverseProxy(): JSX.Element {
             className: 'flex justify-center',
             render: function Render(_, { id, status }) {
                 return (
-                    status != 'deleting' && (
+                    status != 'deleting' &&
+                    !restrictionReason && (
                         <LemonMenu
                             items={[
                                 {
@@ -139,9 +147,16 @@ export function ManagedReverseProxy(): JSX.Element {
                             There is a maximum of {MAX_PROXY_RECORDS} records allowed per organization
                         </LemonBanner>
                     ) : (
-                        <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
-                            New managed proxy
-                        </LemonButton>
+                        <div className="flex">
+                            <LemonButton
+                                onClick={showForm}
+                                type="secondary"
+                                icon={<IconPlus />}
+                                disabledReason={restrictionReason}
+                            >
+                                New managed proxy
+                            </LemonButton>
+                        </div>
                     )
                 ) : (
                     <CreateRecordForm />
