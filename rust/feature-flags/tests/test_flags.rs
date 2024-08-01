@@ -209,10 +209,12 @@ async fn it_handles_malformed_json() -> Result<()> {
 //     Ok(())
 // }
 
+// Do we need to make this also fail with a 503?
 #[tokio::test]
 async fn it_handles_service_unavailability() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.redis_url = "redis://invalid_host:6379".to_string(); // Simulate Redis unavailability
+    config.read_database_url = "postgres://invalid_host:5432/db".to_string(); // Simulate Postgres unavailability
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
@@ -222,6 +224,6 @@ async fn it_handles_service_unavailability() -> Result<()> {
     });
     let res = server.send_flags_request(payload.to_string()).await;
     assert_eq!(StatusCode::SERVICE_UNAVAILABLE, res.status());
-    assert_eq!(res.text().await?, "Our cache service is currently unavailable. This is likely a temporary issue. Please try again later.");
+    assert_eq!(res.text().await?, "Our services are currently unavailable. This is likely a temporary issue. Please try again later.");
     Ok(())
 }

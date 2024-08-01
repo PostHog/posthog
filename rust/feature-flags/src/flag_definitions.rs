@@ -478,3 +478,874 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod additional_tests {
+    use std::time::Instant;
+
+    use crate::{
+        flag_definitions,
+        test_utils::{
+            insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
+            setup_pg_client, setup_redis_client,
+        },
+    };
+
+    use super::*;
+    use serde_json::json;
+    use tokio::task;
+
+    #[test]
+    fn test_operator_type_deserialization() {
+        let operators = vec![
+            ("exact", OperatorType::Exact),
+            ("is_not", OperatorType::IsNot),
+            ("icontains", OperatorType::Icontains),
+            ("not_icontains", OperatorType::NotIcontains),
+            ("regex", OperatorType::Regex),
+            ("not_regex", OperatorType::NotRegex),
+            ("gt", OperatorType::Gt),
+            ("lt", OperatorType::Lt),
+            ("gte", OperatorType::Gte),
+            ("lte", OperatorType::Lte),
+            ("is_set", OperatorType::IsSet),
+            ("is_not_set", OperatorType::IsNotSet),
+            ("is_date_exact", OperatorType::IsDateExact),
+            ("is_date_after", OperatorType::IsDateAfter),
+            ("is_date_before", OperatorType::IsDateBefore),
+        ];
+
+        for (op_str, op_type) in operators {
+            let json = format!(
+                r#"{{
+            "key": "test_key",
+            "value": "test_value",
+            "operator": "{}",
+            "type": "person"
+        }}"#,
+                op_str
+            );
+            let deserialized: PropertyFilter = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized.operator, Some(op_type));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_multivariate_flag_parsing() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let multivariate_flag = json!({
+            "id": 1,
+            "team_id": team.id,
+            "name": "Multivariate Flag",
+            "key": "multivariate_flag",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33.33
+                        },
+                        {
+                            "key": "test_a",
+                            "name": "Test Group A",
+                            "rollout_percentage": 33.33
+                        },
+                        {
+                            "key": "test_b",
+                            "name": "Test Group B",
+                            "rollout_percentage": 33.34
+                        }
+                    ]
+                }
+            },
+            "active": true,
+            "deleted": false
+        });
+
+        // Insert into Redis
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(json!([multivariate_flag]).to_string()),
+        )
+        .await
+        .expect("Failed to insert flag in Redis");
+
+        // Insert into Postgres
+        insert_flag_for_team_in_pg(
+            pg_client.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 1,
+                team_id: team.id,
+                name: Some("Multivariate Flag".to_string()),
+                key: "multivariate_flag".to_string(),
+                filters: multivariate_flag["filters"].clone(),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert flag in Postgres");
+
+        // Fetch and verify from Redis
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+
+        assert_eq!(redis_flags.flags.len(), 1);
+        let redis_flag = &redis_flags.flags[0];
+        assert_eq!(redis_flag.key, "multivariate_flag");
+        assert_eq!(redis_flag.get_variants().len(), 3);
+
+        // Fetch and verify from Postgres
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+
+        assert_eq!(pg_flags.flags.len(), 1);
+        let pg_flag = &pg_flags.flags[0];
+        assert_eq!(pg_flag.key, "multivariate_flag");
+        assert_eq!(pg_flag.get_variants().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_flag_with_super_groups() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let flag_with_super_groups = json!({
+            "id": 1,
+            "team_id": team.id,
+            "name": "Flag with Super Groups",
+            "key": "flag_with_super_groups",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 50
+                    }
+                ],
+                "super_groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "country",
+                                "value": "US",
+                                "type": "person",
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            },
+            "active": true,
+            "deleted": false
+        });
+
+        // Insert into Redis
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(json!([flag_with_super_groups]).to_string()),
+        )
+        .await
+        .expect("Failed to insert flag in Redis");
+
+        // Insert into Postgres
+        insert_flag_for_team_in_pg(
+            pg_client.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 1,
+                team_id: team.id,
+                name: Some("Flag with Super Groups".to_string()),
+                key: "flag_with_super_groups".to_string(),
+                filters: flag_with_super_groups["filters"].clone(),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert flag in Postgres");
+
+        // Fetch and verify from Redis
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+
+        assert_eq!(redis_flags.flags.len(), 1);
+        let redis_flag = &redis_flags.flags[0];
+        assert_eq!(redis_flag.key, "flag_with_super_groups");
+        assert!(redis_flag.filters.super_groups.is_some());
+        assert_eq!(redis_flag.filters.super_groups.as_ref().unwrap().len(), 1);
+
+        // Fetch and verify from Postgres
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+
+        assert_eq!(pg_flags.flags.len(), 1);
+        let pg_flag = &pg_flags.flags[0];
+        assert_eq!(pg_flag.key, "flag_with_super_groups");
+        assert!(pg_flag.filters.super_groups.is_some());
+        assert_eq!(pg_flag.filters.super_groups.as_ref().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_flags_with_different_property_types() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let flag_with_different_properties = json!({
+            "id": 1,
+            "team_id": team.id,
+            "name": "Flag with Different Properties",
+            "key": "flag_with_different_properties",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "test@example.com",
+                                "type": "person",
+                                "operator": "exact"
+                            },
+                            {
+                                "key": "country",
+                                "value": "US",
+                                "type": "group",
+                                "operator": "exact"
+                            },
+                            {
+                                "key": "purchase",
+                                "value": "completed",
+                                "type": "event",
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            },
+            "active": true,
+            "deleted": false
+        });
+
+        // Insert into Redis
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(json!([flag_with_different_properties]).to_string()),
+        )
+        .await
+        .expect("Failed to insert flag in Redis");
+
+        // Insert into Postgres
+        insert_flag_for_team_in_pg(
+            pg_client.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 1,
+                team_id: team.id,
+                name: Some("Flag with Different Properties".to_string()),
+                key: "flag_with_different_properties".to_string(),
+                filters: flag_with_different_properties["filters"].clone(),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert flag in Postgres");
+
+        // Fetch and verify from Redis
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+
+        assert_eq!(redis_flags.flags.len(), 1);
+        let redis_flag = &redis_flags.flags[0];
+        assert_eq!(redis_flag.key, "flag_with_different_properties");
+        let redis_properties = &redis_flag.filters.groups[0].properties.as_ref().unwrap();
+        assert_eq!(redis_properties.len(), 3);
+        assert_eq!(redis_properties[0].prop_type, "person");
+        assert_eq!(redis_properties[1].prop_type, "group");
+        assert_eq!(redis_properties[2].prop_type, "event");
+
+        // Fetch and verify from Postgres
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+
+        assert_eq!(pg_flags.flags.len(), 1);
+        let pg_flag = &pg_flags.flags[0];
+        assert_eq!(pg_flag.key, "flag_with_different_properties");
+        let pg_properties = &pg_flag.filters.groups[0].properties.as_ref().unwrap();
+        assert_eq!(pg_properties.len(), 3);
+        assert_eq!(pg_properties[0].prop_type, "person");
+        assert_eq!(pg_properties[1].prop_type, "group");
+        assert_eq!(pg_properties[2].prop_type, "event");
+    }
+
+    #[tokio::test]
+    async fn test_deleted_and_inactive_flags() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let deleted_flag = json!({
+            "id": 1,
+            "team_id": team.id,
+            "name": "Deleted Flag",
+            "key": "deleted_flag",
+            "filters": {"groups": []},
+            "active": true,
+            "deleted": true
+        });
+
+        let inactive_flag = json!({
+            "id": 2,
+            "team_id": team.id,
+            "name": "Inactive Flag",
+            "key": "inactive_flag",
+            "filters": {"groups": []},
+            "active": false,
+            "deleted": false
+        });
+
+        // Insert into Redis
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(json!([deleted_flag, inactive_flag]).to_string()),
+        )
+        .await
+        .expect("Failed to insert flags in Redis");
+
+        // Insert into Postgres
+        insert_flag_for_team_in_pg(
+            pg_client.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 0,
+                team_id: team.id,
+                name: Some("Deleted Flag".to_string()),
+                key: "deleted_flag".to_string(),
+                filters: deleted_flag["filters"].clone(),
+                deleted: true,
+                active: true,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert deleted flag in Postgres");
+
+        insert_flag_for_team_in_pg(
+            pg_client.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 0,
+                team_id: team.id,
+                name: Some("Inactive Flag".to_string()),
+                key: "inactive_flag".to_string(),
+                filters: inactive_flag["filters"].clone(),
+                deleted: false,
+                active: false,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert inactive flag in Postgres");
+
+        // Fetch and verify from Redis
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+
+        assert_eq!(redis_flags.flags.len(), 2);
+        assert!(redis_flags
+            .flags
+            .iter()
+            .any(|f| f.key == "deleted_flag" && f.deleted));
+        assert!(redis_flags
+            .flags
+            .iter()
+            .any(|f| f.key == "inactive_flag" && !f.active));
+
+        // Fetch and verify from Postgres
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+
+        assert_eq!(pg_flags.flags.len(), 2);
+        assert!(pg_flags
+            .flags
+            .iter()
+            .any(|f| f.key == "deleted_flag" && f.deleted));
+        assert!(pg_flags
+            .flags
+            .iter()
+            .any(|f| f.key == "inactive_flag" && !f.active));
+    }
+
+    #[tokio::test]
+    async fn test_error_handling() {
+        let redis_client = setup_redis_client(Some("redis://localhost:6379/".to_string()));
+        let pg_client = setup_pg_client(None).await;
+
+        // Test Redis connection error
+        let bad_redis_client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
+        let result = FeatureFlagList::from_redis(bad_redis_client, 1).await;
+        assert!(matches!(result, Err(FlagError::RedisUnavailable)));
+
+        // Test malformed JSON in Redis
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        redis_client
+            .set(
+                format!("{}{}", flag_definitions::TEAM_FLAGS_CACHE_PREFIX, team.id),
+                "not a json".to_string(),
+            )
+            .await
+            .expect("Failed to set malformed JSON in Redis");
+
+        let result = FeatureFlagList::from_redis(redis_client, team.id).await;
+        assert!(matches!(result, Err(FlagError::DataParsingError)));
+
+        // Test database query error (using a non-existent table)
+        let result = sqlx::query("SELECT * FROM non_existent_table")
+            .fetch_all(&mut *pg_client.get_connection().await.unwrap())
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_access() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let flag = json!({
+            "id": 1,
+            "team_id": team.id,
+            "name": "Concurrent Flag",
+            "key": "concurrent_flag",
+            "filters": {"groups": []},
+            "active": true,
+            "deleted": false
+        });
+
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(json!([flag]).to_string()),
+        )
+        .await
+        .expect("Failed to insert flag in Redis");
+
+        insert_flag_for_team_in_pg(
+            pg_client.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 0,
+                team_id: team.id,
+                name: Some("Concurrent Flag".to_string()),
+                key: "concurrent_flag".to_string(),
+                filters: flag["filters"].clone(),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert flag in Postgres");
+
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let redis_client = redis_client.clone();
+            let pg_client = pg_client.clone();
+            let team_id = team.id;
+
+            let handle = task::spawn(async move {
+                let redis_flags = FeatureFlagList::from_redis(redis_client, team_id)
+                    .await
+                    .unwrap();
+                let pg_flags = FeatureFlagList::from_pg(pg_client, team_id).await.unwrap();
+                (redis_flags, pg_flags)
+            });
+
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            let (redis_flags, pg_flags) = handle.await.unwrap();
+            assert_eq!(redis_flags.flags.len(), 1);
+            assert_eq!(pg_flags.flags.len(), 1);
+            assert_eq!(redis_flags.flags[0].key, "concurrent_flag");
+            assert_eq!(pg_flags.flags[0].key, "concurrent_flag");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_performance() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let num_flags = 1000;
+        let mut flags = Vec::with_capacity(num_flags);
+
+        for i in 0..num_flags {
+            let flag = json!({
+                "id": i,
+                "team_id": team.id,
+                "name": format!("Flag {}", i),
+                "key": format!("flag_{}", i),
+                "filters": {"groups": []},
+                "active": true,
+                "deleted": false
+            });
+            flags.push(flag);
+        }
+
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(json!(flags).to_string()),
+        )
+        .await
+        .expect("Failed to insert flags in Redis");
+
+        for flag in flags {
+            insert_flag_for_team_in_pg(
+                pg_client.clone(),
+                team.id,
+                Some(FeatureFlagRow {
+                    id: 0,
+                    team_id: team.id,
+                    name: Some(flag["name"].as_str().unwrap().to_string()),
+                    key: flag["key"].as_str().unwrap().to_string(),
+                    filters: flag["filters"].clone(),
+                    deleted: false,
+                    active: true,
+                    ensure_experience_continuity: false,
+                }),
+            )
+            .await
+            .expect("Failed to insert flag in Postgres");
+        }
+
+        let start = Instant::now();
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+        let redis_duration = start.elapsed();
+
+        let start = Instant::now();
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+        let pg_duration = start.elapsed();
+
+        println!("Redis fetch time: {:?}", redis_duration);
+        println!("Postgres fetch time: {:?}", pg_duration);
+
+        assert_eq!(redis_flags.flags.len(), num_flags);
+        assert_eq!(pg_flags.flags.len(), num_flags);
+
+        assert!(redis_duration < std::time::Duration::from_millis(100));
+        assert!(pg_duration < std::time::Duration::from_millis(1000));
+    }
+
+    #[tokio::test]
+    async fn test_edge_cases() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let edge_case_flags = json!([
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "Empty Properties Flag",
+                "key": "empty_properties",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "active": true,
+                "deleted": false
+            },
+            {
+                "id": 2,
+                "team_id": team.id,
+                "name": "Very Long Key Flag",
+                "key": "a".repeat(400), // max key length is 400
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "active": true,
+                "deleted": false
+            },
+            {
+                "id": 3,
+                "team_id": team.id,
+                "name": "Unicode Flag",
+                "key": "unicode_flag_🚀",
+                "filters": {"groups": [{"properties": [{"key": "country", "value": "🇯🇵", "type": "person"}], "rollout_percentage": 100}]},
+                "active": true,
+                "deleted": false
+            }
+        ]);
+
+        // Insert edge case flags
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(edge_case_flags.to_string()),
+        )
+        .await
+        .expect("Failed to insert edge case flags in Redis");
+
+        for flag in edge_case_flags.as_array().unwrap() {
+            insert_flag_for_team_in_pg(
+                pg_client.clone(),
+                team.id,
+                Some(FeatureFlagRow {
+                    id: 0,
+                    team_id: team.id,
+                    name: flag["name"].as_str().map(|s| s.to_string()),
+                    key: flag["key"].as_str().unwrap().to_string(),
+                    filters: flag["filters"].clone(),
+                    deleted: false,
+                    active: true,
+                    ensure_experience_continuity: false,
+                }),
+            )
+            .await
+            .expect("Failed to insert edge case flag in Postgres");
+        }
+
+        // Fetch and verify edge case flags
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+
+        assert_eq!(redis_flags.flags.len(), 3);
+        assert_eq!(pg_flags.flags.len(), 3);
+
+        // Verify empty properties flag
+        assert!(redis_flags.flags.iter().any(|f| f.key == "empty_properties"
+            && f.filters.groups[0].properties.as_ref().unwrap().is_empty()));
+        assert!(pg_flags.flags.iter().any(|f| f.key == "empty_properties"
+            && f.filters.groups[0].properties.as_ref().unwrap().is_empty()));
+
+        // Verify very long key flag
+        assert!(redis_flags.flags.iter().any(|f| f.key.len() == 400));
+        assert!(pg_flags.flags.iter().any(|f| f.key.len() == 400));
+
+        // Verify unicode flag
+        assert!(redis_flags.flags.iter().any(|f| f.key == "unicode_flag_🚀"));
+        assert!(pg_flags.flags.iter().any(|f| f.key == "unicode_flag_🚀"));
+    }
+
+    #[tokio::test]
+    async fn test_consistent_behavior_from_both_clients() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let flags = json!([
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "Flag 1",
+                "key": "flag_1",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                "active": true,
+                "deleted": false
+            },
+            {
+                "id": 2,
+                "team_id": team.id,
+                "name": "Flag 2",
+                "key": "flag_2",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 75}]},
+                "active": true,
+                "deleted": false
+            }
+        ]);
+
+        // Insert flags in both Redis and Postgres
+        insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flags.to_string()))
+            .await
+            .expect("Failed to insert flags in Redis");
+
+        for flag in flags.as_array().unwrap() {
+            insert_flag_for_team_in_pg(
+                pg_client.clone(),
+                team.id,
+                Some(FeatureFlagRow {
+                    id: 0,
+                    team_id: team.id,
+                    name: flag["name"].as_str().map(|s| s.to_string()),
+                    key: flag["key"].as_str().unwrap().to_string(),
+                    filters: flag["filters"].clone(),
+                    deleted: false,
+                    active: true,
+                    ensure_experience_continuity: false,
+                }),
+            )
+            .await
+            .expect("Failed to insert flag in Postgres");
+        }
+
+        // Fetch flags from both sources
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+
+        // Compare results
+        assert_eq!(redis_flags.flags.len(), pg_flags.flags.len());
+        for (redis_flag, pg_flag) in redis_flags.flags.iter().zip(pg_flags.flags.iter()) {
+            assert_eq!(redis_flag.key, pg_flag.key);
+            assert_eq!(redis_flag.name, pg_flag.name);
+            assert_eq!(redis_flag.active, pg_flag.active);
+            assert_eq!(redis_flag.deleted, pg_flag.deleted);
+            assert_eq!(
+                redis_flag.filters.groups[0].rollout_percentage,
+                pg_flag.filters.groups[0].rollout_percentage
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rollout_percentage_edge_cases() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let flags = json!([
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "0% Rollout",
+                "key": "zero_percent",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]},
+                "active": true,
+                "deleted": false
+            },
+            {
+                "id": 2,
+                "team_id": team.id,
+                "name": "100% Rollout",
+                "key": "hundred_percent",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "active": true,
+                "deleted": false
+            },
+            {
+                "id": 3,
+                "team_id": team.id,
+                "name": "Fractional Rollout",
+                "key": "fractional_percent",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 33.33}]},
+                "active": true,
+                "deleted": false
+            }
+        ]);
+
+        // Insert flags in both Redis and Postgres
+        insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flags.to_string()))
+            .await
+            .expect("Failed to insert flags in Redis");
+
+        for flag in flags.as_array().unwrap() {
+            insert_flag_for_team_in_pg(
+                pg_client.clone(),
+                team.id,
+                Some(FeatureFlagRow {
+                    id: 0,
+                    team_id: team.id,
+                    name: flag["name"].as_str().map(|s| s.to_string()),
+                    key: flag["key"].as_str().unwrap().to_string(),
+                    filters: flag["filters"].clone(),
+                    deleted: false,
+                    active: true,
+                    ensure_experience_continuity: false,
+                }),
+            )
+            .await
+            .expect("Failed to insert flag in Postgres");
+        }
+
+        // Fetch flags from both sources
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+
+        // Verify rollout percentages
+        for flags in &[redis_flags, pg_flags] {
+            assert!(flags
+                .flags
+                .iter()
+                .any(|f| f.key == "zero_percent"
+                    && f.filters.groups[0].rollout_percentage == Some(0.0)));
+            assert!(flags.flags.iter().any(|f| f.key == "hundred_percent"
+                && f.filters.groups[0].rollout_percentage == Some(100.0)));
+            assert!(flags.flags.iter().any(|f| f.key == "fractional_percent"
+                && (f.filters.groups[0].rollout_percentage.unwrap() - 33.33).abs() < f64::EPSILON));
+        }
+    }
+}

@@ -43,30 +43,26 @@ pub enum ClientFacingError {
 pub enum FlagError {
     #[error(transparent)]
     ClientFacing(#[from] ClientFacingError),
-
     #[error("Internal error: {0}")]
     Internal(String),
-
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
     RequestParsingError(#[from] serde_json::Error),
-
     #[error("Empty distinct_id in request")]
     EmptyDistinctId,
     #[error("No distinct_id in request")]
     MissingDistinctId,
-
     #[error("No api_key in request")]
     NoTokenError,
     #[error("API key is not valid")]
     TokenValidationError,
-
     #[error("rate limited")]
     RateLimited,
-
     #[error("failed to parse redis cache data")]
     DataParsingError,
+    #[error("failed to update redis cache")]
+    CacheUpdateError,
     #[error("redis unavailable")]
     RedisUnavailable,
     #[error("database unavailable")]
@@ -115,6 +111,13 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Failed to parse internal data. This is likely a temporary issue. Please try again later.".to_string(),
+                )
+            }
+            FlagError::CacheUpdateError => {
+                tracing::error!("Cache update error: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to update internal cache. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
             FlagError::RedisUnavailable => {

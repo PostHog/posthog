@@ -218,7 +218,10 @@ pub async fn insert_flag_for_team_in_pg(
     let id = rand::thread_rng().gen_range(0..10_000_000);
 
     let payload_flag = match flag {
-        Some(value) => value,
+        Some(mut value) => {
+            value.id = id;
+            value
+        }
         None => FeatureFlagRow {
             id,
             key: "flag1".to_string(),
