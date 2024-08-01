@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { NotebooksTab } from '~/types'
 
 import { NotebookCanvas } from './NotebookCanvasScene'
+import type { notebooksSceneLogicType } from './NotebooksSceneType'
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 
 export const scene: SceneExport = {
@@ -42,7 +43,7 @@ const TABS: LemonTab<NotebooksTab>[] = [
     },
 ]
 
-const notebooksSceneLogic = kea([
+const notebooksSceneLogic = kea<notebooksSceneLogicType>([
     path(['scenes', 'notebooks', 'notebooksSceneLogic']),
     actions({
         setTab: (tab: NotebooksTab) => ({ tab }),
@@ -135,7 +136,7 @@ export function NotebooksScene(): JSX.Element {
 
     return (
         <>
-            <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={TABS} />
+            <LemonTabs className="flex-1" activeKey={tab} onChange={(t) => setTab(t)} tabs={TABS} />
         </>
     )
 }
