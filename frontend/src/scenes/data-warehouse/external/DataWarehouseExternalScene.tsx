@@ -1,7 +1,6 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -19,19 +18,18 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { insightSaving, insightProps } = useValues(
+    const { insightSaving } = useValues(
         insightLogic({
-            dashboardItemId: 'new',
+            dashboardItemId: 'new-dataWarehouse',
             cachedInsight: null,
         })
     )
     const { saveAs } = useActions(
         insightLogic({
-            dashboardItemId: 'new',
+            dashboardItemId: 'new-dataWarehouse',
             cachedInsight: null,
         })
     )
-    const { query } = useValues(insightDataLogic(insightProps))
 
     return (
         <div>
@@ -41,7 +39,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         <LemonButton
                             type="primary"
                             data-attr="save-exploration"
-                            onClick={() => saveAs(query, true)}
+                            onClick={() => saveAs(true)}
                             loading={insightSaving}
                         >
                             Save as insight
