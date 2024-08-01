@@ -12,8 +12,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/not
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { InsightVizNode, Node } from '~/queries/schema'
 import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
@@ -141,29 +140,11 @@ export const notebooksModel = kea<notebooksModelType>([
                 if (!tile.insight) {
                     return acc
                 }
-                if (tile.insight.query) {
-                    return [
-                        ...acc,
-                        {
-                            title: tile.insight.name,
-                            query: tile.insight.query,
-                        },
-                    ]
-                }
-                const node = filtersToQueryNode(tile.insight.filters)
-
-                if (!node) {
-                    return acc
-                }
-
                 return [
                     ...acc,
                     {
                         title: tile.insight.name,
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: node,
-                        },
+                        query: tile.insight.query,
                     },
                 ]
             }, [] as { title: string; query: InsightVizNode | Node }[])
