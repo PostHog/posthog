@@ -9,7 +9,15 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { EventsQuery } from '~/queries/schema'
-import { ActivityScope, InsightShortId, PipelineStage, PipelineTab, PropertyFilterType, ReplayTabs } from '~/types'
+import {
+    ActivityScope,
+    ExploreTab,
+    InsightShortId,
+    PipelineStage,
+    PipelineTab,
+    PropertyFilterType,
+    ReplayTabs,
+} from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -80,6 +88,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Activity]: {
         projectBased: true,
         name: 'Activity',
+        defaultDocsPath: '/docs/data/events',
+    },
+    [Scene.Explore]: {
+        projectBased: true,
+        name: 'Explore',
         defaultDocsPath: '/docs/data/events',
     },
     [Scene.DataManagement]: {
@@ -437,6 +450,8 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
+    '/activity/explore': urls.explore(ExploreTab.Events),
+    '/activity/live': urls.explore(ExploreTab.Events),
 }
 
 export const routes: Record<string, Scene> = {
@@ -470,6 +485,7 @@ export const routes: Record<string, Scene> = {
     [urls.dataManagementHistory()]: Scene.DataManagement,
     [urls.database()]: Scene.DataManagement,
     [urls.activity(':tab')]: Scene.Activity,
+    [urls.explore(':tab')]: Scene.Explore,
     [urls.events()]: Scene.Activity,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab

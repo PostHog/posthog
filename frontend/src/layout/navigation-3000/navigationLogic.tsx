@@ -411,6 +411,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
                           },
                           {
+                              identifier: Scene.Explore,
+                              label: 'Explore',
+                              icon: <IconLive />,
+                              to: urls.explore(),
+                          },
+                          {
                               identifier: Scene.DataWarehouse,
                               label: 'SQL Studio',
                               icon: <IconServer />,

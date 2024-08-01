@@ -9,6 +9,7 @@ import {
     AnnotationType,
     AnyPartialFilterType,
     DashboardType,
+    ExploreTab,
     InsightShortId,
     PipelineNodeTab,
     PipelineStage,
@@ -65,6 +66,7 @@ export const urls = {
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
+    explore: (tab: ExploreTab | ':tab' = ExploreTab.SQL): string => `/explore/${tab}`,
     /** @deprecated in favor of /activity */
     events: (): string => `/events`,
     event: (id: string, timestamp: string): string =>
