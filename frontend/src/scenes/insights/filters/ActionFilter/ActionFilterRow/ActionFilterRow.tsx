@@ -27,6 +27,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
+    BASE_MATH_DEFINITIONS,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
     mathsLogic,
@@ -521,6 +522,10 @@ export function ActionFilterRow({
                                                             )
                                                         }}
                                                         fullWidth
+                                                        tooltip={
+                                                            BASE_MATH_DEFINITIONS[BaseMathType.FirstTimeForUser]
+                                                                .description
+                                                        }
                                                     >
                                                         {math === BaseMathType.FirstTimeForUser
                                                             ? 'Remove first time for user'
