@@ -6,7 +6,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.insights.data_warehouse_mixin import (
     DataWarehouseInsightQueryMixin,
 )
-from posthog.hogql_queries.insights.utils.aggregation_operations import (
+from posthog.hogql_queries.insights.utils.aggregations import (
     FirstTimeForUserEventsQueryAlternator,
     QueryAlternator,
 )
