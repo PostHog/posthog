@@ -32,10 +32,6 @@ beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_FULL_TITLE', Cypress.currentTest.titlePath.join(' > '))
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
 
-    Cypress.env('E2E_SAML_LOGIN_EMAIL', process.env.E2E_SAML_LOGIN_EMAIL)
-    Cypress.env('E2E_SAML_LOGIN_PASSWORD', process.env.E2E_SAML_LOGIN_PASSWORD)
-    Cypress.env('E2E_SAML_ACS_URL', process.env.E2E_SAML_ACS_URL)
-
     cy.useSubscriptionStatus('subscribed')
 
     cy.intercept('**/decide/*', (req) =>
