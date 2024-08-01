@@ -22,6 +22,7 @@ export interface LemonCheckboxProps {
     bordered?: boolean
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
+    dataAttr?: string
 }
 
 export interface BoxCSSProperties extends React.CSSProperties {
@@ -49,6 +50,7 @@ export function LemonCheckbox({
     bordered,
     color,
     size,
+    dataAttr,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
     disabled = disabled || !!disabledReason
@@ -82,6 +84,7 @@ export function LemonCheckbox({
                     size && `LemonCheckbox--${size}`,
                     className
                 )}
+                data-attr={dataAttr}
             >
                 <input
                     className="LemonCheckbox__input"
