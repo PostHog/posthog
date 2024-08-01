@@ -1,6 +1,14 @@
 describe('SAML Auth', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-me]').click()
+
+        const requiredEnvVars = ['E2E_SAML_LOGIN_EMAIL', 'E2E_SAML_ACS_URL', 'E2E_SAML_LOGIN_PASSWORD']
+
+        requiredEnvVars.forEach((envVar) => {
+            if (!Cypress.env(envVar)) {
+                throw new Error(`Missing required environment variable: ${envVar}`)
+            }
+        })
     })
 
     it('Login with SAML', () => {
