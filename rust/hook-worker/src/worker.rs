@@ -266,10 +266,39 @@ async fn process_batch<'a>(
 
     let results = join_all(futures).await;
 
+    if hog_mode {
+        // System relevant - this means that our requests are at-least once, since if we do the
+        // request, it succeeds, and then our kafka is down, we'll do the request again. This was
+        // already true on batch commit, but now it's true on kafka send as well. We could add a
+        // "returned" state to the state machine that indicates "we made the request but haven't
+        // pushed it to kafka yet", but we need to decide that's something we care about first.
+        if let Err(_) = push_hoghook_results_to_kafka(
+            results,
+            metadata_vec,
+            kafka_producer,
+            cdp_function_callbacks_topic,
+        )
+        .await
+        {
+            return;
+        }
+    }
+
+    let _ = batch.commit().await.map_err(|e| {
+        error!("error committing transactional batch: {}", e);
+    });
+}
+
+async fn push_hoghook_results_to_kafka(
+    results: Vec<Result<WebhookResult, WorkerError>>,
+    metadata_vec: Vec<Value>,
+    kafka_producer: FutureProducer<KafkaContext>,
+    cdp_function_callbacks_topic: &str,
+) -> Result<(), ()> {
     let mut kafka_ack_futures = Vec::new();
     for (result, mut metadata) in iter::zip(results, metadata_vec) {
         match result {
-            Ok(result) if hog_mode => {
+            Ok(result) => {
                 if let Some(payload) = create_hoghook_kafka_payload(result, &mut metadata).await {
                     match kafka_producer.send_result(FutureRecord {
                         topic: cdp_function_callbacks_topic,
@@ -293,7 +322,6 @@ async fn process_batch<'a>(
                                 .and_then(|t| t.as_number())
                                 .map(|t| t.to_string())
                                 .unwrap_or_else(|| "?".to_string());
-
                             let hog_function_id = metadata
                                 .get("hogFunctionId")
                                 .and_then(|h| h.as_str())
@@ -304,13 +332,10 @@ async fn process_batch<'a>(
                         }
                         Err((error, _)) => {
                             // Return early to avoid committing the batch.
-                            return log_kafka_error_and_sleep("send", Some(error)).await;
+                            return Err(log_kafka_error_and_sleep("send", Some(error)).await);
                         }
                     };
                 }
-            }
-            Ok(_) => {
-                // Nothing to do if we're not in hog_mode.
             }
             Err(e) => {
                 error!("error processing webhook job: {}", e)
@@ -323,19 +348,17 @@ async fn process_batch<'a>(
             Ok(Ok(_)) => {}
             Ok(Err((error, _))) => {
                 // Return early to avoid committing the batch.
-                return log_kafka_error_and_sleep("ack", Some(error)).await;
+                return Err(log_kafka_error_and_sleep("ack", Some(error)).await);
             }
             Err(Canceled) => {
                 // Cancelled due to timeout while retrying
                 // Return early to avoid committing the batch.
-                return log_kafka_error_and_sleep("timeout", None).await;
+                return Err(log_kafka_error_and_sleep("timeout", None).await);
             }
         }
     }
 
-    let _ = batch.commit().await.map_err(|e| {
-        error!("error committing transactional batch: {}", e);
-    });
+    Ok(())
 }
 
 async fn create_hoghook_kafka_payload(
