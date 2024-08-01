@@ -124,7 +124,7 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
             <h3>Initialize</h3>
             <h4>With App router</h4>
             <p>
-                If your Next.js app to uses the <Link to="https://nextjs.org/docs/app">app router</Link>, you can
+                If your Next.js app uses the <Link to="https://nextjs.org/docs/app">app router</Link>, you can
                 integrate PostHog by creating a providers file in your app folder. This is because the posthog-js
                 library needs to be initialized on the client-side using the Next.js{' '}
                 <Link to="https://nextjs.org/docs/getting-started/react-essentials#client-components" target="_blank">
