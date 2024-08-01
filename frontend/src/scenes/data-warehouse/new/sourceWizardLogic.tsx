@@ -65,7 +65,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Hubspot: {
         name: 'Hubspot',
         fields: [],
-        caption: '',
+        caption: 'Succesfully authenticated with Hubspot. Please continue here to complete the source setup',
     },
     Postgres: {
         name: 'Postgres',
