@@ -147,7 +147,7 @@ export const notebooksModel = kea<notebooksModelType>([
                         query: tile.insight.query,
                     },
                 ]
-            }, [] as { title: string; query: InsightVizNode | Node }[])
+            }, [] as { title: string; query: InsightVizNode | Node | null }[])
 
             const resources = queries.map((x) => ({
                 type: NotebookNodeType.Query,

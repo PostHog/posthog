@@ -12,13 +12,14 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel, TileLayout } from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
-const dashboardJson = _dashboardJson as any as DashboardType
+const dashboardJson = getQueryBasedDashboard(_dashboardJson as any as DashboardType)!
 
 export function insightOnDashboard(
     insightId: number,
@@ -595,16 +596,25 @@ describe('dashboardLogic', () => {
 
         it('can respond to external update of an insight on the dashboard', async () => {
             const copiedInsight = insight800()
+            const insightQuery = copiedInsight.query as InsightVizNode<TrendsQuery> | undefined
             dashboardsModel.actions.updateDashboardInsight({
                 ...copiedInsight,
-                filters: { ...copiedInsight.filters, date_from: '-1d', interval: 'hour' },
+                query: {
+                    ...insightQuery,
+                    source: {
+                        ...insightQuery?.source,
+                        dateRange: { ...insightQuery?.source?.dateRange, date_from: '-1d' },
+                        interval: 'hour',
+                    },
+                } as InsightVizNode<TrendsQuery>,
                 last_refresh: '2012-04-01T00:00:00Z',
             })
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.dashboard?.tiles).toHaveLength(2)
-            expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
-            expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
+            const query = logic.values.insightTiles[0].insight?.query as InsightVizNode<TrendsQuery> | undefined
+            expect(query?.source?.dateRange?.date_from).toEqual('-1d')
+            expect(query?.source?.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 
