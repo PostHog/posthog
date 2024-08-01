@@ -33,7 +33,7 @@ export const SeriesTab = (): JSX.Element => {
             />
             <LemonLabel className="mt-4">Y-axis</LemonLabel>
             {yData.map((series, index) => (
-                <YSeries series={series} index={index} key={series?.column.name} />
+                <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
             <LemonButton
                 className="mt-1"
@@ -94,6 +94,9 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                         </LemonField>
                         <LemonField name="suffix" label="Suffix">
                             <LemonInput placeholder="USD" />
+                        </LemonField>
+                        <LemonField name="decimalPlaces" label="Decimal places">
+                            <LemonInput type="number" min={0} />
                         </LemonField>
                     </Form>
                 }

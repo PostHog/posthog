@@ -75,19 +75,14 @@ export const urls = {
         filters?: AnyPartialFilterType,
         dashboardId?: DashboardType['id'] | null,
         query?: string | Record<string, any>
-    ): string => {
-        if (query) {
-            return combineUrl(`/sql`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
-                .url
-        }
-        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+    ): string =>
+        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-        }).url
-    },
+        }).url,
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
         combineUrl(
-            `/sql`,
+            `/data-warehouse`,
             {},
             {
                 q: JSON.stringify({
@@ -148,7 +143,8 @@ export const urls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     dataWarehouse: (query?: string | Record<string, any>): string =>
-        combineUrl(`/sql`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+        combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
+            .url,
     dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
         combineUrl(
             `/data-warehouse/view/${id}`,

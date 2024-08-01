@@ -42,7 +42,7 @@ export enum Scene {
     Surveys = 'Surveys',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
-    DataWarehouse = 'SQL',
+    DataWarehouse = 'DataWarehouse',
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseTable = 'DataWarehouseTable',
     DataWarehouseRedirect = 'DataWarehouseRedirect',

@@ -65,7 +65,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
+            ['setInsight', 'loadInsightSuccess'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
@@ -74,7 +74,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
-        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
         cancelChanges: true,
     }),
@@ -101,15 +100,23 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         query: [
-            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault, s.isSQLStudio],
-            (propsQuery, insight, internalQuery, filterTestAccountsDefault, isSQLStudio) =>
+            (s) => [
+                s.propsQuery,
+                s.queryBasedInsight,
+                s.internalQuery,
+                s.filterTestAccountsDefault,
+                s.isDataWarehouseQuery,
+            ],
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery) =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
-                (isSQLStudio ? examples.DataWarehouse : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)),
+                (isDataWarehouseQuery
+                    ? examples.DataWarehouse
+                    : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)),
         ],
 
-        isSQLStudio: [
+        isDataWarehouseQuery: [
             () => [(_, props) => props],
             (props: InsightLogicProps) => props.dashboardItemId?.startsWith('new-SQL'),
         ],
@@ -208,31 +215,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 const query = queryFromFilters(legacyInsight.filters)
                 actions.setQuery(query)
             }
-        },
-        saveInsight: ({ redirectToViewMode }) => {
-            let filters = values.legacyInsight.filters
-            if (isInsightVizNode(values.query)) {
-                const querySource = values.query.source
-                filters = queryNodeToFilter(querySource)
-            } else if (values.isQueryBasedInsight) {
-                filters = {}
-            }
-
-            let query = undefined
-            if (values.isQueryBasedInsight) {
-                query = values.query
-            }
-
-            actions.setInsight(
-                {
-                    ...values.legacyInsight,
-                    filters: filters,
-                    query: query ?? undefined,
-                },
-                { overrideFilter: true, fromPersistentApi: false }
-            )
-
-            actions.insightLogicSaveInsight(redirectToViewMode)
         },
         cancelChanges: () => {
             const savedFilters = values.savedInsight.filters

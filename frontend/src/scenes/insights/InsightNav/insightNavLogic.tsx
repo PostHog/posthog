@@ -182,12 +182,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         dataAttr: 'insight-lifecycle-tab',
                     },
                     {
-                        label: (
-                            <span className="flex flex-row items-center gap-1">
-                                SQL
-                                <LemonTag type="highlight">MOVED</LemonTag>
-                            </span>
-                        ),
+                        label: 'SQL',
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
