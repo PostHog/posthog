@@ -70,7 +70,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.WebAnalytics]: {
         projectBased: true,
         name: 'Web analytics',
-        layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
     },
     [Scene.Cohort]: {
@@ -273,7 +272,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Site]: {
         projectBased: true,
         hideProjectNotice: true,
-        layout: 'app-raw',
+        layout: 'app-no-margin',
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
@@ -332,7 +331,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
-        layout: 'app-raw',
     },
     [Scene.DebugQuery]: {
         projectBased: true,
@@ -345,7 +343,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         hideProjectNotice: true, // Currently doesn't render well...
         name: 'Notebook',
-        layout: 'app-raw',
+        layout: 'app-no-margin',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
     },
@@ -358,7 +356,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
-        layout: 'app-raw',
         defaultDocsPath: '/blog/introducing-notebooks',
     },
     [Scene.Settings]: {
