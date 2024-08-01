@@ -45,6 +45,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
                         "name": None,
                         "identifiers": {"email": "example@posthog.com"},
                         "attributes": {"name": "example"},
+                        "timestamp": 1704067200,
                     },
                 },
             )

@@ -25,6 +25,8 @@ if (action == 'automatic') {
 
 let attributes := inputs.include_all_properties ? event.properties : {}
 
+let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
+
 for (let key, value in inputs.attributes) {
     attributes[key] := value
 }
@@ -43,7 +45,8 @@ let res := fetch(f'https://{inputs.host}/api/v2/entity', {
         'action': action,
         'name': name,
         'identifiers': inputs.identifiers,
-        'attributes': attributes
+        'attributes': attributes,
+        'timestamp': timestamp
     }
 })
 
