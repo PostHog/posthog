@@ -416,7 +416,7 @@ export const redirects: Record<
         } catch (e) {
             lemonToast.error('Invalid event timestamp')
         }
-        return combineUrl(urls.events(), {}, { q: query }).url
+        return combineUrl(urls.explore(ExploreTab.Events), {}, { q: query }).url
     },
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
@@ -480,7 +480,6 @@ export const routes: Record<string, Scene> = {
     [urls.dataManagementHistory()]: Scene.DataManagement,
     [urls.database()]: Scene.DataManagement,
     [urls.explore(':tab')]: Scene.Explore,
-    [urls.events()]: Scene.Explore,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {
