@@ -5,10 +5,26 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-customerio",
-    name="Identify customers in Customer.io",
-    description="Syncs persons with Customer.io",
+    name="Send events to Customer.io",
+    description="Identify or track events against customers in Customer.io",
     icon_url="/static/services/customerio.png",
     hog="""
+let action := inputs.action
+
+if (action == 'automatic') {
+    if (event.name == '$identify') {
+        action := 'identify'
+    } else if (event.name == '$pageview') {
+        action := 'page'
+    } else if (event.name == '$screen') {
+        action := 'screen'
+    } else {
+        action := 'event'
+    }
+}
+
+let properties 
+
 let res := fetch(f'https://{inputs.host}/api/v2/entity', {
     'method': 'POST',
     'headers': {
@@ -18,9 +34,9 @@ let res := fetch(f'https://{inputs.host}/api/v2/entity', {
     },
     'body': {
         'type': 'person',
-        'action': 'identify',
+        'action': action,
         'identifiers': inputs.identifiers,
-        'attributes': inputs.properties
+        'attributes': inputs.attributes
     }
 })
 
@@ -76,7 +92,47 @@ if (res.status >= 400) {
             "required": True,
         },
         {
-            "key": "properties",
+            "key": "action",
+            "type": "choice",
+            "label": "Action",
+            "description": "Choose the action to be tracked. Automatic will convert $identify, $pageview and $screen to identify, page and screen automatically - otherwise defaulting to event",
+            "default": "automatic",
+            "choices": [
+                {
+                    "label": "Automatic",
+                    "value": "automatic",
+                },
+                {
+                    "label": "Identify",
+                    "value": "identify",
+                },
+                {
+                    "label": "Event",
+                    "value": "event",
+                },
+                {
+                    "label": "Page",
+                    "value": "page",
+                },
+                {
+                    "label": "Screen",
+                    "value": "screen",
+                },
+            ],
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "include_all_properties",
+            "type": "boolean",
+            "label": "Include all properties as attributes",
+            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below.",
+            "default": False,
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "attributes",
             "type": "dictionary",
             "label": "Attribute mapping",
             "description": "Map of Customer.io attributes and their values. You can use the filters section to filter out unwanted events.",
