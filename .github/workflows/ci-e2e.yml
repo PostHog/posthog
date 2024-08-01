@@ -169,6 +169,20 @@ jobs:
                   build-id: ${{ needs.container.outputs.build-id }}
                   tags: ${{ needs.container.outputs.tag }}
 
+            - name: setup env vars
+              run: |
+                  echo "E2E_SAML_LOGIN_EMAIL=${{ secrets.E2E_SAML_LOGIN_EMAIL }}" >> $GITHUB_ENV
+                  echo "E2E_SAML_LOGIN_PASSWORD=${{ secrets.E2E_SAML_LOGIN_PASSWORD }}" >> $GITHUB_ENV
+                  echo "E2E_SAML_X509_CERT=${{ secrets.E2E_SAML_X509_CERT }}" >> $GITHUB_ENV
+                  echo "E2E_SAML_ACS_URL=${{ vars.E2E_SAML_ACS_URL }}" >> $GITHUB_ENV
+                  echo "E2E_SAML_DOMAIN=${{ vars.E2E_SAML_DOMAIN }}" >> $GITHUB_ENV
+                  echo "E2E_SAML_ENTITY_ID=${{ vars.E2E_SAML_ENTITY_ID }}" >> $GITHUB_ENV
+                  echo "E2E_SAML_LOGIN_EMAIL=${{ vars.E2E_SAML_LOGIN_EMAIL }}" >> $GITHUB_ENV
+                  echo "E2E_SAML_ORGANIZATION_DOMAIN_ID=${{ vars.E2E_SAML_ORGANIZATION_DOMAIN_ID }}" >> $GITHUB_ENV
+
+            - name: Setup upterm session
+              uses: lhotari/action-upterm@v1
+
             - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
               env:
                   E2E_SAML_LOGIN_EMAIL: ${{ secrets.E2E_SAML_LOGIN_EMAIL }}
