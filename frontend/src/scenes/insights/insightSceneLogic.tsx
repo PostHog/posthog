@@ -189,12 +189,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
-        '/data-warehouse/*': (_, __, { q }) => {
-            actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
+        '/data-warehouse': (_, __, { q }) => {
+            actions.setSceneState(String('new-dataWarehouse') as InsightShortId, ItemMode.Edit, undefined)
             values.insightDataLogicRef?.logic.actions.setQuery(examples.DataWarehouse)
             values.insightLogicRef?.logic.actions.setInsight(
                 {
-                    ...createEmptyInsight('new', false),
+                    ...createEmptyInsight('new-dataWarehouse', false),
                     ...(q ? { query: JSON.parse(q) } : {}),
                 },
                 {
@@ -204,7 +204,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             )
         },
         '/data-warehouse/view/:id': (_, __, { q }) => {
-            actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
+            actions.setSceneState(String('new-dataWarehouse') as InsightShortId, ItemMode.Edit, undefined)
             values.insightDataLogicRef?.logic.actions.setQuery({
                 kind: NodeKind.DataVisualizationNode,
                 source: JSON.parse(q),

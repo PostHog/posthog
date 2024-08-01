@@ -5,7 +5,13 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, ChartAxis, ChartSettingsFormatting, DataVisualizationNode } from '~/queries/schema'
+import {
+    AnyResponseType,
+    ChartAxis,
+    ChartSettings,
+    ChartSettingsFormatting,
+    DataVisualizationNode,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
 
@@ -124,9 +130,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
+        updateChartSettings: (settings: ChartSettings) => ({ settings }),
         setSideBarTab: (tab: SideBarTab) => ({ tab }),
     }),
-    reducers({
+    reducers(({ props }) => ({
         visualizationType: [
             ChartDisplayType.ActionsTable as ChartDisplayType,
             {
@@ -196,7 +203,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 setSideBarTab: (_state, { tab }) => tab,
             },
         ],
-    }),
+        chartSettings: [
+            props.query.chartSettings ?? ({} as ChartSettings),
+            {
+                updateChartSettings: (state, { settings }) => {
+                    return { ...mergeObject(state, settings) }
+                },
+                setQuery: (state, { node }) => {
+                    return { ...mergeObject(state, node.chartSettings ?? {}) }
+                },
+            },
+        ],
+    })),
     selectors({
         columns: [
             (s) => [s.response],
@@ -329,19 +347,23 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
     }),
-    listeners(({ props }) => ({
+    listeners(({ props, actions }) => ({
+        updateChartSettings: ({ settings }) => {
+            actions.setQuery({
+                ...props.query,
+                chartSettings: { ...(props.query.chartSettings ?? {}), ...settings },
+            })
+        },
         setQuery: ({ node }) => {
             if (props.setQuery) {
                 props.setQuery(node)
             }
         },
         setVisualizationType: ({ visualizationType }) => {
-            if (props.setQuery) {
-                props.setQuery({
-                    ...props.query,
-                    display: visualizationType,
-                })
-            }
+            actions.setQuery({
+                ...props.query,
+                display: visualizationType,
+            })
         },
     })),
     afterMount(({ actions, props }) => {
@@ -392,36 +414,32 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
         },
         selectedXAxis: (value: string | null) => {
-            if (props.setQuery) {
-                const yColumns =
-                    values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
-                const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
+            const yColumns =
+                values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+            const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
 
-                props.setQuery({
-                    ...props.query,
-                    chartSettings: {
-                        ...(props.query.chartSettings ?? {}),
-                        yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
-                        xAxis: xColumn,
-                    },
-                })
-            }
+            actions.setQuery({
+                ...props.query,
+                chartSettings: {
+                    ...(props.query.chartSettings ?? {}),
+                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
+                    xAxis: xColumn,
+                },
+            })
         },
         selectedYAxis: (value: (SelectedYAxis | null)[] | null) => {
-            if (props.setQuery) {
-                const yColumns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
-                const xColumn: ChartAxis | undefined =
-                    values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
+            const yColumns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+            const xColumn: ChartAxis | undefined =
+                values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
 
-                props.setQuery({
-                    ...props.query,
-                    chartSettings: {
-                        ...(props.query.chartSettings ?? {}),
-                        yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
-                        xAxis: xColumn,
-                    },
-                })
-            }
+            actions.setQuery({
+                ...props.query,
+                chartSettings: {
+                    ...(props.query.chartSettings ?? {}),
+                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
+                    xAxis: xColumn,
+                },
+            })
         },
     })),
 ])
