@@ -178,7 +178,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
-        removeTile: (tile: DashboardTile) => ({ tile }),
+        removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         refreshDashboardItem: (payload: { tile: DashboardTile }) => payload,
         refreshAllDashboardItems: (payload: {
             tiles?: DashboardTile[]
@@ -221,7 +221,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allowUndo: allowUndo === undefined ? true : allowUndo,
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
-        duplicateTile: (tile: DashboardTile) => ({ tile }),
+        duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,

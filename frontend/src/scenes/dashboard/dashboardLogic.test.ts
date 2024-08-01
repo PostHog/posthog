@@ -17,9 +17,9 @@ import {
     DashboardTile,
     DashboardType,
     InsightColor,
-    InsightModel,
     InsightShortId,
     InsightType,
+    QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
 
@@ -30,8 +30,8 @@ const dashboardJson = _dashboardJson as any as DashboardType
 export function insightOnDashboard(
     insightId: number,
     dashboardsRelation: number[],
-    insight: Partial<InsightModel> = {}
-): InsightModel {
+    insight: Partial<QueryBasedInsightModel> = {}
+): QueryBasedInsightModel {
     const tiles = dashboardJson.tiles.filter((tile) => !!tile.insight && tile.insight?.id === insightId)
     let tile = dashboardJson.tiles[0]
     if (tiles.length) {
@@ -48,7 +48,7 @@ export function insightOnDashboard(
     }
 }
 
-const TEXT_TILE: DashboardTile = {
+const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
     id: 4,
     text: { body: 'I AM A TEXT', last_modified_at: '2021-01-01T00:00:00Z' },
     layouts: {},
@@ -56,7 +56,10 @@ const TEXT_TILE: DashboardTile = {
 }
 
 let tileId = 0
-export const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
+export const tileFromInsight = (
+    insight: QueryBasedInsightModel,
+    id: number = tileId++
+): DashboardTile<QueryBasedInsightModel> => ({
     id: id,
     layouts: {},
     color: null,
@@ -65,9 +68,9 @@ export const tileFromInsight = (insight: InsightModel, id: number = tileId++): D
 
 export const dashboardResult = (
     dashboardId: number,
-    tiles: DashboardTile[],
+    tiles: DashboardTile<QueryBasedInsightModel>[],
     filters: Partial<DashboardFilter> = {}
-): DashboardType => {
+): DashboardType<QueryBasedInsightModel> => {
     return {
         ...dashboardJson,
         filters: { ...dashboardJson.filters, ...filters },
@@ -76,7 +79,11 @@ export const dashboardResult = (
     }
 }
 
-const uncached = (insight: InsightModel): InsightModel => ({ ...insight, result: null, last_refresh: null })
+const uncached = (insight: QueryBasedInsightModel): QueryBasedInsightModel => ({
+    ...insight,
+    result: null,
+    last_refresh: null,
+})
 
 export const boxToString = (param: string | readonly string[]): string => {
     //path params from msw can be a string or an array
@@ -86,7 +93,7 @@ export const boxToString = (param: string | readonly string[]): string => {
     throw new Error("this shouldn't be an array")
 }
 
-const insight800 = (): InsightModel => ({
+const insight800 = (): QueryBasedInsightModel => ({
     ...insightOnDashboard(800, [9, 10]),
     id: 800,
     short_id: '800' as InsightShortId,
@@ -114,12 +121,12 @@ describe('dashboardLogic', () => {
      *               /     \
      *             i666    i999
      */
-    let dashboards: Record<number, DashboardType> = {}
+    let dashboards: Record<number, DashboardType<QueryBasedInsightModel>> = {}
 
     beforeEach(() => {
         jest.spyOn(api, 'update')
 
-        const insights: Record<number, InsightModel> = {
+        const insights: Record<number, QueryBasedInsightModel> = {
             172: {
                 ...insightOnDashboard(172, [5, 6], {
                     filters: { insight: InsightType.RETENTION },
@@ -148,7 +155,7 @@ describe('dashboardLogic', () => {
                 short_id: '999' as InsightShortId,
                 last_refresh: now().toISOString(),
             },
-            1001: { id: 1001, short_id: '1001' as InsightShortId } as unknown as InsightModel,
+            1001: { id: 1001, short_id: '1001' as InsightShortId } as unknown as QueryBasedInsightModel,
             800: insight800(),
         }
         dashboards = {
@@ -263,7 +270,7 @@ describe('dashboardLogic', () => {
                         }
                         const insightId = boxToString(req.params.id)
 
-                        const starting: InsightModel = insights[insightId]
+                        const starting: QueryBasedInsightModel = insights[insightId]
                         insights[insightId] = {
                             ...starting,
                             ...updates,
@@ -631,7 +638,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight({
                     short_id: 'not_already_on_the_dashboard' as InsightShortId,
-                } as InsightModel)
+                } as QueryBasedInsightModel)
             })
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
@@ -708,7 +715,7 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
-        const changedInsight: InsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
+        const changedInsight: QueryBasedInsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
         dashboardsModel.actions.updateDashboardInsight(changedInsight, [9])
 
         expect(
