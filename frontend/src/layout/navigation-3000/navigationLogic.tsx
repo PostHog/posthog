@@ -14,7 +14,6 @@ import {
     IconPlusSmall,
     IconRewindPlay,
     IconRocket,
-    IconServer,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -409,12 +408,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               label: 'Explore',
                               icon: <IconLive />,
                               to: urls.explore(),
-                          },
-                          {
-                              identifier: Scene.DataWarehouse,
-                              label: 'SQL Studio',
-                              icon: <IconServer />,
-                              to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                           },
                       ]
                     : [
