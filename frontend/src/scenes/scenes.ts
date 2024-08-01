@@ -1,7 +1,7 @@
 import { combineUrl } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { getDefaultEventsSceneQuery } from 'scenes/explore/events/defaults'
 import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -84,11 +84,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Cohort',
         defaultDocsPath: '/docs/data/cohorts',
-    },
-    [Scene.Activity]: {
-        projectBased: true,
-        name: 'Activity',
-        defaultDocsPath: '/docs/data/events',
     },
     [Scene.Explore]: {
         projectBased: true,
@@ -484,9 +479,8 @@ export const routes: Record<string, Scene> = {
     [urls.propertyDefinitionEdit(':id')]: Scene.PropertyDefinitionEdit,
     [urls.dataManagementHistory()]: Scene.DataManagement,
     [urls.database()]: Scene.DataManagement,
-    [urls.activity(':tab')]: Scene.Activity,
     [urls.explore(':tab')]: Scene.Explore,
-    [urls.events()]: Scene.Activity,
+    [urls.events()]: Scene.Explore,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {

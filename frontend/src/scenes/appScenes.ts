@@ -11,7 +11,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
-    [Scene.Activity]: () => import('./activity/ActivityScene'),
     [Scene.Explore]: () => import('./explore/ExploreScene'),
     [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.EventDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),

@@ -10,8 +10,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, ExploreTab } from '~/types'
 
-import { EventsScene } from './explore/EventsScene'
+import { EventsScene } from './events/EventsScene'
 import type { exploreSceneLogicType } from './ExploreSceneType'
+import { LiveEventsTable } from './live-events/LiveEventsTable'
 
 const exploreSceneLogic = kea<exploreSceneLogicType>([
     path(['scenes', 'events', 'exploreSceneLogic']),
@@ -63,22 +64,22 @@ export function ExploreScene(): JSX.Element {
                 tabs={[
                     {
                         key: ExploreTab.SQL,
-                        label: 'SQL Studio',
+                        label: 'SQL studio',
                         content: <DataWarehouseExternalScene />,
                         link: urls.explore(ExploreTab.SQL),
                     },
                     {
                         key: ExploreTab.Events,
-                        label: 'Live Events',
+                        label: 'Events',
                         content: <EventsScene />,
                         link: urls.explore(ExploreTab.Events),
                     },
-                    // {
-                    //     key: ExploreTab.Events,
-                    //     label: 'Live events',
-                    //     content: <LiveEventsTable />,
-                    //     link: urls.explore(ExploreTab.Events),
-                    // },
+                    {
+                        key: ExploreTab.LiveEvents,
+                        label: 'Live events',
+                        content: <LiveEventsTable />,
+                        link: urls.explore(ExploreTab.LiveEvents),
+                    },
                     {
                         key: ExploreTab.Canvas,
                         label: 'Canvas',

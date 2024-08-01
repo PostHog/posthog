@@ -405,12 +405,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: isUsingSidebar ? undefined : urls.persons(),
                           },
                           {
-                              identifier: Scene.Activity,
-                              label: 'Activity',
-                              icon: <IconLive />,
-                              to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
-                          },
-                          {
                               identifier: Scene.Explore,
                               label: 'Explore',
                               icon: <IconLive />,

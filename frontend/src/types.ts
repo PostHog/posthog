@@ -655,6 +655,7 @@ export enum ActivityTab {
 export enum ExploreTab {
     SQL = 'sql',
     Events = 'events',
+    LiveEvents = 'live',
     Canvas = 'canvas',
 }
 

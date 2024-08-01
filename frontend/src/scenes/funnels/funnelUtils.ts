@@ -1,7 +1,7 @@
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { autoCaptureEventToDescription, clamp } from 'lib/utils'
-import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
+import { elementsToAction } from 'scenes/explore/events/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'

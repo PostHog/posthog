@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { getDefaultEventsSceneQuery } from 'scenes/explore/events/defaults'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
