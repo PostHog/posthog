@@ -3,7 +3,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 # Based off of https://customer.io/docs/api/track/#operation/entity
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     id="template-customerio",
     name="Send events to Customer.io",
     description="Identify or track events against customers in Customer.io",
