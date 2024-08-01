@@ -51,4 +51,4 @@ class Command(BaseCommand):
             updated = found_configs.update(plugin=new_plugin)
             print(f"Updated {updated} rows")  # noqa T201
         else:
-            print(f"Would update {len(target_ids)} rows")  # noqa T201
+            print(f"Would update {len(found_configs)} rows")  # noqa T201
