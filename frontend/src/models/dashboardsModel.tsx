@@ -91,7 +91,11 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return { count: 0, next: null, previous: null, results: [] }
                     }
-                    return await api.get(url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`)
+                    const dashboards = await api.get(
+                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`
+                    )
+
+                    return dashboards.map((dashboard) => getQueryBasedDashboard(dashboard))
                 },
             },
         ],
@@ -137,30 +141,34 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         },
                     })
                 }
-                return response
+                return getQueryBasedDashboard(response)
             },
             deleteDashboard: async ({ id, deleteInsights }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    deleted: true,
-                    delete_insights: deleteInsights,
-                })) as DashboardType,
+                getQueryBasedDashboard(
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                        deleted: true,
+                        delete_insights: deleteInsights,
+                    })
+                ) as DashboardType<QueryBasedInsightModel>,
             restoreDashboard: async ({ id }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    deleted: false,
-                })) as DashboardType,
+                getQueryBasedDashboard(
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                        deleted: false,
+                    })
+                ) as DashboardType<QueryBasedInsightModel>,
             pinDashboard: async ({ id, source }) => {
                 const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     pinned: true,
                 })) as DashboardType
                 eventUsageLogic.actions.reportDashboardPinToggled(true, source)
-                return response
+                return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
                 const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     pinned: false,
                 })) as DashboardType
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
-                return response
+                return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
@@ -171,7 +179,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
-                return result
+                return getQueryBasedDashboard(result)
             },
         },
     })),
