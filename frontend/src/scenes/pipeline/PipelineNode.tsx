@@ -67,7 +67,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
     }
 
-    if ([PipelineBackend.Plugin, PipelineBackend.BatchExport].includes(node.backend)) {
+    if (node.backend === PipelineBackend.Plugin) {
         tabToContent[PipelineNodeTab.History] = <ActivityLog id={id} scope={ActivityScope.PLUGIN} />
     }
 

@@ -46,14 +46,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         hasDashboardItemId,
     } = useValues(insightLogic(insightLogicProps))
-    const { setInsightMetadata, saveAs } = useActions(insightLogic(insightLogicProps))
+    const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { queryChanged, showQueryEditor, hogQL, exportContext, query } = useValues(insightDataLogic(insightProps))
-    const { saveInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const { queryChanged, showQueryEditor, hogQL, exportContext } = useValues(insightDataLogic(insightProps))
+    const { toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -275,7 +275,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             )
                         ) : (
                             <InsightSaveButton
-                                query={query}
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
                                 isSaved={hasDashboardItemId}

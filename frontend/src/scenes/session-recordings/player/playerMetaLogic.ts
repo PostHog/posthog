@@ -31,7 +31,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById'],
+            ['recordingPropertiesById', 'recordingPropertiesLoading'],
         ],
         actions: [
             sessionRecordingDataLogic(props),
@@ -139,7 +139,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     listeners(({ actions, values }) => ({
         loadRecordingMetaSuccess: () => {
-            if (values.sessionPlayerMetaData) {
+            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
         },

@@ -289,8 +289,9 @@ limit 100`,
 
 const HogQLForDataWarehouse: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
-    query: `select toDate(timestamp) as timestamp, event as event
-    from events
+    query: `select toDate(timestamp) as timestamp, count()
+from events
+group by timestamp
 limit 100`,
     explain: true,
 }

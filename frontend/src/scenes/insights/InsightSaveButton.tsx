@@ -1,9 +1,6 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { Node } from '~/queries/schema'
-
 export function InsightSaveButton({
-    query,
     saveAs,
     saveInsight,
     isSaved,
@@ -11,8 +8,7 @@ export function InsightSaveButton({
     insightChanged,
     addingToDashboard,
 }: {
-    query: Node
-    saveAs: (query: Node) => void
+    saveAs: () => void
     saveInsight: (redirectToViewMode?: boolean) => void
     isSaved: boolean | undefined
     insightSaving: boolean
@@ -44,11 +40,7 @@ export function InsightSaveButton({
                                 </LemonButton>
                             )}
                             {saveAsAvailable && (
-                                <LemonButton
-                                    onClick={() => saveAs(query)}
-                                    data-attr="insight-save-as-new-insight"
-                                    fullWidth
-                                >
+                                <LemonButton onClick={() => saveAs()} data-attr="insight-save-as-new-insight" fullWidth>
                                     Save as…
                                 </LemonButton>
                             )}

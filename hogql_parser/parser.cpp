@@ -2554,8 +2554,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(Placeholder) {
-    string name = visitAsString(ctx->identifier());
-    RETURN_NEW_AST_NODE("Placeholder", "{s:s#}", "field", name.data(), name.size());
+    auto nested_identifier_ctx = ctx->nestedIdentifier();
+    vector<string> nested =
+        nested_identifier_ctx ? any_cast<vector<string>>(visit(nested_identifier_ctx)) : vector<string>();
+
+    RETURN_NEW_AST_NODE("Placeholder", "{s:N}", "chain", X_PyList_FromStrings(nested));
   }
 
   VISIT_UNSUPPORTED(EnumValue)

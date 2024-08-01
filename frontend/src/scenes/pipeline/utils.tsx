@@ -12,11 +12,11 @@ import IconBigQuery from 'public/services/bigquery.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
-import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
+    BatchExportRun,
     BatchExportService,
     LogEntryLevel,
     PipelineNodeTab,
@@ -26,6 +26,7 @@ import {
 } from '~/types'
 
 import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { PluginImage, PluginImageSize } from './PipelinePluginImage'
 import {
     Destination,
     ImportApp,
@@ -335,4 +336,8 @@ export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: b
         return false
     }
     return true
+}
+
+export function isRunInProgress(run: BatchExportRun): boolean {
+    return ['Running', 'Starting'].includes(run.status)
 }

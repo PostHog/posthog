@@ -60,7 +60,7 @@ class Command(BaseCommand):
             password=CLICKHOUSE_PASSWORD,
             cluster=CLICKHOUSE_CLUSTER,
             verify_ssl_cert=False,
-            randomize_replica_paths=settings.TEST,
+            randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
         )
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")

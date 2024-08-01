@@ -40,7 +40,14 @@ AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
 AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
 
 SELECT_FROM_PERSONS_VIEW = """
-SELECT *
+SELECT
+    persons.team_id AS team_id,
+    persons.distinct_id AS distinct_id,
+    persons.person_id AS person_id,
+    persons.properties AS properties,
+    persons.person_distinct_id_version AS person_distinct_id_version,
+    persons.person_version AS person_version,
+    persons._inserted_at AS _inserted_at
 FROM
     persons_batch_export(
         team_id={team_id},

@@ -18,7 +18,7 @@ import { runInstrumentedFunction } from '../main/utils'
 import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { status } from '../utils/status'
-import { castTimestampOrNow } from '../utils/utils'
+import { castTimestampOrNow, UUIDT } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
@@ -271,14 +271,13 @@ abstract class CdpConsumerBase {
                     const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
 
                     if (functionState === HogWatcherState.overflowed) {
-                        // TODO: _Maybe_ report to AppMetrics 2 when it is ready
                         this.messagesToProduce.push({
                             topic: KAFKA_CDP_FUNCTION_OVERFLOW,
                             value: {
                                 source: 'hog_function_callback',
                                 payload: item,
                             },
-                            key: item.hogFunctionId,
+                            key: new UUIDT().toString(), // Random key to spread across consumers
                         })
                         // We don't report overflowed metric to appmetrics as it is sort of a meta-metric
                         counterFunctionInvocation.inc({ outcome: 'overflowed' })

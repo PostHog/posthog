@@ -493,7 +493,7 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            field=node.field,
+            chain=node.chain,
         )
 
     def visit_call(self, node: ast.Call):

@@ -94,7 +94,7 @@
             },
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
-            "args": ["run_autoreload_celery"],
+            "args": ["run_autoreload_celery", "--type=worker"],
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",

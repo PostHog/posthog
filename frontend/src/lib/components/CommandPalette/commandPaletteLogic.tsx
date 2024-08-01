@@ -606,7 +606,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Go to Data pipelines',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push(urls.projectApps())
+                            push(urls.pipeline())
                         },
                     },
                     {

@@ -244,7 +244,7 @@ const renderGateVariantMessage = (
 
 const GrandfatheredMessage = (): JSX.Element => {
     return (
-        <div className="flex gap-x-2 bg-bg-3000 p-4 rounded text-left mb-4">
+        <div className="flex gap-x-2 bg-bg-3000 rounded text-left mb-4">
             <IconInfo className="text-muted text-2xl" />
             <p className="text-muted mb-0">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your

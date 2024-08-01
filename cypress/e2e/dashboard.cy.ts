@@ -61,6 +61,46 @@ describe('Dashboard', () => {
         }
     })
 
+    it('Refreshing dashboard works', () => {
+        const dashboardName = randomString('Dashboard with insights')
+        const insightName = randomString('insight to add to dashboard')
+
+        // Create and visit a dashboard to get it into turbo mode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+
+        insight.create(insightName)
+
+        insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
+
+        cy.get('.CardMeta h4').should('have.text', insightName)
+        cy.get('h4').contains('Refreshing').should('not.exist')
+        cy.get('main').contains('There are no matching events for this query').should('not.exist')
+
+        cy.intercept('GET', /\/api\/projects\/\d+\/dashboard_templates/, (req) => {
+            req.reply((response) => {
+                response.body.results[0].variables = [
+                    {
+                        id: 'id',
+                        name: 'Unique variable name',
+                        type: 'event',
+                        default: {},
+                        required: true,
+                        description: 'description',
+                    },
+                ]
+                return response
+            })
+        })
+
+        // refresh the dashboard by changing date range
+        cy.get('[data-attr="date-filter"]').click()
+        cy.contains('span', 'Last 14 days').click()
+        cy.contains('span', 'Apply and save dashboard').click()
+
+        cy.contains('span[class="text-primary text-sm font-medium"]', 'Refreshing').should('not.exist')
+        cy.get('span').contains('Refreshing').should('not.exist')
+    })
+
     it('Shows details when moving between dashboard and insight', () => {
         const dashboardName = randomString('Dashboard')
         const insightName = randomString('DashboardInsight')

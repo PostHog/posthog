@@ -267,8 +267,6 @@ export function InsightsTable({
         columns.push(...valueColumns)
     }
 
-    const totalItems = indexedResults.length
-
     return (
         <LemonTable
             id={isInDashboardContext ? queryBasedInsight.short_id : undefined}
@@ -286,11 +284,8 @@ export function InsightsTable({
             useURLForSorting={insightMode !== ItemMode.Edit}
             rowRibbonColor={
                 isLegend
-                    ? (item) => {
-                          const isPrevious = !!item.compare && item.compare_label === 'previous'
-                          const adjustedIndex = isPrevious ? item.seriesIndex - totalItems / 2 : item.seriesIndex
-                          return getTrendLikeSeriesColor(adjustedIndex, isPrevious)
-                      }
+                    ? (item) =>
+                          getTrendLikeSeriesColor(item.colorIndex, !!item.compare && item.compare_label === 'previous')
                     : undefined
             }
             firstColumnSticky

@@ -2669,7 +2669,7 @@ export const billingJson: BillingType = {
             screenshot_url: null,
             icon_key: 'IconStack',
             docs_url: 'https://posthog.com/docs',
-            subscribed: null,
+            subscribed: true,
             plans: [
                 {
                     plan_key: 'free-20230117',

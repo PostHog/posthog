@@ -340,7 +340,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         return
                     }
 
-                    if (input.required && !value) {
+                    const missing = value === undefined || value === null || value === ''
+                    if (input.required && missing) {
                         inputErrors[key] = 'This field is required'
                     }
 

@@ -7,6 +7,7 @@ from prometheus_client import Counter
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
+
 logger = structlog.get_logger(__name__)
 
 

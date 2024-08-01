@@ -162,7 +162,9 @@ class Insight(models.Model):
                             {"type": "AND", "values": dashboard_properties},
                         ],
                     }
-                elif self.filters.get("properties", {}).get("type"):
+                elif not self.filters.get("properties"):
+                    filters["properties"] = dashboard_properties
+                elif self.filters.get("properties").get("type"):
                     filters["properties"] = {
                         "type": "AND",
                         "values": [
@@ -170,8 +172,6 @@ class Insight(models.Model):
                             {"type": "AND", "values": dashboard_properties},
                         ],
                     }
-                elif not self.filters.get("properties"):
-                    filters["properties"] = dashboard_properties
                 else:
                     raise ValidationError("Unrecognized property format: ", self.filters["properties"])
             elif self.filters.get("properties"):

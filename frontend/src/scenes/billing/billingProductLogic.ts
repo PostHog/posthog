@@ -148,7 +148,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (billing, product) => {
                 return (
                     billing?.custom_limits_usd?.[product.type] ||
-                    (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : '')
+                    (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null)
                 )
             },
         ],
@@ -197,7 +197,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               productAndAddonTiers,
                               billing?.discount_percent
                           )
-                        : convertAmountToUsage(customLimitUsd || '', productAndAddonTiers, billing?.discount_percent)
+                        : convertAmountToUsage(
+                              typeof customLimitUsd === 'number' ? `${customLimitUsd}` : customLimitUsd || '',
+                              productAndAddonTiers,
+                              billing?.discount_percent
+                          )
                     : 0
             },
         ],
@@ -252,7 +256,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
                 values.customLimitUsd
-                    ? parseInt(values.customLimitUsd)
+                    ? parseInt(
+                          typeof values.customLimitUsd === 'number'
+                              ? `${values.customLimitUsd}`
+                              : values.customLimitUsd || ''
+                      )
                     : props.product.tiers && parseInt(props.product.projected_amount_usd || '0')
                     ? parseInt(props.product.projected_amount_usd || '0') * 1.5
                     : DEFAULT_BILLING_LIMIT
@@ -370,7 +378,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return
                 }
                 actions.updateBillingLimits({
-                    [props.product.type]: typeof input === 'number' ? `${input}` : null,
+                    [props.product.type]: input,
                 })
             },
             options: {

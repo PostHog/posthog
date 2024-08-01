@@ -46,7 +46,8 @@
   WHERE 1 = 1
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            OR (performed_event_condition_None_level_level_0_level_0_level_1_0))
-          AND ((first_time_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order=1
+          AND ((first_time_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                       join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence
@@ -117,7 +118,8 @@
         AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
     AND ((((steps_0))
-          AND (steps_1))) SETTINGS optimize_aggregation_in_order=1
+          AND (steps_1))) SETTINGS optimize_aggregation_in_order = 1,
+                                   join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra
@@ -159,7 +161,8 @@
         HAVING max(is_deleted) = 0
         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order=1
+    AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                              join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.1
@@ -197,7 +200,8 @@
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
-          OR ((performed_event_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order=1
+          OR ((performed_event_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                           join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence
@@ -240,7 +244,8 @@
              AND timestamp >= now() - INTERVAL 7 day ))
      GROUP BY person_id) funnel_query
   WHERE 1 = 1
-    AND (((steps_0))) SETTINGS optimize_aggregation_in_order=1
+    AND (((steps_0))) SETTINGS optimize_aggregation_in_order = 1,
+                               join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_and_clause_with_additional_event
@@ -288,7 +293,8 @@
      GROUP BY person_id) funnel_query
   WHERE 1 = 1
     AND (((steps_0)
-          OR (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order=1
+          OR (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_with_person_properties
@@ -351,7 +357,8 @@
         AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
     AND (((steps_0)
-          AND (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order=1
+          AND (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                           join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_with_event_filters_and_explicit_date
@@ -378,7 +385,8 @@
        AND timestamp >= now() - INTERVAL 4 day
      GROUP BY person_id) behavior_query
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order=1
+    AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                              join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_person
@@ -416,7 +424,8 @@
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((performed_event_condition_None_level_level_0_level_0_0)
-          OR (has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, '$sample_field'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order=1
+          OR (has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, '$sample_field'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                                                  join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_person_materialized
@@ -454,7 +463,8 @@
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
     AND (((performed_event_condition_None_level_level_0_level_0_0)
-          OR (has(['test@posthog.com'], "pmat_$sample_field")))) SETTINGS optimize_aggregation_in_order=1
+          OR (has(['test@posthog.com'], "pmat_$sample_field")))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_person_properties_with_pushdowns
@@ -506,7 +516,8 @@
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            OR (performed_event_condition_None_level_level_0_level_0_level_1_0)
            OR (has(['special'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
-          AND ((first_time_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order=1
+          AND ((first_time_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                       join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_person_props_only
@@ -596,7 +607,8 @@
              (SELECT person_id as id
               FROM person_static_cohort
               WHERE cohort_id = 2
-                AND team_id = 2)))) SETTINGS optimize_aggregation_in_order=1
+                AND team_id = 2)))) SETTINGS optimize_aggregation_in_order = 1,
+                                             join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra
@@ -646,7 +658,8 @@
               FROM person_static_cohort
               WHERE cohort_id = 2
                 AND team_id = 2))
-          AND (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order=1
+          AND (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                  join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.2
@@ -687,7 +700,8 @@
                FROM person_static_cohort
                WHERE cohort_id = 2
                  AND team_id = 2)))
-          OR ((performed_event_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order=1
+          OR ((performed_event_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                           join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
@@ -742,6 +756,7 @@
                    FROM person_static_cohort
                    WHERE cohort_id = 2
                      AND team_id = 2)))
-          OR (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order=1
+          OR (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                 join_algorithm = 'auto'
   '''
 # ---

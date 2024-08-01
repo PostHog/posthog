@@ -112,8 +112,7 @@ export function Sparkline({
                                 },
                             },
                             grid: {
-                                borderDash: [2],
-                                drawBorder: false,
+                                tickBorderDash: [2],
                                 display: true,
                                 tickLength: 0,
                             },

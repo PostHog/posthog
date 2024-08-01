@@ -23,6 +23,10 @@ Cypress.on('window:before:load', (win) => {
     win._cypress_posthog_captures = []
 })
 
+before(() => {
+    cy.task('resetInsightCache') // Reset insight cache before each suite
+})
+
 beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_TITLE', Cypress.currentTest.title)
     Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_FULL_TITLE', Cypress.currentTest.titlePath.join(' > '))

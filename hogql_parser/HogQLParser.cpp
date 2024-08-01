@@ -581,7 +581,7 @@ void hogqlparserParserInitialize() {
   	1265,5,105,0,0,1262,1265,3,152,76,0,1263,1265,3,154,77,0,1264,1261,1,
   	0,0,0,1264,1262,1,0,0,0,1264,1263,1,0,0,0,1265,161,1,0,0,0,1266,1267,
   	3,166,83,0,1267,1268,5,122,0,0,1268,1269,3,148,74,0,1269,163,1,0,0,0,
-  	1270,1271,5,128,0,0,1271,1272,3,160,80,0,1272,1273,5,147,0,0,1273,165,
+  	1270,1271,5,128,0,0,1271,1272,3,134,67,0,1272,1273,5,147,0,0,1273,165,
   	1,0,0,0,1274,1277,5,110,0,0,1275,1277,3,168,84,0,1276,1274,1,0,0,0,1276,
   	1275,1,0,0,0,1277,167,1,0,0,0,1278,1282,5,142,0,0,1279,1281,3,170,85,
   	0,1280,1279,1,0,0,0,1281,1284,1,0,0,0,1282,1280,1,0,0,0,1282,1283,1,0,
@@ -11733,8 +11733,8 @@ tree::TerminalNode* HogQLParser::PlaceholderContext::LBRACE() {
   return getToken(HogQLParser::LBRACE, 0);
 }
 
-HogQLParser::IdentifierContext* HogQLParser::PlaceholderContext::identifier() {
-  return getRuleContext<HogQLParser::IdentifierContext>(0);
+HogQLParser::NestedIdentifierContext* HogQLParser::PlaceholderContext::nestedIdentifier() {
+  return getRuleContext<HogQLParser::NestedIdentifierContext>(0);
 }
 
 tree::TerminalNode* HogQLParser::PlaceholderContext::RBRACE() {
@@ -11770,7 +11770,7 @@ HogQLParser::PlaceholderContext* HogQLParser::placeholder() {
     setState(1270);
     match(HogQLParser::LBRACE);
     setState(1271);
-    identifier();
+    nestedIdentifier();
     setState(1272);
     match(HogQLParser::RBRACE);
    

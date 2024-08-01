@@ -1,19 +1,19 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconRefresh } from 'lib/lemon-ui/icons'
-import { BatchExportRunIcon } from 'scenes/batch_exports/components'
-import { isRunInProgress } from 'scenes/batch_exports/utils'
 
-import { BatchExportConfiguration, GroupedBatchExportRuns } from '~/types'
+import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportRunsLogic, BatchExportRunsLogicProps } from './batchExportRunsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { isRunInProgress } from './utils'
 
 export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
     const logic = batchExportRunsLogic({ id })
@@ -360,4 +360,73 @@ function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Ele
             />
         </span>
     )
+}
+
+export function BatchExportRunIcon({
+    runs,
+    showLabel = false,
+}: {
+    runs: BatchExportRun[]
+    showLabel?: boolean
+}): JSX.Element {
+    // We assume these are pre-sorted
+    const latestRun = runs[0]
+
+    const status = combineFailedStatuses(latestRun.status)
+    const color = colorForStatus(status)
+
+    return (
+        <Tooltip
+            title={
+                <>
+                    Run status: {status}
+                    {runs.length > 1 && (
+                        <>
+                            <br />
+                            Attempts: {runs.length}
+                        </>
+                    )}
+                </>
+            }
+        >
+            <span
+                className={clsx(
+                    `BatchExportRunIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs border-${color} text-${color}-dark select-none`,
+                    color === 'primary' && 'BatchExportRunIcon--pulse',
+                    showLabel ? '' : 'w-6'
+                )}
+            >
+                {showLabel ? <span className="text-center">{status}</span> : runs.length}
+            </span>
+        </Tooltip>
+    )
+}
+
+const combineFailedStatuses = (status: BatchExportRun['status']): BatchExportRun['status'] => {
+    // Eventually we should expose the difference between "Failed" and "FailedRetryable" to the user,
+    // because "Failed" tends to mean their configuration or destination is broken.
+    if (status === 'FailedRetryable') {
+        return 'Failed'
+    }
+    return status
+}
+
+const colorForStatus = (status: BatchExportRun['status']): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
+    switch (status) {
+        case 'Completed':
+            return 'success'
+        case 'ContinuedAsNew':
+        case 'Running':
+        case 'Starting':
+            return 'primary'
+        case 'Cancelled':
+        case 'Terminated':
+        case 'TimedOut':
+            return 'warning'
+        case 'Failed':
+        case 'FailedRetryable':
+            return 'danger'
+        default:
+            return 'default'
+    }
 }
