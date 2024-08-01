@@ -5,39 +5,28 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-customerio",
-    name="Update persons in Customer.io",
-    description="Updates persons in Customer.io",
+    name="Identify customers in Customer.io",
+    description="Syncs persons with Customer.io",
     icon_url="/static/services/customerio.png",
     hog="""
-fn callCustomerIoApi(method, path, body) {
-    // TODO: Base64 encode the site_id and token
-    fetch(f'https://{inputs.host}{path}', {
-        'method': 'POST',
-        'headers': {
-            'User-Agent': 'PostHog Customer.io App',
-            'Authorization': f'Basic {base64Encode(f'{inputs.site_id}:{inputs.token}')}',
-            'Content-Type': 'application/json'
-        },
-        'body': body
-    })
-}
-
-fn trackIdentify() {
-    // Upsert the customer
-    let payload := {
+let res := fetch(f'https://{inputs.host}/api/v2/entity', {
+    'method': 'POST',
+    'headers': {
+        'User-Agent': 'PostHog Customer.io App',
+        'Authorization': f'Basic {base64Encode(f'{inputs.site_id}:{inputs.token}')}',
+        'Content-Type': 'application/json'
+    },
+    'body': {
         'type': 'person',
-        'identifiers': {
-            // TODO: Make the id input configurable
-            'id': inputs.identifier
-        },
         'action': 'identify',
+        'identifiers': inputs.identifiers,
         'attributes': inputs.properties
     }
+})
 
-    await callCustomerIoApi('POST', f'/api/v2/entity', payload)
+if (res.status >= 400) {
+    print('Error from customer.io api:', res.status, res.body)
 }
-
-trackIdentify()
 
 """.strip(),
     inputs_schema=[
@@ -54,15 +43,6 @@ trackIdentify()
             "label": "Customer.io API Key",
             "description": "You can find your API key in your Customer.io account settings (https://fly.customer.io/settings/api_credentials)",
             "secret": True,
-            "required": True,
-        },
-        {
-            "key": "identifier",
-            "type": "string",
-            "label": "The ID that should be used for the user",
-            "description": "You can choose to fill this from an email property or an ID property. If the value is empty nothing will be sent.",
-            "default": "{person.properties.email}",
-            "secret": False,
             "required": True,
         },
         {
@@ -85,10 +65,21 @@ trackIdentify()
             "required": True,
         },
         {
+            "key": "identifiers",
+            "type": "dictionary",
+            "label": "Identifiers",
+            "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://customer.io/docs/api/track/#operation/entity",
+            "default": {
+                "email": "{person.properties.email}",
+            },
+            "secret": False,
+            "required": True,
+        },
+        {
             "key": "properties",
             "type": "dictionary",
-            "label": "Property mapping",
-            "description": "Map of Customer.io person properties and their values. You can use the filters section to filter out unwanted events.",
+            "label": "Attribute mapping",
+            "description": "Map of Customer.io attributes and their values. You can use the filters section to filter out unwanted events.",
             "default": {
                 "email": "{person.properties.email}",
                 "lastname": "{person.properties.lastname}",
