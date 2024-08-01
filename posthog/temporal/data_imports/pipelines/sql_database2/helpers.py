@@ -19,6 +19,7 @@ from dlt.sources.credentials import ConnectionStringCredentials
 
 from .arrow_helpers import row_tuples_to_arrow
 from .schema_types import (
+    default_table_adapter,
     table_to_columns,
     get_primary_key,
     SelectAny,
@@ -179,6 +180,7 @@ def table_rows(
     columns: TTableSchemaColumns = None
     if defer_table_reflect:
         table = Table(table.name, table.metadata, autoload_with=engine, extend_existing=True)
+        default_table_adapter(table)
         if table_adapter_callback:
             table_adapter_callback(table)
         columns = table_to_columns(table, reflection_level, type_adapter_callback)

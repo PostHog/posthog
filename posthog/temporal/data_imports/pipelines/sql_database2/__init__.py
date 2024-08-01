@@ -8,6 +8,7 @@ from sqlalchemy import MetaData, Table
 from sqlalchemy.engine import Engine
 
 import dlt
+from dlt.common.libs.pyarrow import pyarrow as pa
 from dlt.sources import DltResource, DltSource
 
 from posthog.warehouse.types import IncrementalFieldType
@@ -24,6 +25,7 @@ from .helpers import (
     SqlTableResourceConfiguration,
 )
 from .schema_types import (
+    default_table_adapter,
     table_to_columns,
     get_primary_key,
     ReflectionLevel,
@@ -50,6 +52,7 @@ def sql_source_for_type(
     sslmode: str,
     schema: str,
     table_names: list[str],
+    team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
@@ -76,7 +79,7 @@ def sql_source_for_type(
         raise Exception("Unsupported source_type")
 
     db_source = sql_database(
-        credentials, schema=schema, table_names=table_names, incremental=incremental, backend="pyarrow"
+        credentials, schema=schema, table_names=table_names, incremental=incremental, team_id=team_id, backend="pyarrow"
     )
 
     return db_source
@@ -118,6 +121,14 @@ def snowflake_source(
     return db_source
 
 
+# Temp while DLT doesn't support `interval` columns
+def remove_interval(table: pa.Table, team_id: Optional[int]) -> dict:
+    if team_id == 1 or team_id == 2:
+        if "sync_frequency_interval" in table.column_names:
+            return table.drop_columns("sync_frequency_interval")
+    return table
+
+
 @dlt.source
 def sql_database(
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
@@ -134,6 +145,7 @@ def sql_database(
     include_views: bool = False,
     type_adapter_callback: Optional[TTypeAdapter] = None,
     incremental: Optional[dlt.sources.incremental] = None,
+    team_id: Optional[int] = None,
 ) -> Iterable[DltResource]:
     """
     A dlt source which loads data from an SQL database using SQLAlchemy.
@@ -187,8 +199,10 @@ def sql_database(
         tables = list(metadata.tables.values())
 
     for table in tables:
-        if table_adapter_callback and not defer_table_reflect:
-            table_adapter_callback(table)
+        if not defer_table_reflect:
+            default_table_adapter(table)
+            if table_adapter_callback:
+                table_adapter_callback(table)
 
         yield dlt.resource(
             table_rows,
@@ -203,7 +217,7 @@ def sql_database(
             }
             if incremental
             else "replace",
-        )(
+        ).add_map(lambda x: remove_interval(x, team_id))(
             engine,
             table,
             chunk_size,
@@ -276,8 +290,10 @@ def sql_table(
     metadata = metadata or MetaData(schema=schema)
 
     table_obj = Table(table, metadata, autoload_with=None if defer_table_reflect else engine)
-    if table_adapter_callback and not defer_table_reflect:
-        table_adapter_callback(table_obj)
+    if not defer_table_reflect:
+        default_table_adapter(table_obj)
+        if table_adapter_callback:
+            table_adapter_callback(table_obj)
 
     return dlt.resource(
         table_rows,
