@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fmt;
 use uuid::Uuid;
 
 use super::{deserialize_datetime, serialize_datetime};
@@ -119,13 +118,33 @@ where
     Ok(category)
 }
 
-impl fmt::Display for ErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ErrorType::ConnectionError => write!(f, "Connection Error"),
-            ErrorType::TimeoutError => write!(f, "Timeout Error"),
-            ErrorType::BadHttpStatus(s) => write!(f, "Bad HTTP Status: {}", s),
-            ErrorType::ParseError => write!(f, "Parse Error"),
+impl TryFrom<&str> for ErrorType {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "Connection Error" => Ok(ErrorType::ConnectionError),
+            "Timeout Error" => Ok(ErrorType::TimeoutError),
+            s if s.starts_with("Bad HTTP Status:") => {
+                let status = &s["Bad HTTP Status:".len()..].trim();
+                let parsed_status = status
+                    .parse::<u16>()
+                    .map_err(|e| format!("Failed to parse HTTP status: {}", e))?;
+                Ok(ErrorType::BadHttpStatus(parsed_status))
+            }
+            "Parse Error" => Ok(ErrorType::ParseError),
+            _ => Err(format!("Unknown ErrorType: {}", s)),
+        }
+    }
+}
+
+impl From<ErrorType> for String {
+    fn from(error: ErrorType) -> Self {
+        match error {
+            ErrorType::ConnectionError => "Connection Error".to_string(),
+            ErrorType::TimeoutError => "Timeout Error".to_string(),
+            ErrorType::BadHttpStatus(s) => format!("Bad HTTP Status: {}", s),
+            ErrorType::ParseError => "Parse Error".to_string(),
         }
     }
 }
@@ -135,7 +154,10 @@ where
     S: Serializer,
 {
     match error_type {
-        Some(error_type) => serializer.collect_str(error_type),
+        Some(error_type) => {
+            let error_string: String = error_type.clone().into();
+            serializer.serialize_str(&error_string)
+        }
         None => serializer.serialize_none(),
     }
 }
@@ -145,34 +167,12 @@ where
     D: Deserializer<'de>,
 {
     let opt = Option::<String>::deserialize(deserializer)?;
-    let error_type = match opt {
-        Some(s) => {
-            let error_type = match &s[..] {
-                "Connection Error" => ErrorType::ConnectionError,
-                "Timeout Error" => ErrorType::TimeoutError,
-                _ if s.starts_with("Bad HTTP Status:") => {
-                    let status = &s["Bad HTTP Status:".len()..];
-                    ErrorType::BadHttpStatus(status.parse().map_err(serde::de::Error::custom)?)
-                }
-                "Parse Error" => ErrorType::ParseError,
-                _ => {
-                    return Err(serde::de::Error::unknown_variant(
-                        &s,
-                        &[
-                            "Connection Error",
-                            "Timeout Error",
-                            "Bad HTTP Status: <status>",
-                            "Parse Error",
-                        ],
-                    ))
-                }
-            };
-            Some(error_type)
-        }
-        None => None,
-    };
-
-    Ok(error_type)
+    match opt {
+        Some(s) => ErrorType::try_from(s.as_str())
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
 }
 
 #[cfg(test)]

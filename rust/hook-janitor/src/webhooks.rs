@@ -190,7 +190,7 @@ impl From<HoghookFailedRow> for AppMetric2 {
             app_source_id: row.app_source_id,
             instance_id: None,
             metric_kind: app_metrics2::Kind::Failure,
-            metric_name: row.last_error.r#type.to_string(),
+            metric_name: String::from(row.last_error.r#type),
             count: row.count,
         }
     }
