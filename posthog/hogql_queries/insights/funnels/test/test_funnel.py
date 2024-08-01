@@ -3967,43 +3967,47 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team=self.team,
             )
 
-            events_by_person = {
-                "user_1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2024, 3, 22, 13, 46),
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2024, 3, 22, 13, 47),
-                    },
-                ],
-                "anon_1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2023, 3, 22, 13, 46),
-                    },
-                ],
-                "anon_2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2024, 3, 22, 13, 46),
-                    },
-                ],
-                "user_2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2024, 3, 22, 13, 47),
-                    },
-                ],
-                "user_3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": datetime(2023, 3, 22, 13, 46),
-                    },
-                ],
-            }
-            journeys_for(events_by_person, self.team)
+            # person 1
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_1",
+                timestamp="2024-03-22T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_1",
+                timestamp="2024-03-22T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="anon_1",
+                timestamp="2023-03-22T13:00:00Z",
+            )
+
+            # person 2
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="anon_2",
+                timestamp="2024-03-22T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_2",
+                timestamp="2024-03-22T14:00:00Z",
+            )
+
+            # person 3
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="anon_3",
+                timestamp="2024-03-22T15:00:00Z",
+            )
 
             query = FunnelsQuery(
                 series=[
@@ -4017,7 +4021,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[0]["count"], 2)
             self.assertEqual(results[1]["count"], 1)
 
             query = FunnelsQuery(
