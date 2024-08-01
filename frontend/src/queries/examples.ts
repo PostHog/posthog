@@ -9,6 +9,7 @@ import {
     FunnelsQuery,
     HogQLQuery,
     HogQuery,
+    InsightVizNode,
     LifecycleQuery,
     Node,
     NodeKind,
@@ -340,11 +341,26 @@ export const queryExamples: Record<string, Node> = {
     PersonsTable,
     PersonsTableFull,
     InsightTrendsQuery,
+    InsightTrends: { kind: NodeKind.InsightVizNode, source: InsightTrendsQuery } as InsightVizNode<TrendsQuery>,
     InsightFunnelsQuery,
+    InsightFunnels: { kind: NodeKind.InsightVizNode, source: InsightFunnelsQuery } as InsightVizNode<FunnelsQuery>,
     InsightRetentionQuery,
+    InsightRetention: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightRetentionQuery,
+    } as InsightVizNode<RetentionQuery>,
     InsightPathsQuery,
+    InsightPaths: { kind: NodeKind.InsightVizNode, source: InsightPathsQuery } as InsightVizNode<PathsQuery>,
     InsightStickinessQuery,
+    InsightStickiness: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightStickinessQuery,
+    } as InsightVizNode<StickinessQuery>,
     InsightLifecycleQuery,
+    InsightLifecycle: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightLifecycleQuery,
+    } as InsightVizNode<LifecycleQuery>,
 }
 
 export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(

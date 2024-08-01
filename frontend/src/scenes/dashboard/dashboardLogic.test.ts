@@ -11,17 +11,10 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { examples } from '~/queries/examples'
 import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import {
-    DashboardTile,
-    DashboardType,
-    InsightColor,
-    InsightShortId,
-    InsightType,
-    QueryBasedInsightModel,
-    TileLayout,
-} from '~/types'
+import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel, TileLayout } from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
@@ -44,7 +37,7 @@ export function insightOnDashboard(
         ...tile.insight,
         dashboards: dashboardsRelation,
         dashboard_tiles: dashboardsRelation.map((dashboardId) => ({ id: insight.id!, dashboard_id: dashboardId })),
-        filters: { ...tile.insight.filters, ...insight.filters },
+        query: { ...tile.insight.query, ...insight.query, kind: (tile.insight.query?.kind || insight.query?.kind)! },
     }
 }
 
@@ -129,7 +122,7 @@ describe('dashboardLogic', () => {
         const insights: Record<number, QueryBasedInsightModel> = {
             172: {
                 ...insightOnDashboard(172, [5, 6], {
-                    filters: { insight: InsightType.RETENTION },
+                    query: examples.InsightRetention,
                 }),
                 short_id: '172' as InsightShortId,
                 query_status: {

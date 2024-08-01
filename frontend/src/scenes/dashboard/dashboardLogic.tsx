@@ -179,9 +179,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
-        refreshDashboardItem: (payload: { tile: DashboardTile }) => payload,
+        refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
         refreshAllDashboardItems: (payload: {
-            tiles?: DashboardTile[]
+            tiles?: DashboardTile<QueryBasedInsightModel>[]
             action: string
             initialLoad?: boolean
             dashboardQueryId?: string
@@ -301,7 +301,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 duplicateTile: async ({ tile }) => {
                     try {
-                        const newTile = { ...tile } as Partial<DashboardTile>
+                        const newTile = { ...tile } as Partial<DashboardTile<QueryBasedInsightModel>>
                         delete newTile.id
                         if (newTile.text) {
                             newTile.text = { body: newTile.text.body } as TextModel
