@@ -33,7 +33,7 @@ export const SeriesTab = (): JSX.Element => {
             />
             <LemonLabel className="mt-4">Y-axis</LemonLabel>
             {yData.map((series, index) => (
-                <YSeries series={series} index={index} key={series?.column.name} />
+                <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
             <LemonButton
                 className="mt-1"
