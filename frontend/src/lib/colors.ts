@@ -39,7 +39,6 @@ export const tagColors: LemonTagType[] = [
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
-        return '#f00'
         throw new Error(`Couldn't find color variable --${variable}`)
     }
     return colorValue.trim()
