@@ -293,7 +293,7 @@ export const insightLogic = kea<insightLogicType>([
     })),
     selectors({
         query: [
-            () => [(_, props) => insightDataLogic.findMounted(props)?.values.query],
+            () => [(_, props) => insightDataLogic.findMounted(props)?.values.query as Node | null],
             (query): Node | null => query || null,
         ],
         queryBasedInsightSaving: [
