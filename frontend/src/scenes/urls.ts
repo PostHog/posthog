@@ -148,7 +148,8 @@ export const urls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     dataWarehouse: (query?: string | Record<string, any>): string =>
-        combineUrl(`/sql`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+        combineUrl(`/explore/sql`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
+            .url,
     dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
         combineUrl(
             `/data-warehouse/view/${id}`,
