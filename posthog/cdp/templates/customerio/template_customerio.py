@@ -130,6 +130,10 @@ if (res.status >= 400) {
                     "label": "Screen",
                     "value": "screen",
                 },
+                {
+                    "label": "Delete",
+                    "value": "delete",
+                },
             ],
             "secret": False,
             "required": True,
