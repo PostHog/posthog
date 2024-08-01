@@ -1,6 +1,6 @@
 import { Meta, Story } from '@storybook/react'
 
-import { DashboardTile, InsightColor } from '~/types'
+import { DashboardTile, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { TextCard } from './TextCard'
 
@@ -10,7 +10,7 @@ const meta: Meta = {
     parameters: {},
 }
 export default meta
-const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile => {
+const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile<QueryBasedInsightModel> => {
     return {
         id: 1,
         text: {

@@ -26,6 +26,7 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -69,7 +70,7 @@ const patchResponseFor = (
     }
 }
 
-function insightModelWith(properties: Record<string, any>): InsightModel {
+function insightModelWith(properties: Record<string, any>): QueryBasedInsightModel {
     return {
         id: 42,
         short_id: Insight42,
@@ -99,7 +100,7 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
         layouts: {},
         color: null,
         ...properties,
-    } as InsightModel
+    } as QueryBasedInsightModel
 }
 
 const seenQueryIDs: string[] = []

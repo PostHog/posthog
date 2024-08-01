@@ -208,7 +208,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         moveToDashboard: (
-            tile: DashboardTile,
+            tile: DashboardTile<QueryBasedInsightModel>,
             fromDashboard: number,
             toDashboard: number,
             toDashboardName: string,
@@ -258,7 +258,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.abortAnyRunningQuery()
 
                     try {
-                        const dashboard = await api.update<DashboardType<InsightModel>>(
+                        const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.filters,

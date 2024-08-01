@@ -55,6 +55,7 @@ import {
     NotebookNodeType,
     PropertyFilterType,
     PropertyOperator,
+    QueryBasedInsightModel,
     ReplayTabs,
     Resource,
 } from '~/types'
@@ -617,7 +618,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     } = featureFlag
     const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    let dashboard: DashboardType | null = null
+    let dashboard: DashboardType<QueryBasedInsightModel> | null = null
     if (dashboardId) {
         // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
         const dashboardLogicValues = useValues(

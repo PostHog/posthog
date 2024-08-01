@@ -11,7 +11,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardFilter } from '~/queries/schema'
+import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
     DashboardTile,
@@ -586,8 +586,9 @@ describe('dashboardLogic', () => {
             const insight = logic.values.insightTiles[0].insight!
             expect(logic.values.dashboard?.tiles).toHaveLength(2)
             expect(insight.short_id).toEqual('800')
-            expect(insight.query?.source?.dateRange?.date_from).toBeUndefined()
-            expect(insight.query?.source?.interval).toEqual('day')
+            const query = insight.query as InsightVizNode<TrendsQuery> | undefined
+            expect(query?.source?.dateRange?.date_from).toBeUndefined()
+            expect(query?.source?.interval).toEqual('day')
             expect(insight.name).toEqual('donut')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
