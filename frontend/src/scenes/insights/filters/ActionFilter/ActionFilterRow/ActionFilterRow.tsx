@@ -179,29 +179,30 @@ export function ActionFilterRow({
         removeLocalFilter({ ...filter, index })
     }
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
-        if (selectedMath) {
-            updateFilterMath({
-                ...mathTypeToApiValues(selectedMath),
-                math_property:
-                    mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
-                        ? mathProperty ?? '$time'
-                        : undefined,
-                math_hogql:
-                    mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                        ? mathHogQL ?? 'count()'
-                        : undefined,
-                type: filter.type,
-                index,
-            })
-        } else {
-            updateFilterMath({
-                index,
-                math_property: undefined,
-                math_hogql: undefined,
-                math_group_type_index: undefined,
-                math: undefined,
-            })
-        }
+        const mathProperties = selectedMath
+            ? {
+                  ...mathTypeToApiValues(selectedMath),
+                  math_property:
+                      mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
+                          ? mathProperty ?? '$time'
+                          : undefined,
+                  math_hogql:
+                      mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
+                          ? mathHogQL ?? 'count()'
+                          : undefined,
+              }
+            : {
+                  math_property: undefined,
+                  math_hogql: undefined,
+                  math_group_type_index: undefined,
+                  math: undefined,
+              }
+
+        updateFilterMath({
+            index,
+            type: filter.type,
+            ...mathProperties,
+        })
     }
     const onMathPropertySelect = (_: unknown, property: string): void => {
         updateFilterMath({
@@ -514,11 +515,14 @@ export function ActionFilterRow({
                                                         icon={<IconPerson />}
                                                         data-attr={`math-first-time-for-user-${index}`}
                                                         onClick={() => {
-                                                            onMathSelect(index, BaseMathType.FirstTimeForUser)
+                                                            onMathSelect(
+                                                                index,
+                                                                math ? undefined : BaseMathType.FirstTimeForUser
+                                                            )
                                                         }}
                                                         fullWidth
                                                     >
-                                                        {mathProperty === BaseMathType.FirstTimeForUser
+                                                        {math === BaseMathType.FirstTimeForUser
                                                             ? 'Remove first time for user'
                                                             : 'First time for user'}
                                                     </LemonButton>
