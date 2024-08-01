@@ -292,7 +292,10 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     selectors({
-        query: [() => [(_, props) => insightDataLogic.findMounted(props)?.values.query], (query) => query || null],
+        query: [
+            () => [(_, props) => insightDataLogic.findMounted(props)?.values.query],
+            (query): Node | null => query || null,
+        ],
         queryBasedInsightSaving: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
@@ -444,11 +447,10 @@ export const insightLogic = kea<insightLogicType>([
             })
         },
         saveAsConfirmation: async ({ name, redirectToViewMode, persist }) => {
-            const query = insightDataLogic.findMounted(values.insightProps)?.values.query
             const insight = await insightsApi.create(
                 {
                     name,
-                    query: query,
+                    query: values.query,
                     saved: true,
                 },
                 {
