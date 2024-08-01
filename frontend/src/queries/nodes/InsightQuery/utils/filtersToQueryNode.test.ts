@@ -636,6 +636,27 @@ describe('filtersToQueryNode', () => {
             }
             expect(result).toEqual(query)
         })
+
+        it('converts math type', () => {
+            const filters: Partial<FunnelsFilterType> = {
+                events: [{ id: '$pageview', type: 'events', order: 0, math: BaseMathType.FirstTimeForUser }],
+                insight: InsightType.FUNNELS,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        math: BaseMathType.FirstTimeForUser,
+                    },
+                ],
+            }
+            expect(result).toEqual(query)
+        })
     })
 
     describe('retention filter', () => {

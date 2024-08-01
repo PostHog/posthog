@@ -293,6 +293,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.All
         } else if (isStickinessQuery(query)) {
             includeMath = MathAvailability.ActorsOnly
+        } else if (isFunnelsQuery(query)) {
+            includeMath = MathAvailability.FunnelsOnly
         }
 
         const { events, actions, data_warehouse } = filters
