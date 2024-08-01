@@ -2,10 +2,6 @@ import { urls } from 'scenes/urls'
 
 describe('insights date picker', () => {
     beforeEach(() => {
-        cy.visit(urls.insightNew())
-    })
-
-    it('Can set the date filter and show the right grouping interval', () => {
         cy.intercept('**/query/', (req) =>
             req.reply({
                 cache_key: 'cache_a4afa59a719dd561ac65162bbf7f8191',
@@ -284,7 +280,12 @@ describe('insights date picker', () => {
                 },
             })
         )
+        cy.visit(urls.insightNew())
+        cy.request('**/query/')
+        cy.request('**/query/88f9169a-e7c8-4267-bf12-908933d639d9/')
+    })
 
+    it('Can set the date filter and show the right grouping interval', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.get('div').contains('Yesterday').should('exist').click()
         cy.get('[data-attr=interval-filter] .LemonButton__content').should('contain', 'hour')
