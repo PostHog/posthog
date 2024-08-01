@@ -192,7 +192,7 @@ jobs:
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   CELERY_METRICS_PORT=8999
                   CLOUD_DEPLOYMENT=E2E
-                  E2E_SAML_LOGIN_EMAIL=${{ secrets.E2E_SAML_LOGIN_EMAIL }}
+                  E2E_SAML_LOGIN_EMAIL=${{ vars.E2E_SAML_LOGIN_EMAIL }}
                   E2E_SAML_LOGIN_PASSWORD=${{ secrets.E2E_SAML_LOGIN_PASSWORD }}
                   E2E_SAML_X509_CERT=${{ secrets.E2E_SAML_X509_CERT }}
                   E2E_SAML_ACS_URL=${{ vars.E2E_SAML_ACS_URL }}
