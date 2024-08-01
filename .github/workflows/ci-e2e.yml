@@ -244,6 +244,9 @@ jobs:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
                   GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+                  E2E_SAML_LOGIN_EMAIL: ${{ vars.E2E_SAML_LOGIN_EMAIL }}
+                  E2E_SAML_LOGIN_PASSWORD: ${{ secrets.E2E_SAML_LOGIN_PASSWORD }}
+                  E2E_SAML_ACS_URL: ${{ vars.E2E_SAML_ACS_URL }}
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3
