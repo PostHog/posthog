@@ -1,14 +1,16 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use super::{deserialize_datetime, serialize_datetime};
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum Source {
     Hoghooks,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum Kind {
     Success,
     Failure,
@@ -22,76 +24,13 @@ pub struct AppMetric2 {
         deserialize_with = "deserialize_datetime"
     )]
     pub timestamp: DateTime<Utc>,
-    #[serde(
-        serialize_with = "serialize_source",
-        deserialize_with = "deserialize_source"
-    )]
     pub app_source: Source,
     pub app_source_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance_id: Option<String>,
-    #[serde(
-        serialize_with = "serialize_kind",
-        deserialize_with = "deserialize_kind"
-    )]
     pub metric_kind: Kind,
     pub metric_name: String,
     pub count: u32,
-}
-
-fn serialize_source<S>(source: &Source, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let category_str = match source {
-        Source::Hoghooks => "hoghooks",
-    };
-    serializer.serialize_str(category_str)
-}
-
-fn deserialize_source<'de, D>(deserializer: D) -> Result<Source, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: String = Deserialize::deserialize(deserializer)?;
-
-    let source = match &s[..] {
-        "hoghooks" => Source::Hoghooks,
-        _ => return Err(serde::de::Error::unknown_variant(&s, &["hoghooks"])),
-    };
-
-    Ok(source)
-}
-
-fn serialize_kind<S>(kind: &Kind, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let category_str = match kind {
-        Kind::Success => "success",
-        Kind::Failure => "failure",
-    };
-    serializer.serialize_str(category_str)
-}
-
-fn deserialize_kind<'de, D>(deserializer: D) -> Result<Kind, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: String = Deserialize::deserialize(deserializer)?;
-
-    let kind = match &s[..] {
-        "success" => Kind::Success,
-        "failure" => Kind::Failure,
-        _ => {
-            return Err(serde::de::Error::unknown_variant(
-                &s,
-                &["success", "failure"],
-            ))
-        }
-    };
-
-    Ok(kind)
 }
 
 #[cfg(test)]
