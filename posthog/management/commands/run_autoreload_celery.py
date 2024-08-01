@@ -1,3 +1,4 @@
+from typing import Literal
 import django
 from django.core.management.base import BaseCommand
 
@@ -10,26 +11,34 @@ from django.utils import autoreload  # noqa: E402
 
 
 class Command(BaseCommand):
-    help = "Wrap celery in djangos auto reload functionality"
+    help = "Run Celery wrapped in Django's auto-reload feature"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--type", type=str, choices=("worker", "beat"), help="Process type")
 
     def handle(self, *args, **options):
-        autoreload.run_with_reloader(self.run_celery_worker)
+        autoreload.run_with_reloader(lambda: self.run_celery_worker(options["type"]))
 
-    def run_celery_worker(self):
+    @staticmethod
+    def run_celery_worker(type: Literal["worker", "beat"]):
         from posthog.celery import app as celery_app
 
-        queues = [q.value for q in CeleryQueue]
-
-        args = [
-            "-A",
-            "posthog",
-            "worker",
-            "-B",
-            "--pool=threads",
-            f"--queues={','.join(queues)}",
-            "-Ofair",
-            "-n",
-            "node@%h",
-        ]
+        args = (
+            [
+                "-A",
+                "posthog",
+                "worker",
+                "--pool=threads",
+                f"--queues={','.join(q.value for q in CeleryQueue)}",
+            ]
+            if type == "worker"
+            else [
+                "-A",
+                "posthog",
+                "beat",
+                "--scheduler",
+                "redbeat.RedBeatScheduler",
+            ]
+        )
 
         celery_app.worker_main(args)

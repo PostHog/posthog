@@ -85,7 +85,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         {q}
         WHERE 1 = 1
         {conditions}
-        SETTINGS optimize_aggregation_in_order=1
+        SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
         """
 
         return final_query, self.params

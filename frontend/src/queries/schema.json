@@ -151,6 +151,10 @@
                 "offset": {
                     "type": "integer"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -1993,6 +1997,15 @@
             "properties": {
                 "column": {
                     "type": "string"
+                },
+                "settings": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "formatting": {
+                            "$ref": "#/definitions/ChartSettingsFormatting"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["column"],
@@ -2012,6 +2025,46 @@
                 "WorldMap"
             ],
             "type": "string"
+        },
+        "ChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "goalLines": {
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
+                },
+                "xAxis": {
+                    "$ref": "#/definitions/ChartAxis"
+                },
+                "yAxis": {
+                    "items": {
+                        "$ref": "#/definitions/ChartAxis"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "ChartSettingsFormatting": {
+            "additionalProperties": false,
+            "properties": {
+                "decimalPlaces": {
+                    "type": "number"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "style": {
+                    "enum": ["none", "number", "percent"],
+                    "type": "string"
+                },
+                "suffix": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "ClickhouseQueryProgress": {
             "additionalProperties": false,
@@ -2181,6 +2234,10 @@
                                 "offset": {
                                     "type": "integer"
                                 },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
                                 "results": {
                                     "items": {
                                         "items": {},
@@ -2235,6 +2292,10 @@
                                 },
                                 "offset": {
                                     "type": "integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
                                 "results": {
                                     "items": {
@@ -2308,6 +2369,10 @@
                                     "description": "Input query string",
                                     "type": "string"
                                 },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
                                 "results": {
                                     "items": {},
                                     "type": "array"
@@ -2348,6 +2413,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
                                 "results": {
                                     "items": {
@@ -2397,6 +2466,10 @@
                                 "offset": {
                                     "type": "integer"
                                 },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
                                 "results": {
                                     "items": {},
                                     "type": "array"
@@ -2437,6 +2510,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
                                 "results": {
                                     "items": {},
@@ -2487,6 +2564,10 @@
                                 },
                                 "offset": {
                                     "type": "integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
                                 "results": {},
                                 "timings": {
@@ -2533,6 +2614,10 @@
                                 },
                                 "offset": {
                                     "type": "integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
                                 "results": {
                                     "items": {
@@ -2670,25 +2755,7 @@
             "additionalProperties": false,
             "properties": {
                 "chartSettings": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "goalLines": {
-                            "items": {
-                                "$ref": "#/definitions/GoalLine"
-                            },
-                            "type": "array"
-                        },
-                        "xAxis": {
-                            "$ref": "#/definitions/ChartAxis"
-                        },
-                        "yAxis": {
-                            "items": {
-                                "$ref": "#/definitions/ChartAxis"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/ChartSettings"
                 },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
@@ -3417,6 +3484,10 @@
                 "offset": {
                     "type": "integer"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingGroup"
@@ -3755,6 +3826,10 @@
                 "offset": {
                     "type": "integer"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -3924,6 +3999,10 @@
                 },
                 "offset": {
                     "type": "integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "$ref": "#/definitions/FunnelCorrelationResult"
@@ -4468,6 +4547,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "anyOf": [
                         {
@@ -4942,6 +5025,10 @@
                 "query": {
                     "description": "Input query string",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -5743,6 +5830,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -6059,6 +6150,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -6309,6 +6404,10 @@
                         "offset": {
                             "type": "integer"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {
                                 "items": {},
@@ -6363,6 +6462,10 @@
                         },
                         "offset": {
                             "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {
@@ -6515,6 +6618,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/TimelineEntry"
@@ -6598,6 +6705,10 @@
                         "query": {
                             "description": "Input query string",
                             "type": "string"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {},
@@ -6698,6 +6809,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/WebOverviewItem"
@@ -6746,6 +6861,10 @@
                         "offset": {
                             "type": "integer"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -6786,6 +6905,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {},
@@ -6836,6 +6959,10 @@
                         },
                         "offset": {
                             "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {},
                         "timings": {
@@ -6882,6 +7009,10 @@
                         },
                         "offset": {
                             "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {
@@ -6934,6 +7065,10 @@
                         },
                         "offset": {
                             "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {
@@ -6989,6 +7124,10 @@
                         },
                         "offset": {
                             "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {
@@ -7062,6 +7201,10 @@
                             "description": "Input query string",
                             "type": "string"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -7102,6 +7245,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {
@@ -7151,6 +7298,10 @@
                         "offset": {
                             "type": "integer"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {},
                             "type": "array"
@@ -7191,6 +7342,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {},
@@ -7241,6 +7396,10 @@
                         },
                         "offset": {
                             "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {},
                         "timings": {
@@ -7288,6 +7447,10 @@
                         "offset": {
                             "type": "integer"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/ErrorTrackingGroup"
@@ -7320,6 +7483,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {
                                 "type": "object"
@@ -7351,6 +7518,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "anyOf": [
@@ -7394,6 +7565,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/RetentionResult"
@@ -7426,37 +7601,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
-                        "results": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {
@@ -7489,6 +7636,46 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "items": {
@@ -7534,6 +7721,10 @@
                         },
                         "offset": {
                             "type": "integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
                             "$ref": "#/definitions/FunnelCorrelationResult"
@@ -8000,6 +8191,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/RetentionResult"
@@ -8275,6 +8470,10 @@
                 "offset": {
                     "type": "integer"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -8365,6 +8564,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {
@@ -8524,6 +8727,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -8590,6 +8797,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},
@@ -8907,6 +9118,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -9070,6 +9285,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/WebOverviewItem"
@@ -9198,6 +9417,10 @@
                 "offset": {
                     "type": "integer"
                 },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
                 "results": {
                     "items": {},
                     "type": "array"
@@ -9281,6 +9504,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
                     "items": {},

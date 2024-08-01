@@ -153,7 +153,7 @@ export enum AvailableFeature {
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
-    CUSTOMM_MSA = 'custom_msa',
+    CUSTOM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
@@ -660,6 +660,7 @@ export enum PipelineTab {
     DataImport = 'data-import',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
+    History = 'history',
 }
 
 export enum PipelineStage {
@@ -1584,7 +1585,7 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | null | undefined
+        [key: string]: string | number | null | undefined
     }
     billing_period?: {
         current_period_start: Dayjs
@@ -2965,6 +2966,7 @@ export interface PreflightStatus {
     buffer_conversion_seconds?: number
     object_storage: boolean
     public_egress_ip_addresses?: string[]
+    dev_disable_navigation_hooks?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
