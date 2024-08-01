@@ -10,14 +10,18 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/customerio.png",
     hog="""
 let action := inputs.action
+let name := event.name
 
 if (action == 'automatic') {
     if (event.name == '$identify') {
         action := 'identify'
+        name := null
     } else if (event.name == '$pageview') {
         action := 'page'
+        name := event.properties.$current_url
     } else if (event.name == '$screen') {
         action := 'screen'
+        name := event.properties.$screen_name
     } else {
         action := 'event'
     }
@@ -30,8 +34,6 @@ let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 for (let key, value in inputs.attributes) {
     attributes[key] := value
 }
-
-let name := action == 'event' ? event.name : null
 
 let res := fetch(f'https://{inputs.host}/api/v2/entity', {
     'method': 'POST',
@@ -156,7 +158,10 @@ if (res.status >= 400) {
         },
     ],
     filters={
-        "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
+        "events": [
+            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
+            {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+        ],
         "actions": [],
         "filter_test_accounts": True,
     },
