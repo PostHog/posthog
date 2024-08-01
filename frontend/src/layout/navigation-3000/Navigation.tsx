@@ -52,8 +52,8 @@ export function Navigation({
                 <div
                     className={clsx(
                         'Navigation3000__scene',
-                        // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
-                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
+                        // Hack - once we only have 3000 the "minimal" scenes should become "app-no-margin"
+                        sceneConfig?.layout === 'app-no-margin' && 'Navigation3000__scene--raw'
                     )}
                 >
                     {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
