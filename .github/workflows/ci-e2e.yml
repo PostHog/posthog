@@ -22,7 +22,7 @@ jobs:
         outputs:
             shouldTriggerCypress: ${{ steps.changes.outputs.shouldTriggerCypress }}
         steps:
-            - name: setup env vars
+            - name: setup env vars.
               run: |
                   echo "E2E_SAML_LOGIN_EMAIL=${{ secrets.E2E_SAML_LOGIN_EMAIL }}" >> $GITHUB_ENV
                   echo "E2E_SAML_LOGIN_PASSWORD=${{ secrets.E2E_SAML_LOGIN_PASSWORD }}" >> $GITHUB_ENV
