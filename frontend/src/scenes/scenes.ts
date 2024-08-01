@@ -447,6 +447,7 @@ export const redirects: Record<
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
     '/activity/explore': urls.explore(ExploreTab.Events),
     '/activity/live': urls.explore(ExploreTab.Events),
+    '/sql/': urls.explore(ExploreTab.SQL),
 }
 
 export const routes: Record<string, Scene> = {
