@@ -1522,6 +1522,7 @@ dependencies = [
  "hook-common",
  "metrics",
  "rdkafka",
+ "serde",
  "serde_json",
  "sqlx",
  "thiserror",
