@@ -356,6 +356,13 @@ export const NotebooksList: StoryFn = () => {
     return <App />
 }
 
+export const Canvas: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.canvas())
+    }, [])
+    return <App />
+}
+
 export const Headings: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.notebook('headings'))
