@@ -125,14 +125,14 @@ pub async fn post_hoghook(
     // with them now.
     payload
         .get("teamId")
-        .ok_or_else(|| bad_request("missing required field 'teamId'"))?
+        .ok_or_else(|| bad_request("missing required field 'teamId'".to_owned()))?
         .as_number()
-        .ok_or_else(|| bad_request("'teamId' is not a number"))?;
+        .ok_or_else(|| bad_request("'teamId' is not a number".to_owned()))?;
     payload
         .get("hogFunctionId")
-        .ok_or_else(|| bad_request("missing required field 'hogFunctionId'"))?
+        .ok_or_else(|| bad_request("missing required field 'hogFunctionId'".to_owned()))?
         .as_str()
-        .ok_or_else(|| bad_request("'hogFunctionId' is not a string"))?;
+        .ok_or_else(|| bad_request("'hogFunctionId' is not a string".to_owned()))?;
 
     // We deserialize a copy of the `asyncFunctionRequest` field here because we want to leave
     // the original payload unmodified so that it can be passed through exactly as it came to us.
@@ -447,7 +447,7 @@ mod tests {
             ),
             // Test that null unicode code points are replaced, since they aren't allowed in Postgres.
             (
-                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com/\\u0000", {"method": "GET", "body": "\\u0000", "headers": {"k": "v"}}]}, "otherField": true}"#,
+                r#"{"asyncFunctionRequest":{"name":"fetch","args":["http://example.com/\\u0000", {"method": "GET", "body": "\\u0000", "headers": {"k": "v"}}]}, "otherField": true, "teamId": 1, "hogFunctionId": "abc"}"#,
                 r#"{"body": "\\uFFFD", "headers": {"k": "v"}, "method": "GET", "url": "http://example.com/\\uFFFD"}"#,
             ),
         ];
