@@ -412,7 +412,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.DataWarehouse,
-                              label: 'SQL Studio',
+                              label: 'SQL studio',
                               icon: <IconServer />,
                               to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                           },
