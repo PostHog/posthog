@@ -560,7 +560,7 @@ export const routes: Record<string, Scene> = {
     [urls.debugQuery()]: Scene.DebugQuery,
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
-    [urls.canvas()]: Scene.Canvas,
+    [urls.canvas()]: Scene.Notebooks,
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,

@@ -652,6 +652,11 @@ export enum ActivityTab {
     LiveEvents = 'live',
 }
 
+export enum NotebooksTab {
+    Notebooks = 'notebooks',
+    Canvas = 'canvas',
+}
+
 export enum PipelineTab {
     Overview = 'overview',
     Transformations = 'transformations',
