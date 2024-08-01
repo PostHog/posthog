@@ -2,6 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 
+from posthog.api import project
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -83,7 +84,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 
 # Nested endpoints shared
-projects_router = router.register(r"projects", team.RootTeamViewSet, "projects")
+projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
 environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
 
 
@@ -293,7 +294,7 @@ register_grandfathered_environment_nested_viewset(
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
-organizations_router.register(r"projects", team.TeamViewSet, "organization_projects", ["organization_id"])
+organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )

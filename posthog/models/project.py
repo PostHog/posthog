@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Optional, cast
+from functools import cached_property
 from django.db import models
 from django.db import transaction
 from django.core.validators import MinLengthValidator
@@ -10,14 +11,19 @@ if TYPE_CHECKING:
 
 
 class ProjectManager(models.Manager):
-    def create_with_team(self, team_fields: Optional[dict] = None, **kwargs) -> tuple["Project", "Team"]:
+    def create_with_team(self, *, team_fields: Optional[dict] = None, **kwargs) -> tuple["Project", "Team"]:
         from .team import Team
+
+        if team_fields is None:
+            team_fields = {}
+        if "name" in kwargs and "name" not in team_fields:
+            team_fields["name"] = kwargs["name"]
 
         with transaction.atomic(using=self.db):
             common_id = Team.objects.increment_id_sequence()
             project = cast("Project", self.create(id=common_id, **kwargs))
             team = Team.objects.create(
-                id=common_id, organization=project.organization, project=project, **(team_fields or {})
+                id=common_id, organization_id=project.organization_id, project=project, **team_fields
             )
             return project, team
 
@@ -43,6 +49,10 @@ class Project(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects: ProjectManager = ProjectManager()
+
+    @cached_property
+    def passthrough_team(self) -> "Team":
+        return self.teams.get(pk=self.pk)
 
     def __str__(self):
         if self.name:
