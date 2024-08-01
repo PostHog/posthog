@@ -5,6 +5,7 @@ from uuid import UUID
 
 import structlog
 import temporalio
+import temporalio.common
 from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client,
@@ -636,6 +637,12 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             ),
             id=str(batch_export.id),
             task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=2,
+                non_retryable_error_types=["ActivityError", "ApplicationError", "CancelledError"],
+            ),
         ),
         spec=ScheduleSpec(
             start_at=batch_export.start_at,

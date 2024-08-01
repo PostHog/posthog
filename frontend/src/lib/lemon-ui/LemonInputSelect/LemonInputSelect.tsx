@@ -299,7 +299,7 @@ export function LemonInputSelect({
                                     onMouseEnter={() => setSelectedIndex(index)}
                                 >
                                     <span className="flex-1 flex items-center justify-between gap-1">
-                                        {option.labelComponent ?? option.label}
+                                        <span className="ph-no-capture">{option.labelComponent ?? option.label}</span>
                                         {isHighlighted ? (
                                             <span>
                                                 <KeyboardShortcut enter />{' '}

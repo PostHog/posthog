@@ -5,10 +5,15 @@ import { BindLogic } from 'kea'
 import { FilterBasedCardContent } from 'lib/components/Cards/InsightCard/InsightCard'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import {
+    DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
+    DISPLAY_TYPES_WITHOUT_LEGEND,
+} from 'lib/components/InsightLegend/utils'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
-import { ExportOptions, ExportType } from '~/exporter/types'
+import { ExportOptions } from '~/exporter/types'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
@@ -17,12 +22,10 @@ import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({
     insight: legacyInsight,
-    exportOptions: { whitelabel, noHeader, legend },
-    type,
+    exportOptions: { whitelabel, noHeader, legend, detailed: detailedResults },
 }: {
     insight: InsightModel
     exportOptions: ExportOptions
-    type: ExportType
 }): JSX.Element {
     const insight = getQueryBasedInsightModel(legacyInsight)
 
@@ -49,25 +52,25 @@ export function ExportedInsight({
         doNotLoad: true,
     }
 
-    const { query, name, derived_name, description } = insight
+    const { short_id, query, name, derived_name, description } = insight
 
     const showWatermark = noHeader && !whitelabel
     const showLegend =
         legend &&
         isInsightVizNode(query) &&
         isTrendsQuery(query.source) &&
-        (!query.source.trendsFilter ||
-            !query.source.trendsFilter.display ||
-            (!SINGLE_SERIES_DISPLAY_TYPES.includes(query.source.trendsFilter.display) &&
-                query.source.trendsFilter.display !== ChartDisplayType.ActionsTable))
+        !SINGLE_SERIES_DISPLAY_TYPES.includes(query.source.trendsFilter?.display as ChartDisplayType) &&
+        !DISPLAY_TYPES_WITHOUT_LEGEND.includes(query.source.trendsFilter?.display as ChartDisplayType)
+
+    const showDetailedResultsTable =
+        detailedResults &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source) &&
+        !DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(query.source.trendsFilter?.display as ChartDisplayType)
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
-            <div
-                className={clsx('ExportedInsight', {
-                    'ExportedInsight--fit-screen': type === ExportType.Embed,
-                })}
-            >
+            <div className="ExportedInsight">
                 {!noHeader && (
                     <div className="ExportedInsight__header">
                         <div>
@@ -102,6 +105,11 @@ export function ExportedInsight({
                     {showLegend && (
                         <div className="p-4">
                             <InsightLegend horizontal readOnly />
+                        </div>
+                    )}
+                    {showDetailedResultsTable && (
+                        <div className="border-t mt-2">
+                            <InsightsTable filterKey={short_id} isLegend embedded />
                         </div>
                     )}
                 </div>

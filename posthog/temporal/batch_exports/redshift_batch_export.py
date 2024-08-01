@@ -221,8 +221,8 @@ def get_redshift_fields_from_record_schema(
             else:
                 pg_type = "TEXT"
 
-        elif pa.types.is_signed_integer(pa_field.type):
-            if pa.types.is_int64(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            if pa.types.is_uint64(pa_field.type) or pa.types.is_int64(pa_field.type):
                 pg_type = "BIGINT"
             else:
                 pg_type = "INTEGER"
@@ -490,7 +490,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 return records_completed
 
 
-@workflow.defn(name="redshift-export")
+@workflow.defn(name="redshift-export", failure_exception_types=[workflow.NondeterminismError])
 class RedshiftBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into Postgres.
 

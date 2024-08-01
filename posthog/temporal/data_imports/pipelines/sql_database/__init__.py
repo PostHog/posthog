@@ -16,6 +16,8 @@ from dlt.sources.credentials import ConnectionStringCredentials
 from urllib.parse import quote
 
 from posthog.warehouse.types import IncrementalFieldType
+from posthog.warehouse.models.external_data_source import ExternalDataSource
+from sqlalchemy.sql import text
 
 from .helpers import (
     table_rows,
@@ -34,7 +36,8 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> Any:
         return date(1970, 1, 1)
 
 
-def postgres_source(
+def sql_source_for_type(
+    source_type: ExternalDataSource.Type,
     host: str,
     port: int,
     user: str,
@@ -43,6 +46,7 @@ def postgres_source(
     sslmode: str,
     schema: str,
     table_names: list[str],
+    team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
@@ -52,10 +56,6 @@ def postgres_source(
     database = quote(database)
     sslmode = quote(sslmode)
 
-    credentials = ConnectionStringCredentials(
-        f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
-    )
-
     if incremental_field is not None and incremental_field_type is not None:
         incremental: dlt.sources.incremental | None = dlt.sources.incremental(
             cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
@@ -63,7 +63,18 @@ def postgres_source(
     else:
         incremental = None
 
-    db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
+    if source_type == ExternalDataSource.Type.POSTGRES:
+        credentials = ConnectionStringCredentials(
+            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
+        )
+    elif source_type == ExternalDataSource.Type.MYSQL:
+        credentials = ConnectionStringCredentials(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
+    else:
+        raise Exception("Unsupported source_type")
+
+    db_source = sql_database(
+        credentials, schema=schema, table_names=table_names, incremental=incremental, team_id=team_id
+    )
 
     return db_source
 
@@ -78,7 +89,7 @@ def snowflake_source(
     table_names: list[str],
     role: Optional[str] = None,
     incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[str] = None,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> DltSource:
     account_id = quote(account_id)
     user = quote(user)
@@ -87,12 +98,27 @@ def snowflake_source(
     warehouse = quote(warehouse)
     role = quote(role) if role else None
 
+    if incremental_field is not None and incremental_field_type is not None:
+        incremental: dlt.sources.incremental | None = dlt.sources.incremental(
+            cursor_path=incremental_field, initial_value=incremental_type_to_initial_value(incremental_field_type)
+        )
+    else:
+        incremental = None
+
     credentials = ConnectionStringCredentials(
         f"snowflake://{user}:{password}@{account_id}/{database}/{schema}?warehouse={warehouse}{f'&role={role}' if role else ''}"
     )
-    db_source = sql_database(credentials, schema=schema, table_names=table_names)
+    db_source = sql_database(credentials, schema=schema, table_names=table_names, incremental=incremental)
 
     return db_source
+
+
+# Temp while DLT doesn't support `interval` columns
+def remove_interval(doc: dict, team_id: Optional[int]) -> dict:
+    if team_id == 1 or team_id == 2:
+        if "sync_frequency_interval" in doc:
+            del doc["sync_frequency_interval"]
+    return doc
 
 
 @dlt.source(max_table_nesting=0)
@@ -102,6 +128,7 @@ def sql_database(
     metadata: Optional[MetaData] = None,
     table_names: Optional[List[str]] = dlt.config.value,  # noqa: UP006
     incremental: Optional[dlt.sources.incremental] = None,
+    team_id: Optional[int] = None,
 ) -> Iterable[DltResource]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -137,11 +164,16 @@ def sql_database(
             name=table.name,
             primary_key=get_primary_key(table),
             merge_key=get_primary_key(table),
-            write_disposition="merge" if incremental else "replace",
+            write_disposition={
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if incremental
+            else "replace",
             spec=SqlDatabaseTableConfiguration,
             table_format="delta",
             columns=get_column_hints(engine, schema or "", table.name),
-        )(
+        ).add_map(lambda x: remove_interval(x, team_id))(
             engine=engine,
             table=table,
             incremental=incremental,
@@ -150,13 +182,12 @@ def sql_database(
 
 def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[str, TColumnSchema]:
     with engine.connect() as conn:
-        execute_result: CursorResult | None = conn.execute(
-            "SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = %(schema_name)s AND table_name = %(table_name)s",
+        execute_result: CursorResult = conn.execute(
+            text(
+                "SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = :schema_name AND table_name = :table_name"
+            ),
             {"schema_name": schema_name, "table_name": table_name},
         )
-
-        if execute_result is None:
-            return {}
 
         cursor_result = cast(CursorResult, execute_result)
         results = cursor_result.fetchall()

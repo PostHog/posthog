@@ -8,9 +8,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Put data to an AWS Kinesis stream",
     icon_url="/static/services/aws-kinesis.png",
     hog="""
-fn uploadToKinesis(data) {
+fn getPayload() {
   let region := inputs.aws_region
-  let endpoint := f'https://kinesis.{region}.amazonaws.com'
   let service := 'kinesis'
   let amzDate := formatDateTime(now(), '%Y%m%dT%H%i%sZ')
   let date := formatDateTime(now(), '%Y%m%d')
@@ -18,7 +17,7 @@ fn uploadToKinesis(data) {
   let payload := jsonStringify({
     'StreamName': inputs.aws_kinesis_stream_arn,
     'PartitionKey': inputs.aws_kinesis_partition_key,
-    'Data': base64Encode(data),
+    'Data': base64Encode(jsonStringify(inputs.payload)),
   })
 
   let requestHeaders := {
@@ -69,21 +68,20 @@ fn uploadToKinesis(data) {
 
   requestHeaders['Authorization'] := authorizationHeader
 
-  let res := fetch(endpoint, {
+  return {
     'headers': requestHeaders,
     'body': payload,
     'method': 'POST'
-  })
-
-  if (res.status >= 200 and res.status < 300) {
-    print('Event sent successfully!')
-    return
   }
-
-  print('Error sending event:', res.status, res.body)
 }
 
-uploadToKinesis(jsonStringify(inputs.payload))
+let res := fetch(f'https://kinesis.{inputs.aws_region}.amazonaws.com', getPayload())
+
+if (res.status >= 200 and res.status < 300) {
+  print('Event sent successfully!')
+} else {
+  print('Error sending event:', res.status, res.body)
+}
 """.strip(),
     inputs_schema=[
         {

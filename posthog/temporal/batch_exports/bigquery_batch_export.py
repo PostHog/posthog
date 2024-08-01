@@ -428,11 +428,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
                 async def flush_to_bigquery(
                     local_results_file,
-                    records_since_last_flush,
-                    bytes_since_last_flush,
+                    records_since_last_flush: int,
+                    bytes_since_last_flush: int,
                     flush_counter: int,
                     last_inserted_at,
-                    last,
+                    last: bool,
+                    error: Exception | None,
                 ):
                     logger.debug(
                         "Loading %s records of size %s bytes",
@@ -506,7 +507,7 @@ def get_batch_export_writer(
     return writer
 
 
-@workflow.defn(name="bigquery-export")
+@workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
 class BigQueryBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into BigQuery.
 

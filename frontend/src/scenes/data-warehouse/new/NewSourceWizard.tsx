@@ -7,7 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
-import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
+import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
@@ -241,7 +241,7 @@ function SecondStep(): JSX.Element {
 function ThirdStep(): JSX.Element {
     return (
         <ModalPage page={3}>
-            <PostgresSchemaForm />
+            <SchemaForm />
         </ModalPage>
     )
 }

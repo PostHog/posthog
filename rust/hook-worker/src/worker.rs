@@ -7,7 +7,7 @@ use futures::channel::oneshot::Canceled;
 use futures::future::join_all;
 use health::HealthHandle;
 use http::StatusCode;
-use rdkafka::error::KafkaError;
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use reqwest::{header, Client};
 use serde_json::{json, Value};
@@ -28,6 +28,10 @@ use crate::error::{
     is_error_source, WebhookError, WebhookParseError, WebhookRequestError, WorkerError,
 };
 use crate::util::first_n_bytes_of_response;
+
+// TODO: Either make this configurable or adjust it once we don't produce results to Kafka, where
+// our size limit is relatively low.
+const MAX_RESPONSE_BODY: usize = 256 * 1024;
 
 /// A WebhookJob is any `PgQueueJob` with `WebhookJobParameters` and `Value`.
 trait WebhookJob: PgQueueJob + std::marker::Send {
@@ -262,28 +266,79 @@ async fn process_batch<'a>(
 
     let results = join_all(futures).await;
 
+    if hog_mode {
+        // System relevant - this means that our requests are at-least once, since if we do the
+        // request, it succeeds, and then our kafka is down, we'll do the request again. This was
+        // already true on batch commit, but now it's true on kafka send as well. We could add a
+        // "returned" state to the state machine that indicates "we made the request but haven't
+        // pushed it to kafka yet", but we need to decide that's something we care about first.
+        if (push_hoghook_results_to_kafka(
+            results,
+            metadata_vec,
+            kafka_producer,
+            cdp_function_callbacks_topic,
+        )
+        .await)
+            .is_err()
+        {
+            return;
+        }
+    }
+
+    let _ = batch.commit().await.map_err(|e| {
+        error!("error committing transactional batch: {}", e);
+    });
+}
+
+async fn push_hoghook_results_to_kafka(
+    results: Vec<Result<WebhookResult, WorkerError>>,
+    metadata_vec: Vec<Value>,
+    kafka_producer: FutureProducer<KafkaContext>,
+    cdp_function_callbacks_topic: &str,
+) -> Result<(), ()> {
     let mut kafka_ack_futures = Vec::new();
     for (result, mut metadata) in iter::zip(results, metadata_vec) {
         match result {
             Ok(result) => {
-                if hog_mode {
-                    if let Some(payload) = create_hoghook_kafka_payload(result, &mut metadata).await
-                    {
-                        match kafka_producer.send_result(FutureRecord {
-                            topic: cdp_function_callbacks_topic,
-                            payload: Some(&payload),
-                            partition: None,
-                            key: None::<&str>,
-                            timestamp: None,
-                            headers: None,
-                        }) {
-                            Ok(future) => kafka_ack_futures.push(future),
-                            Err((error, _)) => {
-                                // Return early to avoid committing the batch.
-                                return log_kafka_error_and_sleep("send", Some(error)).await;
-                            }
-                        };
-                    }
+                if let Some(payload) = create_hoghook_kafka_payload(result, &mut metadata).await {
+                    match kafka_producer.send_result(FutureRecord {
+                        topic: cdp_function_callbacks_topic,
+                        payload: Some(&payload),
+                        partition: None,
+                        key: None::<&str>,
+                        timestamp: None,
+                        headers: None,
+                    }) {
+                        Ok(future) => kafka_ack_futures.push(future),
+                        Err((
+                            KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge),
+                            _,
+                        )) => {
+                            // HACK: While under development, we are dropping messages that
+                            // are too large. This is temporary, as we expect the webhook
+                            // handler for Hog to change soon. In the meantime, nobody needs
+                            // to be alerted about this.
+                            let team_id = metadata
+                                .get("teamId")
+                                .and_then(|t| t.as_number())
+                                .map(|t| t.to_string())
+                                .unwrap_or_else(|| "?".to_string());
+                            let hog_function_id = metadata
+                                .get("hogFunctionId")
+                                .and_then(|h| h.as_str())
+                                .map(|h| h.to_string())
+                                .unwrap_or_else(|| "?".to_string());
+
+                            error!("dropping message due to size limit, team_id: {}, hog_function_id: {}", team_id, hog_function_id);
+                        }
+                        Err((error, _)) => {
+                            // Return early to avoid committing the batch.
+                            return {
+                                log_kafka_error_and_sleep("send", Some(error)).await;
+                                Err(())
+                            };
+                        }
+                    };
                 }
             }
             Err(e) => {
@@ -297,19 +352,23 @@ async fn process_batch<'a>(
             Ok(Ok(_)) => {}
             Ok(Err((error, _))) => {
                 // Return early to avoid committing the batch.
-                return log_kafka_error_and_sleep("ack", Some(error)).await;
+                return {
+                    log_kafka_error_and_sleep("ack", Some(error)).await;
+                    Err(())
+                };
             }
             Err(Canceled) => {
                 // Cancelled due to timeout while retrying
                 // Return early to avoid committing the batch.
-                return log_kafka_error_and_sleep("timeout", None).await;
+                return {
+                    log_kafka_error_and_sleep("timeout", None).await;
+                    Err(())
+                };
             }
         }
     }
 
-    let _ = batch.commit().await.map_err(|e| {
-        error!("error committing transactional batch: {}", e);
-    });
+    Ok(())
 }
 
 async fn create_hoghook_kafka_payload(
@@ -326,7 +385,7 @@ async fn create_hoghook_kafka_payload(
                         "duration_ms": response.duration.as_millis().try_into().unwrap_or(u32::MAX)
                     }],
                     "response": {
-                        "status": response.status_code,
+                        "status": response.status_code.as_u16(),
                         "body": response.body
                     }
                 });
@@ -335,7 +394,7 @@ async fn create_hoghook_kafka_payload(
             }
             WebhookResult::Failed(error) => {
                 let async_function_response = json!({
-                    "error": error.to_string(),
+                    "error": error.error.to_string(),
                 });
 
                 object.insert("asyncFunctionResponse".to_owned(), async_function_response);
@@ -352,15 +411,25 @@ async fn create_hoghook_kafka_payload(
 }
 
 struct WebhookSuccess {
-    status_code: u16,
+    status_code: StatusCode,
     duration: Duration,
+    body: Option<String>,
+}
+
+struct WebhookFailed {
+    error: String,
+    #[allow(dead_code)]
+    status_code: Option<StatusCode>,
+    #[allow(dead_code)]
+    duration: Duration,
+    #[allow(dead_code)]
     body: Option<String>,
 }
 
 enum WebhookResult {
     Success(WebhookSuccess),
     WillRetry,
-    Failed(String),
+    Failed(WebhookFailed),
 }
 
 /// Process a webhook job by transitioning it to its appropriate state after its request is sent.
@@ -401,29 +470,65 @@ async fn process_webhook_job<W: WebhookJob>(
 
     match send_result {
         Ok(response) => {
-            // First, read the body if needed so that the read time is included in `duration`.
             let status = response.status();
+            // First, read the body if needed so that the read time is included in `duration`.
             let body = if read_body {
-                match first_n_bytes_of_response(response, 1024 * 1024).await {
+                match first_n_bytes_of_response(response, MAX_RESPONSE_BODY).await {
                     Ok(body) => Some(body), // Once told me...
-                    Err(e) => {
-                        webhook_job
-                            .fail(WebhookJobError::new_parse(&e.to_string()))
+                    Err(_) => {
+                        // TODO: Consolidate this retry-or-fail logic which is mostly repeated below.
+                        let retry_interval =
+                            retry_policy.retry_interval(webhook_job.attempt() as u32, None);
+                        let current_queue = webhook_job.queue();
+                        let retry_queue = retry_policy.retry_queue(&current_queue);
+
+                        return match webhook_job
+                            .retry(
+                                WebhookJobError::new_timeout("timeout while reading response body"),
+                                retry_interval,
+                                retry_queue,
+                            )
                             .await
-                            .map_err(|job_error| {
+                        {
+                            Ok(_) => {
+                                metrics::counter!("webhook_jobs_retried", &labels).increment(1);
+
+                                Ok(WebhookResult::WillRetry)
+                            }
+                            Err(RetryError::RetryInvalidError(RetryInvalidError {
+                                job: webhook_job,
+                                ..
+                            })) => {
+                                webhook_job
+                                    .fail(WebhookJobError::new_timeout(
+                                        "timeout while reading response body",
+                                    ))
+                                    .await
+                                    .map_err(|job_error| {
+                                        metrics::counter!("webhook_jobs_database_error", &labels)
+                                            .increment(1);
+                                        job_error
+                                    })?;
+
+                                metrics::counter!("webhook_jobs_failed", &labels).increment(1);
+
+                                Ok(WebhookResult::Failed(WebhookFailed {
+                                    error: "timeout while reading response body".to_owned(),
+                                    status_code: Some(status),
+                                    duration: now.elapsed(),
+                                    body: None,
+                                }))
+                            }
+                            Err(RetryError::DatabaseError(job_error)) => {
                                 metrics::counter!("webhook_jobs_database_error", &labels)
                                     .increment(1);
-                                job_error
-                            })?;
-
-                        metrics::counter!("webhook_jobs_failed", &labels).increment(1);
-
-                        return Ok(WebhookResult::Failed(
-                            "failed to read response body".to_owned(),
-                        ));
+                                Err(WorkerError::from(job_error))
+                            }
+                        };
                     }
                 }
             } else {
+                // Caller didn't expect us to read the response body.
                 None
             };
 
@@ -452,7 +557,7 @@ async fn process_webhook_job<W: WebhookJob>(
                 .record(duration.as_secs_f64());
 
             Ok(WebhookResult::Success(WebhookSuccess {
-                status_code: status.as_u16(),
+                status_code: status,
                 duration,
                 body,
             }))
@@ -468,7 +573,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(WebhookResult::Failed(e.to_string()))
+            Ok(WebhookResult::Failed(WebhookFailed {
+                error: e.to_string(),
+                status_code: None,
+                duration: now.elapsed(),
+                body: None,
+            }))
         }
         Err(WebhookError::Parse(WebhookParseError::ParseHttpMethodError(e))) => {
             webhook_job
@@ -481,7 +591,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(WebhookResult::Failed(e.to_string()))
+            Ok(WebhookResult::Failed(WebhookFailed {
+                error: e.to_string(),
+                status_code: None,
+                duration: now.elapsed(),
+                body: None,
+            }))
         }
         Err(WebhookError::Parse(WebhookParseError::ParseUrlError(e))) => {
             webhook_job
@@ -494,7 +609,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-            Ok(WebhookResult::Failed(e.to_string()))
+            Ok(WebhookResult::Failed(WebhookFailed {
+                error: e.to_string(),
+                status_code: None,
+                duration: now.elapsed(),
+                body: None,
+            }))
         }
         Err(WebhookError::Request(request_error)) => {
             let webhook_job_error = WebhookJobError::from(&request_error);
@@ -532,7 +652,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
                             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-                            Ok(WebhookResult::Failed(error.to_string()))
+                            Ok(WebhookResult::Failed(WebhookFailed {
+                                error: error.to_string(),
+                                status_code: None,
+                                duration: now.elapsed(),
+                                body: None,
+                            }))
                         }
                         Err(RetryError::DatabaseError(job_error)) => {
                             metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
@@ -551,7 +676,12 @@ async fn process_webhook_job<W: WebhookJob>(
 
                     metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
-                    Ok(WebhookResult::Failed(error.to_string()))
+                    Ok(WebhookResult::Failed(WebhookFailed {
+                        error: error.to_string(),
+                        status_code: None,
+                        duration: now.elapsed(),
+                        body: None,
+                    }))
                 }
             }
         }
@@ -591,11 +721,13 @@ async fn send_webhook(
             if is_error_source::<NoPublicIPv4Error>(&e) {
                 WebhookRequestError::NonRetryableRetryableRequestError {
                     error: e,
+                    status: None,
                     response: None,
                 }
             } else {
                 WebhookRequestError::RetryableRequestError {
                     error: e,
+                    status: None,
                     response: None,
                     retry_after: None,
                 }
@@ -614,8 +746,10 @@ async fn send_webhook(
                 Err(WebhookError::Request(
                     WebhookRequestError::RetryableRequestError {
                         error: err,
-                        // TODO: Make amount of bytes configurable.
-                        response: first_n_bytes_of_response(response, 10 * 1024).await.ok(),
+                        status: Some(response.status()),
+                        response: first_n_bytes_of_response(response, MAX_RESPONSE_BODY)
+                            .await
+                            .ok(),
                         retry_after,
                     },
                 ))
@@ -623,7 +757,10 @@ async fn send_webhook(
                 Err(WebhookError::Request(
                     WebhookRequestError::NonRetryableRetryableRequestError {
                         error: err,
-                        response: first_n_bytes_of_response(response, 10 * 1024).await.ok(),
+                        status: Some(response.status()),
+                        response: first_n_bytes_of_response(response, MAX_RESPONSE_BODY)
+                            .await
+                            .ok(),
                     },
                 ))
             }
@@ -928,6 +1065,79 @@ mod tests {
         );
     }
 
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_hoghook_drops_large_payloads(db: PgPool) {
+        use httpmock::prelude::*;
+
+        let worker_id = worker_id();
+        let queue_name = "test_hoghook_drops_large_payloads".to_string();
+        let queue = PgQueue::new_from_pool(&queue_name, db).await;
+        let topic = "cdp_function_callbacks";
+
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(POST).path("/");
+            then.status(200)
+                .header("content-type", "application/json; charset=UTF-8")
+                .body(r#"{"message": "hello, world"}"#);
+        });
+
+        let mock_url = server.url("/");
+
+        let webhook_job_parameters = WebhookJobParameters {
+            body: "".to_owned(),
+            headers: collections::HashMap::new(),
+            method: HttpMethod::POST,
+            url: mock_url,
+        };
+
+        let webhook_job_metadata = json!({"hugeField": "a".repeat(2 * 1024 * 1024)});
+
+        enqueue_job(
+            &queue,
+            1,
+            webhook_job_parameters.clone(),
+            serde_json::to_value(webhook_job_metadata).unwrap(),
+        )
+        .await
+        .expect("failed to enqueue job");
+
+        let registry = HealthRegistry::new("liveness");
+        let liveness = registry
+            .register("worker".to_string(), ::time::Duration::seconds(30))
+            .await;
+
+        let (_, mock_producer) = create_mock_kafka().await;
+        let hog_mode = true;
+        let worker = WebhookWorker::new(
+            &worker_id,
+            &queue,
+            1,
+            time::Duration::from_millis(100),
+            time::Duration::from_millis(5000),
+            10,
+            RetryPolicy::default(),
+            false,
+            mock_producer,
+            topic.to_string(),
+            hog_mode,
+            liveness,
+        );
+
+        let batch = worker.wait_for_jobs_tx().await;
+
+        process_batch(
+            batch,
+            worker.http_client,
+            worker.retry_policy,
+            worker.kafka_producer,
+            worker.cdp_function_callbacks_topic,
+            hog_mode,
+        )
+        .await;
+    }
+
     #[tokio::test]
     async fn test_send_webhook() {
         let method = HttpMethod::POST;
@@ -977,7 +1187,7 @@ mod tests {
         let headers = collections::HashMap::new();
         // This is double the current hardcoded amount of bytes.
         // TODO: Make this configurable and change it here too.
-        let body = (0..20 * 1024).map(|_| "a").collect::<Vec<_>>().concat();
+        let body = (0..512 * 1024).map(|_| "a").collect::<Vec<_>>().concat();
 
         let err = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
             .await
@@ -987,9 +1197,9 @@ mod tests {
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {
             assert_eq!(request_error.status(), Some(StatusCode::BAD_REQUEST));
-            assert!(request_error.to_string().contains(&body[0..10 * 1024]));
-            // The 81 bytes account for the reqwest erorr message as described below.
-            assert_eq!(request_error.to_string().len(), 10 * 1024 + 81);
+            assert!(request_error.to_string().contains(&body[0..256 * 1024]));
+            // The 81 bytes account for the reqwest error message as described below.
+            assert_eq!(request_error.to_string().len(), 256 * 1024 + 81);
             // This is the display implementation of reqwest. Just checking it is still there.
             // See: https://github.com/seanmonstar/reqwest/blob/master/src/error.rs
             assert!(request_error.to_string().contains(

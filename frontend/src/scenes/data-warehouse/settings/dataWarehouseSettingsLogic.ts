@@ -139,18 +139,9 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
     }),
-    urlToAction(({ cache, actions }) => ({
-        '/data-warehouse/managed-sources': () => {
-            clearTimeout(cache.refreshTimeout)
-
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadSources(null)
-            }, REFRESH_INTERVAL)
-        },
-        '*': () => {
-            if (cache.refreshTimeout && router.values.location.pathname !== '/data-warehouse/managed-sources') {
-                clearTimeout(cache.refreshTimeout)
-            }
+    urlToAction(({ actions }) => ({
+        '/data-warehouse/*': () => {
+            actions.loadSources(null)
         },
     })),
     listeners(({ actions, values, cache }) => ({
@@ -210,6 +201,24 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         },
         updateSchema: (schema) => {
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
+        },
+        loadSourcesSuccess: () => {
+            clearTimeout(cache.refreshTimeout)
+
+            if (router.values.location.pathname.includes('data-warehouse')) {
+                cache.refreshTimeout = setTimeout(() => {
+                    actions.loadSources(null)
+                }, REFRESH_INTERVAL)
+            }
+        },
+        loadSourcesFailure: () => {
+            clearTimeout(cache.refreshTimeout)
+
+            if (router.values.location.pathname.includes('data-warehouse')) {
+                cache.refreshTimeout = setTimeout(() => {
+                    actions.loadSources(null)
+                }, REFRESH_INTERVAL)
+            }
         },
     })),
     afterMount(({ actions }) => {
