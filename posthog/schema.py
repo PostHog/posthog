@@ -1906,6 +1906,7 @@ class ChartSettings(BaseModel):
     goalLines: Optional[list[GoalLine]] = None
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
+    yAxisAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
 class Response(BaseModel):
