@@ -2,7 +2,6 @@ import './NotebookScene.scss'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTab, LemonTabs, LemonTag, lemonToast } from '@posthog/lemon-ui'
-import { Breadcrumb } from '@sentry/react'
 import { actions, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -11,7 +10,7 @@ import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NotebooksTab } from '~/types'
+import { Breadcrumb, NotebooksTab } from '~/types'
 
 import { NotebookCanvas } from './NotebookCanvasScene'
 import type { notebooksSceneLogicType } from './NotebooksSceneType'
