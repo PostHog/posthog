@@ -6,8 +6,6 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightTypeURL } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { InsightType } from '~/types'
-
 import { insightLogic } from '../insightLogic'
 import { FunnelsCue } from '../views/Trends/FunnelsCue'
 
@@ -21,11 +19,11 @@ export function InsightsNav(): JSX.Element {
             <FunnelsCue />
             <LemonTabs
                 activeKey={activeView}
-                onChange={(newKey) => activeView !== InsightType.SQL && setActiveView(newKey)}
+                onChange={(newKey) => setActiveView(newKey)}
                 tabs={tabs.map(({ label, type, dataAttr }) => ({
                     key: type,
                     label: (
-                        <Link to={insightTypeURL[type]} preventClick={!(type === InsightType.SQL)} data-attr={dataAttr}>
+                        <Link to={insightTypeURL[type]} preventClick data-attr={dataAttr}>
                             <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
                                 <span>{label}</span>
                             </Tooltip>
