@@ -1449,9 +1449,8 @@ class TestPrinter(BaseTest):
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=2000000, "
-                "max_expanded_ast_elements=2000000, max_query_size=1048576, "
-                "max_bytes_before_external_group_by=0"
+                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1472,9 +1471,8 @@ class TestPrinter(BaseTest):
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=2000000, "
-                "max_expanded_ast_elements=2000000, max_query_size=1048576, "
-                "max_bytes_before_external_group_by=0"
+                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
@@ -1513,9 +1511,8 @@ class TestPrinter(BaseTest):
                 "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source'))) "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
-                "format_csv_allow_double_quotes=0, max_ast_elements=2000000, "
-                "max_expanded_ast_elements=2000000, max_query_size=1048576, "
-                "max_bytes_before_external_group_by=0"
+                "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
+                "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
             ),
             printed,
         )
