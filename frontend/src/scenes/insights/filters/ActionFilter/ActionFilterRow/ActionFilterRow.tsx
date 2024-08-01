@@ -4,7 +4,7 @@ import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconCopy, IconFilter, IconPencil, IconPerson, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonDivider, LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonBadge, LemonDivider, LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -509,35 +509,42 @@ export function ActionFilterRow({
                                 {mathAvailability === MathAvailability.FunnelsOnly ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
-                                        <More
-                                            overlay={
-                                                <>
-                                                    <LemonButton
-                                                        icon={<IconPerson />}
-                                                        data-attr={`math-first-time-for-user-${index}`}
-                                                        onClick={() => {
-                                                            onMathSelect(
-                                                                index,
-                                                                math ? undefined : BaseMathType.FirstTimeForUser
-                                                            )
-                                                        }}
-                                                        fullWidth
-                                                        tooltip={
-                                                            BASE_MATH_DEFINITIONS[BaseMathType.FirstTimeForUser]
-                                                                .description
-                                                        }
-                                                    >
-                                                        {math === BaseMathType.FirstTimeForUser
-                                                            ? 'Remove first time for user'
-                                                            : 'First time for user'}
-                                                    </LemonButton>
-                                                    <LemonDivider />
-                                                    {rowEndElements}
-                                                </>
-                                            }
-                                            noPadding
-                                            size="medium"
-                                        />
+                                        <div className="relative">
+                                            <More
+                                                size="medium"
+                                                overlay={
+                                                    <>
+                                                        <LemonButton
+                                                            icon={<IconPerson />}
+                                                            data-attr={`math-first-time-for-user-${index}`}
+                                                            onClick={() => {
+                                                                onMathSelect(
+                                                                    index,
+                                                                    math ? undefined : BaseMathType.FirstTimeForUser
+                                                                )
+                                                            }}
+                                                            fullWidth
+                                                            tooltip={
+                                                                BASE_MATH_DEFINITIONS[BaseMathType.FirstTimeForUser]
+                                                                    .description
+                                                            }
+                                                        >
+                                                            {math === BaseMathType.FirstTimeForUser
+                                                                ? 'Disable count by first time'
+                                                                : 'Count by first time for user'}
+                                                        </LemonButton>
+                                                        <LemonDivider />
+                                                        {rowEndElements}
+                                                    </>
+                                                }
+                                                noPadding
+                                            />
+                                            <LemonBadge
+                                                position="top-right"
+                                                size="small"
+                                                visible={math === BaseMathType.FirstTimeForUser}
+                                            />
+                                        </div>
                                     </>
                                 ) : (
                                     rowEndElements
