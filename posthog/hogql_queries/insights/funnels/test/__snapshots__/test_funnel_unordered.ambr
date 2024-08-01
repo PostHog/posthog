@@ -145,7 +145,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
-                     max_query_size=1048576,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1
   '''
@@ -310,7 +309,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
-                     max_query_size=1048576,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1
   '''
@@ -461,7 +459,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
-                     max_query_size=1048576,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1
   '''
@@ -707,7 +704,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
-                     max_query_size=1048576,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1
   '''
@@ -953,7 +949,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
-                     max_query_size=1048576,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1
   '''
@@ -1220,7 +1215,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=2000000,
                      max_expanded_ast_elements=2000000,
-                     max_query_size=1048576,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1
   '''
