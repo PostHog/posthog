@@ -1,6 +1,6 @@
 import './UnsubscribeSurveyModal.scss'
 
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonLabel, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -111,24 +111,15 @@ export const UnsubscribeSurveyModal = ({
                 </LemonLabel>
                 <div className="grid grid-cols-2 gap-2">
                     {UNSUBSCRIBE_REASONS.map((reason) => (
-                        <div
+                        <LemonCheckbox
+                            bordered
                             key={reason}
-                            className={`p-2 bg-white border ${
-                                surveyResponse['$survey_reasons'].includes(reason)
-                                    ? 'border-primary-3000 border-2 -m-[1px]'
-                                    : 'border-1 border-border hover:border-border-bold'
-                            } rounded-md rounded-[6px] cursor-pointer`}
-                            tabIndex={0}
-                            data-attr={`unsubscribe-reason-${reason.replace(/\s+/g, '-').toLowerCase()}`}
-                            onClick={() => toggleSurveyReason(reason)}
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    toggleSurveyReason(reason)
-                                }
-                            }}
-                        >
-                            {reason}
-                        </div>
+                            label={reason}
+                            checked={surveyResponse['$survey_reasons'].includes(reason)}
+                            onChange={() => toggleSurveyReason(reason)}
+                            className="w-full"
+                            labelClassName="w-full"
+                        />
                     ))}
                 </div>
 

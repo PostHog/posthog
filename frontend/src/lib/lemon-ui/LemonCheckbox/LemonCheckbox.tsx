@@ -16,6 +16,7 @@ export interface LemonCheckboxProps {
     label?: string | JSX.Element
     id?: string
     className?: string
+    labelClassName?: string
     fullWidth?: boolean
     size?: 'small' | 'medium'
     bordered?: boolean
@@ -43,6 +44,7 @@ export function LemonCheckbox({
     label,
     id: rawId,
     className,
+    labelClassName,
     fullWidth,
     bordered,
     color,
@@ -94,8 +96,12 @@ export function LemonCheckbox({
                     id={id}
                     disabled={disabled}
                 />
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <label htmlFor={id} style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}>
+                <label
+                    htmlFor={id}
+                    /* eslint-disable-next-line react/forbid-dom-props */
+                    style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}
+                    className={labelClassName}
+                >
                     <svg
                         className="LemonCheckbox__box"
                         fill="none"
