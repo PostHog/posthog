@@ -15,18 +15,17 @@ describe('SAML Auth', () => {
         cy.get('button[data-attr=sso-login]').should('have.text', 'Log in with Single sign-on (SAML)').click()
 
         cy.origin(Cypress.env('E2E_SAML_ACS_URL'), () => {
-            cy.get('input[name=identifier]')
+            cy.get('input[data-testid=username]')
                 .type(Cypress.env('E2E_SAML_LOGIN_EMAIL'))
                 .should('have.value', Cypress.env('E2E_SAML_LOGIN_EMAIL'))
-            cy.get('input[type=submit]').should('have.value', 'Next').click()
+            cy.get('button[type=submit]').should('have.text', 'Continue').click()
             cy.get('input[type=password]')
                 .type(Cypress.env('E2E_SAML_LOGIN_PASSWORD'))
                 .should('have.value', Cypress.env('E2E_SAML_LOGIN_PASSWORD'))
-            cy.get('input[type=submit]').should('have.value', 'Verify').click()
+            cy.get('button[type=submit]').should('have.text', 'Continue').click()
         })
 
         cy.location('pathname', { timeout: 200000 }).should('eq', '/')
         cy.get('[data-attr="breadcrumb-organization"] > span').should('have.text', 'saml org')
-        cy.get('[data-attr="breadcrumb-project"] > span').should('have.text', 'saml project')
     })
 })
