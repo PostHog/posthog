@@ -392,6 +392,8 @@ export const redirects: Record<
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
+    '/data-warehouse': urls.dataWarehouse(),
+    '/data-warehouse/*': urls.dataWarehouse(),
     '/events/actions': urls.actions(),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
