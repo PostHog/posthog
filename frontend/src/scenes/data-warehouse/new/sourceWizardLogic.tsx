@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import {
     Breadcrumb,
-    DataWarehouseTab,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
@@ -843,12 +842,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             actions.cancelWizard()
-
-            if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
-                router.actions.push(urls.dataWarehouse(DataWarehouseTab.ManagedSources))
-            } else if (router.values.location.pathname.includes(urls.pipelineNodeDataWarehouseNew())) {
-                router.actions.push(urls.pipeline(PipelineTab.DataImport))
-            }
+            router.actions.push(urls.pipeline(PipelineTab.Sources))
         },
         cancelWizard: () => {
             actions.onClear()
