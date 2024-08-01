@@ -570,6 +570,8 @@ export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
+    /** Whether the Y axis should start at zero */
+    yAxisAtZero?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {

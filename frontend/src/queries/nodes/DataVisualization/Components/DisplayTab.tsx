@@ -1,18 +1,30 @@
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 import { displayLogic } from '../displayLogic'
 
 export const DisplayTab = (): JSX.Element => {
-    const { goalLines } = useValues(displayLogic)
-    const { addGoalLine, updateGoalLine, removeGoalLine } = useActions(displayLogic)
+    const { goalLines, chartSettings } = useValues(displayLogic)
+    const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
     return (
         <div className="flex flex-col w-full">
-            <LemonLabel>Goal Line</LemonLabel>
-            <div className="mt-1 mb-1">
+            <LemonLabel>Chart settings</LemonLabel>
+
+            <div className="mt-1 mb-2">
+                <LemonLabel className="mt-2 mb-1">Begin Y axis at zero</LemonLabel>
+                <LemonCheckbox
+                    checked={chartSettings.yAxisAtZero ?? true}
+                    onChange={(value) => {
+                        updateChartSettings({ yAxisAtZero: value })
+                    }}
+                />
+            </div>
+
+            <div className="mt-1 mb-2">
+                <LemonLabel className="mb-1">Goal line</LemonLabel>
                 {goalLines.map((goalLine, goalLineIndex) => (
                     <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
                         <SeriesLetter className="self-center" hasBreakdown={false} seriesIndex={goalLineIndex} />

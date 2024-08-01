@@ -1,6 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,15 +11,7 @@ import type { dataWarehouseExternalSceneLogicType } from './dataWarehouseExterna
 export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLogicType>([
     path(() => ['scenes', 'data-warehouse', 'external', 'dataWarehouseExternalSceneLogic']),
     connect(() => ({
-        actions: [
-            insightSceneLogic,
-            ['setSceneState'],
-            insightLogic({
-                dashboardItemId: 'new-SQL',
-                cachedInsight: null,
-            }),
-            ['setInsight'],
-        ],
+        actions: [insightSceneLogic, ['setSceneState']],
     })),
     selectors(() => ({
         breadcrumbs: [
