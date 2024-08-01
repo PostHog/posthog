@@ -23,7 +23,13 @@ if (action == 'automatic') {
     }
 }
 
-let properties 
+let attributes := inputs.include_all_properties ? event.properties : {}
+
+for (let key, value in inputs.attributes) {
+    attributes[key] := value
+}
+
+let name := action == 'event' ? event.name : null
 
 let res := fetch(f'https://{inputs.host}/api/v2/entity', {
     'method': 'POST',
@@ -35,8 +41,9 @@ let res := fetch(f'https://{inputs.host}/api/v2/entity', {
     'body': {
         'type': 'person',
         'action': action,
+        'name': name,
         'identifiers': inputs.identifiers,
-        'attributes': inputs.attributes
+        'attributes': attributes
     }
 })
 
@@ -142,7 +149,7 @@ if (res.status >= 400) {
                 "firstname": "{person.properties.firstname}",
             },
             "secret": False,
-            "required": True,
+            "required": False,
         },
     ],
     filters={
