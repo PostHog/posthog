@@ -204,6 +204,8 @@ struct QueueDepth {
     count_retries: i64,
 }
 
+// TODO: Extract this to a more generic function that produces any iterable that can be
+// serialized, and returns more generic errors.
 async fn send_metrics_to_kafka<T>(
     kafka_producer: &FutureProducer<KafkaContext>,
     topic: &str,
