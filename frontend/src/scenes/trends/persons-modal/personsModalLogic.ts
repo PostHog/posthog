@@ -72,6 +72,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         updateQuery: (query: InsightActorsQuery) => ({ query }),
         updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
+        setIsSearchTermDebouncing: (isSearchTermDebouncing: boolean) => ({ isSearchTermDebouncing }),
     }),
     connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
@@ -238,10 +239,18 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 closeModal: () => false,
             },
         ],
+        isSearchTermDebouncing: [
+            false,
+            {
+                setIsSearchTermDebouncing: (_, { isSearchTermDebouncing }) => isSearchTermDebouncing,
+                loadActors: () => false,
+            },
+        ],
     })),
 
     listeners(({ actions, values, props }) => ({
         setSearchTerm: async (_, breakpoint) => {
+            actions.setIsSearchTermDebouncing(true)
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
         },
@@ -363,6 +372,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 }
                 return urls.insightNew(undefined, undefined, JSON.stringify(query))
             },
+        ],
+        isActorsLoading: [
+            (s) => [s.isSearchTermDebouncing, s.actorsResponseLoading],
+            (isSearchTermDebouncing: boolean, actorsResponseLoading: boolean): boolean =>
+                isSearchTermDebouncing || actorsResponseLoading,
         ],
     }),
 

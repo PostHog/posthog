@@ -83,7 +83,7 @@ export function PersonsModal({
     const {
         query,
         actors,
-        actorsResponseLoading,
+        isActorsLoading,
         actorsResponse,
         errorObject,
         validationError,
@@ -195,7 +195,7 @@ export function PersonsModal({
                         )}
 
                     <div className="flex items-center gap-2 text-muted">
-                        {actorsResponseLoading ? (
+                        {isActorsLoading ? (
                             <>
                                 <Spinner />
                                 <span>Loading {actorLabel.plural}...</span>
@@ -236,20 +236,24 @@ export function PersonsModal({
                                     />
                                 ))}
                             </>
-                        ) : actorsResponseLoading ? (
+                        ) : isActorsLoading ? (
                             <div className="space-y-3">
                                 <LemonSkeleton active={false} className="h-4 w-full" />
                                 <LemonSkeleton active={false} className="h-4 w-3/5" />
                             </div>
-                        ) : (
+                        ) : searchTerm ? (
                             <div className="text-center p-5">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
+                            </div>
+                        ) : (
+                            <div className="text-center p-5">
+                                There are no person profiles associated with this data point.
                             </div>
                         )}
 
                         {(actorsResponse?.next || actorsResponse?.offset) && (
                             <div className="m-4 flex justify-center">
-                                <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
+                                <LemonButton type="primary" onClick={loadNextActors} loading={isActorsLoading}>
                                     Load more {actorLabel.plural}
                                 </LemonButton>
                             </div>
