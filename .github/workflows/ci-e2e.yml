@@ -198,7 +198,6 @@ jobs:
                   E2E_SAML_ACS_URL=${{ vars.E2E_SAML_ACS_URL }}
                   E2E_SAML_DOMAIN=${{ vars.E2E_SAML_DOMAIN }}
                   E2E_SAML_ENTITY_ID=${{ vars.E2E_SAML_ENTITY_ID }}
-                  E2E_SAML_LOGIN_EMAIL=${{ vars.E2E_SAML_LOGIN_EMAIL }}
                   E2E_SAML_ORGANIZATION_DOMAIN_ID=${{ vars.E2E_SAML_ORGANIZATION_DOMAIN_ID }}
                   EOT
 
