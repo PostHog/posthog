@@ -91,7 +91,11 @@ class InputsItemSerializer(serializers.Serializer):
 
         try:
             if value:
-                if item_type in ["string", "dictionary", "json"]:
+                if item_type in ["string", "dictionary", "json", "email"]:
+                    if item_type == "email" and isinstance(value, dict):
+                        # We want to exclude the "design" property
+                        value = {key: value[key] for key in value if key != "design"}
+
                     attrs["bytecode"] = generate_template_bytecode(value)
         except Exception as e:
             raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
