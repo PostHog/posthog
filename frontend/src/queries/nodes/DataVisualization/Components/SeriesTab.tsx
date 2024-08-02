@@ -1,19 +1,33 @@
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonSelect, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonTag, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { getSeriesColor } from 'lib/colors'
+import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ySeriesLogic } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { columns, xData, yData, responseLoading } = useValues(dataVisualizationLogic)
+    const { columns, numericalColumns, xData, yData, responseLoading } = useValues(dataVisualizationLogic)
     const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
 
-    const options = columns.map(({ name, label }) => ({
+    const hideAddYSeries = yData.length >= numericalColumns.length
+
+    const options = columns.map(({ name, type }) => ({
         value: name,
-        label,
+        label: (
+            <div className="items-center flex-1">
+                {name}
+                <LemonTag className="ml-2" type="default">
+                    {type.name}
+                </LemonTag>
+            </div>
+        ),
     }))
 
     return (
@@ -21,7 +35,7 @@ export const SeriesTab = (): JSX.Element => {
             <LemonLabel>X-axis</LemonLabel>
             <LemonSelect
                 className="w-full"
-                value={xData !== null ? xData.column.label : 'None'}
+                value={xData !== null ? xData.column.name : 'None'}
                 options={options}
                 disabledReason={responseLoading ? 'Query loading...' : undefined}
                 onChange={(value) => {
@@ -35,21 +49,23 @@ export const SeriesTab = (): JSX.Element => {
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
-            <LemonButton
-                className="mt-1"
-                type="tertiary"
-                onClick={() => addYSeries()}
-                icon={<IconPlusSmall />}
-                fullWidth
-            >
-                Add Y-series
-            </LemonButton>
+            {!hideAddYSeries && (
+                <LemonButton
+                    className="mt-1"
+                    type="tertiary"
+                    onClick={() => addYSeries()}
+                    icon={<IconPlusSmall />}
+                    fullWidth
+                >
+                    Add Y-series
+                </LemonButton>
+            )}
         </div>
     )
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number }): JSX.Element => {
-    const { columns, responseLoading, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { columns, numericalColumns, responseLoading, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const { updateYSeries, deleteYSeries } = useActions(dataVisualizationLogic)
 
     const seriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
@@ -58,16 +74,38 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { isSettingsOpen, canOpenSettings } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting } = useActions(seriesLogic)
 
-    const options = columns.map(({ name, label }) => ({
+    const { isDarkModeOn } = useValues(themeLogic)
+    const seriesColor = getSeriesColor(index)
+
+    const options = numericalColumns.map(({ name, type }) => ({
         value: name,
-        label,
+        label: (
+            <div className="items-center flex flex-1">
+                <SeriesGlyph
+                    style={{
+                        borderColor: seriesColor,
+                        color: seriesColor,
+                        backgroundColor: isDarkModeOn
+                            ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
+                            : hexToRGBA(seriesColor, 0.2),
+                    }}
+                    className="mr-2"
+                >
+                    <></>
+                </SeriesGlyph>
+                {name}
+                <LemonTag className="ml-2" type="default">
+                    {type.name}
+                </LemonTag>
+            </div>
+        ),
     }))
 
     return (
         <div className="flex gap-1 mb-1">
             <LemonSelect
                 className="grow"
-                value={series !== null ? series.column.label : 'None'}
+                value={series !== null ? series.column.name : 'None'}
                 options={options}
                 disabledReason={responseLoading ? 'Query loading...' : undefined}
                 onChange={(value) => {
