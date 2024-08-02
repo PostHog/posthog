@@ -690,7 +690,7 @@ describe('insightLogic', () => {
         it('does not reacts to removal of a different tile from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 12 } } as DashboardTile,
+                    tile: { insight: { id: 12 } } as DashboardTile<QueryBasedInsightModel>,
                     dashboardId: 3,
                 })
             })

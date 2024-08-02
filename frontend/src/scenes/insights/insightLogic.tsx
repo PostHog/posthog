@@ -211,7 +211,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           short_id: shortId,
                           tags: [],
                           result: null,
-                          filters: {},
+                          query: null,
                       },
             setInsight: (_state, { insight }) => ({
                 ...insight,
@@ -262,14 +262,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             () => props.cachedInsight || ({} as QueryBasedInsightModel),
             {
                 setInsight: (state, { insight, options: { fromPersistentApi } }) =>
-                    fromPersistentApi ? { ...insight, query: insight.query || {} } : state,
+                    fromPersistentApi ? { ...insight, query: insight.query || null } : state,
                 loadInsightSuccess: (_, { legacyInsight }) => ({
                     ...legacyInsight,
-                    query: legacyInsight.query || {},
+                    query: legacyInsight.query || null,
                 }),
                 updateInsightSuccess: (_, { legacyInsight }) => ({
                     ...legacyInsight,
-                    query: legacyInsight.query || {},
+                    query: legacyInsight.query || null,
                 }),
             },
         ],
