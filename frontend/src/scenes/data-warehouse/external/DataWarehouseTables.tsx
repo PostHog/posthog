@@ -13,9 +13,9 @@ import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { DatabaseSchemaTable, NodeKind } from '~/queries/schema'
 
+import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DeleteTableModal, TableData } from './TableData'
 
 export const DataWarehouseTables = (): JSX.Element => {
