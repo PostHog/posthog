@@ -19,7 +19,7 @@ pub struct TeamEventId {
     pub event_name: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize_repr, Deserialize_repr)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize_repr, Deserialize_repr, Hash)]
 #[repr(i16)]
 pub enum PropertyParentType {
     Event = 1,
@@ -74,9 +74,6 @@ pub struct EventDefinition {
     )]
     pub last_seen_at: Option<DateTime<Utc>>, // Defaults to RFC 3339
 }
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EventProperty(pub String);
 
 
 #[derive(Clone, Debug, Deserialize)]
@@ -289,25 +286,6 @@ impl PropertyDefinition {
             self.team_id.0,
             group_type_index,
             event_type,
-        )
-            .execute(db)
-            .await
-            .map_err(CacheError::from)
-            .map(|_| ())
-    }
-}
-
-impl EventProperty {
-    pub async fn upsert<'c>(db: impl Executor<'c, Database = Postgres>, team_id: TeamId, event_name: String, property: EventProperty) -> Result<(), CacheError> {
-        sqlx::query!(
-            r#"
-            INSERT INTO posthog_eventproperty (team_id, event, property)
-            VALUES ($1, $2, $3)
-            ON CONFLICT DO NOTHING
-            "#,
-            team_id.0,
-            event_name,
-            property.0
         )
             .execute(db)
             .await

@@ -1,14 +1,14 @@
-use std::{num::NonZeroUsize, str::FromStr, sync::Arc};
+use std::{num::NonZeroUsize, str::FromStr};
 
 use lru::LruCache;
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{Executor, Postgres};
 use thiserror::Error;
 use chrono::{Duration, Utc};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tracing::warn;
 
-use crate::{app_context::AppContext, types::{Event, EventDefinition, EventProperty, PropertyDefinition, TeamEventId, TeamId}};
+use crate::{app_context::{AppContext}, types::{Event, EventDefinition, PropertyDefinition, TeamId}};
 
 #[derive(Debug, Error)]
 pub enum CacheError {
@@ -16,41 +16,66 @@ pub enum CacheError {
     DatabaseError(#[from] sqlx::Error)
 }
 
-/*
-Right now all the caching is on a per-team basis (for event-props, it's per-team-event). This means if some team
-has a lot of properties that are rarely seen, there'll be a lot of cold entries in the cache. We can push the unique
-identifiers for a given defitinion into the cache key pretty easily, but that means doing things like pre-loading all
-the definitions for a team the first time we see them stops making sense (since it will artificially warm cold entries).
+// Keys for fine-grained caching
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct EventDefinitionKey {
+    team_id: TeamId,
+    event_name: String,
+}
 
-Generally, my view is that the tradeoff here is:
-- Have the cache be a 1:1 mapping of key:definition, rather than per-team - this protects us from cold entries and
-  makes eviction due to cache pressure much more reasonable (right now all the "cache size limits" are really "team count"
-  limits, which means we can still have arbitrary cache sizes if we have a small number of teams with a lot of definitions).
-- Have the cache be per-team, which lets us preload nicely, but carries risk of cold entries and of unbounded resident memory
-  usage.
+impl From<&EventDefinition> for EventDefinitionKey {
+    fn from(def: &EventDefinition) -> Self {
+        Self {
+            team_id: def.team_id,
+            event_name: def.name.clone(),
+        }
+    }
+}
 
-Thoughts/todos on caching (figuring what strategy is good):
-- [ ] Add metrics on P10-P99 event/property/eventprop count on a per-team basis
-- [ ] Track the last time definitions are seen, so we can report if a given team has a lot of
-      definitions that are seen very rarely
-- [ ] Start tracking per-team definition sparsity - if some teams have a lot of definitions
-      that are very rarely seen, then caching on a per-team basis is a bad idea, and we should
-      push property names into the cache key.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct EventPropertyKey {
+    team_id: TeamId,
+    event_name: String,
+    property_name: String,
+}
 
+impl EventPropertyKey {
+    fn new(team_id: TeamId, event_name: &str, prop: &str) -> Self {
+        Self {
+            team_id,
+            event_name: event_name.to_string(),
+            property_name: prop.to_string()
+        }
+    }
+}
 
-The other TODO here is that I make heavy use of the assumption "the number of definitions of any given type, per team, is small".
-I use Vec's everywhere instead of Set's or HashMaps. If anyone ever looks at the CPU utilisation of this service and it's
-higher than expected, this is the first place to look. I did this for convenience when writing the code (I didn't want to define
-the hash/eq impls for the types up front, it was easier just to write the filter fn's where they're used, as I went)
-*/
-type EventDefinitionCache = LruCache<TeamId, Arc<Mutex<Vec<EventDefinition>>>>;
-type EventPropertyCache = LruCache<TeamEventId, Arc<Mutex<Vec<EventProperty>>>>;
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct PropertyDefinitionKey {
+    team_id: TeamId,
+    property_name: String,
+    group_type_index: Option<i32>,
+}
+
+impl From<&PropertyDefinition> for PropertyDefinitionKey {
+    fn from(prop: &PropertyDefinition) -> Self {
+        Self {
+            team_id: prop.team_id,
+            property_name: prop.name.clone(),
+            group_type_index: prop.group_type_index,
+        }
+    }
+}
+
+// The fine-grained caching here makes fine-grained locking (on a per-team basis, for example) not possible - if we decide
+// we need fine-grained locking due to contention, we should switch to a concurrent cache type.
+type EventDefinitionCache = LruCache<EventDefinitionKey, EventDefinition>;
+type EventPropertyCache = LruCache<EventPropertyKey, bool>; // We don't actually need a value here, we just need to know if we've seen it before, since this is basically a join
 type TeamFirstEventCache = LruCache<TeamId, bool>;
 // TODO - this is a divergence from the TS impl, which maintains a permanent Map<TeamId, LRU>, meaning
 // cache invalidation happens on property definition bases across all teams, rather than here, where we're
 // doing it on a per-team basis. I'm open to changing this, but as a start point, it feels ok to do it
 // this way. The caches above are all identical to the TS impl.
-type PropertyDefinitionCache = LruCache<TeamId, Arc<Mutex<Vec<PropertyDefinition>>>>;
+type PropertyDefinitionCache = LruCache<PropertyDefinitionKey, PropertyDefinition>;
 
 type Transaction<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
@@ -72,40 +97,38 @@ pub const SKIP_PROPERTIES: &[&str] = &[
 pub const EVENT_NAME_CHARFIELD_LENGTH: usize = 400;
 pub const LAST_SEEN_AT_UPDATE_LAG: Duration = Duration::hours(1);
 
-pub struct PropertyCacheManager {
-    pool: PgPool,
+pub struct PropertyCache {
 
     // Per-team caches
-    event_definitions: RwLock<EventDefinitionCache>,
-    property_definitions: RwLock<PropertyDefinitionCache>,
+    event_definitions: Mutex<EventDefinitionCache>,
+    property_definitions: Mutex<PropertyDefinitionCache>,
 
     // Per-team, per-event caches
-    event_properties: RwLock<EventPropertyCache>,
+    event_properties: Mutex<EventPropertyCache>,
 
     // Track if this team has ever inserted an event
-    team_first_event_cache: RwLock<TeamFirstEventCache>,
+    team_first_event_cache: Mutex<TeamFirstEventCache>,
 }
 
-impl PropertyCacheManager {
+impl PropertyCache {
 
-    pub fn new(pool: &PgPool) -> Self {
+    pub fn new() -> Self {
 
-        let capacity = NonZeroUsize::new(10_000).unwrap(); // TODO - pull this from the environment
+        let capacity = NonZeroUsize::new(100_000).unwrap(); // TODO - pull this from the environment
 
         Self {
-            pool: pool.clone(),
-            event_definitions: RwLock::new(LruCache::new(capacity)),
-            property_definitions: RwLock::new(LruCache::new(capacity)),
-            event_properties: RwLock::new(LruCache::new(capacity)),
-            team_first_event_cache: RwLock::new(LruCache::new(capacity)),
+            event_definitions: Mutex::new(LruCache::new(capacity)),
+            property_definitions: Mutex::new(LruCache::new(capacity)),
+            event_properties: Mutex::new(LruCache::new(capacity)),
+            team_first_event_cache: Mutex::new(LruCache::new(capacity)),
         }
     }
 
     pub async fn flush(&self) {
-        self.event_definitions.write().await.clear();
-        self.property_definitions.write().await.clear();
-        self.event_properties.write().await.clear();
-        self.team_first_event_cache.write().await.clear();
+        self.event_definitions.lock().await.clear();
+        self.property_definitions.lock().await.clear();
+        self.event_properties.lock().await.clear();
+        self.team_first_event_cache.lock().await.clear();
     }
 }
 pub async fn handle_event(event: Event, context: &AppContext) -> Result<(), CacheError> {
@@ -119,122 +142,151 @@ pub async fn handle_event(event: Event, context: &AppContext) -> Result<(), Cach
         warn!("Event name too long, skipping: {}", event.event);
         return Ok(())
     }
-    
-    let cache = &context.property_cache;
-    let team_id = event.team_id;
-    let mut txn = cache.pool.begin().await?;
-
-    let event_defs = {
-        cache.event_definitions.write().await.get_or_insert(team_id, Default::default).clone()
-    };
-    update_event_definitions(&mut txn, &mut *event_defs.lock().await, &event).await?;
-    drop(event_defs);
-
-    let prop_defs = {
-        cache.property_definitions.write().await.get_or_insert(team_id, Default::default).clone()
-    };
-    update_property_definitions(&mut txn, &mut *prop_defs.lock().await, &event, context).await?;
-    drop(prop_defs);
-
-    let event_props = {
-        let team_event_id = TeamEventId { team_id, event_name: event.event.clone() };
-        cache.event_properties.write().await.get_or_insert(team_event_id, Default::default).clone()
-    };
-    update_event_properties(&mut txn, &mut *event_props.lock().await, &event).await?;
-    drop(event_props);
 
 
-    update_team_first_event(&mut txn, &mut *cache.team_first_event_cache.write().await, &event).await?;
+    // We structure this such that we don't update out cache if the transaction fails, to prevent ignoring
+    // future updates to the DB that might be needed. This means we end up contending on the cache locks a
+    // little bit more, but I think the correctness is worth it. The alternative is to periodically flush
+    // the cache, so we're guarenteed to /eventually/ write anything seen frequently, but that means more
+    // DB writes, so, :shrug:
+    // TODO - It would be much nicer to figure out if we need a transaction, AND THEN create one, rather than
+    // preemptively creating one. SQLx has query builder, but you lose a lot of nice stuff if you use them :/
+    let mut txn = context.pool.begin().await?;
 
-    txn.commit().await?;
+    let event_def_update = update_event_definitions(&mut txn, &context, &event).await?;
+    let prop_def_updates = update_property_definitions(&mut txn, &context, &event).await?;
+    let event_prop_updates = update_event_properties(&mut txn, &context, &event).await?;
+    let first_event_update = update_team_first_event(&mut txn, &context, &event).await?;
+
+    let need_to_commit = event_def_update.is_some() || prop_def_updates.len() > 0 || event_prop_updates.len() > 0 || first_event_update.is_some();
+
+    if need_to_commit {
+        txn.commit().await?;
+    } else {
+        txn.rollback().await?;
+    }
+
+    if let Some(update) = event_def_update {
+        context.property_cache.event_definitions.lock().await.put((&update).into(), update);
+    }
+
+    if prop_def_updates.len() > 0 {
+        let mut lock = context.property_cache.property_definitions.lock().await;
+        for update in prop_def_updates {
+            lock.put((&update).into(), update);
+        }
+    }
+
+    if event_prop_updates.len() > 0 {
+        let mut lock = context.property_cache.event_properties.lock().await;
+        for update in event_prop_updates {
+            lock.put(update, true);
+        }
+    }
+
+    if let Some(team_id) = first_event_update {
+        context.property_cache.team_first_event_cache.lock().await.put(team_id, true);
+    }
 
 
     Ok(())
 }
 
-async fn update_event_definitions<'c>(db: &mut Transaction<'c>, defs: &mut Vec<EventDefinition>, event: &Event) -> Result<(), CacheError> {
+async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event) -> Result<Option<EventDefinition>, CacheError> {
     let mut new_definition: EventDefinition = event.into();
     new_definition.set_last_seen();
 
-    // If we haven't seen this event in the cache, add it, also adding to the DB
-    let Some(found_definition) = defs.iter_mut().find(|d| d.name == new_definition.name) else {
-        // One of the sillier de/ref stacks I've seen, the explanation is: Transaction can be treated as a DerefMut to a DB connectin,
-        // but &mut transaction can't, so we * to go &mut Transaction -> Transaction, then * to go Transaction -> DB::Connection,
-        // then pass a &mut Connection to something that needs an "executor" (which a &mut Connection is)
+    let key = (&new_definition).into();
+
+    let mut cache_guard = context.property_cache.event_definitions.lock().await;
+
+    let existing = cache_guard.get(&key);
+
+    // The event is totally new, so add the DB insert to the txn and return the cache update
+    let Some(existing) = existing else {
         new_definition.upsert(&mut **db).await?;
-        defs.push(new_definition);
-        return Ok(());
+        return Ok(Some(new_definition));
     };
 
-    // Symbolic - we have found a definition in the cache, we don't need to insert it, so drop the "new" one to force us to
-    // remember to update the last_seen_at field, if we need to.
-    drop(new_definition);
-
-    // Handle events mis-written into the DB without a last seen field.
-    let Some(found_last_seen) = found_definition.last_seen_at else {
-        found_definition.set_last_seen();
-        found_definition.upsert(&mut **db).await?;
-        return Ok(());
+    // Handle events mis-written into the DB without a last seen field
+    let Some(found_last_seen) = existing.last_seen_at else {
+        // To prevent the last_seen from being updated in the cache if the DB transaction fails,
+        // we clone the existing defintion, update it's last time, use it to update the transaction,
+        // and then return it to be "re-inserted" into the cache.
+        let mut clone = existing.clone();
+        clone.set_last_seen();
+        clone.upsert(&mut **db).await?;
+        return Ok(Some(clone));
     };
 
     // If we need to update the last seen field, do so.
     if LAST_SEEN_AT_UPDATE_LAG < (Utc::now() - found_last_seen) {
-        found_definition.set_last_seen();
-        found_definition.upsert(&mut **db).await?;
+        // We handle last seen updates exactly the same as if we didn't have a last seen field
+        let mut clone = existing.clone();
+        clone.set_last_seen();
+        clone.upsert(&mut **db).await?;
+        return Ok(Some(clone));
     }
 
-    Ok(())
+    Ok(None)
 }
 
-async fn update_property_definitions<'c>(db: &mut Transaction<'c>, known_defs: &mut Vec<PropertyDefinition>, event: &Event, context: &AppContext) -> Result<(), CacheError> {
+async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event) -> Result<Vec<PropertyDefinition>, CacheError> {
     let found_props = event.get_properties(context).await?;
 
-    let prop_def_eq = |a: &PropertyDefinition, b: &PropertyDefinition| {
-        a.team_id == b.team_id
-        && a.name == b.name
-        && a.event_type == b.event_type
-        && a.group_type_index == b.group_type_index
-    };
+    let mut updates = Vec::with_capacity(found_props.len());
 
     for found in found_props {
 
-        let seen: bool = known_defs.iter().any(|d| prop_def_eq(d, &found));
-        if seen {
-            continue;
-        }
+        let key = (&found).into();
+        let mut lock = context.property_cache.property_definitions.lock().await;
+        let known = lock.get(&key);
 
         // We've never seen this property before, so insert it
-        found.upsert(&mut **db).await?;
-        known_defs.push(found);
+        let Some(known) = known else {
+            found.upsert(&mut **db).await?;
+            updates.push(found);
+            continue;
+        };
 
+        // If we have a null we can update, do it.
+        if known.property_type.is_none() && found.property_type.is_some() {
+            let mut clone = known.clone();
+            clone.property_type = found.property_type;
+            clone.upsert(&mut **db).await?;
+            updates.push(clone);
+            continue;
+        }
     }
-    Ok(())
+    Ok(updates)
 }
 
-async fn update_event_properties<'c>(db: &mut Transaction<'c>, cache: &mut Vec<EventProperty> , event: &Event) -> Result<(), CacheError> {
+async fn update_event_properties<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event) -> Result<Vec<EventPropertyKey>, CacheError> {
     let Some(Ok(Value::Object(props))) = event.properties.as_ref().map(|s| Value::from_str(s)) else {
-        return Ok(());
+        return Ok(vec![]);
     };
 
-    let found_keys = props.keys()
-        .filter(|k| !SKIP_PROPERTIES.contains(&k.as_str()))
-        .map(|k| EventProperty(k.clone()))
-        .filter(|p| !cache.contains(p)).collect::<Vec<EventProperty>>();
+    let cache_guard = context.property_cache.event_properties.lock().await;
 
-    for key in found_keys {
-        EventProperty::upsert(&mut **db, event.team_id, event.event.clone(), key.clone()).await?;
-        cache.push(key);
+    let new_keys = props.keys()
+        .filter(|k| !SKIP_PROPERTIES.contains(&k.as_str()))
+        .map(|k| EventPropertyKey::new(event.team_id, &event.event, k))
+        .filter(|p| !cache_guard.contains(p)).collect::<Vec<EventPropertyKey>>();
+
+    for key in &new_keys {
+        key.upsert(&mut **db).await?;
     }
 
-    Ok(())
+    Ok(new_keys)
 }
 
-async fn update_team_first_event<'c>(db: &mut Transaction<'c>, cache: &mut TeamFirstEventCache, event: &Event) -> Result<(), CacheError> {
+async fn update_team_first_event<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event) -> Result<Option<TeamId>, CacheError> {
     let team_id = event.team_id;
-    let seen = cache.contains(&team_id);
+    let cache_guard = context.property_cache.team_first_event_cache.lock().await;
+    let seen = cache_guard.contains(&team_id);
 
     if seen {
-        return Ok(());
+        return Ok(None);
     }
 
     sqlx::query!("UPDATE posthog_team SET ingested_event = $1 WHERE id = $2",
@@ -242,7 +294,25 @@ async fn update_team_first_event<'c>(db: &mut Transaction<'c>, cache: &mut TeamF
         team_id.0
     ).execute(&mut **db).await?;
 
-    cache.put(team_id, true);
+    Ok(Some(team_id))
+}
 
-    Ok(())
+
+impl EventPropertyKey {
+    pub async fn upsert<'c>(&self, db: impl Executor<'c, Database = Postgres>) -> Result<(), CacheError> {
+        sqlx::query!(
+            r#"
+            INSERT INTO posthog_eventproperty (team_id, event, property)
+            VALUES ($1, $2, $3)
+            ON CONFLICT DO NOTHING
+            "#,
+            self.team_id.0,
+            self.event_name,
+            self.property_name
+        )
+            .execute(db)
+            .await
+            .map_err(CacheError::from)
+            .map(|_| ())
+    }
 }

@@ -1,9 +1,10 @@
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 
-use crate::{config::Config, group_type_cache::GroupTypeCache, property_cache::PropertyCacheManager};
+use crate::{config::Config, group_type_cache::GroupTypeCache, property_cache::PropertyCache};
 
 pub struct AppContext {
-    pub property_cache: PropertyCacheManager,
+    pub pool: PgPool,
+    pub property_cache: PropertyCache,
     pub group_type_cache: GroupTypeCache,
 }
 
@@ -15,10 +16,11 @@ impl AppContext {
 
         let pool = options.connect(&config.database_url).await?;
 
-        let property_cache = PropertyCacheManager::new(&pool);
+        let property_cache = PropertyCache::new();
         let group_type_cache = GroupTypeCache::new(&pool);
 
         Ok(Self {
+            pool,
             property_cache,
             group_type_cache,
         })

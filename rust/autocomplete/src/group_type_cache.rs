@@ -17,7 +17,7 @@ pub struct GroupType {
 
 pub struct GroupTypeCache {
     pool: PgPool,
-    cache: Mutex<LruCache<TeamId, Vec<GroupType>>>, // TODO - this is a bottleneck for multithreading - we should lock on a per-team basis
+    cache: Mutex<LruCache<TeamId, Vec<GroupType>>>,
 }
 
 impl GroupTypeCache {
@@ -34,12 +34,15 @@ impl GroupTypeCache {
         let mut cache = self.cache.lock().await;
 
         if let Some(group_types) = cache.get(&team_id) {
-            return Ok(group_types.iter().find(|gt| gt.name == group_type).map(|gt| gt.index));
+            let found_id = group_types.iter().find(|gt: &&GroupType| gt.name == group_type).map(|gt| gt.index);
+            if found_id.is_some() {
+                return Ok(found_id);
+            }
         }
 
         let group_types = self.load_group_types(team_id).await?;
 
-        let found_id = group_types.iter().find(|gt| gt.name == group_type).map(|gt| gt.index);
+        let found_id = group_types.iter().find(|gt: &&GroupType| gt.name == group_type).map(|gt| gt.index);
         cache.put(team_id, group_types);
 
         // Afer a discussion with ben, we decided that if the group type is not found, we should discard

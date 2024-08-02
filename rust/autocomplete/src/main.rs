@@ -18,9 +18,9 @@ fn setup_tracing() {
 
 // Right now, the true concurrency limit is the PG connection count, because we do one transaction
 // per event - this is just the batch size of events we'll hold in memory before processing. I'd like
-// to start breaking a 10_000 event batch into 10 or so transactions, but that's a future optimization,
+// to start breaking a 10_000 event batch into 10 or so transaction batches, but that's a future optimization,
 // we should see how hard it is to keep up first.
-const CONCURRENCY_LIMIT: usize = 1000;
+const CONCURRENCY_LIMIT: usize = 100;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>>{
