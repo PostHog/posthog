@@ -1,11 +1,9 @@
-use std::num::NonZeroUsize;
-
 use lru::LruCache;
 use sqlx::PgPool;
 use tokio::sync::Mutex;
 use tracing::warn;
 
-use crate::types::TeamId;
+use crate::{config::Config, types::TeamId};
 
 pub const MAX_GROUP_TYPES_PER_TEAM: usize = 5;
 
@@ -21,12 +19,10 @@ pub struct GroupTypeCache {
 }
 
 impl GroupTypeCache {
-    pub fn new(pool: &PgPool) -> Self {
-        let capacity = NonZeroUsize::new(1_000_000).unwrap(); // TODO - pull this from the environment
-
+    pub fn new(pool: &PgPool, config: &Config) -> Self {
         Self {
             pool: pool.clone(),
-            cache: Mutex::new(LruCache::new(capacity)),
+            cache: Mutex::new(LruCache::new(config.team_group_indices_cache_depth)),
         }
     }
 

@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // NOTE: we commit all messages seen, even if we fail to process them... the thinking here is that we don't want
                         // poison pills to block the whole event queue, but we should probably not commit if e.g. the DB is down. Error
                         // handling for later.
-                        consumer.store_offset_from_message(&message)?;
+                        consumer.store_offset_from_message(message)?;
 
                         let Some(payload) = payload else {
                             warn!("No payload recieved in message: {:?}", message);

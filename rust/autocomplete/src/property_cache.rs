@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    num::NonZeroUsize,
     str::FromStr,
     time::Instant,
 };
@@ -16,6 +15,7 @@ use tracing::{info, warn};
 
 use crate::{
     app_context::AppContext,
+    config::Config,
     types::{Event, EventDefinition, PropertyDefinition, TeamId},
 };
 
@@ -115,14 +115,12 @@ pub struct PropertyCache {
 }
 
 impl PropertyCache {
-    pub fn new() -> Self {
-        let capacity = NonZeroUsize::new(100_000).unwrap(); // TODO - pull this from the environment
-
+    pub fn new(config: &Config) -> Self {
         Self {
-            event_definitions: Mutex::new(LruCache::new(capacity)),
-            property_definitions: Mutex::new(LruCache::new(capacity)),
-            event_properties: Mutex::new(LruCache::new(capacity)),
-            team_first_event_cache: Mutex::new(LruCache::new(capacity)),
+            event_definitions: Mutex::new(LruCache::new(config.event_definition_cache_depth)),
+            property_definitions: Mutex::new(LruCache::new(config.property_definition_cache_depth)),
+            event_properties: Mutex::new(LruCache::new(config.event_property_cache_depth)),
+            team_first_event_cache: Mutex::new(LruCache::new(config.team_first_event_cache_depth)),
         }
     }
 
@@ -219,10 +217,10 @@ async fn handle_event<'c>(
         return Ok(());
     }
 
-    let event_def_update = update_event_definitions(txn, &context, &event, update).await?;
-    let prop_def_updates = update_property_definitions(txn, &context, &event, update).await?;
-    let event_prop_updates = update_event_properties(txn, &context, &event, update).await?;
-    let first_event_update = update_team_first_event(txn, &context, &event, update).await?;
+    let event_def_update = update_event_definitions(txn, context, &event, update).await?;
+    let prop_def_updates = update_property_definitions(txn, context, &event, update).await?;
+    let event_prop_updates = update_event_properties(txn, context, &event, update).await?;
+    let first_event_update = update_team_first_event(txn, context, &event, update).await?;
 
     if let Some(event_def) = event_def_update {
         update.event_defs.insert((&event_def).into(), event_def);

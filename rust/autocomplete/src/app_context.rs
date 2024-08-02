@@ -22,8 +22,8 @@ impl AppContext {
             .register("worker".to_string(), time::Duration::seconds(60))
             .await;
 
-        let property_cache = PropertyCache::new();
-        let group_type_cache = GroupTypeCache::new(&pool);
+        let property_cache = PropertyCache::new(config);
+        let group_type_cache = GroupTypeCache::new(&pool, config);
 
         Ok(Self {
             pool,

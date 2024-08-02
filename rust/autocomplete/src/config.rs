@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 
@@ -26,6 +28,22 @@ pub struct Config {
 
     #[envconfig(from = "BIND_PORT", default = "3301")]
     pub port: u16,
+
+    // Config opts for cache sizing
+    #[envconfig(default = "100_000")]
+    pub event_definition_cache_depth: NonZeroUsize,
+
+    #[envconfig(default = "100_000")]
+    pub property_definition_cache_depth: NonZeroUsize,
+
+    #[envconfig(default = "100_000")]
+    pub event_property_cache_depth: NonZeroUsize,
+
+    #[envconfig(default = "1_000_000")]
+    pub team_first_event_cache_depth: NonZeroUsize,
+
+    #[envconfig(default = "1_000_000")]
+    pub team_group_indices_cache_depth: NonZeroUsize,
 }
 
 #[derive(Envconfig, Clone)]

@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -39,14 +39,14 @@ pub enum PropertyValueType {
     Duration,
 }
 
-impl ToString for PropertyValueType {
-    fn to_string(&self) -> String {
+impl fmt::Display for PropertyValueType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PropertyValueType::DateTime => "DateTime".to_string(),
-            PropertyValueType::String => "String".to_string(),
-            PropertyValueType::Numeric => "Numeric".to_string(),
-            PropertyValueType::Boolean => "Boolean".to_string(),
-            PropertyValueType::Duration => "Duration".to_string(),
+            PropertyValueType::DateTime => write!(f, "DateTime"),
+            PropertyValueType::String => write!(f, "String"),
+            PropertyValueType::Numeric => write!(f, "Numeric"),
+            PropertyValueType::Boolean => write!(f, "Boolean"),
+            PropertyValueType::Duration => write!(f, "Duration"),
         }
     }
 }
@@ -167,10 +167,7 @@ impl Event {
             }
 
             let property_type = detect_property_type(key, value);
-            let is_numerical = match property_type {
-                Some(PropertyValueType::Numeric) => true,
-                _ => false,
-            };
+            let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
 
             to_return.push(PropertyDefinition {
                 id: Uuid::now_v7(),
@@ -249,7 +246,7 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
 }
 
 fn sanitize_event_name(event_name: &str) -> String {
-    event_name.replace("\u{0000}", "\u{FFFD}")
+    event_name.replace('\u{0000}', "\u{FFFD}")
 }
 
 impl EventDefinition {
