@@ -3,7 +3,9 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // Note: we can only import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
 // `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
@@ -49,6 +51,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         }
     }),
     connect({
+        values: [featureFlagLogic, ['featureFlags']],
         actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery'], dataWarehouseSceneLogic, ['updateView']],
     }),
     actions({
@@ -74,8 +77,9 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     selectors({
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
         multitab: [
-            () => [],
-            () =>
+            (s) => [s.featureFlags],
+            (featureFlags) =>
+                featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] &&
                 router.values.location.pathname.includes(urls.dataWarehouse()) &&
                 Object.keys(router.values.hashParams).length === 0,
         ],

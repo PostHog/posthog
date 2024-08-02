@@ -1,6 +1,8 @@
 import type { Monaco } from '@monaco-editor/react'
-import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
 // `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
@@ -61,6 +63,10 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         removeModel: (modelName: Uri) => ({ modelName }),
         setModels: (models: Uri[]) => ({ models }),
         updateState: true,
+        setLocalState: (key: string, value: any) => ({ key, value }),
+    }),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
     }),
     loaders(({ props }) => ({
         metadata: [
@@ -132,15 +138,11 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             },
         ],
     })),
-    reducers(({ props }) => ({
+    reducers({
         activeModelUri: [
             null as null | Uri,
             {
-                setModel: (_, { modelName }) => {
-                    const path = modelName.path.split('/').pop()
-                    path && props.multitab && localStorage.setItem(activemodelStateKey(props.key), path)
-                    return modelName
-                },
+                setModel: (_, { modelName }) => modelName,
             },
         ],
         allModels: [
@@ -148,39 +150,52 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             {
                 addModel: (state, { modelName }) => {
                     const newModels = [...state, modelName]
-                    const queries = newModels.map((model) => {
-                        return {
-                            query:
-                                props.monaco?.editor.getModel(model)?.getValue() ||
-                                (examples.DataWarehouse as DataVisualizationNode).source.query,
-                            path: model.path.split('/').pop(),
-                        }
-                    })
-                    props.multitab && localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
                     return newModels
                 },
                 removeModel: (state, { modelName }) => {
                     const newModels = state.filter((model) => model.toString() !== modelName.toString())
-                    const queries = newModels.map((model) => {
-                        return {
-                            query:
-                                props.monaco?.editor.getModel(model)?.getValue() ||
-                                (examples.DataWarehouse as DataVisualizationNode).source.query,
-                            path: model.path.split('/').pop(),
-                        }
-                    })
-                    props.multitab && localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
                     return newModels
                 },
                 setModels: (_, { models }) => models,
             },
         ],
-    })),
+    }),
     listeners(({ props, values, actions }) => ({
+        addModel: () => {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+                const queries = values.allModels.map((model) => {
+                    return {
+                        query:
+                            props.monaco?.editor.getModel(model)?.getValue() ||
+                            (examples.DataWarehouse as DataVisualizationNode).source.query,
+                        path: model.path.split('/').pop(),
+                    }
+                })
+                props.multitab && actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
+            }
+        },
+        removeModel: () => {
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+                const queries = values.allModels.map((model) => {
+                    return {
+                        query:
+                            props.monaco?.editor.getModel(model)?.getValue() ||
+                            (examples.DataWarehouse as DataVisualizationNode).source.query,
+                        path: model.path.split('/').pop(),
+                    }
+                })
+                props.multitab && actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
+            }
+        },
         setModel: ({ modelName }) => {
             if (props.monaco) {
                 const model = props.monaco.editor.getModel(modelName)
                 props.editor?.setModel(model)
+            }
+
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+                const path = modelName.path.split('/').pop()
+                path && props.multitab && actions.setLocalState(activemodelStateKey(props.key), path)
             }
         },
         deleteModel: ({ modelName }) => {
@@ -198,17 +213,22 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 actions.removeModel(modelName)
             }
         },
+        setLocalState: ({ key, value }) => {
+            localStorage.setItem(key, value)
+        },
         updateState: async (_, breakpoint) => {
             await breakpoint(100)
-            const queries = values.allModels.map((model) => {
-                return {
-                    query:
-                        props.monaco?.editor.getModel(model)?.getValue() ||
-                        (examples.DataWarehouse as DataVisualizationNode).source.query,
-                    path: model.path.split('/').pop(),
-                }
-            })
-            props.multitab && localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
+            if (values.featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR]) {
+                const queries = values.allModels.map((model) => {
+                    return {
+                        query:
+                            props.monaco?.editor.getModel(model)?.getValue() ||
+                            (examples.DataWarehouse as DataVisualizationNode).source.query,
+                        path: model.path.split('/').pop(),
+                    }
+                })
+                props.multitab && localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
+            }
         },
         createModel: () => {
             let currentModelCount = 1
