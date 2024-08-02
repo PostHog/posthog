@@ -11,25 +11,29 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, DataWarehouseTab, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSourceSchema } from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from '../dataWarehouseSourcesTableSyncMethodModalLogic'
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 
-export const Schemas = (): JSX.Element => {
-    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic)
+interface SchemasProps {
+    id: string
+}
+
+export const Schemas = ({ id }: SchemasProps): JSX.Element => {
+    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id }))
     return (
-        <>
+        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id }}>
             <SchemaTable schemas={source?.schemas ?? []} isLoading={sourceLoading} />
-        </>
+        </BindLogic>
     )
 }
 
@@ -150,7 +154,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             if (schema.table) {
                                 const query = defaultQuery(schema.table.name, schema.table.columns)
                                 return (
-                                    <Link to={urls.dataWarehouse(DataWarehouseTab.Explore, JSON.stringify(query))}>
+                                    <Link to={urls.dataWarehouse(JSON.stringify(query))}>
                                         <code>{schema.table.name}</code>
                                     </Link>
                                 )
