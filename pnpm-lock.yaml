@@ -148,6 +148,9 @@ dependencies:
   chartjs-plugin-stacked100:
     specifier: ^1.4.0
     version: 1.4.0(chart.js@4.4.3)
+  chartjs-plugin-trendline:
+    specifier: ^2.1.2
+    version: 2.1.2
   chokidar:
     specifier: ^3.5.3
     version: 3.5.3
@@ -10269,6 +10272,10 @@ packages:
       chart.js: '>=3.8.0'
     dependencies:
       chart.js: 4.4.3
+    dev: false
+
+  /chartjs-plugin-trendline@2.1.2:
+    resolution: {integrity: sha512-8XmGSI4I1tS3Balm0SsYWQjy4eNtY9aDSpErlD/Z+Zqlhfzir/p8U9zn3ahHsNolfVL/s35MgZ5jM+BCbCGP7A==}
     dev: false
 
   /check-more-types@2.24.0:

@@ -109,6 +109,7 @@
         "chartjs-plugin-crosshair": "^1.2.0",
         "chartjs-plugin-datalabels": "^2.2.0",
         "chartjs-plugin-stacked100": "^1.4.0",
+        "chartjs-plugin-trendline": "^2.1.2",
         "chokidar": "^3.5.3",
         "clsx": "^1.1.1",
         "core-js": "^3.32.0",
