@@ -16,6 +16,7 @@ const UNSUBSCRIBE_REASONS = [
     'Found a better alternative',
     'Poor customer support',
     'Too difficult to use',
+    'Not enough hedgehogs',
     'Other',
 ]
 
