@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, str::FromStr, time::Instant};
+use std::{collections::{HashMap, HashSet}, num::NonZeroUsize, str::FromStr, time::Instant};
 
 use lru::LruCache;
 use metrics::counter;
@@ -131,15 +131,15 @@ impl PropertyCache {
 
 #[derive(Default)]
 struct CacheUpdate {
-    event_def: Vec<EventDefinition>,
-    prop_defs: Vec<PropertyDefinition>,
-    event_props: Vec<EventPropertyKey>,
-    first_event: Vec<TeamId>,
+    event_defs: HashMap<EventDefinitionKey, EventDefinition>,
+    prop_defs: HashMap<PropertyDefinitionKey, PropertyDefinition>,
+    event_props: HashSet<EventPropertyKey>,
+    first_event: HashSet<TeamId>,
 }
 
 impl CacheUpdate {
     fn is_empty(&self) -> bool {
-        self.event_def.is_empty() && self.prop_defs.is_empty() && self.event_props.is_empty() && self.first_event.is_empty()
+        self.event_defs.is_empty() && self.prop_defs.is_empty() && self.event_props.is_empty() && self.first_event.is_empty()
     }
 
     async fn do_update(self, context: &AppContext) {
@@ -148,12 +148,12 @@ impl CacheUpdate {
         let mut event_prop_cache = context.property_cache.event_properties.lock().await;
         let mut first_event_cache = context.property_cache.team_first_event_cache.lock().await;
 
-        for def in self.event_def {
-            event_def_cache.put((&def).into(), def);
+        for (key, def) in self.event_defs {
+            event_def_cache.put(key, def);
         }
 
-        for def in self.prop_defs {
-            prop_def_cache.put((&def).into(), def);
+        for (key, def) in self.prop_defs {
+            prop_def_cache.put(key, def);
         }
 
         for key in self.event_props {
@@ -166,10 +166,6 @@ impl CacheUpdate {
     }
 }
 
-// TODO - there is a problem here - because cache updates are saved until /after/ processing every event, every update
-// *within* a transaction batch will be saved, even if a previous event in the same batch would have caused the same update.
-// This isn't the end of the world, but does mean on startup or when operating on a very homogenous event stream, we're harder
-// on th DB than we need to be.
 pub async fn handle_event_batch(events: Vec<Event>, context: &AppContext) -> Result<(), CacheError> {
     let start = Instant::now();
     let mut txn = context.pool.begin().await?;
@@ -183,7 +179,7 @@ pub async fn handle_event_batch(events: Vec<Event>, context: &AppContext) -> Res
 
     let update_needed = !update.is_empty();
     if update_needed {
-        counter!("event_definitions_updated").increment(update.event_def.len() as u64);
+        counter!("event_definitions_updated").increment(update.event_defs.len() as u64);
         counter!("property_definitions_updated").increment(update.prop_defs.len() as u64);
         counter!("event_properties_updated").increment(update.event_props.len() as u64);
         counter!("team_first_event_updated").increment(update.first_event.len() as u64);
@@ -209,31 +205,41 @@ async fn handle_event<'c>(event: Event, txn: &mut Transaction<'c> ,context: &App
         return Ok(())
     }
 
-    let event_def_update = update_event_definitions(txn, &context, &event).await?;
-    let prop_def_updates = update_property_definitions(txn, &context, &event).await?;
-    let event_prop_updates = update_event_properties(txn, &context, &event).await?;
-    let first_event_update = update_team_first_event(txn, &context, &event).await?;
+    let event_def_update = update_event_definitions(txn, &context, &event, update).await?;
+    let prop_def_updates = update_property_definitions(txn, &context, &event, update).await?;
+    let event_prop_updates = update_event_properties(txn, &context, &event, update).await?;
+    let first_event_update = update_team_first_event(txn, &context, &event, update).await?;
 
     if let Some(event_def) = event_def_update {
-        update.event_def.push(event_def);
+        update.event_defs.insert((&event_def).into(), event_def);
     }
 
-    update.prop_defs.extend(prop_def_updates);
-    update.event_props.extend(event_prop_updates);
+    for prop_def in prop_def_updates {
+        update.prop_defs.insert((&prop_def).into(), prop_def);
+    }
+    
+    for prop in event_prop_updates {
+        update.event_props.insert(prop);
+    }
 
     if let Some(first_event) = first_event_update {
-        update.first_event.push(first_event);
+        update.first_event.insert(first_event);
     }
 
 
     Ok(())
 }
 
-async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event) -> Result<Option<EventDefinition>, CacheError> {
+async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event, update: &mut CacheUpdate) -> Result<Option<EventDefinition>, CacheError> {
     let mut new_definition: EventDefinition = event.into();
     new_definition.set_last_seen();
 
     let key = (&new_definition).into();
+
+    // If a previous event in this transaction batch already touched this key, we can skip it
+    if update.event_defs.contains_key(&key) {
+        return Ok(None);
+    }
 
     let mut cache_guard = context.property_cache.event_definitions.lock().await;
 
@@ -271,7 +277,7 @@ async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppCon
     Ok(None)
 }
 
-async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event) -> Result<Vec<PropertyDefinition>, CacheError> {
+async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event, update: &mut CacheUpdate) -> Result<Vec<PropertyDefinition>, CacheError> {
     let found_props = event.get_properties(context).await?;
 
     let mut updates = Vec::with_capacity(found_props.len());
@@ -279,6 +285,12 @@ async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &App
     for found in found_props {
 
         let key = (&found).into();
+
+        // If a previous event in this transaction batch already touched this key, we can skip it
+        if update.prop_defs.contains_key(&key) {
+            continue;
+        }
+
         let mut lock = context.property_cache.property_definitions.lock().await;
         let known = lock.get(&key);
 
@@ -303,18 +315,27 @@ async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &App
     Ok(updates)
 }
 
-async fn update_event_properties<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event) -> Result<Vec<EventPropertyKey>, CacheError> {
+async fn update_event_properties<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event, update: &mut CacheUpdate) -> Result<Vec<EventPropertyKey>, CacheError> {
     let Some(Ok(Value::Object(props))) = event.properties.as_ref().map(|s| Value::from_str(s)) else {
         return Ok(vec![]);
     };
 
-    let cache_guard = context.property_cache.event_properties.lock().await;
-
+    
     let new_keys = props.keys()
         .filter(|k| !SKIP_PROPERTIES.contains(&k.as_str()))
         .map(|k| EventPropertyKey::new(event.team_id, &event.event, k))
-        .filter(|p| !cache_guard.contains(p)).collect::<Vec<EventPropertyKey>>();
+        .filter(|k| !update.event_props.contains(k)).collect::<Vec<EventPropertyKey>>();
 
+    // If every key found is already part of our update set, we can short-circuit and skip both lock taking and touching the DB
+    if new_keys.is_empty() {
+        return Ok(vec![]);
+    };
+
+    // Filter out keys already in the cache
+    let cache_guard = context.property_cache.event_properties.lock().await;
+    let new_keys = new_keys
+        .into_iter()
+        .filter(|p| !cache_guard.contains(p)).collect::<Vec<EventPropertyKey>>();
     drop(cache_guard);
 
     for key in &new_keys {
@@ -324,8 +345,13 @@ async fn update_event_properties<'c>(db: &mut Transaction<'c>, context: &AppCont
     Ok(new_keys)
 }
 
-async fn update_team_first_event<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event) -> Result<Option<TeamId>, CacheError> {
+async fn update_team_first_event<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event, update: &mut CacheUpdate) -> Result<Option<TeamId>, CacheError> {
     let team_id = event.team_id;
+
+    if update.first_event.contains(&team_id) {
+        return Ok(None);
+    }
+
     let cache_guard = context.property_cache.team_first_event_cache.lock().await;
     let seen = cache_guard.contains(&team_id);
     drop(cache_guard);
