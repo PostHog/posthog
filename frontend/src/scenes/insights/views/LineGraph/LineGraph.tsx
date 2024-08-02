@@ -558,11 +558,12 @@ export function LineGraph_({
                         const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
 
                         const chartClientLeft = bounds.left + window.pageXOffset
-                        const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
+                        const gap = 4
+                        const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + gap)
                         const maxXPosition = bounds.right - tooltipEl.clientWidth
                         const tooltipClientLeft =
                             defaultOffsetLeft > maxXPosition
-                                ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
+                                ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - gap // If tooltip is too large (or close to the edge), show it to the left of the data point instead
                                 : defaultOffsetLeft
 
                         tooltipEl.style.top = tooltipClientTop + 'px'
