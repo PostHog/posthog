@@ -72,10 +72,6 @@ impl From<&PropertyDefinition> for PropertyDefinitionKey {
 type EventDefinitionCache = LruCache<EventDefinitionKey, EventDefinition>;
 type EventPropertyCache = LruCache<EventPropertyKey, bool>; // We don't actually need a value here, we just need to know if we've seen it before, since this is basically a join
 type TeamFirstEventCache = LruCache<TeamId, bool>;
-// TODO - this is a divergence from the TS impl, which maintains a permanent Map<TeamId, LRU>, meaning
-// cache invalidation happens on property definition bases across all teams, rather than here, where we're
-// doing it on a per-team basis. I'm open to changing this, but as a start point, it feels ok to do it
-// this way. The caches above are all identical to the TS impl.
 type PropertyDefinitionCache = LruCache<PropertyDefinitionKey, PropertyDefinition>;
 
 type Transaction<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
@@ -170,6 +166,10 @@ impl CacheUpdate {
     }
 }
 
+// TODO - there is a problem here - because cache updates are saved until /after/ processing every event, every update
+// *within* a transaction batch will be saved, even if a previous event in the same batch would have caused the same update.
+// This isn't the end of the world, but does mean on startup or when operating on a very homogenous event stream, we're harder
+// on th DB than we need to be.
 pub async fn handle_event_batch(events: Vec<Event>, context: &AppContext) -> Result<(), CacheError> {
     let start = Instant::now();
     let mut txn = context.pool.begin().await?;
