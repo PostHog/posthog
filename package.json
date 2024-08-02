@@ -217,6 +217,7 @@
         "@testing-library/react-hooks": "^8.0.1",
         "@testing-library/user-event": "^13.5.0",
         "@types/chartjs-plugin-crosshair": "^1.1.1",
+        "@types/chartjs-plugin-trendline": "^1.0.4",
         "@types/clone": "^2.1.1",
         "@types/d3": "^7.4.0",
         "@types/d3-sankey": "^0.12.1",
