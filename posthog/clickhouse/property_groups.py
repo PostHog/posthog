@@ -1,4 +1,4 @@
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass
 
 
@@ -21,7 +21,7 @@ class PropertyGroupManager:
     def __get_map_expression(self, definition: PropertyGroupDefinition) -> str:
         return f"mapSort(mapFilter((key, _) -> {definition.filter_expression}, CAST(JSONExtractKeysAndValues({self.__source_column}, 'String'), 'Map(String, String)')))"
 
-    def get_alter_table_statements(self, name: str) -> str:
+    def get_alter_table_statements(self, name: str) -> Iterable[str]:
         column_name = f"{self.__source_column}_group_{name}"
         definition = self.__groups[name]
         return [
