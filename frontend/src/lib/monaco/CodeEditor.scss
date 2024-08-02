@@ -10,6 +10,8 @@
 .CodeEditorResizeable,
 .CodeEditorInline {
     .monaco-editor {
+        --vscode-textLink-foreground: transparent;
+        --vscode-focusBorder: transparent;
         border-radius: var(--radius);
 
         .overflow-guard {

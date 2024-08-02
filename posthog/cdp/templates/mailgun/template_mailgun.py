@@ -16,12 +16,14 @@ if (empty(inputs.from)) {
 }
 
 fn multiPartFormEncode(data) {
-    let uuid := generateUUIDv4()
-    let boundary := f'----{uuid}'
-    let body := f'--{boundary}\\r\\n'
+    let boundary := f'---011000010111000001101001'
+    let bodyBoundary := f'--{boundary}\\r\\n'
+    let body := bodyBoundary
 
     for (let key, value in data) {
-        body := f'{body}Content-Disposition: form-data; name="{key}"\\r\\n\\r\\n{value}\\r\\n--{boundary}\\r\\n'
+        if (not empty(value)) {
+            body := f'{body}Content-Disposition: form-data; name="{key}"\\r\\n\\r\\n{value}\\r\\n{bodyBoundary}'
+        }
     }
 
     return {
@@ -87,47 +89,11 @@ if (res.status >= 400) {
             "required": True,
         },
         {
-            "key": "to",
-            "type": "string",
-            "label": "Email of the user",
-            "description": "Email address of the recipient(s). Example: 'Bob <bob@host.com>'. You can use commas to separate multiple recipients",
-            "default": "{person.properties.email}",
+            "key": "template",
+            "type": "email",
+            "label": "Email template",
             "secret": False,
             "required": True,
-        },
-        {
-            "key": "from",
-            "type": "string",
-            "label": "Email address to be sent from",
-            "default": "",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "subject",
-            "type": "string",
-            "label": "Email subject",
-            "default": "",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "html",
-            "type": "string",
-            "label": "HTML content",
-            "description": "HTML content of the email",
-            "default": "hello world",
-            "secret": False,
-            "required": False,
-        },
-        {
-            "key": "text",
-            "type": "string",
-            "label": "Text content",
-            "description": "Text content of the email",
-            "default": "hello world",
-            "secret": False,
-            "required": False,
         },
     ],
     filters={

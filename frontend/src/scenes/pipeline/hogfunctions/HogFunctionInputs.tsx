@@ -23,6 +23,8 @@ import { useEffect, useState } from 'react'
 
 import { HogFunctionInputSchemaType, HogFunctionInputType } from '~/types'
 
+import { EmailTemplater } from './email-templater/EmailTemplater'
+import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
@@ -38,7 +40,7 @@ export type HogFunctionInputWithSchemaProps = {
     schema: HogFunctionInputSchemaType
 }
 
-const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration'] as const
+const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 function JsonConfigField(props: {
     onChange?: (value: string) => void
@@ -64,6 +66,27 @@ function JsonConfigField(props: {
             }}
             globals={exampleInvocationGlobalsWithInputs}
         />
+    )
+}
+
+function EmailTemplateField({
+    onChange,
+    value,
+}: {
+    onChange?: (value: EmailTemplate) => void
+    className?: string
+    value?: EmailTemplate
+}): JSX.Element {
+    const { exampleInvocationGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+
+    return (
+        <>
+            <EmailTemplater
+                value={value}
+                onChange={(x) => onChange?.(x)}
+                globals={exampleInvocationGlobalsWithInputs}
+            />
+        </>
     )
 }
 
@@ -165,6 +188,8 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
             return <HogFunctionInputIntegration schema={schema} value={value} onChange={onChange} />
         case 'integration_field':
             return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
+        case 'email':
+            return <EmailTemplateField value={value} onChange={onChange} />
         default:
             return (
                 <strong className="text-danger">

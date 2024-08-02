@@ -35,30 +35,30 @@ class TestTemplateMailgunSendEmail(BaseHogFunctionTemplateTest):
                     "method": "POST",
                     "headers": {
                         "Authorization": "Basic YXBpOkFQSV9LRVk=",
-                        "Content-Type": "multipart/form-data; boundary=----bcf493bf-5640-4519-817e-610dc1ba48bd",
+                        "Content-Type": "multipart/form-data; boundary=---011000010111000001101001",
                     },
                     "body": """\
-------bcf493bf-5640-4519-817e-610dc1ba48bd\r
+-----011000010111000001101001\r
 Content-Disposition: form-data; name="from"\r
 \r
 noreply@posthog.com\r
-------bcf493bf-5640-4519-817e-610dc1ba48bd\r
+-----011000010111000001101001\r
 Content-Disposition: form-data; name="to"\r
 \r
 example@posthog.com\r
-------bcf493bf-5640-4519-817e-610dc1ba48bd\r
+-----011000010111000001101001\r
 Content-Disposition: form-data; name="subject"\r
 \r
 TEST SUBJECT\r
-------bcf493bf-5640-4519-817e-610dc1ba48bd\r
+-----011000010111000001101001\r
 Content-Disposition: form-data; name="text"\r
 \r
 Test\r
-------bcf493bf-5640-4519-817e-610dc1ba48bd\r
+-----011000010111000001101001\r
 Content-Disposition: form-data; name="html"\r
 \r
 <h1>Test</h1>\r
-------bcf493bf-5640-4519-817e-610dc1ba48bd\r
+-----011000010111000001101001\r
 """,
                 },
             )
