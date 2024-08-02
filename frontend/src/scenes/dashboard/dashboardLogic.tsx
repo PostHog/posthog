@@ -455,7 +455,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return {
                             ...state,
                             tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
-                        } as DashboardType
+                        } as DashboardType<QueryBasedInsightModel>
                     }
 
                     return null
@@ -463,7 +463,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
                 },
-                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }): DashboardType | null => {
+                [insightsModel.actionTypes.renameInsightSuccess]: (
+                    state,
+                    { item }
+                ): DashboardType<QueryBasedInsightModel> | null => {
                     const tileIndex = state?.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
                     const tiles = state?.tiles.slice(0)
 
@@ -483,7 +486,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return {
                         ...state,
                         tiles,
-                    } as DashboardType
+                    } as DashboardType<QueryBasedInsightModel>
                 },
             },
         ],
