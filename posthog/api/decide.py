@@ -74,6 +74,11 @@ def get_decide(request: HttpRequest):
     if request.method == "POST":
         try:
             data = load_data_from_request(request)
+            if data is None:
+                return cors_response(
+                    request,
+                    generate_exception_response("decide", "Failed to parse request data", code="unparseable_data"),
+                )
             api_version_string = request.GET.get("v")
             # NOTE: This does not support semantic versioning e.g. 2.1.0
             api_version = int(api_version_string) if api_version_string else 1

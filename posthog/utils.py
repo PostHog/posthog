@@ -658,13 +658,19 @@ def decompress(data: Any, compression: str):
                 fallback = decompress(data, "gzip")
                 KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
                 return fallback
-            except Exception as inner:
-                # re-trying with compression set didn't succeed, throw original error
-                raise RequestParsingError("Invalid JSON: {}".format(str(error_main))) from inner
+            except Exception:
+                # re-trying with compression set didn't succeed, log error and return None
+                logger.warning(f"Failed to parse JSON after all attempts: {str(error_main)}")
+                # Right now we have a ton of non-actionable Sentry errors
+                # (e.g. https://posthog.sentry.io/issues/5296315667/events/db135023155f4d69a0826d163de990a5/)
+                # so we're just going to log this one.  At this point, we've tried all the decompression methods
+                # we know about, so it's likely that the data is just not valid.  We don't need to alert on this.
+                # We'll increment a counter, though, so we can track how often this happens.
+                KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_all_attempts").inc()
+                return None
         else:
             raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
 
-    # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
 
