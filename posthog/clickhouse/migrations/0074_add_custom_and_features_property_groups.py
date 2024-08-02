@@ -5,6 +5,6 @@ operations = [
     run_sql_with_exceptions(statement)
     for statement in [
         *event_property_groups.get_alter_table_statements("custom"),
-        *event_property_groups.get_alter_table_statements("features"),
+        *event_property_groups.get_alter_table_statements("feature_flags"),
     ]
 ]
