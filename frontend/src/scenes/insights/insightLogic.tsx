@@ -1,5 +1,5 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -56,7 +56,7 @@ export const createEmptyInsight = (
     result: null,
 })
 
-export const insightLogic = kea<insightLogicType>([
+export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
