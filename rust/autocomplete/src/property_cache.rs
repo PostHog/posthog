@@ -6,7 +6,7 @@ use sqlx::{Executor, Postgres};
 use thiserror::Error;
 use chrono::{Duration, Utc};
 use tokio::sync::Mutex;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{app_context::{AppContext}, types::{Event, EventDefinition, PropertyDefinition, TeamId}};
 
@@ -131,7 +131,64 @@ impl PropertyCache {
         self.team_first_event_cache.lock().await.clear();
     }
 }
-pub async fn handle_event(event: Event, context: &AppContext) -> Result<(), CacheError> {
+
+#[derive(Default)]
+struct CacheUpdate {
+    event_def: Vec<EventDefinition>,
+    prop_defs: Vec<PropertyDefinition>,
+    event_props: Vec<EventPropertyKey>,
+    first_event: Vec<TeamId>,
+}
+
+impl CacheUpdate {
+    fn is_empty(&self) -> bool {
+        self.event_def.is_empty() && self.prop_defs.is_empty() && self.event_props.is_empty() && self.first_event.is_empty()
+    }
+
+    async fn do_update(self, context: &AppContext) {
+        let mut event_def_cache = context.property_cache.event_definitions.lock().await;
+        let mut prop_def_cache = context.property_cache.property_definitions.lock().await;
+        let mut event_prop_cache = context.property_cache.event_properties.lock().await;
+        let mut first_event_cache = context.property_cache.team_first_event_cache.lock().await;
+
+        for def in self.event_def {
+            event_def_cache.put((&def).into(), def);
+        }
+
+        for def in self.prop_defs {
+            prop_def_cache.put((&def).into(), def);
+        }
+
+        for key in self.event_props {
+            event_prop_cache.put(key, true);
+        }
+
+        for team_id in self.first_event {
+            first_event_cache.put(team_id, true);
+        }
+    }
+}
+
+pub async fn handle_event_batch(events: Vec<Event>, context: &AppContext) -> Result<(), CacheError> {
+    let mut txn = context.pool.begin().await?;
+    info!("Handling transaction batch of {} events", events.len());
+
+    let mut update = CacheUpdate::default();
+    for event in events {
+        handle_event(event, &mut txn, context, &mut update).await?;
+    }
+
+    
+    if !update.is_empty() {
+        info!("Committing transaction with {} updates", update.event_def.len() + update.prop_defs.len() + update.event_props.len() + update.first_event.len());
+        txn.commit().await?;
+        update.do_update(context).await;
+    }
+
+    Ok(())
+}
+
+async fn handle_event<'c>(event: Event, txn: &mut Transaction<'c> ,context: &AppContext, update: &mut CacheUpdate) -> Result<(), CacheError> {
 
     
     if SKIP_EVENTS.contains(&event.event.as_str()) {
@@ -143,49 +200,20 @@ pub async fn handle_event(event: Event, context: &AppContext) -> Result<(), Cach
         return Ok(())
     }
 
+    let event_def_update = update_event_definitions(txn, &context, &event).await?;
+    let prop_def_updates = update_property_definitions(txn, &context, &event).await?;
+    let event_prop_updates = update_event_properties(txn, &context, &event).await?;
+    let first_event_update = update_team_first_event(txn, &context, &event).await?;
 
-    // We structure this such that we don't update out cache if the transaction fails, to prevent ignoring
-    // future updates to the DB that might be needed. This means we end up contending on the cache locks a
-    // little bit more, but I think the correctness is worth it. The alternative is to periodically flush
-    // the cache, so we're guarenteed to /eventually/ write anything seen frequently, but that means more
-    // DB writes, so, :shrug:
-    // TODO - It would be much nicer to figure out if we need a transaction, AND THEN create one, rather than
-    // preemptively creating one. SQLx has query builder, but you lose a lot of nice stuff if you use them :/
-    let mut txn = context.pool.begin().await?;
-
-    let event_def_update = update_event_definitions(&mut txn, &context, &event).await?;
-    let prop_def_updates = update_property_definitions(&mut txn, &context, &event).await?;
-    let event_prop_updates = update_event_properties(&mut txn, &context, &event).await?;
-    let first_event_update = update_team_first_event(&mut txn, &context, &event).await?;
-
-    let need_to_commit = event_def_update.is_some() || prop_def_updates.len() > 0 || event_prop_updates.len() > 0 || first_event_update.is_some();
-
-    if need_to_commit {
-        txn.commit().await?;
-    } else {
-        txn.rollback().await?;
+    if let Some(event_def) = event_def_update {
+        update.event_def.push(event_def);
     }
 
-    if let Some(update) = event_def_update {
-        context.property_cache.event_definitions.lock().await.put((&update).into(), update);
-    }
+    update.prop_defs.extend(prop_def_updates);
+    update.event_props.extend(event_prop_updates);
 
-    if prop_def_updates.len() > 0 {
-        let mut lock = context.property_cache.property_definitions.lock().await;
-        for update in prop_def_updates {
-            lock.put((&update).into(), update);
-        }
-    }
-
-    if event_prop_updates.len() > 0 {
-        let mut lock = context.property_cache.event_properties.lock().await;
-        for update in event_prop_updates {
-            lock.put(update, true);
-        }
-    }
-
-    if let Some(team_id) = first_event_update {
-        context.property_cache.team_first_event_cache.lock().await.put(team_id, true);
+    if let Some(first_event) = first_event_update {
+        update.first_event.push(first_event);
     }
 
 
@@ -204,6 +232,7 @@ async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppCon
 
     // The event is totally new, so add the DB insert to the txn and return the cache update
     let Some(existing) = existing else {
+        drop(cache_guard);
         new_definition.upsert(&mut **db).await?;
         return Ok(Some(new_definition));
     };
@@ -214,6 +243,7 @@ async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppCon
         // we clone the existing defintion, update it's last time, use it to update the transaction,
         // and then return it to be "re-inserted" into the cache.
         let mut clone = existing.clone();
+        drop(cache_guard);
         clone.set_last_seen();
         clone.upsert(&mut **db).await?;
         return Ok(Some(clone));
@@ -223,6 +253,7 @@ async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppCon
     if LAST_SEEN_AT_UPDATE_LAG < (Utc::now() - found_last_seen) {
         // We handle last seen updates exactly the same as if we didn't have a last seen field
         let mut clone = existing.clone();
+        drop(cache_guard);
         clone.set_last_seen();
         clone.upsert(&mut **db).await?;
         return Ok(Some(clone));
@@ -244,6 +275,7 @@ async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &App
 
         // We've never seen this property before, so insert it
         let Some(known) = known else {
+            drop(lock);
             found.upsert(&mut **db).await?;
             updates.push(found);
             continue;
@@ -252,6 +284,7 @@ async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &App
         // If we have a null we can update, do it.
         if known.property_type.is_none() && found.property_type.is_some() {
             let mut clone = known.clone();
+            drop(lock);
             clone.property_type = found.property_type;
             clone.upsert(&mut **db).await?;
             updates.push(clone);
@@ -273,6 +306,8 @@ async fn update_event_properties<'c>(db: &mut Transaction<'c>, context: &AppCont
         .map(|k| EventPropertyKey::new(event.team_id, &event.event, k))
         .filter(|p| !cache_guard.contains(p)).collect::<Vec<EventPropertyKey>>();
 
+    drop(cache_guard);
+
     for key in &new_keys {
         key.upsert(&mut **db).await?;
     }
@@ -284,6 +319,7 @@ async fn update_team_first_event<'c>(db: &mut Transaction<'c>, context: &AppCont
     let team_id = event.team_id;
     let cache_guard = context.property_cache.team_first_event_cache.lock().await;
     let seen = cache_guard.contains(&team_id);
+    drop(cache_guard);
 
     if seen {
         return Ok(None);

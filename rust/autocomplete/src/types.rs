@@ -253,7 +253,9 @@ impl EventDefinition {
             .execute(db)
             .await
             .map_err(CacheError::from)
-            .map(|_| ())
+            .map(|_| ())?;
+
+        Ok(())
     }
 }
 
