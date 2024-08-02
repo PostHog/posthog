@@ -29,7 +29,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogic, queryFromFilters } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {
@@ -75,7 +75,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         id: 42,
         short_id: Insight42,
         result: ['result 42'],
-        filters: API_FILTERS,
+        query: queryFromFilters(API_FILTERS),
         dashboards: [],
         dashboard_tiles: [],
         saved: true,
@@ -465,7 +465,7 @@ describe('insightLogic', () => {
     test('keeps saved name, description, tags', async () => {
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43, false), filters: API_FILTERS },
+            cachedInsight: { ...createEmptyInsight(Insight43, false), query: queryFromFilters(API_FILTERS) },
         }
 
         logic = insightLogic(insightProps)
@@ -531,7 +531,7 @@ describe('insightLogic', () => {
             dashboardItemId: Insight42,
             cachedInsight: {
                 short_id: Insight42,
-                filters: { insight: InsightType.FUNNELS },
+                query: examples.FunnelsQuery,
                 result: {},
             },
         }
@@ -590,7 +590,7 @@ describe('insightLogic', () => {
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
-                query: { kind: NodeKind.InsightVizNode, source: examples.InsightFunnelsQuery },
+                query: examples.FunnelsQuery,
             },
         }
 
@@ -676,7 +676,7 @@ describe('insightLogic', () => {
         it('reacts to removal from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 42 } } as DashboardTile,
+                    tile: { insight: { id: 42 } } as DashboardTile<QueryBasedInsightModel>,
                     dashboardId: 3,
                 })
             })
@@ -703,7 +703,7 @@ describe('insightLogic', () => {
 
         it('reacts to deletion of dashboard', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType<QueryBasedInsightModel>)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -714,7 +714,7 @@ describe('insightLogic', () => {
 
         it('does not reacts to deletion of dashboard it is not on', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType<QueryBasedInsightModel>)
             })
                 .toFinishAllListeners()
                 .toMatchValues({

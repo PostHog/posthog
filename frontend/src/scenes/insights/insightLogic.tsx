@@ -356,7 +356,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 (values.queryBasedInsight.short_id ? await getInsightId(values.queryBasedInsight.short_id) : undefined)
             const { name, description, favorited, deleted, dashboards, tags } = values.legacyInsight
 
-            let savedInsight: InsightModel
+            let savedInsight: QueryBasedInsightModel
 
             try {
                 // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
@@ -372,9 +372,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     tags,
                 }
 
-                const options: InsightsApiOptions<false> = {
+                const options: InsightsApiOptions<true> = {
                     writeAsQuery: values.queryBasedInsightSaving,
-                    readAsQuery: false,
+                    readAsQuery: true,
                 }
                 savedInsight = insightNumericId
                     ? await insightsApi.update(insightNumericId, insightRequest, options)

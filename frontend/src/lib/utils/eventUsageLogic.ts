@@ -694,7 +694,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             for (const item of dashboard.tiles || []) {
                 if (item.insight) {
                     const query = isNodeWithSource(item.insight.query) ? item.insight.query.source : item.insight.query
-                    const key = `${query.kind}_count`
+                    const key = `${query?.kind || !!item.text ? 'text' : 'empty'}_count`
                     if (!properties[key]) {
                         properties[key] = 1
                     } else {

@@ -1049,7 +1049,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             'force_cache',
                             methodOptions
                         )
-                        dashboardsModel.actions.updateDashboardInsight(polledInsight)
+                        dashboardsModel.actions.updateDashboardInsight(polledInsight!)
                         actions.setRefreshStatus(insight.short_id)
                     }
                 } catch (e: any) {
