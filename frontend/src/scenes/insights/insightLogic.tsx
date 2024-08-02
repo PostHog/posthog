@@ -25,6 +25,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { Node } from '~/queries/schema'
 import {
     FilterType,
     InsightLogicProps,
