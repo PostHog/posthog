@@ -1,5 +1,5 @@
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
@@ -17,11 +17,10 @@ export const DisplayTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col w-full">
-            <LemonLabel>Chart settings</LemonLabel>
-
-            <div className="mt-1 mb-2">
-                <LemonLabel className="mt-2 mb-1">Begin Y axis at zero</LemonLabel>
-                <LemonCheckbox
+            <div className="mt-1 mb-2 flex">
+                <LemonSwitch
+                    className="flex-1"
+                    label="Begin Y axis at zero"
                     checked={chartSettings.yAxisAtZero ?? true}
                     onChange={(value) => {
                         updateChartSettings({ yAxisAtZero: value })
@@ -30,9 +29,10 @@ export const DisplayTab = (): JSX.Element => {
             </div>
 
             {isStackedBarChart && (
-                <div className="mt-1 mb-2">
-                    <LemonLabel className="mt-2 mb-1">Stack bars 100%</LemonLabel>
-                    <LemonCheckbox
+                <div className="mt-1 mb-2 flex">
+                    <LemonSwitch
+                        className="flex-1"
+                        label="Stack bars 100%"
                         checked={chartSettings.stackBars100 ?? false}
                         onChange={(value) => {
                             updateChartSettings({ stackBars100: value })
@@ -69,10 +69,10 @@ export const DisplayTab = (): JSX.Element => {
                         />
                     </div>
                 ))}
+                <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusSmall />} fullWidth>
+                    Add goal line
+                </LemonButton>
             </div>
-            <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusSmall />} fullWidth>
-                Add goal line
-            </LemonButton>
         </div>
     )
 }
