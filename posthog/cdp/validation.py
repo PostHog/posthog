@@ -82,9 +82,12 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
-            for key in ["from", "to", "subject", "html", "text"]:
+            for key in ["from", "to", "subject"]:
                 if not value.get(key):
-                    raise serializers.ValidationError({"inputs": {name: f"Value must contain '{key}' key."}})
+                    raise serializers.ValidationError({"inputs": {name: f"Missing value for '{key}'."}})
+
+            if not value.get("text") and not value.get("html"):
+                raise serializers.ValidationError({"inputs": {name: f"Either 'text' or 'html' is required."}})
 
         try:
             if value:

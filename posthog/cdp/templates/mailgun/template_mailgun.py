@@ -32,13 +32,12 @@ fn multiPartFormEncode(data) {
     }
 }
 
-
 let form := multiPartFormEncode({
-    'from': inputs.from,
-    'to': inputs.to,
-    'subject': inputs.subject,
-    'text': inputs.text,
-    'html': inputs.html
+    'from': inputs.template.from,
+    'to': inputs.template.to,
+    'subject': inputs.template.subject,
+    'text': inputs.template.text,
+    'html': inputs.template.html
 })
 
 let res := fetch(f'https://{inputs.host}/v3/{inputs.domain_name}/messages', {
