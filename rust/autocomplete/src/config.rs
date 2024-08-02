@@ -47,9 +47,8 @@ pub struct KafkaConfig {
     #[envconfig(default = "false")]
     pub verify_ssl_certificate: bool,
     #[envconfig(default = "autocomplete-rs")]
-    pub consumer_group: String
+    pub consumer_group: String,
 }
-
 
 impl From<&KafkaConfig> for ClientConfig {
     fn from(config: &KafkaConfig) -> Self {
@@ -61,9 +60,10 @@ impl From<&KafkaConfig> for ClientConfig {
             .set("enable.auto.offset.store", "false"); // We store on a per-message basis anyway right now, but this is for later if we decide to work in batches
 
         if config.kafka_tls {
-            client_config
-                .set("security.protocol", "ssl")
-                .set("enable.ssl.certificate.verification", config.verify_ssl_certificate.to_string());
+            client_config.set("security.protocol", "ssl").set(
+                "enable.ssl.certificate.verification",
+                config.verify_ssl_certificate.to_string(),
+            );
         };
         client_config
     }

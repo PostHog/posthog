@@ -1,14 +1,16 @@
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use sqlx::{Executor, Postgres};
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::{app_context::AppContext, property_cache::{CacheError, SKIP_PROPERTIES}};
-
+use crate::{
+    app_context::AppContext,
+    property_cache::{CacheError, SKIP_PROPERTIES},
+};
 
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TeamId(pub i32);
@@ -25,7 +27,7 @@ pub enum PropertyParentType {
     Event = 1,
     Person = 2,
     Group = 3,
-    Session = 4
+    Session = 4,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -34,7 +36,7 @@ pub enum PropertyValueType {
     String,
     Numeric,
     Boolean,
-    Duration
+    Duration,
 }
 
 impl ToString for PropertyValueType {
@@ -44,7 +46,7 @@ impl ToString for PropertyValueType {
             PropertyValueType::String => "String".to_string(),
             PropertyValueType::Numeric => "Numeric".to_string(),
             PropertyValueType::Boolean => "Boolean".to_string(),
-            PropertyValueType::Duration => "Duration".to_string()
+            PropertyValueType::Duration => "Duration".to_string(),
         }
     }
 }
@@ -60,8 +62,8 @@ pub struct PropertyDefinition {
     pub event_type: Option<PropertyParentType>,
     pub group_type_index: Option<i32>, // This is an i16 in the DB, but the groups table uses i16's, so we use that here and only downconvert on insert/read
     pub property_type_format: Option<String>, // This is deprecated, so don't bother validating it through serde
-    pub volume_30_day: Option<i64>, // Deprecated
-    pub query_usage_30_day: Option<i64>, // Deprecated
+    pub volume_30_day: Option<i64>,           // Deprecated
+    pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
 #[derive(Clone, Debug, Serialize, Eq, PartialEq)]
@@ -69,19 +71,16 @@ pub struct EventDefinition {
     pub id: Uuid,
     pub name: String,
     pub team_id: TeamId,
-    #[serde(
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_seen_at: Option<DateTime<Utc>>, // Defaults to RFC 3339
 }
-
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Event {
     pub team_id: TeamId,
     pub event: String,
     // Events in clickhouse_json have their properties as a raw string, so we have to parse it.
-    pub properties: Option<String>
+    pub properties: Option<String>,
 }
 
 impl From<&Event> for EventDefinition {
@@ -90,13 +89,16 @@ impl From<&Event> for EventDefinition {
             id: Uuid::now_v7(),
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
-            last_seen_at: None
+            last_seen_at: None,
         }
     }
 }
 
 impl Event {
-    pub async fn get_properties(&self, context: &AppContext) -> Result<Vec<PropertyDefinition>, sqlx::Error> {
+    pub async fn get_properties(
+        &self,
+        context: &AppContext,
+    ) -> Result<Vec<PropertyDefinition>, sqlx::Error> {
         let Some(props) = &self.properties else {
             return Ok(vec![]);
         };
@@ -113,7 +115,10 @@ impl Event {
             let Some(Value::String(group_type)) = props.get("$group_type") else {
                 return Ok(vec![]);
             };
-            let group_type_index = context.group_type_cache.get_group_type_index(self.team_id, group_type).await?;
+            let group_type_index = context
+                .group_type_cache
+                .get_group_type_index(self.team_id, group_type)
+                .await?;
 
             let Some(group_properties) = props.get("$group_set") else {
                 return Ok(vec![]);
@@ -122,24 +127,41 @@ impl Event {
             let Value::Object(group_properties) = group_properties else {
                 return Ok(vec![]);
             };
-            return Ok(self.get_props_from_object(group_properties, PropertyParentType::Group, group_type_index))
+            return Ok(self.get_props_from_object(
+                group_properties,
+                PropertyParentType::Group,
+                group_type_index,
+            ));
         }
 
         let mut flat_props = self.get_props_from_object(&props, PropertyParentType::Event, None);
 
         if let Some(Value::Object(set_props)) = props.get("$set") {
-            flat_props.extend(self.get_props_from_object(set_props, PropertyParentType::Person, None));
+            flat_props.extend(self.get_props_from_object(
+                set_props,
+                PropertyParentType::Person,
+                None,
+            ));
         }
         if let Some(Value::Object(set_once_props)) = props.get("$set_once") {
-            flat_props.extend(self.get_props_from_object(set_once_props, PropertyParentType::Person, None));
+            flat_props.extend(self.get_props_from_object(
+                set_once_props,
+                PropertyParentType::Person,
+                None,
+            ));
         }
 
         Ok(flat_props)
     }
 
-    fn get_props_from_object(&self, set: &Map<String, Value>, parent_type: PropertyParentType, group_type_index: Option<i32>) -> Vec<PropertyDefinition> {
+    fn get_props_from_object(
+        &self,
+        set: &Map<String, Value>,
+        parent_type: PropertyParentType,
+        group_type_index: Option<i32>,
+    ) -> Vec<PropertyDefinition> {
         let mut to_return = vec![];
-        for (key, value) in set{
+        for (key, value) in set {
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
                 continue;
             }
@@ -147,7 +169,7 @@ impl Event {
             let property_type = detect_property_type(key, value);
             let is_numerical = match property_type {
                 Some(PropertyValueType::Numeric) => true,
-                _ => false
+                _ => false,
             };
 
             to_return.push(PropertyDefinition {
@@ -160,13 +182,12 @@ impl Event {
                 group_type_index,
                 property_type_format: None,
                 volume_30_day: None,
-                query_usage_30_day: None
+                query_usage_30_day: None,
             });
         }
         to_return
     }
 }
-
 
 fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
     // There are a whole set of special cases here, taken from the TS
@@ -210,7 +231,7 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
                 // TODO - we should try to auto-detect datetime strings here, but I'm skipping the chunk of regex necessary to do it for v0
                 Some(PropertyValueType::String)
             }
-        },
+        }
         Value::Number(_) => {
             // TODO - this is a divergence from the TS impl - the TS also checks if the contained number is
             // "likely" to be a unix timestamp on the basis of the number of characters. I have mixed feelings about this,
@@ -221,9 +242,9 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
             } else {
                 Some(PropertyValueType::Numeric)
             }
-        },
+        }
         Value::Bool(_) => Some(PropertyValueType::Boolean),
-        _ => None
+        _ => None,
     }
 }
 
@@ -232,12 +253,14 @@ fn sanitize_event_name(event_name: &str) -> String {
 }
 
 impl EventDefinition {
-
     pub fn set_last_seen(&mut self) {
         self.last_seen_at = Some(Utc::now());
     }
 
-    pub async fn upsert<'c>(&self, db: impl Executor<'c, Database = Postgres>) -> Result<(), CacheError> {
+    pub async fn upsert<'c>(
+        &self,
+        db: impl Executor<'c, Database = Postgres>,
+    ) -> Result<(), CacheError> {
         sqlx::query!(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, team_id, volume_30_day, query_usage_30_day, created_at, last_seen_at)
@@ -260,19 +283,17 @@ impl EventDefinition {
 }
 
 impl PropertyDefinition {
-    pub async fn upsert<'c>(&self, db: impl Executor<'c, Database = Postgres>) -> Result<(), CacheError> {
-
-        let event_type = self.event_type.map(|e| {
-            (e as isize) as i16
-        });
+    pub async fn upsert<'c>(
+        &self,
+        db: impl Executor<'c, Database = Postgres>,
+    ) -> Result<(), CacheError> {
+        let event_type = self.event_type.map(|e| (e as isize) as i16);
 
         let group_type_index = self.group_type_index.map(|i| {
             i as i16 // This is willfully unsafe because I'm a bad boy who likes to live dangerously
         });
 
-        let property_type = self.property_type.as_ref().map(|p| {
-            p.to_string()
-        });
+        let property_type = self.property_type.as_ref().map(|p| p.to_string());
 
         sqlx::query!(
             r#"

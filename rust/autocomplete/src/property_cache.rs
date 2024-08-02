@@ -1,20 +1,28 @@
-use std::{collections::{HashMap, HashSet}, num::NonZeroUsize, str::FromStr, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+    str::FromStr,
+    time::Instant,
+};
 
+use chrono::{Duration, Utc};
 use lru::LruCache;
 use metrics::counter;
 use serde_json::Value;
 use sqlx::{Executor, Postgres};
 use thiserror::Error;
-use chrono::{Duration, Utc};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use crate::{app_context::AppContext, types::{Event, EventDefinition, PropertyDefinition, TeamId}};
+use crate::{
+    app_context::AppContext,
+    types::{Event, EventDefinition, PropertyDefinition, TeamId},
+};
 
 #[derive(Debug, Error)]
 pub enum CacheError {
     #[error("Database error: {0}")]
-    DatabaseError(#[from] sqlx::Error)
+    DatabaseError(#[from] sqlx::Error),
 }
 
 // Keys for fine-grained caching
@@ -45,7 +53,7 @@ impl EventPropertyKey {
         Self {
             team_id,
             event_name: event_name.to_string(),
-            property_name: prop.to_string()
+            property_name: prop.to_string(),
         }
     }
 }
@@ -95,7 +103,6 @@ pub const EVENT_NAME_CHARFIELD_LENGTH: usize = 400;
 pub const LAST_SEEN_AT_UPDATE_LAG: Duration = Duration::hours(1);
 
 pub struct PropertyCache {
-
     // Per-team caches
     event_definitions: Mutex<EventDefinitionCache>,
     property_definitions: Mutex<PropertyDefinitionCache>,
@@ -108,9 +115,7 @@ pub struct PropertyCache {
 }
 
 impl PropertyCache {
-
     pub fn new() -> Self {
-
         let capacity = NonZeroUsize::new(100_000).unwrap(); // TODO - pull this from the environment
 
         Self {
@@ -139,7 +144,10 @@ struct CacheUpdate {
 
 impl CacheUpdate {
     fn is_empty(&self) -> bool {
-        self.event_defs.is_empty() && self.prop_defs.is_empty() && self.event_props.is_empty() && self.first_event.is_empty()
+        self.event_defs.is_empty()
+            && self.prop_defs.is_empty()
+            && self.event_props.is_empty()
+            && self.first_event.is_empty()
     }
 
     async fn do_update(self, context: &AppContext) {
@@ -166,7 +174,10 @@ impl CacheUpdate {
     }
 }
 
-pub async fn handle_event_batch(events: Vec<Event>, context: &AppContext) -> Result<(), CacheError> {
+pub async fn handle_event_batch(
+    events: Vec<Event>,
+    context: &AppContext,
+) -> Result<(), CacheError> {
     let start = Instant::now();
     let mut txn = context.pool.begin().await?;
     info!("Handling transaction batch of {} events", events.len());
@@ -193,16 +204,19 @@ pub async fn handle_event_batch(events: Vec<Event>, context: &AppContext) -> Res
     Ok(())
 }
 
-async fn handle_event<'c>(event: Event, txn: &mut Transaction<'c> ,context: &AppContext, update: &mut CacheUpdate) -> Result<(), CacheError> {
-
-    
+async fn handle_event<'c>(
+    event: Event,
+    txn: &mut Transaction<'c>,
+    context: &AppContext,
+    update: &mut CacheUpdate,
+) -> Result<(), CacheError> {
     if SKIP_EVENTS.contains(&event.event.as_str()) {
         return Ok(());
     }
-    
+
     if event.event.len() > EVENT_NAME_CHARFIELD_LENGTH / 2 {
         warn!("Event name too long, skipping: {}", event.event);
-        return Ok(())
+        return Ok(());
     }
 
     let event_def_update = update_event_definitions(txn, &context, &event, update).await?;
@@ -217,7 +231,7 @@ async fn handle_event<'c>(event: Event, txn: &mut Transaction<'c> ,context: &App
     for prop_def in prop_def_updates {
         update.prop_defs.insert((&prop_def).into(), prop_def);
     }
-    
+
     for prop in event_prop_updates {
         update.event_props.insert(prop);
     }
@@ -226,11 +240,15 @@ async fn handle_event<'c>(event: Event, txn: &mut Transaction<'c> ,context: &App
         update.first_event.insert(first_event);
     }
 
-
     Ok(())
 }
 
-async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event, update: &mut CacheUpdate) -> Result<Option<EventDefinition>, CacheError> {
+async fn update_event_definitions<'c>(
+    db: &mut Transaction<'c>,
+    context: &AppContext,
+    event: &Event,
+    update: &mut CacheUpdate,
+) -> Result<Option<EventDefinition>, CacheError> {
     let mut new_definition: EventDefinition = event.into();
     new_definition.set_last_seen();
 
@@ -277,13 +295,17 @@ async fn update_event_definitions<'c>(db: &mut Transaction<'c>, context: &AppCon
     Ok(None)
 }
 
-async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event, update: &mut CacheUpdate) -> Result<Vec<PropertyDefinition>, CacheError> {
+async fn update_property_definitions<'c>(
+    db: &mut Transaction<'c>,
+    context: &AppContext,
+    event: &Event,
+    update: &mut CacheUpdate,
+) -> Result<Vec<PropertyDefinition>, CacheError> {
     let found_props = event.get_properties(context).await?;
 
     let mut updates = Vec::with_capacity(found_props.len());
 
     for found in found_props {
-
         let key = (&found).into();
 
         // If a previous event in this transaction batch already touched this key, we can skip it
@@ -315,16 +337,23 @@ async fn update_property_definitions<'c>(db: &mut Transaction<'c>, context: &App
     Ok(updates)
 }
 
-async fn update_event_properties<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event, update: &mut CacheUpdate) -> Result<Vec<EventPropertyKey>, CacheError> {
-    let Some(Ok(Value::Object(props))) = event.properties.as_ref().map(|s| Value::from_str(s)) else {
+async fn update_event_properties<'c>(
+    db: &mut Transaction<'c>,
+    context: &AppContext,
+    event: &Event,
+    update: &mut CacheUpdate,
+) -> Result<Vec<EventPropertyKey>, CacheError> {
+    let Some(Ok(Value::Object(props))) = event.properties.as_ref().map(|s| Value::from_str(s))
+    else {
         return Ok(vec![]);
     };
 
-    
-    let new_keys = props.keys()
+    let new_keys = props
+        .keys()
         .filter(|k| !SKIP_PROPERTIES.contains(&k.as_str()))
         .map(|k| EventPropertyKey::new(event.team_id, &event.event, k))
-        .filter(|k| !update.event_props.contains(k)).collect::<Vec<EventPropertyKey>>();
+        .filter(|k| !update.event_props.contains(k))
+        .collect::<Vec<EventPropertyKey>>();
 
     // If every key found is already part of our update set, we can short-circuit and skip both lock taking and touching the DB
     if new_keys.is_empty() {
@@ -335,7 +364,8 @@ async fn update_event_properties<'c>(db: &mut Transaction<'c>, context: &AppCont
     let cache_guard = context.property_cache.event_properties.lock().await;
     let new_keys = new_keys
         .into_iter()
-        .filter(|p| !cache_guard.contains(p)).collect::<Vec<EventPropertyKey>>();
+        .filter(|p| !cache_guard.contains(p))
+        .collect::<Vec<EventPropertyKey>>();
     drop(cache_guard);
 
     for key in &new_keys {
@@ -345,7 +375,12 @@ async fn update_event_properties<'c>(db: &mut Transaction<'c>, context: &AppCont
     Ok(new_keys)
 }
 
-async fn update_team_first_event<'c>(db: &mut Transaction<'c>, context: &AppContext, event: &Event, update: &mut CacheUpdate) -> Result<Option<TeamId>, CacheError> {
+async fn update_team_first_event<'c>(
+    db: &mut Transaction<'c>,
+    context: &AppContext,
+    event: &Event,
+    update: &mut CacheUpdate,
+) -> Result<Option<TeamId>, CacheError> {
     let team_id = event.team_id;
 
     if update.first_event.contains(&team_id) {
@@ -360,17 +395,22 @@ async fn update_team_first_event<'c>(db: &mut Transaction<'c>, context: &AppCont
         return Ok(None);
     }
 
-    sqlx::query!("UPDATE posthog_team SET ingested_event = $1 WHERE id = $2",
+    sqlx::query!(
+        "UPDATE posthog_team SET ingested_event = $1 WHERE id = $2",
         true,
         team_id.0
-    ).execute(&mut **db).await?;
+    )
+    .execute(&mut **db)
+    .await?;
 
     Ok(Some(team_id))
 }
 
-
 impl EventPropertyKey {
-    pub async fn upsert<'c>(&self, db: impl Executor<'c, Database = Postgres>) -> Result<(), CacheError> {
+    pub async fn upsert<'c>(
+        &self,
+        db: impl Executor<'c, Database = Postgres>,
+    ) -> Result<(), CacheError> {
         sqlx::query!(
             r#"
             INSERT INTO posthog_eventproperty (team_id, event, property)
@@ -381,9 +421,9 @@ impl EventPropertyKey {
             self.event_name,
             self.property_name
         )
-            .execute(db)
-            .await
-            .map_err(CacheError::from)
-            .map(|_| ())
+        .execute(db)
+        .await
+        .map_err(CacheError::from)
+        .map(|_| ())
     }
 }

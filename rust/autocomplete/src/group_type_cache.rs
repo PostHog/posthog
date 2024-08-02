@@ -30,11 +30,18 @@ impl GroupTypeCache {
         }
     }
 
-    pub async fn get_group_type_index(&self, team_id: TeamId, group_type: &str) -> Result<Option<i32>, sqlx::Error> {
+    pub async fn get_group_type_index(
+        &self,
+        team_id: TeamId,
+        group_type: &str,
+    ) -> Result<Option<i32>, sqlx::Error> {
         let mut cache = self.cache.lock().await;
 
         if let Some(group_types) = cache.get(&team_id) {
-            let found_id = group_types.iter().find(|gt: &&GroupType| gt.name == group_type).map(|gt| gt.index);
+            let found_id = group_types
+                .iter()
+                .find(|gt: &&GroupType| gt.name == group_type)
+                .map(|gt| gt.index);
             if found_id.is_some() {
                 return Ok(found_id);
             }
@@ -42,7 +49,10 @@ impl GroupTypeCache {
 
         let group_types = self.load_group_types(team_id).await?;
 
-        let found_id = group_types.iter().find(|gt: &&GroupType| gt.name == group_type).map(|gt| gt.index);
+        let found_id = group_types
+            .iter()
+            .find(|gt: &&GroupType| gt.name == group_type)
+            .map(|gt| gt.index);
         cache.put(team_id, group_types);
 
         // Afer a discussion with ben, we decided that if the group type is not found, we should discard

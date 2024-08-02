@@ -1,21 +1,30 @@
-use std::{sync::Arc, time::{Duration, Instant}};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use autocomplete::{app_context::AppContext, config::Config, property_cache::handle_event_batch, types::Event};
+use autocomplete::{
+    app_context::AppContext, config::Config, property_cache::handle_event_batch, types::Event,
+};
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
 use futures::future::{join_all, ready};
+use rdkafka::{
+    consumer::{Consumer, StreamConsumer},
+    ClientConfig, Message,
+};
 use serve_metrics::{serve, setup_metrics_routes};
-use rdkafka::{consumer::{Consumer, StreamConsumer}, ClientConfig, Message};
 use tokio::{select, task::JoinHandle, time::sleep};
 use tracing::{debug, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 fn setup_tracing() {
-    let log_layer: tracing_subscriber::filter::Filtered<tracing_subscriber::fmt::Layer<tracing_subscriber::Registry>, EnvFilter, tracing_subscriber::Registry> = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
-    tracing_subscriber::registry()
-        .with(log_layer)
-        .init();
-
+    let log_layer: tracing_subscriber::filter::Filtered<
+        tracing_subscriber::fmt::Layer<tracing_subscriber::Registry>,
+        EnvFilter,
+        tracing_subscriber::Registry,
+    > = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    tracing_subscriber::registry().with(log_layer).init();
 }
 
 pub async fn index() -> &'static str {
@@ -27,7 +36,10 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
-        .route("/_liveness", get(move || ready(context.liveness.get_status())));
+        .route(
+            "/_liveness",
+            get(move || ready(context.liveness.get_status())),
+        );
     let router = setup_metrics_routes(router);
     let bind = format!("{}:{}", config.host, config.port);
     tokio::task::spawn(async move {
@@ -38,7 +50,7 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>>{
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
     info!("Starting up...");
 
@@ -89,7 +101,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
             for res in chunk {
                 match res {
                     Ok(message) => {
-                        let payload: Option<Result<&str, std::str::Utf8Error>> = message.payload_view::<str>();
+                        let payload: Option<Result<&str, std::str::Utf8Error>> =
+                            message.payload_view::<str>();
 
                         // Since property definitions are idempotent, we're allowed to risk re-processing by not committing here, and letting
                         // autocommit handle it. If we move to batching, we can either continue to store and rely on autocommit, or switch to
@@ -98,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
                         // poison pills to block the whole event queue, but we should probably not commit if e.g. the DB is down. Error
                         // handling for later.
                         consumer.store_offset_from_message(&message)?;
-            
+
                         let Some(payload) = payload else {
                             warn!("No payload recieved in message: {:?}", message);
                             metrics::counter!("event_no_payload").increment(1);
@@ -119,7 +132,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
                         debug!("Received event: {:?}", event);
 
                         events.push(event);
-            
                     }
                     Err(e) => {
                         metrics::counter!("event_receive_error").increment(1);
@@ -137,7 +149,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
             handle_futs.push(fut);
         }
 
-        info!("Waiting for {} transaction batches to complete", handle_futs.len());
+        info!(
+            "Waiting for {} transaction batches to complete",
+            handle_futs.len()
+        );
         join_all(handle_futs).await;
 
         last_receive = Instant::now();
