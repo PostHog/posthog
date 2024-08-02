@@ -31,7 +31,7 @@ class PropertyGroupManager:
         ]
 
 
-event_property_groups = PropertyGroupManager("events", "properties")
+sharded_events_property_groups = PropertyGroupManager("sharded_events", "properties")
 
 ignore_custom_properties = [
     # `token` & `distinct_id` properties are sent with ~50% of events and by
@@ -62,11 +62,11 @@ ignore_custom_properties = [
     "rdt_cid",  # reddit
 ]
 
-event_property_groups.register(
+sharded_events_property_groups.register(
     "custom",
     PropertyGroupDefinition(
         f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")"
     ),
 )
 
-event_property_groups.register("feature_flags", PropertyGroupDefinition("key like '$feature/%'"))
+sharded_events_property_groups.register("feature_flags", PropertyGroupDefinition("key like '$feature/%'"))
