@@ -198,7 +198,7 @@ export const AllProductsPlanComparison = ({
                         if (!plan.current_plan) {
                             setBillingProductLoading(product.type)
                             if (i < currentPlanIndex) {
-                                setSurveyResponse(product.type, '$survey_response_1')
+                                setSurveyResponse('$survey_response_1', product.type)
                                 reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                                 reportBillingDowngradeClicked(product.type)
                             } else {
