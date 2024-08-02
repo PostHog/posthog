@@ -79,9 +79,11 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         multitab: [
             (s) => [s.featureFlags],
             (featureFlags) =>
-                featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] &&
-                router.values.location.pathname.includes(urls.dataWarehouse()) &&
-                Object.keys(router.values.hashParams).length === 0,
+                !!(
+                    featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] &&
+                    router.values.location.pathname.includes(urls.dataWarehouse()) &&
+                    Object.keys(router.values.hashParams).length === 0
+                ),
         ],
     }),
     listeners(({ actions, props, values }) => ({
