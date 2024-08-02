@@ -24,7 +24,6 @@ import { useEffect, useState } from 'react'
 import { HogFunctionInputSchemaType, HogFunctionInputType } from '~/types'
 
 import { EmailTemplater } from './email-templater/EmailTemplater'
-import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
@@ -184,7 +183,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
         case 'integration_field':
             return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
         case 'email':
-            return <EmailTemplateField schema={schema} value={value} onChange={onChange} />
+            return <EmailTemplateField schema={schema} />
         default:
             return (
                 <strong className="text-danger">
