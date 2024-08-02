@@ -62,6 +62,7 @@ function getValidationError(operator: PropertyOperator, value: any, property?: s
     // URL properties shouldn't allow for spaces in value
     if (
         property &&
+        property.startsWith('$') &&
         property.toLowerCase().includes('url') &&
         (variableHasSpace(value) || (Array.isArray(value) && value.some(variableHasSpace)))
     ) {
