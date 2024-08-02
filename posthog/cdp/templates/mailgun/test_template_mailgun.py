@@ -30,7 +30,7 @@ class TestTemplateMailgunSendEmail(BaseHogFunctionTemplateTest):
 
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
-                "https://api.mailgun.net/v3//messages",
+                "https://api.mailgun.net/v3/DOMAIN_NAME/messages",
                 {
                     "method": "POST",
                     "headers": {

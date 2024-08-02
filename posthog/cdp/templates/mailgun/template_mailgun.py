@@ -39,7 +39,7 @@ let form := multiPartFormEncode({
     'html': inputs.html
 })
 
-let res := fetch(f'https://api.mailgun.net/v3/{inputs.domain_name}/messages', {
+let res := fetch(f'https://{inputs.host}/v3/{inputs.domain_name}/messages', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Basic {base64Encode(f'api:{inputs.api_key}')}',
