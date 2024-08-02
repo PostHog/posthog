@@ -442,7 +442,7 @@ describe('dashboardLogic', () => {
                 })
 
             await expectLogic(dashboardEightlogic, () => {
-                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 10)
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile<QueryBasedInsightModel>, 10)
             }).toMatchValues({
                 dashboard: truth(({ tiles }) => {
                     return tiles.length === 1

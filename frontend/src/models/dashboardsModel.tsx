@@ -138,7 +138,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
                                 )) as DashboardType
-                                actions.updateDashboardSuccess(reverted)
+                                actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
                                 lemonToast.success('Dashboard change reverted')
                             },
                         },
@@ -182,7 +182,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
-                return getQueryBasedDashboard(result)
+                return getQueryBasedDashboard(result)!
             },
         },
     })),
