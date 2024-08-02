@@ -183,7 +183,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 )
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
-                dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result))
+                dashboardsModel.actions.addDashboardSuccess(getQueryBasedDashboard(result)!)
                 actions.submitNewDashboardSuccessWithResult(result)
                 router.actions.push(urls.dashboard(result.id))
             } catch (e: any) {

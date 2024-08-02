@@ -13,7 +13,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -95,7 +94,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             redirectToViewMode,
             persist,
         }),
-        cancelChanges: true,
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
@@ -261,17 +259,17 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         /** The insight's state as it is in the database. */
         savedInsight: [
-            () => props.cachedInsight || ({} as InsightModel),
+            () => props.cachedInsight || ({} as QueryBasedInsightModel),
             {
                 setInsight: (state, { insight, options: { fromPersistentApi } }) =>
-                    fromPersistentApi ? { ...insight, filters: cleanFilters(insight.filters || {}) } : state,
+                    fromPersistentApi ? { ...insight, query: insight.query || {} } : state,
                 loadInsightSuccess: (_, { legacyInsight }) => ({
                     ...legacyInsight,
-                    filters: cleanFilters(legacyInsight.filters || {}),
+                    query: legacyInsight.query || {},
                 }),
                 updateInsightSuccess: (_, { legacyInsight }) => ({
                     ...legacyInsight,
-                    filters: cleanFilters(legacyInsight.filters || {}),
+                    query: legacyInsight.query || {},
                 }),
             },
         ],
@@ -470,9 +468,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             } else {
                 router.actions.push(urls.insightEdit(insight.short_id))
             }
-        },
-        cancelChanges: () => {
-            actions.setFilters(values.savedInsight.filters || {})
         },
     })),
     events(({ props, actions }) => ({

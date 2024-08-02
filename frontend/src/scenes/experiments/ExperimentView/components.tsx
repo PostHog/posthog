@@ -20,6 +20,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect, useState } from 'react'
+import { queryFromFilters } from 'scenes/insights/insightDataLogic'
 import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -92,7 +93,9 @@ export function ResultsQuery({
                     dashboardItemId: targetResults?.fakeInsightId as InsightShortId,
                     cachedInsight: {
                         short_id: targetResults?.fakeInsightId as InsightShortId,
-                        filters: transformResultFilters(targetResults?.filters ?? {}),
+                        query: targetResults?.filters
+                            ? queryFromFilters(transformResultFilters(targetResults.filters))
+                            : null,
                         result: targetResults?.insight,
                         disable_baseline: true,
                         last_refresh: targetResults?.last_refresh,
