@@ -90,7 +90,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             options,
         }),
         saveAs: (redirectToViewMode?: boolean, persist?: boolean) => ({ redirectToViewMode, persist }),
-        saveAsConfirmation: (name: string, redirectToViewMode?: boolean, persist?: boolean) => ({
+        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true) => ({
             name,
             redirectToViewMode,
             persist,
