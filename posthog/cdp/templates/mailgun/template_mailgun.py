@@ -91,6 +91,9 @@ if (res.status >= 400) {
             "key": "template",
             "type": "email",
             "label": "Email template",
+            "default": {
+                "to": "{person.properties.email}",
+            },
             "secret": False,
             "required": True,
         },

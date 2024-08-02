@@ -355,7 +355,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    if (input.type === 'email') {
+                    if (input.type === 'email' && value) {
                         const emailTemplateErrors: Partial<EmailTemplate> = {
                             html: !value.html ? 'HTML is required' : undefined,
                             subject: !value.subject ? 'Subject is required' : undefined,
