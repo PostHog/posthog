@@ -330,7 +330,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (insight, derivedName) => insight.name || derivedName,
         ],
         insightId: [(s) => [s.queryBasedInsight], (insight) => insight?.id || null],
-        isQueryBasedInsight: [(s) => [s.legacyInsight], (insight) => !!insight.query],
         canEditInsight: [
             (s) => [s.queryBasedInsight],
             (insight) =>

@@ -174,13 +174,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (props: InsightLogicProps) => (props.dashboardItemId?.startsWith('new-AdHoc.') ? props.query : null),
         ],
 
-        isQueryBasedInsight: [
-            (s) => [s.query],
-            (query) => {
-                return !!query && !isInsightVizNode(query)
-            },
-        ],
-
         exportContext: [
             (s) => [s.query, s.queryBasedInsight],
             (query, insight) => {
@@ -203,22 +196,33 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.legacyInsight, s.savedInsight, s.currentTeam],
-            (isQueryBasedInsight, query, legacyInsight, savedInsight, currentTeam) => {
-                if (isQueryBasedInsight) {
-                    return !objectsEqual(query, legacyInsight.query)
-                }
-                const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
+            (s) => [s.query, s.savedInsight, s.currentTeam],
+            (query, savedInsight, currentTeam) => {
+                if (savedInsight.query && !isInsightVizNode(savedInsight.query)) {
+                    // saved non-insight query
+                    return !objectsEqual(query, savedInsight.query)
+                } else if (savedInsight.query && isInsightVizNode(savedInsight.query)) {
+                    // saved insight query
+                    if (!isInsightVizNode(query?.source)) {
+                        return true
+                    }
 
-                let savedFilters: Partial<FilterType>
-                if (savedInsight.filters) {
-                    savedFilters = savedInsight.filters
-                } else {
-                    savedFilters = queryNodeToFilter(
-                        insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
-                    )
-                    setTestAccountFilterForNewInsight(savedFilters, currentTeam?.test_account_filters_default_checked)
+                    const currentFilters = queryNodeToFilter(query.source)
+                    const savedFilters = queryNodeToFilter(savedInsight.query.source)
+
+                    return !compareFilters(currentFilters, savedFilters)
                 }
+
+                // new insight
+                if (!isInsightVizNode(query?.source)) {
+                    return true
+                }
+
+                const currentFilters = queryNodeToFilter(query.source)
+                const savedFilters = queryNodeToFilter(
+                    insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
+                )
+                setTestAccountFilterForNewInsight(savedFilters, currentTeam?.test_account_filters_default_checked)
 
                 return !compareFilters(currentFilters, savedFilters, currentTeam?.test_account_filters_default_checked)
             },
