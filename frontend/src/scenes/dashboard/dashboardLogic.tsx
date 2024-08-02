@@ -986,9 +986,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     uuid(),
                     'force_async'
                 )
-                dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                dashboardsModel.actions.updateDashboardInsight(refreshedInsight!)
                 // Start polling for results
-                tile.insight = refreshedInsight
+                tile.insight = refreshedInsight!
                 actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
             } catch (e: any) {
                 actions.setRefreshError(insight.short_id)

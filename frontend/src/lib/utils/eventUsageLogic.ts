@@ -56,6 +56,7 @@ import {
     PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
+    QueryBasedInsightModel,
     RecordingDurationFilter,
     RecordingReportLoadTimes,
     RecordingUniversalFilters,
@@ -368,7 +369,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (dashboard: DashboardType, lastRefreshed: Dayjs | null, delay?: number) => ({
+        reportDashboardViewed: (
+            dashboard: DashboardType<QueryBasedInsightModel>,
+            lastRefreshed: Dayjs | null,
+            delay?: number
+        ) => ({
             dashboard,
             delay,
             lastRefreshed,
