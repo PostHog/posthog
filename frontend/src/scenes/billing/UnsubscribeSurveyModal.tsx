@@ -17,7 +17,7 @@ const UNSUBSCRIBE_REASONS = [
     'Poor customer support',
     'Too difficult to use',
     'Not enough hedgehogs',
-    'Other',
+    'Other (let us know below!)',
 ]
 
 export const UnsubscribeSurveyModal = ({
@@ -92,9 +92,11 @@ export const UnsubscribeSurveyModal = ({
                     </LemonBanner>
                 )}
                 {isAddonProduct ? (
-                    <p>We're sorry to see you go! Please note, you'll lose access to the addon features immediately.</p>
+                    <p className="mb-0">
+                        We're sorry to see you go! Please note, you'll lose access to the addon features immediately.
+                    </p>
                 ) : (
-                    <p>
+                    <p className="mb-0">
                         We're sorry to see you go! Please note, you'll lose access to platform features and usage limits
                         will apply immediately. And if you have any outstanding invoices, they will be billed
                         immediately.{' '}
@@ -108,7 +110,7 @@ export const UnsubscribeSurveyModal = ({
                     {billing?.subscription_level === 'paid'
                         ? `Why are you ${actionVerb}?`
                         : `Why are you ${actionVerb} from ${product.name}?`}{' '}
-                    (select multiple)
+                    <i className="text-muted">(you can select multiple)</i>
                 </LemonLabel>
                 <div className="grid grid-cols-2 gap-2">
                     {UNSUBSCRIBE_REASONS.map((reason) => (
