@@ -1,27 +1,45 @@
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
+import { ChartDisplayType } from '~/types'
+
+import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
 
 export const DisplayTab = (): JSX.Element => {
+    const { visualizationType } = useValues(dataVisualizationLogic)
     const { goalLines, chartSettings } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
+    const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
+
     return (
         <div className="flex flex-col w-full">
-            <LemonLabel>Chart settings</LemonLabel>
-
-            <div className="mt-1 mb-2">
-                <LemonLabel className="mt-2 mb-1">Begin Y axis at zero</LemonLabel>
-                <LemonCheckbox
+            <div className="mt-1 mb-2 flex">
+                <LemonSwitch
+                    className="flex-1"
+                    label="Begin Y axis at zero"
                     checked={chartSettings.yAxisAtZero ?? true}
                     onChange={(value) => {
                         updateChartSettings({ yAxisAtZero: value })
                     }}
                 />
             </div>
+
+            {isStackedBarChart && (
+                <div className="mt-1 mb-2 flex">
+                    <LemonSwitch
+                        className="flex-1"
+                        label="Stack bars 100%"
+                        checked={chartSettings.stackBars100 ?? false}
+                        onChange={(value) => {
+                            updateChartSettings({ stackBars100: value })
+                        }}
+                    />
+                </div>
+            )}
 
             <div className="mt-1 mb-2">
                 <LemonLabel className="mb-1">Goal line</LemonLabel>
@@ -51,10 +69,10 @@ export const DisplayTab = (): JSX.Element => {
                         />
                     </div>
                 ))}
+                <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusSmall />} fullWidth>
+                    Add goal line
+                </LemonButton>
             </div>
-            <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusSmall />} fullWidth>
-                Add goal line
-            </LemonButton>
         </div>
     )
 }
