@@ -359,14 +359,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             let savedInsight: InsightModel
 
             try {
-                const query = insightDataLogic.findMounted(values.insightProps)?.values.query
                 // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
                 const insightRequest: Partial<QueryBasedInsightModel> = {
                     name,
                     derived_name: values.derivedName,
                     description,
                     favorited,
-                    query: query,
+                    query: values.query,
                     deleted,
                     saved: true,
                     dashboards,
