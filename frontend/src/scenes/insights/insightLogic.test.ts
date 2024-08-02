@@ -4,7 +4,6 @@ import api from 'lib/api'
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -519,9 +518,8 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         await expectLogic(logic, () => {
-            logic.actions.setFilters(cleanFilters({}))
             logic.actions.saveInsight()
-        }).toDispatchActions(['setFilters', 'saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
+        }).toDispatchActions(['saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
