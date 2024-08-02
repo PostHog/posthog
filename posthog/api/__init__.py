@@ -89,7 +89,7 @@ environments_router = router.register(r"environments", team.RootTeamViewSet, "en
 
 
 def register_grandfathered_environment_nested_viewset(
-    prefix: str, viewset: viewsets.GenericViewSet, basename: str, parents_query_lookups: list[str]
+    prefix: str, viewset: type[viewsets.GenericViewSet], basename: str, parents_query_lookups: list[str]
 ) -> tuple[NestedRegistryItem, NestedRegistryItem]:
     """
     Register the environment-specific viewset under both /environments/:team_id/ (correct endpoint)

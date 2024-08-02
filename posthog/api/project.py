@@ -1,4 +1,3 @@
-import copy
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -8,18 +7,15 @@ from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.fields import SkipField
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.relations import PKOnlyObject
-from rest_framework.utils import model_meta
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import TeamBasicSerializer
+from posthog.api.shared import ProjectBasicSerializer
 from posthog.api.team import PremiumMultiProjectPermissions, TeamSerializer, validate_team_attrs
 from posthog.event_usage import report_user_action
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -48,7 +44,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-class ProjectSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
@@ -122,117 +118,47 @@ class ProjectSerializer(serializers.ModelSerializer, UserPermissionsSerializerMi
 
         team_passthrough_fields = {
             "updated_at",
-            "uuid",  # Compat with TeamSerializer
-            "api_token",  # Compat with TeamSerializer
-            "app_urls",  # Compat with TeamSerializer
-            "slack_incoming_webhook",  # Compat with TeamSerializer
-            "anonymize_ips",  # Compat with TeamSerializer
-            "completed_snippet_onboarding",  # Compat with TeamSerializer
-            "ingested_event",  # Compat with TeamSerializer
-            "test_account_filters",  # Compat with TeamSerializer
-            "test_account_filters_default_checked",  # Compat with TeamSerializer
-            "path_cleaning_filters",  # Compat with TeamSerializer
-            "is_demo",  # Compat with TeamSerializer
-            "timezone",  # Compat with TeamSerializer
-            "data_attributes",  # Compat with TeamSerializer
-            "person_display_name_properties",  # Compat with TeamSerializer
-            "correlation_config",  # Compat with TeamSerializer
-            "autocapture_opt_out",  # Compat with TeamSerializer
-            "autocapture_exceptions_opt_in",  # Compat with TeamSerializer
-            "autocapture_web_vitals_opt_in",  # Compat with TeamSerializer
-            "autocapture_exceptions_errors_to_ignore",  # Compat with TeamSerializer
-            "capture_console_log_opt_in",  # Compat with TeamSerializer
-            "capture_performance_opt_in",  # Compat with TeamSerializer
-            "session_recording_opt_in",  # Compat with TeamSerializer
-            "session_recording_sample_rate",  # Compat with TeamSerializer
-            "session_recording_minimum_duration_milliseconds",  # Compat with TeamSerializer
-            "session_recording_linked_flag",  # Compat with TeamSerializer
-            "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
-            "session_replay_config",  # Compat with TeamSerializer
-            "access_control",  # Compat with TeamSerializer
-            "week_start_day",  # Compat with TeamSerializer
-            "primary_dashboard",  # Compat with TeamSerializer
-            "live_events_columns",  # Compat with TeamSerializer
-            "recording_domains",  # Compat with TeamSerializer
-            "person_on_events_querying_enabled",  # Compat with TeamSerializer
-            "inject_web_apps",  # Compat with TeamSerializer
-            "extra_settings",  # Compat with TeamSerializer
-            "modifiers",  # Compat with TeamSerializer
-            "default_modifiers",  # Compat with TeamSerializer
-            "has_completed_onboarding_for",  # Compat with TeamSerializer
-            "surveys_opt_in",  # Compat with TeamSerializer
-            "heatmaps_opt_in",  # Compat with TeamSerializer
+            "uuid",
+            "api_token",
+            "app_urls",
+            "slack_incoming_webhook",
+            "anonymize_ips",
+            "completed_snippet_onboarding",
+            "ingested_event",
+            "test_account_filters",
+            "test_account_filters_default_checked",
+            "path_cleaning_filters",
+            "is_demo",
+            "timezone",
+            "data_attributes",
+            "person_display_name_properties",
+            "correlation_config",
+            "autocapture_opt_out",
+            "autocapture_exceptions_opt_in",
+            "autocapture_web_vitals_opt_in",
+            "autocapture_exceptions_errors_to_ignore",
+            "capture_console_log_opt_in",
+            "capture_performance_opt_in",
+            "session_recording_opt_in",
+            "session_recording_sample_rate",
+            "session_recording_minimum_duration_milliseconds",
+            "session_recording_linked_flag",
+            "session_recording_network_payload_capture_config",
+            "session_replay_config",
+            "access_control",
+            "week_start_day",
+            "primary_dashboard",
+            "live_events_columns",
+            "recording_domains",
+            "person_on_events_querying_enabled",
+            "inject_web_apps",
+            "extra_settings",
+            "modifiers",
+            "default_modifiers",
+            "has_completed_onboarding_for",
+            "surveys_opt_in",
+            "heatmaps_opt_in",
         }
-
-    def get_fields(self):
-        declared_fields = copy.deepcopy(self._declared_fields)
-
-        info = model_meta.get_field_info(Project)
-        team_info = model_meta.get_field_info(Team)
-        for field_name, field in team_info.fields.items():
-            if field_name in info.fields:
-                continue
-            info.fields[field_name] = field
-            info.fields_and_pk[field_name] = field
-        for field_name, relation in team_info.forward_relations.items():
-            if field_name in info.forward_relations:
-                continue
-            info.forward_relations[field_name] = relation
-            info.relations[field_name] = relation
-        for accessor_name, relation in team_info.reverse_relations.items():
-            if accessor_name in info.reverse_relations:
-                continue
-            info.reverse_relations[accessor_name] = relation
-            info.relations[accessor_name] = relation
-
-        field_names = self.get_field_names(declared_fields, info)
-
-        extra_kwargs = self.get_extra_kwargs()
-        extra_kwargs, hidden_fields = self.get_uniqueness_extra_kwargs(field_names, declared_fields, extra_kwargs)
-
-        fields = {}
-        for field_name in field_names:
-            if field_name in declared_fields:
-                fields[field_name] = declared_fields[field_name]
-                continue
-            extra_field_kwargs = extra_kwargs.get(field_name, {})
-            source = extra_field_kwargs.get("source", "*")
-            if source == "*":
-                source = field_name
-            field_class, field_kwargs = self.build_field(source, info, model_class=Project, nested_depth=0)
-            field_kwargs = self.include_extra_kwargs(field_kwargs, extra_field_kwargs)
-            fields[field_name] = field_class(**field_kwargs)
-        fields.update(hidden_fields)
-        return fields
-
-    def build_field(self, field_name, info, model_class, nested_depth):
-        if field_name in self.Meta.team_passthrough_fields:
-            model_class = Team
-        return super().build_field(field_name, info, model_class, nested_depth)
-
-    def to_representation(self, instance):
-        """
-        Object instance -> Dict of primitive datatypes.
-        """
-        ret = {}
-        fields = self._readable_fields
-
-        for field in fields:
-            try:
-                attribute_source = instance
-                if field.field_name in self.Meta.team_passthrough_fields:
-                    attribute_source = instance.passthrough_team
-                attribute = field.get_attribute(attribute_source)
-            except SkipField:
-                continue
-
-            check_for_none = attribute.pk if isinstance(attribute, PKOnlyObject) else attribute
-            if check_for_none is None:
-                ret[field.field_name] = None
-            else:
-                ret[field.field_name] = field.to_representation(attribute)
-
-        return ret
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
         team = project.teams.get(pk=project.pk)
@@ -342,6 +268,9 @@ class ProjectSerializer(serializers.ModelSerializer, UserPermissionsSerializerMi
                 should_team_be_saved_too = True
                 setattr(team, attr, value)
             else:
+                if attr == "name":  # `name` should be updated on _both_ the Project and Team
+                    should_team_be_saved_too = True
+                    setattr(team, attr, value)
                 setattr(instance, attr, value)
 
         instance.save()
@@ -386,7 +315,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
-            return TeamBasicSerializer
+            return ProjectBasicSerializer
         return super().get_serializer_class()
 
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
