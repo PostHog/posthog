@@ -1,6 +1,8 @@
 from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass
 
+from posthog import settings
+
 
 @dataclass
 class PropertyGroupDefinition:
@@ -9,7 +11,8 @@ class PropertyGroupDefinition:
 
 
 class PropertyGroupManager:
-    def __init__(self, table: str, source_column: str) -> None:
+    def __init__(self, cluster: str, table: str, source_column: str) -> None:
+        self.__cluster = cluster
         self.__table = table
         self.__source_column = source_column
         self.__groups: MutableMapping[str, PropertyGroupDefinition] = {}
@@ -25,13 +28,13 @@ class PropertyGroupManager:
         column_name = f"{self.__source_column}_group_{name}"
         definition = self.__groups[name]
         return [
-            f"ALTER TABLE {self.__table} ADD COLUMN {column_name} Map(String, String) MATERIALIZED {self.__get_map_expression(definition)} CODEC({definition.codec})",
-            f"ALTER TABLE {self.__table} ADD INDEX {column_name}_keys_bf mapValues({column_name}) TYPE bloom_filter",
-            f"ALTER TABLE {self.__table} ADD INDEX {column_name}_values_bf mapValues({column_name}) TYPE bloom_filter",
+            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD COLUMN {column_name} Map(String, String) MATERIALIZED {self.__get_map_expression(definition)} CODEC({definition.codec})",
+            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD INDEX {column_name}_keys_bf mapValues({column_name}) TYPE bloom_filter",
+            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD INDEX {column_name}_values_bf mapValues({column_name}) TYPE bloom_filter",
         ]
 
 
-sharded_events_property_groups = PropertyGroupManager("sharded_events", "properties")
+sharded_events_property_groups = PropertyGroupManager(settings.CLICKHOUSE_CLUSTER, "sharded_events", "properties")
 
 ignore_custom_properties = [
     # `token` & `distinct_id` properties are sent with ~50% of events and by
