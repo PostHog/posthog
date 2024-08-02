@@ -60,7 +60,7 @@ pub struct PropertyDefinition {
     pub property_type: Option<PropertyValueType>,
     #[serde(rename = "type")]
     pub event_type: Option<PropertyParentType>,
-    pub group_type_index: Option<i32>, // This is an i16 in the DB, but the groups table uses i16's, so we use that here and only downconvert on insert/read
+    pub group_type_index: Option<i32>, // The grouptypemapping table uses i32's for this, so although propertydefinition uses i16, we'll use i32 here and downcast on write
     pub property_type_format: Option<String>, // This is deprecated, so don't bother validating it through serde
     pub volume_30_day: Option<i64>,           // Deprecated
     pub query_usage_30_day: Option<i64>,      // Deprecated
