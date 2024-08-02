@@ -26,7 +26,6 @@ import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Node } from '~/queries/schema'
 import {
-    FilterType,
     InsightLogicProps,
     InsightModel,
     InsightShortId,
@@ -79,11 +78,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     })),
 
     actions({
-        setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode, clearInsightQuery?: boolean) => ({
-            filters,
-            insightMode,
-            clearInsightQuery,
-        }),
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
@@ -216,12 +210,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             setInsight: (_state, { insight }) => ({
                 ...insight,
             }),
-            setFilters: (state, { clearInsightQuery }) => {
-                return {
-                    ...state,
-                    query: clearInsightQuery ? undefined : state.query,
-                }
-            },
             setInsightMetadata: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
