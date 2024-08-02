@@ -13,7 +13,6 @@ rdkafka = { workspace = true }
 tokio = { workspace = true }
 envconfig = {workspace = true }
 tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }

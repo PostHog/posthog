@@ -374,7 +374,6 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
- "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
 ]
@@ -3451,9 +3450,7 @@ dependencies = [
  "axum 0.7.5",
  "metrics",
  "metrics-exporter-prometheus",
- "time",
  "tokio",
- "tracing",
 ]
 
 [[package]]
