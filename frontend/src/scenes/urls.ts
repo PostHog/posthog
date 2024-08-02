@@ -50,7 +50,7 @@ export const urls = {
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
-    copyAction: (action: ActionType | null): string => {
+    duplicateAction: (action: ActionType | null): string => {
         const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
         return `/data-management/actions/new/${queryParams}`
     },
