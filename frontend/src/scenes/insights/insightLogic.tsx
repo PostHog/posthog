@@ -294,8 +294,8 @@ export const insightLogic = kea<insightLogicType>([
     })),
     selectors({
         query: [
-            (s) => [s.insightProps],
-            (insightProps): Node | null => insightDataLogic.findMounted(insightProps)?.values.query || null,
+            (s) => [(state) => insightDataLogic.findMounted(s.insightProps(state))?.values.query || null],
+            (node): Node | null => node,
         ],
         queryBasedInsightSaving: [
             (s) => [s.featureFlags],
