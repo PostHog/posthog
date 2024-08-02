@@ -25,7 +25,7 @@ class PropertyGroupManager:
         column_name = f"{self.__source_column}_group_{name}"
         definition = self.__groups[name]
         return [
-            f"ALTER TABLE {self.__table} ADD COLUMN {column_name} Map(String, string) MATERIALIZED {self.__get_map_expression(definition)} CODEC({definition.codec})",
+            f"ALTER TABLE {self.__table} ADD COLUMN {column_name} Map(String, String) MATERIALIZED {self.__get_map_expression(definition)} CODEC({definition.codec})",
             f"ALTER TABLE {self.__table} ADD INDEX {column_name}_keys_bf mapValues({column_name}) TYPE bloom_filter",
             f"ALTER TABLE {self.__table} ADD INDEX {column_name}_values_bf mapValues({column_name}) TYPE bloom_filter",
         ]
