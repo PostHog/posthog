@@ -8,7 +8,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
-import { NodeKind } from '~/queries/schema'
+import { DataVisualizationNode, NodeKind } from '~/queries/schema'
 import { Breadcrumb, InsightShortId, ItemMode } from '~/types'
 
 import type { dataWarehouseExternalSceneLogicType } from './dataWarehouseExternalSceneLogicType'
@@ -73,7 +73,7 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
                     ?.actions.setQuery({
                         kind: NodeKind.DataVisualizationNode,
                         source: values.viewsMapById[id].query,
-                    })
+                    } as DataVisualizationNode)
             } else {
                 await databaseTableListLogic.asyncActions.loadDatabase()
 
@@ -86,7 +86,7 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
                         ?.actions.setQuery({
                             kind: NodeKind.DataVisualizationNode,
                             source: values.viewsMapById[id].query,
-                        })
+                        } as DataVisualizationNode)
                 } else {
                     lemonToast.error('Error retrieving view')
                     router.actions.push(urls.dataWarehouse())
