@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
@@ -17,7 +17,8 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -99,9 +100,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     basic: true,
                 }
 
-                const response = await api.get(
+                const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+                const response = {
+                    ...legacyResponse,
+                    results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
+                }
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
