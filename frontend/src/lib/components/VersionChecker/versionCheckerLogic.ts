@@ -17,6 +17,10 @@ import { hogql } from '~/queries/utils'
 
 import type { versionCheckerLogicType } from './versionCheckerLogicType'
 
+// If you would like to deprecate all posthog-js versions older than a specific version
+// (i.e. after fixing an important bug) please edit
+// https://github.com/PostHog/posthog-js/blob/main/deprecation.json
+
 const CHECK_INTERVAL_MS = 1000 * 60 * 60 * 6 // 6 hour
 
 export type SDKVersion = {
