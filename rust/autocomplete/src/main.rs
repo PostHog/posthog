@@ -1,10 +1,12 @@
 use std::{sync::Arc, time::{Duration, Instant}};
 
 use autocomplete::{app_context::AppContext, config::Config, property_cache::handle_event_batch, types::Event};
+use axum::{routing::get, Router};
 use envconfig::Envconfig;
-use futures::future::join_all;
+use futures::future::{join_all, ready};
+use serve_metrics::{serve, setup_metrics_routes};
 use rdkafka::{consumer::{Consumer, StreamConsumer}, ClientConfig, Message};
-use tokio::{select, time::sleep};
+use tokio::{select, task::JoinHandle, time::sleep};
 use tracing::{debug, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -16,8 +18,24 @@ fn setup_tracing() {
 
 }
 
-const KAFKA_BATCH_SIZE: usize = 1_000;
-const TRANSACTION_BATCH_COUNT: usize = 20;
+pub async fn index() -> &'static str {
+    "property definitions service"
+}
+
+fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
+    let config = config.clone();
+    let router = Router::new()
+        .route("/", get(index))
+        .route("/_readiness", get(index))
+        .route("/_liveness", get(move || ready(context.liveness.get_status())));
+    let router = setup_metrics_routes(router);
+    let bind = format!("{}:{}", config.host, config.port);
+    tokio::task::spawn(async move {
+        serve(router, &bind)
+            .await
+            .expect("failed to start serving metrics");
+    })
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>>{
@@ -36,17 +54,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
 
     info!("Subscribed to topic: {}", config.kafka.event_topic);
 
-    let mut batch = Vec::with_capacity(KAFKA_BATCH_SIZE);
-    loop {
+    start_health_liveness_server(&config, context.clone());
 
+    let mut batch = Vec::with_capacity(config.max_batch_size);
+    let mut last_receive = Instant::now();
+    loop {
         batch.clear();
-        while batch.len() < KAFKA_BATCH_SIZE {
-            // Try to grab from the consumer, but use a select! to timeout if we'd block for more than 10ms
+        context.worker_liveness.report_healthy().await;
+
+        metrics::gauge!("time_since_last_receive").set(last_receive.elapsed().as_secs_f64());
+        while batch.len() < config.max_batch_size {
+            // Try to grab from the consumer, but use a select! to timeout if we'd block for more than some time
             select! {
             res = consumer.recv() => {
                     batch.push(res);
                 }
-                _ = sleep(Duration::from_millis(10)) => {
+                _ = sleep(Duration::from_millis(config.next_event_wait_timeout_ms)) => {
                     break;
                 }
             }
@@ -56,13 +79,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
             continue;
         }
 
-        // Report batch size
-        info!("Received batch of {} messages", batch.len());
-        let start = Instant::now();
+        metrics::counter!("event_batch_recieved").increment(batch.len() as u64);
+        let chunks = batch.chunks(config.max_batch_size / config.max_concurrent_transactions);
 
-        let chunks = batch.chunks(KAFKA_BATCH_SIZE / TRANSACTION_BATCH_COUNT);
+        let mut handle_futs = Vec::with_capacity(config.max_concurrent_transactions);
 
-        let mut handle_futs = Vec::with_capacity(TRANSACTION_BATCH_COUNT);
         for chunk in chunks {
             let mut events = vec![];
             for res in chunk {
@@ -80,23 +101,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
             
                         let Some(payload) = payload else {
                             warn!("No payload recieved in message: {:?}", message);
+                            metrics::counter!("event_no_payload").increment(1);
                             continue;
                         };
+
                         let Ok(payload) = payload else {
                             warn!("Payload not UTF8 compatible: {:?}", message);
+                            metrics::counter!("event_payload_not_utf8").increment(1);
                             continue;
                         };
                         let Ok(event) = serde_json::from_str::<Event>(payload) else {
                             warn!("Error deserializing event: {:?}", payload);
+                            metrics::counter!("event_deserialization_error").increment(1);
                             continue;
                         };
-            
+
                         debug!("Received event: {:?}", event);
-    
+
                         events.push(event);
             
                     }
                     Err(e) => {
+                        metrics::counter!("event_receive_error").increment(1);
                         warn!("Error receiving message: {:?}", e);
                     }
                 }
@@ -113,9 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
 
         info!("Waiting for {} transaction batches to complete", handle_futs.len());
         join_all(handle_futs).await;
-        batch.clear();
 
-        let elapsed = start.elapsed();
-        info!("Batch processed in {}ms", elapsed.as_millis());
+        last_receive = Instant::now();
     }
 }

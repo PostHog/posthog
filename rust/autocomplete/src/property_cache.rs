@@ -1,6 +1,7 @@
-use std::{num::NonZeroUsize, str::FromStr};
+use std::{num::NonZeroUsize, str::FromStr, time::Instant};
 
 use lru::LruCache;
+use metrics::counter;
 use serde_json::Value;
 use sqlx::{Executor, Postgres};
 use thiserror::Error;
@@ -8,7 +9,7 @@ use chrono::{Duration, Utc};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use crate::{app_context::{AppContext}, types::{Event, EventDefinition, PropertyDefinition, TeamId}};
+use crate::{app_context::AppContext, types::{Event, EventDefinition, PropertyDefinition, TeamId}};
 
 #[derive(Debug, Error)]
 pub enum CacheError {
@@ -170,20 +171,28 @@ impl CacheUpdate {
 }
 
 pub async fn handle_event_batch(events: Vec<Event>, context: &AppContext) -> Result<(), CacheError> {
+    let start = Instant::now();
     let mut txn = context.pool.begin().await?;
     info!("Handling transaction batch of {} events", events.len());
 
     let mut update = CacheUpdate::default();
     for event in events {
         handle_event(event, &mut txn, context, &mut update).await?;
+        metrics::counter!("event_handled").increment(1)
     }
 
-    
-    if !update.is_empty() {
-        info!("Committing transaction with {} updates", update.event_def.len() + update.prop_defs.len() + update.event_props.len() + update.first_event.len());
+    let update_needed = !update.is_empty();
+    if update_needed {
+        counter!("event_definitions_updated").increment(update.event_def.len() as u64);
+        counter!("property_definitions_updated").increment(update.prop_defs.len() as u64);
+        counter!("event_properties_updated").increment(update.event_props.len() as u64);
+        counter!("team_first_event_updated").increment(update.first_event.len() as u64);
         txn.commit().await?;
         update.do_update(context).await;
     }
+
+    let elapsed = start.elapsed();
+    metrics::histogram!("transaction_batch_handle_time_millis", "did_update" => update_needed.to_string()).record(elapsed.as_millis() as f64);
 
     Ok(())
 }

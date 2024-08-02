@@ -357,16 +357,21 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 name = "autocomplete"
 version = "0.1.0"
 dependencies = [
+ "axum 0.7.5",
  "chrono",
  "envconfig",
  "futures",
+ "health",
  "lru",
+ "metrics",
  "rdkafka",
  "serde",
  "serde_json",
  "serde_repr",
+ "serve-metrics",
  "sqlx",
  "thiserror",
+ "time",
  "tokio",
  "tracing",
  "tracing-opentelemetry",
@@ -3437,6 +3442,18 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serve-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "time",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

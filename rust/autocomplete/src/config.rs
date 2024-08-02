@@ -11,6 +11,21 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
+
+    #[envconfig(default = "10")]
+    pub max_concurrent_transactions: usize,
+
+    #[envconfig(default = "1000")]
+    pub max_batch_size: usize,
+
+    #[envconfig(default = "100")]
+    pub next_event_wait_timeout_ms: u64,
+
+    #[envconfig(from = "BIND_HOST", default = "::")]
+    pub host: String,
+
+    #[envconfig(from = "BIND_PORT", default = "3301")]
+    pub port: u16,
 }
 
 #[derive(Envconfig, Clone)]

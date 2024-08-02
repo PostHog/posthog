@@ -19,6 +19,11 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 lru = { workspace = true }
 futures = { workspace = true }
+health = { path = "../common/health" }
+time = { workspace = true }
+axum = { workspace = true }
+serve-metrics = { path = "../common/serve_metrics" }
+metrics = { workspace = true }
 
 [lints]
 workspace = true
