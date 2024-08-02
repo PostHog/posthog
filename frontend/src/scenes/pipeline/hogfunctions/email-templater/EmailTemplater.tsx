@@ -80,7 +80,7 @@ export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX
             <div className="h-[80vh] flex">
                 <div className="flex flex-col flex-1">
                     <div className="shrink-0">
-                        <h2>Editing template</h2>
+                        <h2>Editing email template</h2>
                     </div>
                     <EmailTemplaterForm {...props} mode="full" />
                     <div className="flex items-center mt-2 gap-2">

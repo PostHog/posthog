@@ -25,7 +25,7 @@ def generate_template_bytecode(obj: Any) -> Any:
 
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field"]
+        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
     )
     key = serializers.CharField()
     label = serializers.CharField(required=False)  # type: ignore
@@ -79,6 +79,12 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
+        elif item_type == "email":
+            if not isinstance(value, dict):
+                raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
+            for key in ["from", "to", "subject", "html", "text"]:
+                if not value.get(key):
+                    raise serializers.ValidationError({"inputs": {name: f"Value must contain '{key}' key."}})
 
         try:
             if value:

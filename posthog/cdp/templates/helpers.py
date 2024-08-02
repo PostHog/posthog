@@ -71,7 +71,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
         # Run the function
 
-        final_functions = {
+        final_functions: dict = {
             "fetch": self.mock_fetch,
             "print": self.mock_print,
             "postHogCapture": self.mock_posthog_capture,
