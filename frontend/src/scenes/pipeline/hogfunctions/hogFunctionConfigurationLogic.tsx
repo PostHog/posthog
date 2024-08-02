@@ -156,6 +156,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 setShowSource: (_, { showSource }) => showSource,
             },
         ],
+
+        hasHadSubmissionErrors: [
+            false,
+            {
+                upsertHogFunctionFailure: () => true,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         template: [
@@ -600,8 +607,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
         },
         setConfigurationValue: () => {
-            // Clear the manually set errors otherwise the submission won't work
-            actions.setConfigurationManualErrors({})
+            if (values.hasHadSubmissionErrors) {
+                // Clear the manually set errors otherwise the submission won't work
+                actions.setConfigurationManualErrors({})
+            }
         },
 
         deleteHogFunction: async () => {
