@@ -28,6 +28,8 @@ function EmailTemplaterForm({
                     key={field}
                     name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}${field}`}
                     className="border-b shrink-0 gap-1 pl-2"
+                    // We will handle the error display ourselves
+                    renderError={() => null}
                 >
                     {({ value, onChange, error }) => (
                         <div className="flex items-center">

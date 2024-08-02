@@ -16,6 +16,7 @@ export type LemonPureFieldProps = {
     help?: React.ReactNode
     /** Error message to be displayed */
     error?: React.ReactNode
+    renderError?: (error: string) => React.ReactNode
     className?: string
     children?: React.ReactNode
     onClick?: () => void
@@ -37,6 +38,7 @@ const LemonPureField = ({
     children,
     inline,
     onClick,
+    renderError,
 }: LemonPureFieldProps): JSX.Element => {
     return (
         <div
@@ -58,11 +60,14 @@ const LemonPureField = ({
             ) : null}
             {children}
             {help ? <div className="text-muted text-xs">{help}</div> : null}
-            {error ? (
-                <div className="text-danger flex items-center gap-1 text-sm">
-                    <IconErrorOutline className="text-xl shrink-0" />{' '}
-                    {typeof error === 'string' ? error : JSON.stringify(error)}
-                </div>
+            {typeof error === 'string' ? (
+                renderError ? (
+                    renderError(error)
+                ) : (
+                    <div className="text-danger flex items-center gap-1 text-sm">
+                        <IconErrorOutline className="text-xl shrink-0" /> {error}
+                    </div>
+                )
             ) : null}
         </div>
     )
@@ -78,6 +83,7 @@ export const LemonField = ({
     showOptional,
     inline,
     info,
+    renderError,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
@@ -90,6 +96,7 @@ export const LemonField = ({
                 showOptional={showOptional}
                 inline={inline}
                 info={info}
+                renderError={renderError}
             >
                 {kids}
             </LemonPureField>
