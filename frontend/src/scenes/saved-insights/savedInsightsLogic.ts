@@ -10,8 +10,6 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -298,16 +296,18 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 actions.addInsight(insight)
             }
         },
-        [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
-            if (deleteDashboard.deleteInsights) {
-                actions.loadInsights()
-            }
-        },
-        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({ duplicateDashboard }) => {
-            if (duplicateDashboard.duplicateTiles) {
-                actions.loadInsights()
-            }
-        },
+        // TODO: Re-add this after figuring out kea issue
+        // [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
+        //     if (deleteDashboard.deleteInsights) {
+        //         actions.loadInsights()
+        //     }
+        // },
+        // TODO: Re-add this after figuring out kea issue
+        // [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({ duplicateDashboard }) => {
+        //     if (duplicateDashboard.duplicateTiles) {
+        //         actions.loadInsights()
+        //     }
+        // },
     })),
     actionToUrl(({ values }) => {
         const changeUrl = ():
