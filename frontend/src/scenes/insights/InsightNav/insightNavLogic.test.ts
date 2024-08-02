@@ -107,7 +107,7 @@ describe('insightNavLogic', () => {
                 await expectLogic(logic, () => {
                     builtInsightLogic.actions.setInsight(
                         { filters: { insight: InsightType.FUNNELS } },
-                        { overrideFilter: true }
+                        { overrideQuery: true }
                     )
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,

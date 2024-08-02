@@ -2592,7 +2592,7 @@ export interface InsightLogicProps {
 
 export interface SetInsightOptions {
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
-    overrideFilter?: boolean
+    overrideQuery?: boolean
     /** calling with this updates the "last saved" filters */
     fromPersistentApi?: boolean
 }

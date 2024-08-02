@@ -64,7 +64,7 @@ describe('insightDataLogic', () => {
             const filters = queryNodeToFilter(q)
 
             await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ filters }, { overrideFilter: true })
+                theInsightLogic.actions.setInsight({ filters }, { overrideQuery: true })
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
@@ -138,7 +138,7 @@ describe('insightDataLogic', () => {
             const filters = queryNodeToFilter(q)
 
             await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ filters }, { overrideFilter: false })
+                theInsightLogic.actions.setInsight({ filters }, { overrideQuery: false })
             }).toNotHaveDispatchedActions(['setQuery'])
         })
         it('does not set query when insight is invalid', async () => {

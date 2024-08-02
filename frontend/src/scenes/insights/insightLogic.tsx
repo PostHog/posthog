@@ -78,7 +78,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     })),
 
     actions({
-        setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
+        setInsight: (insight: Partial<QueryBasedInsightModel>, options: SetInsightOptions) => ({
             insight,
             options,
         }),
@@ -179,7 +179,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                                 })
                                 savedInsightsLogic.findMounted()?.actions.loadInsights()
                                 dashboardsModel.actions.updateDashboardInsight(response)
-                                actions.setInsight(response, { overrideFilter: false, fromPersistentApi: true })
+                                actions.setInsight(response, { overrideQuery: false, fromPersistentApi: true })
                                 lemonToast.success('Insight change reverted')
                             },
                         },
@@ -374,7 +374,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (values.query ? values.legacyInsight.result : null)
-            actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
+            actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
             eventUsageLogic.actions.reportInsightSaved(values.query, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
@@ -448,7 +448,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     values.queryBasedInsight.name || values.queryBasedInsight.derived_name || name
                 }`
             )
-            persist && actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
+            persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
 
             if (redirectToViewMode) {

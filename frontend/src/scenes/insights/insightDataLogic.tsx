@@ -30,7 +30,7 @@ import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
 import { insightUsageLogic } from './insightUsageLogic'
-import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
+import { setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { compareFilters } from './utils/compareFilters'
 
 export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
@@ -248,10 +248,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setInsight: ({ insight: { filters, query, result }, options: { overrideFilter } }) => {
-            if (overrideFilter && query == null) {
-                actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
-            } else if (query) {
+        setInsight: ({ insight: { query, result }, options: { overrideFilter } }) => {
+            if (overrideFilter && query) {
                 actions.setQuery(query)
             }
 
