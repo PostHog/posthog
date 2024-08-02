@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use lru::LruCache;
 use sqlx::PgPool;
 use tokio::sync::Mutex;
+use tracing::warn;
 
 use crate::types::TeamId;
 
@@ -16,7 +17,7 @@ pub struct GroupType {
 
 pub struct GroupTypeCache {
     pool: PgPool,
-    cache: Mutex<LruCache<TeamId, Vec<GroupType>>>,
+    cache: Mutex<LruCache<TeamId, Vec<GroupType>>>, // TODO - this is a bottleneck for multithreading - we should lock on a per-team basis
 }
 
 impl GroupTypeCache {
@@ -47,7 +48,7 @@ impl GroupTypeCache {
         // the plugin server, for various reasons - property definitions can be async, but group types
         // can't be.
         if found_id.is_none() {
-            todo!("Notify when group type not found");
+            warn!("Group type not found: {}", group_type);
         }
 
         Ok(found_id)
@@ -63,5 +64,9 @@ impl GroupTypeCache {
         .await?;
 
         Ok(group_types)
+    }
+
+    pub async fn flush(&self) {
+        self.cache.lock().await.clear();
     }
 }

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -35,6 +37,18 @@ pub enum PropertyValueType {
     Duration
 }
 
+impl ToString for PropertyValueType {
+    fn to_string(&self) -> String {
+        match self {
+            PropertyValueType::DateTime => "DateTime".to_string(),
+            PropertyValueType::String => "String".to_string(),
+            PropertyValueType::Numeric => "Numeric".to_string(),
+            PropertyValueType::Boolean => "Boolean".to_string(),
+            PropertyValueType::Duration => "Duration".to_string()
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct PropertyDefinition {
     pub id: Uuid,
@@ -44,7 +58,7 @@ pub struct PropertyDefinition {
     pub property_type: Option<PropertyValueType>,
     #[serde(rename = "type")]
     pub event_type: Option<PropertyParentType>,
-    pub group_type_index: Option<i16>,
+    pub group_type_index: Option<i32>, // This is an i16 in the DB, but the groups table uses i16's, so we use that here and only downconvert on insert/read
     pub property_type_format: Option<String>, // This is deprecated, so don't bother validating it through serde
     pub volume_30_day: Option<i64>, // Deprecated
     pub query_usage_30_day: Option<i64>, // Deprecated
@@ -69,7 +83,8 @@ pub struct EventProperty(pub String);
 pub struct Event {
     pub team_id: TeamId,
     pub event: String,
-    pub properties: Option<serde_json::Value>
+    // Events in clickhouse_json have their properties as a raw string, so we have to parse it.
+    pub properties: Option<String>
 }
 
 impl From<&Event> for EventDefinition {
@@ -89,6 +104,10 @@ impl Event {
             return Ok(vec![]);
         };
 
+        let Ok(props) = Value::from_str(props) else {
+            return Ok(vec![]);
+        };
+
         let Value::Object(props) = props else {
             return Ok(vec![]);
         };
@@ -104,12 +123,12 @@ impl Event {
             };
 
             let Value::Object(group_properties) = group_properties else {
-                return vec![];
+                return Ok(vec![]);
             };
-            return self.get_props_from_object(group_properties, PropertyParentType::Group, group_type_index)
+            return Ok(self.get_props_from_object(group_properties, PropertyParentType::Group, group_type_index))
         }
 
-        let mut flat_props = self.get_props_from_object(props, PropertyParentType::Event, None);
+        let mut flat_props = self.get_props_from_object(&props, PropertyParentType::Event, None);
 
         if let Some(Value::Object(set_props)) = props.get("$set") {
             flat_props.extend(self.get_props_from_object(set_props, PropertyParentType::Person, None));
@@ -118,21 +137,20 @@ impl Event {
             flat_props.extend(self.get_props_from_object(set_once_props, PropertyParentType::Person, None));
         }
 
-        flat_props
+        Ok(flat_props)
     }
 
-    fn get_props_from_object(&self, set: &Map<String, Value>, parent_type: PropertyParentType, group_type_index: Option<i16>) -> Vec<PropertyDefinition> {
+    fn get_props_from_object(&self, set: &Map<String, Value>, parent_type: PropertyParentType, group_type_index: Option<i32>) -> Vec<PropertyDefinition> {
         let mut to_return = vec![];
         for (key, value) in set{
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
                 continue;
             }
 
-            let is_numerical = value.is_number();
-            let property_type = if is_numerical {
-                Some(PropertyValueType::Numeric)
-            } else {
-                Some(PropertyValueType::String)
+            let property_type = detect_property_type(key, value);
+            let is_numerical = match property_type {
+                Some(PropertyValueType::Numeric) => true,
+                _ => false
             };
 
             to_return.push(PropertyDefinition {
@@ -149,6 +167,66 @@ impl Event {
             });
         }
         to_return
+    }
+}
+
+
+fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
+    // There are a whole set of special cases here, taken from the TS
+    if key.starts_with("utm_") {
+        // utm_ prefixed properties should always be detected as strings.
+        // Sometimes the first value sent looks like a number, event though
+        // subsequent values are not. See
+        // https://github.com/PostHog/posthog/issues/12529 for more context.
+        return Some(PropertyValueType::String);
+    }
+    if key.starts_with("$feature/") {
+        // $feature/ prefixed properties should always be detected as strings.
+        // These are feature flag values, and can be boolean or string.
+        // Sometimes the first value sent is boolean (because flag isn't enabled) while
+        // subsequent values are not. We don't want this to be misunderstood as a boolean.
+        return Some(PropertyValueType::String);
+    }
+
+    if key == "$feature_flag_response" {
+        // $feature_flag_response properties should always be detected as strings.
+        // These are feature flag values, and can be boolean or string.
+        // Sometimes the first value sent is boolean (because flag isn't enabled) while
+        // subsequent values are not. We don't want this to be misunderstood as a boolean.
+        return Some(PropertyValueType::String);
+    }
+
+    if key.starts_with("$survey_response") {
+        // NB: $survey_responses are collected in an interesting way, where the first
+        // response is called `$survey_response` and subsequent responses are called
+        // `$survey_response_2`, `$survey_response_3`, etc.  So, this check should auto-cast
+        // all survey responses to strings, and $survey_response properties should always be detected as strings.
+        return Some(PropertyValueType::String);
+    }
+
+    match value {
+        Value::String(s) => {
+            let s = &s.trim().to_lowercase();
+            if s == "true" || s == "false" {
+                Some(PropertyValueType::Boolean)
+            } else {
+                // TODO - we should try to auto-detect datetime strings here, but I'm skipping the chunk of regex necessary to do it for v0
+                Some(PropertyValueType::String)
+            }
+        },
+        Value::Number(_) => {
+            // TODO - this is a divergence from the TS impl - the TS also checks if the contained number is
+            // "likely" to be a unix timestamp on the basis of the number of characters. I have mixed feelings about this,
+            // so I'm going to leave it as just checking the key for now. This means we're being /less/ strict with datetime
+            // detection here than in the TS
+            if key.to_lowercase().contains("timestamp") || key.to_lowercase().contains("time") {
+                Some(PropertyValueType::DateTime)
+            } else {
+                Some(PropertyValueType::Numeric)
+            }
+        },
+        Value::Bool(_) => Some(PropertyValueType::Boolean),
+        _ => None
     }
 }
 
@@ -182,6 +260,58 @@ impl EventDefinition {
     }
 }
 
-async fn get_group_type_index(group_type: &Value) -> i16 {
-    todo!()
+impl PropertyDefinition {
+    pub async fn upsert<'c>(&self, db: impl Executor<'c, Database = Postgres>) -> Result<(), CacheError> {
+
+        let event_type = self.event_type.map(|e| {
+            (e as isize) as i16
+        });
+
+        let group_type_index = self.group_type_index.map(|i| {
+            i as i16 // This is willfully unsafe because I'm a bad boy who likes to live dangerously
+        });
+
+        let property_type = self.property_type.as_ref().map(|p| {
+            p.to_string()
+        });
+
+        sqlx::query!(
+            r#"
+            INSERT INTO posthog_propertydefinition (id, name, is_numerical, query_usage_30_day, property_type, property_type_format, volume_30_day, team_id, group_type_index, type)
+            VALUES ($1, $2, $3, NULL, $4, NULL, NULL, $5, $6, $7)
+            ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
+            DO UPDATE SET property_type = EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
+            "#,
+            self.id,
+            self.name,
+            self.is_numerical,
+            property_type,
+            self.team_id.0,
+            group_type_index,
+            event_type,
+        )
+            .execute(db)
+            .await
+            .map_err(CacheError::from)
+            .map(|_| ())
+    }
+}
+
+impl EventProperty {
+    pub async fn upsert<'c>(db: impl Executor<'c, Database = Postgres>, team_id: TeamId, event_name: String, property: EventProperty) -> Result<(), CacheError> {
+        sqlx::query!(
+            r#"
+            INSERT INTO posthog_eventproperty (team_id, event, property)
+            VALUES ($1, $2, $3)
+            ON CONFLICT DO NOTHING
+            "#,
+            team_id.0,
+            event_name,
+            property.0
+        )
+            .execute(db)
+            .await
+            .map_err(CacheError::from)
+            .map(|_| ())
+    }
 }

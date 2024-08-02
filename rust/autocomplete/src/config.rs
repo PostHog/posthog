@@ -42,7 +42,8 @@ impl From<&KafkaConfig> for ClientConfig {
         client_config
             .set("bootstrap.servers", &config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
-            .set("group.id", config.consumer_group.clone());
+            .set("group.id", config.consumer_group.clone())
+            .set("enable.auto.offset.store", "false"); // We store on a per-message basis anyway right now, but this is for later if we decide to work in batches
 
         if config.kafka_tls {
             client_config
