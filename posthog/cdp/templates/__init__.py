@@ -13,7 +13,7 @@ from .mailjet.template_mailjet import (
     template_update_contact_list as mailjet_update_contact_list,
 )
 
-from .mailgun.template_mailgun import template as mailgun
+from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
 
 
 HOG_FUNCTION_TEMPLATES = [

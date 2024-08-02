@@ -4,7 +4,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 # See https://documentation.mailgun.com/docs/mailgun/api-reference/openapi-final/tag/Messages
 
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template_mailgun_send_email: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-mailgun-send-email",
     name="Send an email via Mailgun",
@@ -15,19 +15,37 @@ if (empty(inputs.from)) {
     return false
 }
 
+fn multiPartFormEncode(data) {
+    let uuid := generateUUIDv4()
+    let boundary := f'----{uuid}'
+    let body := f'--{boundary}\\r\\n'
+
+    for (let key, value in data) {
+        body := f'{body}Content-Disposition: form-data; name="{key}"\\r\\n\\r\\n{value}\\r\\n--{boundary}\\r\\n'
+    }
+
+    return {
+        'body': body,
+        'contentType': f'multipart/form-data; boundary={boundary}'
+    }
+}
+
+
+let form := multiPartFormEncode({
+    'from': inputs.from,
+    'to': inputs.to,
+    'subject': inputs.subject,
+    'text': inputs.text,
+    'html': inputs.html
+})
+
 let res := fetch(f'https://api.mailgun.net/v3/{domain_name}/messages', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {base64Encode(f'api:{inputs.api_key}')} ',
-        'Content-Type': 'application/json'
+        'Authorization': f'Basic {base64Encode(f'api:{inputs.api_key}')}',
+        'Content-Type': form.contentType
     },
-    'body': {
-        'from': inputs.from,
-        'to': inputs.to,
-        'subject': inputs.subject,
-        'text': inputs.text,
-        'html': inputs.html
-    }
+    'body': form.body
 })
 
 if (res.status >= 400) {
