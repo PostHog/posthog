@@ -97,7 +97,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                     return {
                         ...dashboards,
-                        results: dashboards.results.map((dashboard) => getQueryBasedDashboard(dashboard)!),
+                        results: dashboards.results?.map((dashboard) => getQueryBasedDashboard(dashboard)!),
                     }
                 },
             },

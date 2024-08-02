@@ -102,7 +102,7 @@ export const getQueryBasedDashboard = (
 
     return {
         ...dashboard,
-        tiles: dashboard.tiles.map(
+        tiles: dashboard.tiles?.map(
             (tile) =>
                 ({
                     ...tile,
