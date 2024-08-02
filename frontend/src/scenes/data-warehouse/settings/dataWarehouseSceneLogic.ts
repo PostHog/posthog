@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -38,7 +38,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         cancelEditSchema: () => ({ database: values.database }),
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
         toggleSchemaModal: true,
-        setEditingView: (id: string) => ({ id }),
+        setEditingView: (id: string | null) => ({ id }),
         updateView: (query: string) => ({ query }),
     })),
     reducers({
@@ -177,10 +177,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             actions.setIsEditingSavedQuery(false)
         },
         updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
-            actions.setIsEditingSavedQuery(false)
             lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
             if (payload) {
-                router.actions.push(urls.dataWarehouseView(payload.id, payload.query))
+                router.actions.push(urls.dataWarehouseView(payload.id))
             }
         },
         saveSchema: async () => {
@@ -252,6 +251,14 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 }
                 actions.updateDataWarehouseSavedQuery(newView)
             }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '/data-warehouse/view/:id': ({ id }) => {
+            actions.setEditingView(id as string)
+        },
+        '/data-warehouse': () => {
+            actions.setEditingView(null)
         },
     })),
 ])

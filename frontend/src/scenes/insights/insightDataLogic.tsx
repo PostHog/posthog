@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, propsChanged, reduc
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -107,7 +108,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 s.filterTestAccountsDefault,
                 s.isDataWarehouseQuery,
             ],
-            (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery) =>
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
@@ -118,7 +119,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
         isDataWarehouseQuery: [
             () => [(_, props) => props],
-            (props: InsightLogicProps) => props.dashboardItemId?.startsWith('new-SQL'),
+            (props: InsightLogicProps) => props.dashboardItemId?.startsWith(DATAWAREHOUSE_EDITOR_ITEM_ID),
         ],
 
         propsQuery: [

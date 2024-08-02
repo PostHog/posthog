@@ -1,4 +1,4 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { PipelineTab } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
-import { dataWarehouseExternalSceneLogic } from './dataWarehouseExternalSceneLogic'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID, dataWarehouseExternalSceneLogic } from './dataWarehouseExternalSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
 export const scene: SceneExport = {
@@ -18,8 +18,10 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
+    const { viewLoading } = useValues(dataWarehouseExternalSceneLogic)
+
     const logic = insightLogic({
-        dashboardItemId: 'new-SQL',
+        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
         cachedInsight: null,
     })
     const { insightSaving, insightProps } = useValues(logic)
@@ -59,9 +61,13 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
             <DataWarehouseInitialBillingLimitNotice />
-            <BindLogic logic={insightSceneLogic} props={{}}>
-                <DataWarehouseTables insightProps={insightDataLogicProps} />
-            </BindLogic>
+            {viewLoading ? (
+                <Spinner />
+            ) : (
+                <BindLogic logic={insightSceneLogic} props={{}}>
+                    <DataWarehouseTables insightProps={insightDataLogicProps} />
+                </BindLogic>
+            )}
         </div>
     )
 }
