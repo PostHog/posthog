@@ -121,8 +121,8 @@ class RedshiftClient(PostgreSQLClient):
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
-        update_when_matched: Fields,
-        version_key: str = "version",
+        person_version_key: str = "person_version",
+        person_distinct_id_version_key: str = "person_distinct_id_version",
     ) -> None:
         """Merge two identical tables in PostgreSQL."""
         if schema:
@@ -153,13 +153,17 @@ class RedshiftClient(PostgreSQLClient):
         delete_query = sql.SQL("""\
         DELETE FROM {stage_table}
         USING {final_table} AS final
-        WHERE {merge_condition} AND {stage_table}.{stage_version_key} > final.{final_version_key};
+        WHERE {merge_condition}
+        AND {stage_table}.{stage_person_version_key} < final.{final_person_version_key}
+        AND {stage_table}.{stage_person_distinct_id_version_key} < final.{final_person_distinct_id_version_key};
         """).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=delete_condition,
-            stage_version_key=sql.Identifier(version_key),
-            final_version_key=sql.Identifier(version_key),
+            stage_person_version_key=sql.Identifier(person_version_key),
+            final_person_version_key=sql.Identifier(person_version_key),
+            stage_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
+            final_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
         )
 
         merge_query = sql.SQL("""\
@@ -487,7 +491,6 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                         final_table_name=redshift_table,
                         stage_table_name=redshift_stage_table,
                         schema=inputs.schema,
-                        update_when_matched=table_fields,
                         merge_key=merge_key,
                     )
 
