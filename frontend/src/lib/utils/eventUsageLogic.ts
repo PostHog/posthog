@@ -693,7 +693,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             for (const item of dashboard.tiles || []) {
                 if (item.insight) {
-                    const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
+                    const query = isNodeWithSource(item.insight.query) ? item.insight.query.source : item.insight.query
+                    const key = `${query.kind}_count`
                     if (!properties[key]) {
                         properties[key] = 1
                     } else {
