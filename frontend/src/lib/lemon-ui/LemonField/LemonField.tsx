@@ -60,7 +60,8 @@ const LemonPureField = ({
             {help ? <div className="text-muted text-xs">{help}</div> : null}
             {error ? (
                 <div className="text-danger flex items-center gap-1 text-sm">
-                    <IconErrorOutline className="text-xl shrink-0" /> {error}
+                    <IconErrorOutline className="text-xl shrink-0" />{' '}
+                    {typeof error === 'string' ? error : JSON.stringify(error)}
                 </div>
             ) : null}
         </div>

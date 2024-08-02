@@ -69,21 +69,16 @@ function JsonConfigField(props: {
     )
 }
 
-function EmailTemplateField({
-    onChange,
-    value,
-}: {
-    onChange?: (value: EmailTemplate) => void
-    className?: string
-    value?: EmailTemplate
-}): JSX.Element {
-    const { exampleInvocationGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }): JSX.Element {
+    const { exampleInvocationGlobalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
 
     return (
         <>
             <EmailTemplater
-                value={value}
-                onChange={(x) => onChange?.(x)}
+                formLogic={hogFunctionConfigurationLogic}
+                formLogicProps={logicProps}
+                formKey="configuration"
+                formFieldsPrefix={`inputs.${schema.key}.value`}
                 globals={exampleInvocationGlobalsWithInputs}
             />
         </>
@@ -189,7 +184,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
         case 'integration_field':
             return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
         case 'email':
-            return <EmailTemplateField value={value} onChange={onChange} />
+            return <EmailTemplateField schema={schema} value={value} onChange={onChange} />
         default:
             return (
                 <strong className="text-danger">

@@ -1,21 +1,27 @@
-import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
-import { EditorRef } from 'react-email-editor'
+import { actions, connect, kea, listeners, LogicWrapper, path, props, reducers } from 'kea'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { EditorRef as _EditorRef } from 'react-email-editor'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
+
+// Helping kea-typegen navigate the exported type
+export interface EditorRef extends _EditorRef {}
 
 export type EmailTemplate = {
     design: any
     html: string
-    subject?: string
-    text?: string
-    from?: string
-    to?: string
+    subject: string
+    text: string
+    from: string
+    to: string
 }
 
 export interface EmailTemplaterLogicProps {
-    value?: EmailTemplate
+    formLogic: LogicWrapper
+    formLogicProps: any
+    formKey: string
+    formFieldsPrefix?: string
     globals?: Record<string, any>
-    onChange: (template: EmailTemplate) => void
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
@@ -53,16 +59,32 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
             const data = await new Promise<any>((res) => editor.exportHtml(res))
 
-            props.onChange({
-                design: data.design,
-                html: data.html,
-            })
+            // TRICKY: We have to build the action we need in order to nicely callback to the form field
+            const setFormValue = props.formLogic.findMounted(props.formLogicProps)?.actions?.[
+                `set${capitalizeFirstLetter(props.formKey)}Value`
+            ]
+
+            const pathParts = props.formFieldsPrefix ? props.formFieldsPrefix.split('.') : []
+
+            setFormValue(pathParts.concat('design'), data.design)
+            setFormValue(pathParts.concat('html'), data.html)
+
+            // Load the logic and set the property...
             actions.setIsModalOpen(false)
         },
 
         emailEditorReady: () => {
-            if (props.template) {
-                values.emailEditorRef?.editor?.loadDesign(props.template.design)
+            const pathParts = (props.formFieldsPrefix ? props.formFieldsPrefix.split('.') : []).concat('design')
+
+            let value = props.formLogic.findMounted(props.formLogicProps)?.values?.[props.formKey]
+
+            // Get the value from the form and set it in the editor
+            while (pathParts.length && value) {
+                value = value[pathParts.shift()!]
+            }
+
+            if (value) {
+                values.emailEditorRef?.editor?.loadDesign(value)
             }
         },
     })),

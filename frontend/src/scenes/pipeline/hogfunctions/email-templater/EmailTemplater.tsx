@@ -1,6 +1,9 @@
 import { LemonButton, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { capitalizeFirstLetter } from 'lib/utils'
 import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
@@ -14,35 +17,57 @@ function EmailTemplaterForm({
     const { setEmailEditorRef, emailEditorReady, setIsModalOpen } = useActions(emailTemplaterLogic(props))
 
     return (
-        <div className="flex flex-col border rounded overflow-hidden flex-1">
-            <div className="flex items-center border-b shrink-0 gap-1 pl-2">
-                <LemonLabel>From</LemonLabel>
-                <CodeEditorInline embedded className="flex-1" globals={props.globals} />
-            </div>
-            <div className="flex items-center border-b shrink-0 gap-1 pl-2">
-                <LemonLabel>To</LemonLabel>
-                <CodeEditorInline embedded className="flex-1" globals={props.globals} />
-            </div>
-            <div className="flex items-center border-b shrink-0 gap-1 pl-2">
-                <LemonLabel>Subject</LemonLabel>
-                <CodeEditorInline embedded className="flex-1" globals={props.globals} />
-            </div>
+        <Form
+            className="flex flex-col border rounded overflow-hidden flex-1"
+            logic={props.formLogic}
+            props={props.formLogicProps}
+            formKey={props.formKey}
+        >
+            {['from', 'to', 'subject'].map((field) => (
+                <LemonField
+                    key={field}
+                    name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}${field}`}
+                    className="border-b shrink-0 gap-1 pl-2"
+                >
+                    {({ value, onChange, error }) => (
+                        <div className="flex items-center">
+                            <LemonLabel className={error ? 'text-danger' : ''}>
+                                {capitalizeFirstLetter(field)}
+                            </LemonLabel>
+                            <CodeEditorInline
+                                embedded
+                                className="flex-1"
+                                globals={props.globals}
+                                value={value}
+                                onChange={onChange}
+                            />
+                        </div>
+                    )}
+                </LemonField>
+            ))}
 
             {mode === 'full' ? (
                 <EmailEditor ref={(r) => setEmailEditorRef(r)} onReady={() => emailEditorReady()} />
             ) : (
-                <div className="relative flex flex-col">
-                    <div className="absolute inset-0 flex items-center justify-center transition-opacity opacity-0 hover:opacity-100">
-                        <div className="opacity-50 bg-bg-light absolute inset-0" />
-                        <LemonButton type="secondary" onClick={() => setIsModalOpen(true)}>
-                            Change content
-                        </LemonButton>
-                    </div>
+                <LemonField
+                    name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}html`}
+                    className="relative flex flex-col"
+                >
+                    {({ value }) => (
+                        <>
+                            <div className="absolute inset-0 p-2 flex items-end justify-center transition-opacity opacity-0 hover:opacity-100">
+                                <div className="opacity-50 bg-bg-light absolute inset-0" />
+                                <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
+                                    Click to modify content
+                                </LemonButton>
+                            </div>
 
-                    <iframe srcDoc={props.value?.html} className="flex-1" />
-                </div>
+                            <iframe srcDoc={value} className="flex-1" />
+                        </>
+                    )}
+                </LemonField>
             )}
-        </div>
+        </Form>
     )
 }
 
@@ -72,8 +97,6 @@ export function EmailTemplaterModal({ ...props }: EmailTemplaterLogicProps): JSX
 }
 
 export function EmailTemplater(props: EmailTemplaterLogicProps): JSX.Element {
-    const {} = useValues(emailTemplaterLogic(props))
-
     return (
         <div className="flex flex-col flex-1">
             <EmailTemplaterForm {...props} mode="preview" />
