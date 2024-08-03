@@ -486,6 +486,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
+                        featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
+                            ? {
+                                  identifier: Scene.EarlyAccessFeatures,
+                                  label: 'Early access features',
+                                  icon: <IconRocket />,
+                                  to: urls.earlyAccessFeatures(),
+                              }
+                            : null,
                         {
                             identifier: Scene.DataWarehouse,
                             label: 'Data warehouse',
@@ -498,14 +506,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Data pipeline',
                                   icon: <IconDecisionTree />,
                                   to: urls.pipeline(),
-                              }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
-                            ? {
-                                  identifier: Scene.EarlyAccessFeatures,
-                                  label: 'Early access features',
-                                  icon: <IconRocket />,
-                                  to: urls.earlyAccessFeatures(),
                               }
                             : null,
                     ].filter(isNotNil),

@@ -657,7 +657,7 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
-    DataImport = 'data-import',
+    Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
     History = 'history',
@@ -666,9 +666,9 @@ export enum PipelineTab {
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
+    Source = 'source',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
-    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
@@ -677,6 +677,8 @@ export enum PipelineNodeTab {
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
+    Schemas = 'schemas',
+    Syncs = 'syncs',
 }
 
 export enum ProgressStatus {
@@ -4402,10 +4404,4 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
-}
-
-export enum DataWarehouseTab {
-    Explore = 'explore',
-    ManagedSources = 'managed-sources',
-    SelfManagedSources = 'self-managed-sources',
 }

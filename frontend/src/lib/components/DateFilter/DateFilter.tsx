@@ -180,7 +180,7 @@ export function DateFilter({
                         dateRangeFilterLabel={isFixedDateMode ? 'Last' : undefined}
                         selected={isRollingDateRange}
                         onChange={(fromDate) => {
-                            setDate(fromDate, '')
+                            setDate(fromDate, '', true)
                         }}
                         makeLabel={makeLabel}
                         popover={{

@@ -2035,6 +2035,10 @@
                     },
                     "type": "array"
                 },
+                "stackBars100": {
+                    "description": "Whether we fill the bars to 100% in stacked mode",
+                    "type": "boolean"
+                },
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
                 },
@@ -2043,6 +2047,10 @@
                         "$ref": "#/definitions/ChartAxis"
                     },
                     "type": "array"
+                },
+                "yAxisAtZero": {
+                    "description": "Whether the Y axis should start at zero",
+                    "type": "boolean"
                 }
             },
             "type": "object"

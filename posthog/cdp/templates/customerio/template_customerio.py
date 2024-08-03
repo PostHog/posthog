@@ -3,41 +3,58 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 # Based off of https://customer.io/docs/api/track/#operation/entity
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     id="template-customerio",
-    name="Update persons in Customer.io",
-    description="Updates persons in Customer.io",
+    name="Send events to Customer.io",
+    description="Identify or track events against customers in Customer.io",
     icon_url="/static/services/customerio.png",
     hog="""
-fn callCustomerIoApi(method, path, body) {
-    // TODO: Base64 encode the site_id and token
-    fetch(f'https://{inputs.host}{path}', {
-        'method': 'POST',
-        'headers': {
-            'User-Agent': 'PostHog Customer.io App',
-            'Authorization': f'Basic {base64Encode(f'{inputs.site_id}:{inputs.token}')}',
-            'Content-Type': 'application/json'
-        },
-        'body': body
-    })
-}
+let action := inputs.action
+let name := event.name
 
-fn trackIdentify() {
-    // Upsert the customer
-    let payload := {
-        'type': 'person',
-        'identifiers': {
-            // TODO: Make the id input configurable
-            'id': inputs.identifier
-        },
-        'action': 'identify',
-        'attributes': inputs.properties
+if (action == 'automatic') {
+    if (event.name == '$identify') {
+        action := 'identify'
+        name := null
+    } else if (event.name == '$pageview') {
+        action := 'page'
+        name := event.properties.$current_url
+    } else if (event.name == '$screen') {
+        action := 'screen'
+        name := event.properties.$screen_name
+    } else {
+        action := 'event'
     }
-
-    await callCustomerIoApi('POST', f'/api/v2/entity', payload)
 }
 
-trackIdentify()
+let attributes := inputs.include_all_properties ? event.properties : {}
+
+let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
+
+for (let key, value in inputs.attributes) {
+    attributes[key] := value
+}
+
+let res := fetch(f'https://{inputs.host}/api/v2/entity', {
+    'method': 'POST',
+    'headers': {
+        'User-Agent': 'PostHog Customer.io App',
+        'Authorization': f'Basic {base64Encode(f'{inputs.site_id}:{inputs.token}')}',
+        'Content-Type': 'application/json'
+    },
+    'body': {
+        'type': 'person',
+        'action': action,
+        'name': name,
+        'identifiers': inputs.identifiers,
+        'attributes': attributes,
+        'timestamp': timestamp
+    }
+})
+
+if (res.status >= 400) {
+    print('Error from customer.io api:', res.status, res.body)
+}
 
 """.strip(),
     inputs_schema=[
@@ -54,15 +71,6 @@ trackIdentify()
             "label": "Customer.io API Key",
             "description": "You can find your API key in your Customer.io account settings (https://fly.customer.io/settings/api_credentials)",
             "secret": True,
-            "required": True,
-        },
-        {
-            "key": "identifier",
-            "type": "string",
-            "label": "The ID that should be used for the user",
-            "description": "You can choose to fill this from an email property or an ID property. If the value is empty nothing will be sent.",
-            "default": "{person.properties.email}",
-            "secret": False,
             "required": True,
         },
         {
@@ -85,21 +93,79 @@ trackIdentify()
             "required": True,
         },
         {
-            "key": "properties",
+            "key": "identifiers",
             "type": "dictionary",
-            "label": "Property mapping",
-            "description": "Map of Customer.io person properties and their values. You can use the filters section to filter out unwanted events.",
+            "label": "Identifiers",
+            "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://customer.io/docs/api/track/#operation/entity",
+            "default": {
+                "email": "{person.properties.email}",
+            },
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "action",
+            "type": "choice",
+            "label": "Action",
+            "description": "Choose the action to be tracked. Automatic will convert $identify, $pageview and $screen to identify, page and screen automatically - otherwise defaulting to event",
+            "default": "automatic",
+            "choices": [
+                {
+                    "label": "Automatic",
+                    "value": "automatic",
+                },
+                {
+                    "label": "Identify",
+                    "value": "identify",
+                },
+                {
+                    "label": "Event",
+                    "value": "event",
+                },
+                {
+                    "label": "Page",
+                    "value": "page",
+                },
+                {
+                    "label": "Screen",
+                    "value": "screen",
+                },
+                {
+                    "label": "Delete",
+                    "value": "delete",
+                },
+            ],
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "include_all_properties",
+            "type": "boolean",
+            "label": "Include all properties as attributes",
+            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below.",
+            "default": False,
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "attributes",
+            "type": "dictionary",
+            "label": "Attribute mapping",
+            "description": "Map of Customer.io attributes and their values. You can use the filters section to filter out unwanted events.",
             "default": {
                 "email": "{person.properties.email}",
                 "lastname": "{person.properties.lastname}",
                 "firstname": "{person.properties.firstname}",
             },
             "secret": False,
-            "required": True,
+            "required": False,
         },
     ],
     filters={
-        "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
+        "events": [
+            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
+            {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
+        ],
         "actions": [],
         "filter_test_accounts": True,
     },

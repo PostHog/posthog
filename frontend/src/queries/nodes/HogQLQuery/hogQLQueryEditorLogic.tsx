@@ -12,8 +12,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
 import type { editor } from 'monaco-editor'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema'

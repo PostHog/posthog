@@ -1,13 +1,12 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
-import { DataWarehouseTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -28,7 +27,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     actions(({ values }) => ({
         selectRow: (row: DatabaseSchemaTable | null) => ({ row }),
-        setSceneTab: (tab: DataWarehouseTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
         toggleEditSchemaMode: (inEditSchemaMode?: boolean) => ({ inEditSchemaMode }),
         updateSelectedSchema: (columnKey: string, columnType: DatabaseSerializedFieldType) => ({
@@ -138,12 +136,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             null as string | null,
             {
                 setEditingView: (_, { id }) => id,
-            },
-        ],
-        currentTab: [
-            DataWarehouseTab.Explore as DataWarehouseTab,
-            {
-                setSceneTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -259,16 +251,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     query: newViewQuery,
                 }
                 actions.updateDataWarehouseSavedQuery(newView)
-            }
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '/data-warehouse/view/:id': ({ id }) => {
-            actions.setEditingView(id as string)
-        },
-        '/data-warehouse/:tab': ({ tab }) => {
-            if (tab !== values.currentTab) {
-                actions.setSceneTab(tab as DataWarehouseTab)
             }
         },
     })),

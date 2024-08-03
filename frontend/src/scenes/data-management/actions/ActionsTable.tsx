@@ -155,8 +155,8 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
-                                <LemonButton to={urls.copyAction(action)} fullWidth>
-                                    Copy
+                                <LemonButton to={urls.duplicateAction(action)} fullWidth>
+                                    Duplicate
                                 </LemonButton>
                                 <LemonButton
                                     to={urls.replay(ReplayTabs.Recent, {

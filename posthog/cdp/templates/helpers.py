@@ -63,6 +63,8 @@ class BaseHogFunctionTemplateTest(BaseTest):
         return data
 
     def run_function(self, inputs: dict, globals=None):
+        self.mock_fetch.reset_mock()
+        self.mock_print.reset_mock()
         # Create the globals object
         globals = self.createHogGlobals(globals)
         globals["inputs"] = inputs

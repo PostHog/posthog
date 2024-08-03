@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ConcreteLemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -16,6 +15,7 @@ import { importAppsLogic } from './importAppsLogic'
 import { Overview } from './Overview'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
+import { Sources } from './sources/Sources'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
@@ -25,10 +25,10 @@ export function Pipeline(): JSX.Element {
 
     const tabs: Pick<ConcreteLemonTab<PipelineTab>, 'key' | 'content'>[] = [
         { key: PipelineTab.Overview, content: <Overview /> },
+        { key: PipelineTab.Sources, content: <Sources /> },
         { key: PipelineTab.Transformations, content: <Transformations /> },
         { key: PipelineTab.Destinations, content: <Destinations /> },
         { key: PipelineTab.SiteApps, content: <FrontendApps /> },
-        { key: PipelineTab.DataImport, content: <DataWarehouseManagedSourcesTable /> },
     ]
 
     // Import apps are deprecated, we only show the tab if there are some still enabled

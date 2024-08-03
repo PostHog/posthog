@@ -29,12 +29,12 @@ pub fn setup_metrics_routes(router: Router) -> Router {
 }
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
-    const EXPONENTIAL_SECONDS: &[f64] = &[
-        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+    const BUCKETS: &[f64] = &[
+        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 50.0, 100.0, 250.0,
     ];
 
     PrometheusBuilder::new()
-        .set_buckets(EXPONENTIAL_SECONDS)
+        .set_buckets(BUCKETS)
         .unwrap()
         .install_recorder()
         .unwrap()

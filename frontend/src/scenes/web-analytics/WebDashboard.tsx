@@ -2,6 +2,7 @@ import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -317,6 +318,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
+                <VersionCheckerBanner />
                 <WebAnalyticsNotice />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <WebAnalyticsLiveUserCount />
