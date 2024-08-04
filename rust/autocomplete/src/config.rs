@@ -17,7 +17,7 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
 
-    #[envconfig(default = "1000")]
+    #[envconfig(default = "10000")]
     pub max_batch_size: usize,
 
     #[envconfig(default = "100")]
@@ -30,19 +30,19 @@ pub struct Config {
     pub port: u16,
 
     // Config opts for cache sizing
-    #[envconfig(default = "100_000")]
+    #[envconfig(default = "100000")]
     pub event_definition_cache_depth: NonZeroUsize,
 
-    #[envconfig(default = "100_000")]
+    #[envconfig(default = "100000")]
     pub property_definition_cache_depth: NonZeroUsize,
 
-    #[envconfig(default = "100_000")]
+    #[envconfig(default = "100000")]
     pub event_property_cache_depth: NonZeroUsize,
 
-    #[envconfig(default = "1_000_000")]
+    #[envconfig(default = "1000000")]
     pub team_first_event_cache_depth: NonZeroUsize,
 
-    #[envconfig(default = "1_000_000")]
+    #[envconfig(default = "1000000")]
     pub team_group_indices_cache_depth: NonZeroUsize,
 }
 
