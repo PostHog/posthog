@@ -126,26 +126,27 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-    def update_billing_distinct_ids(self, organization: Organization) -> None:
-        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
-        self.update_billing(organization, {"distinct_ids": distinct_ids})
-
-    def update_billing_customer_email(self, organization: Organization) -> None:
+    def update_billing_organization_users(self, organization: Organization) -> None:
         try:
-            owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
-            user = owner_membership.user
-            self.update_billing(organization, {"org_customer_email": user.email})
-        except Exception as e:
-            capture_exception(e)
+            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
 
-    def update_billing_admin_emails(self, organization: Organization) -> None:
-        try:
+            first_owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
+            first_owner = first_owner_membership.user
+
             admin_emails = list(
                 organization.members.filter(
                     organization_membership__level__gte=OrganizationMembership.Level.ADMIN
                 ).values_list("email", flat=True)
             )
-            self.update_billing(organization, {"org_admin_emails": admin_emails})
+
+            self.update_billing(
+                organization,
+                {
+                    "distinct_ids": distinct_ids,
+                    "org_customer_email": first_owner.email,
+                    "org_admin_emails": admin_emails,
+                },
+            )
         except Exception as e:
             capture_exception(e)
 
