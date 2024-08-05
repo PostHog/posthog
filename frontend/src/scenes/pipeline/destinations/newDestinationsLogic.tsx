@@ -31,7 +31,7 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha' | 'free'
+    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated'
 }
 
 export type NewDestinationFilters = {
@@ -120,9 +120,8 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                 featureFlags,
                 hashParams
             ): NewDestinationItemType[] => {
-                const hogTemplates = featureFlags[FEATURE_FLAGS.HOG_FUNCTIONS]
-                    ? Object.values(hogFunctionTemplates)
-                    : []
+                const hogFunctionsEnabled = !!featureFlags[FEATURE_FLAGS.HOG_FUNCTIONS]
+                const hogTemplates = hogFunctionsEnabled ? Object.values(hogFunctionTemplates) : []
 
                 return [
                     ...hogTemplates.map((hogFunction) => ({
@@ -143,6 +142,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         description: plugin.description || '',
                         backend: PipelineBackend.Plugin,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
+                        status: hogFunctionsEnabled ? ('deprecated' as const) : undefined,
                     })),
 
                     ...batchExportServiceNames.map((service) => ({

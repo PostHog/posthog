@@ -43,7 +43,9 @@ export function DestinationOptionsTable(): JSX.Element {
                             hogFunctionsEnabled
                                 ? { label: 'Realtime (new)', value: PipelineBackend.HogFunction }
                                 : undefined,
-                            { label: 'Realtime', value: PipelineBackend.Plugin },
+                            hogFunctionsEnabled
+                                ? { label: 'Realtime (deprecated)', value: PipelineBackend.Plugin }
+                                : { label: 'Realtime', value: PipelineBackend.Plugin },
                             { label: 'Batch exports', value: PipelineBackend.BatchExport },
                         ].filter(Boolean) as { label: string; value: PipelineBackend | null }[]
                     }
