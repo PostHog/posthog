@@ -11,7 +11,7 @@ from freezegun import freeze_time
 from rest_framework.request import Request
 
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
-from posthog.exceptions import RequestParsingError
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import EventDefinition
 from posthog.settings.utils import get_from_env
 from posthog.test.base import BaseTest
@@ -311,7 +311,7 @@ class TestLoadDataFromRequest(TestCase):
 
         post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(RequestParsingError):
+        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
@@ -332,7 +332,7 @@ class TestLoadDataFromRequest(TestCase):
 
         post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(RequestParsingError):
+        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
@@ -351,7 +351,7 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         post_request = rf.post("/s/", "content", "text/plain")
 
-        with self.assertRaises(RequestParsingError):
+        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
@@ -373,7 +373,7 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         post_request = rf.post("/s/", "undefined", "text/plain")
 
-        with self.assertRaises(RequestParsingError) as ctx:
+        with self.assertRaises(UnspecifiedCompressionFallbackParsingError) as ctx:
             load_data_from_request(post_request)
 
         self.assertEqual(
