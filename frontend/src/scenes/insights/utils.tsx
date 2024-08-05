@@ -355,15 +355,15 @@ export function getResponseBytes(apiResponse: Response): number {
 }
 
 export const insightTypeURL = {
-    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
-    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
-    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
-    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
-    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
-    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    HOG: urls.insightNew(undefined, undefined, JSON.stringify(examples.Hoggonacci)),
-    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.DataVisualization)),
+    TRENDS: urls.insightNew(InsightType.TRENDS),
+    STICKINESS: urls.insightNew(InsightType.STICKINESS),
+    LIFECYCLE: urls.insightNew(InsightType.LIFECYCLE),
+    FUNNELS: urls.insightNew(InsightType.FUNNELS),
+    RETENTION: urls.insightNew(InsightType.RETENTION),
+    PATHS: urls.insightNew(InsightType.PATHS),
+    JSON: urls.insightNew(undefined, undefined, examples.EventsTableFull),
+    HOG: urls.insightNew(undefined, undefined, examples.Hoggonacci),
+    SQL: urls.insightNew(undefined, undefined, examples.DataVisualization),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */

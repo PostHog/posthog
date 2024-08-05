@@ -44,7 +44,7 @@ describe('insightSceneLogic', () => {
     })
 
     it('redirects when opening /insight/new with filters', async () => {
-        router.actions.push(urls.insightNew({ insight: InsightType.FUNNELS }))
+        router.actions.push(urls.insightNew(InsightType.FUNNELS))
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(router)
             .delay(1)

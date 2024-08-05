@@ -1200,8 +1200,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         getNewInsightUrl: [
-            (s) => [s.webAnalyticsFilters, s.dateFilter, s.tiles],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters, { dateTo, dateFrom }, tiles) => {
+            (s) => [s.tiles],
+            (tiles) => {
                 return function getNewInsightUrl(tileId: TileId, tabId?: string): string {
                     const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
                         if (query.kind === NodeKind.InsightVizNode) {
@@ -1226,20 +1226,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         if (!tab) {
                             throw new Error('Developer Error, tab not found')
                         }
-                        return urls.insightNew(
-                            { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                            null,
-                            formatQueryForNewInsight(tab.query)
-                        )
+                        return urls.insightNew(undefined, null, formatQueryForNewInsight(tab.query))
                     }
                     if ('tabs' in tile) {
                         throw new Error('Developer Error, tabId not provided for tab tile')
                     }
-                    return urls.insightNew(
-                        { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                        null,
-                        formatQueryForNewInsight(tile.query)
-                    )
+                    return urls.insightNew(undefined, null, formatQueryForNewInsight(tile.query))
                 }
             },
         ],
