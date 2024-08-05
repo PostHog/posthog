@@ -159,6 +159,13 @@ class ChartDisplayType(StrEnum):
     WORLD_MAP = "WorldMap"
 
 
+class ChartSettingsDisplay(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    trendLine: Optional[bool] = None
+
+
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
@@ -1888,6 +1895,7 @@ class Settings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    display: Optional[ChartSettingsDisplay] = None
     formatting: Optional[ChartSettingsFormatting] = None
 
 

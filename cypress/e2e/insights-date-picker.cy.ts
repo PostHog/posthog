@@ -1,8 +1,11 @@
+import 'cypress-network-idle'
+
 import { urls } from 'scenes/urls'
 
 describe('insights date picker', () => {
     beforeEach(() => {
         cy.visit(urls.insightNew())
+        cy.waitForNetworkIdle(300)
     })
 
     it('Can set the date filter and show the right grouping interval', () => {

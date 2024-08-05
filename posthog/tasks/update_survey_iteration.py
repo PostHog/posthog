@@ -11,8 +11,12 @@ def _update_survey_iteration(survey: Survey) -> None:
         return
 
     current_iteration = _get_current_iteration(survey)
-    if current_iteration != survey.current_iteration:
-        survey.current_iteration = _get_current_iteration(survey)
+    if (
+        current_iteration != survey.current_iteration
+        and survey.iteration_start_dates is not None
+        and 0 < len(survey.iteration_start_dates)
+    ):
+        survey.current_iteration = max(_get_current_iteration(survey), 1)
         survey.current_iteration_start_date = survey.iteration_start_dates[survey.current_iteration - 1]
         survey.internal_targeting_flag = _get_targeting_flag(survey)
         survey.save(update_fields=["current_iteration", "current_iteration_start_date", "internal_targeting_flag_id"])
