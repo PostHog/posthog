@@ -232,7 +232,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                         : null,
                                     result: targetResults.insight,
                                     disable_baseline: true,
-                                    last_refresh: targetResults.last_refresh,
+                                    last_refresh: targetResults.last_refresh || null,
                                 },
                                 doNotLoad: true,
                             },

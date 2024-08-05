@@ -464,7 +464,7 @@ describe('insightLogic', () => {
     test('keeps saved name, description, tags', async () => {
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43, false), query: queryFromFilters(API_FILTERS) },
+            cachedInsight: { ...createEmptyInsight(Insight43), query: queryFromFilters(API_FILTERS) },
         }
 
         logic = insightLogic(insightProps)

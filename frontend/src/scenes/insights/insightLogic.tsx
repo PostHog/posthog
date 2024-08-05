@@ -100,7 +100,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             {
                 loadInsight: async ({ shortId }, breakpoint) => {
                     await breakpoint(100)
-                    return await insightsApi.getByShortId(shortId, { readAsQuery: true }, undefined, 'async')
+                    const insight = await insightsApi.getByShortId(shortId, { readAsQuery: true }, undefined, 'async')
+
+                    if (!insight) {
+                        throw new Error(`Insight with shortId ${shortId} not found`)
+                    }
+
+                    return insight
                 },
                 updateInsight: async ({ insightUpdate, callback }, breakpoint) => {
                     if (!Object.entries(insightUpdate).length) {
