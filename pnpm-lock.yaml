@@ -163,6 +163,9 @@ dependencies:
   cssnano:
     specifier: ^6.0.3
     version: 6.0.3(postcss@8.4.31)
+  cypress-network-idle:
+    specifier: ^1.14.2
+    version: 1.14.2
   d3:
     specifier: ^7.8.2
     version: 7.8.2
@@ -10985,6 +10988,10 @@ packages:
       axe-core: 4.5.1
       cypress: 13.11.0
     dev: true
+
+  /cypress-network-idle@1.14.2:
+    resolution: {integrity: sha512-xAdR8dH58KFPv8eCDWjviScITrJOcUpuMXYfYTc175nk2/NvnJ+I6ylSn1CM7yZmoV/gLbFa36QLiH5NfNEaLQ==}
+    dev: false
 
   /cypress-terminal-report@6.1.0(cypress@13.11.0):
     resolution: {integrity: sha512-IC72OQvzZsTlkr3XcnIBF6VXOYUbhivJmdpCg8mywObW297SgEyMLz8V3+lz9LopOuW9cyJ15AolhA8r0bVeSA==}
