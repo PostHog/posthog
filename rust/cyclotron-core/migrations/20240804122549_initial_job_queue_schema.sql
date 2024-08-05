@@ -31,7 +31,3 @@ CREATE TABLE IF NOT EXISTS cyclotron_jobs (
 -- and scheduled (so we can exclude sleeping jobs). This index is partial, because we don't care about
 -- other states for the purpose of dequeuing
 CREATE INDEX idx_queue_dequeue_partial ON cyclotron_jobs(state, waiting_on, queue_name, scheduled) WHERE state = 'available';
-
-
-
--- we index on priority, to make sorting jobs faster

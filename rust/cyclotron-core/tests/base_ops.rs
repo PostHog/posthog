@@ -1,0 +1,275 @@
+use std::sync::Arc;
+
+use chrono::{Duration, Utc};
+use cyclotron_common::{
+    base_ops::{Job, JobInit, JobState, WaitingOn},
+    manager::QueueManager,
+    worker::Worker,
+};
+use sqlx::PgPool;
+use uuid::Uuid;
+
+fn create_new_job() -> JobInit {
+    JobInit {
+        team_id: 1,
+        function_id: Some(Uuid::now_v7()), // Lets us uniquely identify jobs without having the Uuid
+        waiting_on: WaitingOn::Fetch,
+        queue_name: "test".to_string(),
+        priority: 0,
+        scheduled: Utc::now() - Duration::minutes(1),
+        vm_state: None,
+        parameters: None,
+        metadata: None,
+    }
+}
+
+fn assert_job_matches_init(job: &Job, init: &JobInit) {
+    assert_eq!(job.team_id, init.team_id);
+    assert_eq!(job.function_id, init.function_id);
+    assert_eq!(job.waiting_on, init.waiting_on);
+    assert_eq!(job.queue_name, init.queue_name);
+    assert_eq!(job.priority, init.priority);
+    assert_eq!(job.scheduled, init.scheduled);
+    assert_eq!(job.vm_state, init.vm_state);
+    assert_eq!(job.parameters, init.parameters);
+    assert_eq!(job.metadata, init.metadata);
+}
+
+// I know this should be a bunch of tests, but for hacking together stuff right now, it'll do
+#[sqlx::test(migrations = "./migrations")]
+async fn test_queue(db: PgPool) {
+    let manager = QueueManager::from_pool(db.clone());
+    let worker = Worker::from_pool(db);
+
+    let job_1 = create_new_job();
+    let mut job_2 = create_new_job();
+
+    job_2.priority = 2; // Lower priority jobs should be returned second
+
+    let queue_name = job_1.queue_name.clone();
+    let waiting_on = job_1.waiting_on;
+
+    manager
+        .create_job(job_1.clone())
+        .await
+        .expect("failed to create job");
+    manager
+        .create_job(job_2.clone())
+        .await
+        .expect("failed to create job");
+
+    let jobs = worker
+        .dequeue_jobs(&queue_name, waiting_on, 2)
+        .await
+        .expect("failed to dequeue job");
+
+    assert_eq!(jobs.len(), 2);
+    // This also assert that the ordering is correct in terms of priority
+    assert_job_matches_init(&jobs[0], &job_1);
+    assert_job_matches_init(&jobs[1], &job_2);
+
+    // Now we can re-queue these jobs (imagine we had done work)
+    worker
+        .set_state(jobs[0].id, JobState::Available)
+        .await
+        .expect("failed to set state");
+    worker
+        .set_state(jobs[1].id, JobState::Available)
+        .await
+        .expect("failed to set state");
+
+    // Flush the two jobs, having made no other changes, then assert we can re-dequeue them
+    worker
+        .flush_job(jobs[0].id)
+        .await
+        .expect("failed to flush job");
+    worker
+        .flush_job(jobs[1].id)
+        .await
+        .expect("failed to flush job");
+
+    let jobs = worker
+        .dequeue_jobs(&queue_name, waiting_on, 2)
+        .await
+        .expect("failed to dequeue job");
+
+    assert_eq!(jobs.len(), 2);
+    assert_job_matches_init(&jobs[0], &job_1);
+    assert_job_matches_init(&jobs[1], &job_2);
+
+    // Re-queue them again
+    worker
+        .set_state(jobs[0].id, JobState::Available)
+        .await
+        .expect("failed to set state");
+    worker
+        .set_state(jobs[1].id, JobState::Available)
+        .await
+        .expect("failed to set state");
+
+    worker
+        .flush_job(jobs[0].id)
+        .await
+        .expect("failed to flush job");
+    worker
+        .flush_job(jobs[1].id)
+        .await
+        .expect("failed to flush job");
+
+    // Spin up two tasks to race on dequeuing, and assert at most 2 jobs are dequeued
+    let worker = Arc::new(worker);
+    let moved = worker.clone();
+    let queue_name_moved = queue_name.clone();
+    let fut_1 = async move {
+        moved
+            .dequeue_jobs(&queue_name_moved, waiting_on, 2)
+            .await
+            .expect("failed to dequeue job")
+    };
+    let moved = worker.clone();
+    let queue_name_moved = queue_name.clone();
+    let fut_2 = async move {
+        moved
+            .dequeue_jobs(&queue_name_moved, waiting_on, 2)
+            .await
+            .expect("failed to dequeue job")
+    };
+
+    let (jobs_1, jobs_2) = tokio::join!(fut_1, fut_2);
+    assert_eq!(jobs_1.len() + jobs_2.len(), 2);
+
+    let jobs = jobs_1
+        .into_iter()
+        .chain(jobs_2.into_iter())
+        .collect::<Vec<_>>();
+
+    // And now, any subsequent dequeues will return no jobs
+    let empty = worker
+        .dequeue_jobs(&queue_name, waiting_on, 2)
+        .await
+        .expect("failed to dequeue job");
+    assert_eq!(empty.len(), 0);
+
+    // If we try to flush a job without setting what it's next state will be (or if we set that next state to be "running"),
+    // we should get an error
+    worker
+        .flush_job(jobs[0].id)
+        .await
+        .expect_err("expected error due to no-next-state");
+
+    worker
+        .set_state(jobs[1].id, JobState::Running)
+        .await
+        .expect("failed to set state");
+    worker
+        .flush_job(jobs[1].id)
+        .await
+        .expect_err("expected error due to running state");
+
+    // But if we properly set the state to completed or failed, now we can flush
+    worker
+        .set_state(jobs[0].id, JobState::Completed)
+        .await
+        .expect("failed to set state");
+    worker
+        .set_state(jobs[1].id, JobState::Failed)
+        .await
+        .expect("failed to set state");
+
+    worker
+        .flush_job(jobs[0].id)
+        .await
+        .expect("failed to flush job");
+    worker
+        .flush_job(jobs[1].id)
+        .await
+        .expect("failed to flush job");
+
+    // And now, any subsequent dequeues will return no jobs (because these jobs are finished)
+    let empty = worker
+        .dequeue_jobs(&queue_name, waiting_on, 2)
+        .await
+        .expect("failed to dequeue job");
+    assert_eq!(empty.len(), 0);
+
+    // Now, lets check that we can set every variable on a job
+
+    // Set up some initial values
+    let now = Utc::now();
+    let mut job = create_new_job();
+    job.waiting_on = WaitingOn::Fetch;
+    job.queue_name = "test".to_string();
+    job.priority = 0;
+    job.scheduled = now - Duration::minutes(2);
+    job.vm_state = None;
+    job.parameters = None;
+    job.metadata = None;
+
+    // Queue the job
+    manager
+        .create_job(job.clone())
+        .await
+        .expect("failed to create job");
+
+    // Then dequeue it
+    let job = worker
+        .dequeue_jobs("test", WaitingOn::Fetch, 1)
+        .await
+        .expect("failed to dequeue job")
+        .pop()
+        .expect("failed to dequeue job");
+
+    // Set everything we're able to set, including state to available, so we can dequeue it again
+    worker
+        .set_state(job.id, JobState::Available)
+        .await
+        .expect("failed to set state");
+    worker
+        .set_waiting_on(job.id, WaitingOn::Hog)
+        .await
+        .expect("failed to set waiting_on");
+    worker
+        .set_queue(job.id, "test_2")
+        .await
+        .expect("failed to set queue");
+    worker
+        .set_priority(job.id, 1)
+        .await
+        .expect("failed to set priority");
+    worker
+        .set_scheduled_at(job.id, now - Duration::minutes(10))
+        .await
+        .expect("failed to set scheduled_at");
+    worker
+        .set_vm_state(job.id, Some("test".to_string()))
+        .await
+        .expect("failed to set vm_state");
+    worker
+        .set_parameters(job.id, Some("test".to_string()))
+        .await
+        .expect("failed to set parameters");
+    worker
+        .set_metadata(job.id, Some("test".to_string()))
+        .await
+        .expect("failed to set metadata");
+
+    // Flush the job
+    worker.flush_job(job.id).await.expect("failed to flush job");
+
+    // Then dequeue it again (this time being sure to grab the vm state too)
+    let job = worker
+        .dequeue_with_vm_state("test_2", WaitingOn::Hog, 1)
+        .await
+        .expect("failed to dequeue job")
+        .pop()
+        .expect("failed to dequeue job");
+
+    // And every value should be the updated one
+    assert_eq!(job.waiting_on, WaitingOn::Hog);
+    assert_eq!(job.queue_name, "test_2");
+    assert_eq!(job.priority, 1);
+    assert_eq!(job.scheduled, now - Duration::minutes(10));
+    assert_eq!(job.vm_state, Some("test".to_string()));
+    assert_eq!(job.parameters, Some("test".to_string()));
+    assert_eq!(job.metadata, Some("test".to_string()));
+}
