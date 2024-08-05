@@ -48,7 +48,6 @@ import {
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
-    InsightModel,
     InsightShortId,
     InsightType,
     MultipleSurveyQuestion,
@@ -296,7 +295,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
         reportInsightViewed: (
-            insightModel: Partial<InsightModel>,
+            insightModel: Partial<QueryBasedInsightModel>,
             query: Node | null,
             isFirstLoad: boolean,
             delay?: number
