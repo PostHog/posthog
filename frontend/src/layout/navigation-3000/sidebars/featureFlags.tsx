@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
-import { BaseMathType, FeatureFlagType } from '~/types'
+import { BaseMathType } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { ExtendedListItem, SidebarCategory } from '../types'
@@ -71,9 +71,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                     },
                                 ],
                                 breakdownFilter: {
-                                    breakdowns: [
-                                        { property: `$feature/${featureFlag.key}`, type: MultipleBreakdownType.Event },
-                                    ],
+                                    breakdowns: [{ property: `$feature/${featureFlag.key}`, type: 'event' }],
                                 },
                             },
                         }
