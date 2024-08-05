@@ -3,8 +3,16 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconCopy, IconFilter, IconPencil, IconPerson, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonBadge, LemonDivider, LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonCheckbox,
+    LemonDivider,
+    LemonMenu,
+    LemonSelect,
+    LemonSelectOption,
+    LemonSelectOptions,
+} from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -16,7 +24,6 @@ import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/Taxonom
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
@@ -27,7 +34,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
-    BASE_MATH_DEFINITIONS,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
     mathsLogic,
@@ -163,6 +169,7 @@ export function ActionFilterRow({
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
+    const [isMenuVisible, setIsMenuVisible] = useState(false)
 
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
@@ -308,6 +315,7 @@ export function ActionFilterRow({
             data-attr={`show-prop-rename-${index}`}
             noPadding={!enablePopup}
             onClick={() => {
+                setIsMenuVisible(false)
                 selectFilter(filter)
                 onRenameClick()
             }}
@@ -325,6 +333,7 @@ export function ActionFilterRow({
             data-attr={`show-prop-duplicate-${index}`}
             noPadding={!enablePopup}
             onClick={() => {
+                setIsMenuVisible(false)
                 duplicateFilter(filter)
             }}
             fullWidth={enablePopup}
@@ -340,7 +349,10 @@ export function ActionFilterRow({
             // title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
             noPadding={!enablePopup}
-            onClick={onClose}
+            onClick={() => {
+                setIsMenuVisible(false)
+                onClose()
+            }}
             fullWidth={enablePopup}
         >
             {enablePopup ? 'Delete' : undefined}
@@ -510,35 +522,52 @@ export function ActionFilterRow({
                                     <>
                                         {!hideFilter && propertyFiltersButton}
                                         <div className="relative">
-                                            <More
-                                                size="medium"
-                                                overlay={
-                                                    <>
-                                                        <LemonButton
-                                                            icon={<IconPerson />}
-                                                            data-attr={`math-first-time-for-user-${index}`}
-                                                            onClick={() => {
-                                                                onMathSelect(
-                                                                    index,
-                                                                    math ? undefined : BaseMathType.FirstTimeForUser
-                                                                )
-                                                            }}
-                                                            fullWidth
-                                                            tooltip={
-                                                                BASE_MATH_DEFINITIONS[BaseMathType.FirstTimeForUser]
-                                                                    .description
-                                                            }
-                                                        >
-                                                            {math === BaseMathType.FirstTimeForUser
-                                                                ? 'Disable count by first time'
-                                                                : 'Count by first time for user'}
-                                                        </LemonButton>
-                                                        <LemonDivider />
-                                                        {rowEndElements}
-                                                    </>
-                                                }
-                                                noPadding
-                                            />
+                                            <LemonMenu
+                                                visible={isMenuVisible}
+                                                closeOnClickInside={false}
+                                                onVisibilityChange={setIsMenuVisible}
+                                                items={[
+                                                    {
+                                                        label: () => (
+                                                            <>
+                                                                <LemonCheckbox
+                                                                    className="py-1 px-2 flex-row-reverse [&_svg]:ml-1 [&>label]:gap-2.5"
+                                                                    checked={math === BaseMathType.FirstTimeForUser}
+                                                                    onChange={(checked) => {
+                                                                        onMathSelect(
+                                                                            index,
+                                                                            checked
+                                                                                ? BaseMathType.FirstTimeForUser
+                                                                                : undefined
+                                                                        )
+                                                                    }}
+                                                                    data-attr={`math-first-time-for-user-${index}`}
+                                                                    label="Count by first time for user"
+                                                                    fullWidth
+                                                                />
+                                                                <LemonDivider />
+                                                            </>
+                                                        ),
+                                                    },
+                                                    {
+                                                        label: () => renameRowButton,
+                                                    },
+                                                    {
+                                                        label: () => duplicateRowButton,
+                                                    },
+                                                    {
+                                                        label: () => deleteButton,
+                                                    },
+                                                ]}
+                                            >
+                                                <LemonButton
+                                                    size="medium"
+                                                    aria-label="Show more actions"
+                                                    data-attr={`more-button-${index}`}
+                                                    icon={<IconEllipsis />}
+                                                    noPadding
+                                                />
+                                            </LemonMenu>
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
