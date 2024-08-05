@@ -248,7 +248,7 @@ class FunnelBase(ABC):
                     {
                         "breakdown": (
                             get_breakdown_cohort_name(breakdown_value)
-                            if self.context.breakdownFilter.breakdown_type == "cohort"
+                            if self.context.breakdownType == "cohort"
                             else breakdown_value
                         ),
                         "breakdown_value": breakdown_value,
@@ -631,12 +631,23 @@ class FunnelBase(ABC):
             if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
                 funnelStepBreakdown = str(funnelStepBreakdown)
 
-            conditions.append(
-                parse_expr(
-                    "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
-                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+            # :TRICKY: we need to handle strings differently, so that parse_expr correctly parses them into a constant
+            if not isinstance(funnelStepBreakdown, str):
+                conditions.append(
+                    parse_expr(
+                        "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
+                        placeholders={"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                    )
                 )
-            )
+            elif len(funnelStepBreakdown) == 0:
+                conditions.append(parse_expr("arrayFlatten(array(prop)) = arrayFlatten(array(''))"))
+            else:
+                conditions.append(
+                    parse_expr(
+                        "arrayFlatten(array(prop)) = arrayFlatten(array('{funnelStepBreakdown}'))",
+                        placeholders={"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                    )
+                )
 
         return ast.And(exprs=conditions)
 
