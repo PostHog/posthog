@@ -180,7 +180,7 @@ abstract class CdpConsumerBase {
         counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
     }
 
-    protected producelogs(result: HogFunctionInvocationResult) {
+    protected produceLogs(result: HogFunctionInvocationResult) {
         const logs = prepareLogEntriesForClickhouse(result)
 
         logs.forEach((logEntry) => {
@@ -208,7 +208,7 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
 
-                        this.producelogs(result)
+                        this.produceLogs(result)
 
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
@@ -270,18 +270,7 @@ abstract class CdpConsumerBase {
                 for (const item of asyncResponses) {
                     const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
 
-                    if (functionState === HogWatcherState.overflowed) {
-                        this.messagesToProduce.push({
-                            topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                            value: {
-                                source: 'hog_function_callback',
-                                payload: item,
-                            },
-                            key: new UUIDT().toString(), // Random key to spread across consumers
-                        })
-                        // We don't report overflowed metric to appmetrics as it is sort of a meta-metric
-                        counterFunctionInvocation.inc({ outcome: 'overflowed' })
-                    } else if (functionState > HogWatcherState.disabledForPeriod) {
+                    if (functionState > HogWatcherState.disabledForPeriod) {
                         this.produceAppMetric({
                             team_id: item.teamId,
                             app_source_id: item.hogFunctionId,
@@ -356,7 +345,6 @@ abstract class CdpConsumerBase {
                             ...acc,
                             [state]: [...(acc[state] ?? []), item],
                         }
-                        return acc
                     }, {} as Record<HogWatcherState, HogFunctionType[] | undefined>)
 
                     if (hogFunctionsByState[HogWatcherState.overflowed]?.length) {
