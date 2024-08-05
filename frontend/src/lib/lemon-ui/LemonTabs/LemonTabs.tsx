@@ -2,6 +2,7 @@ import './LemonTabs.scss'
 
 import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
+import { Fragment } from 'react'
 
 import { useSliderPositioning } from '../hooks'
 import { Link } from '../Link'
@@ -30,6 +31,7 @@ export interface LemonTabsProps<T extends string | number> {
     tabs: (LemonTab<T> | null | false)[]
     size?: 'small' | 'medium'
     'data-attr'?: string
+    className?: string
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -43,6 +45,7 @@ export function LemonTabs<T extends string | number>({
     tabs,
     size = 'medium',
     'data-attr': dataAttr,
+    className,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
@@ -55,7 +58,7 @@ export function LemonTabs<T extends string | number>({
 
     return (
         <div
-            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`)}
+            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`, className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
@@ -104,11 +107,7 @@ export function LemonTabs<T extends string | number>({
                     )
                 })}
             </ul>
-            {activeTab && 'content' in activeTab && (
-                <div className="LemonTabs__content" key={activeKey}>
-                    {activeTab.content}
-                </div>
-            )}
+            {activeTab && 'content' in activeTab && <Fragment key={activeKey}>{activeTab.content}</Fragment>}
         </div>
     )
 }

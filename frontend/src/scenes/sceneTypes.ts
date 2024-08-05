@@ -119,12 +119,11 @@ export interface SceneConfig {
     allowUnauthenticated?: boolean
     /**
      * If `app`, navigation is shown, and the scene has default padding.
-     * If `app-raw`, navigation is shown, but the scene has no padding.
-     * If `app-container`, navigation is shown, and the scene is centered with a max width.
+     * If `app-no-margin`, navigation is shown, but the scene has no padding.
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-container' | 'plain'
+    layout?: 'app' | 'app-no-margin' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */

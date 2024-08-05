@@ -74,10 +74,10 @@ export function NotebookCanvas(): JSX.Element {
             />
             <div className="flex flex-col flex-1">
                 <div className="relative flex-1">
-                    <div className="absolute inset-0 p-3 flex flex-col overflow-y-auto">
-                        <LemonBanner type="info" className="mb-4">
-                            <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for
-                            easy sharing.
+                    <div className="absolute inset-0 flex flex-col overflow-y-auto">
+                        <LemonBanner type="info" className="mb-4" dismissKey="canvas-intro">
+                            <b>This is a canvas.</b> It's a Notebook that is only saved in the URL so you can share it
+                            with others. It's not saved to your account.
                         </LemonBanner>
                         <Notebook {...logicProps} />
                     </div>
