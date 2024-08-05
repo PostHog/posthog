@@ -1,13 +1,15 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
-import { AvailableFeature, PipelineStage } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { AvailableFeature, PipelineStage, SidePanelTab } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { PipelineBackend } from '../types'
@@ -18,10 +20,25 @@ export function DestinationOptionsTable(): JSX.Element {
     const { loading, filteredDestinations, filters } = useValues(newDestinationsLogic)
     const { setFilters, openFeedbackDialog } = useActions(newDestinationsLogic)
     const { canEnableDestination } = useValues(pipelineAccessLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <div className="space-y-2">
             <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+
+            <FlaggedFeature flag="hog-functions" match={false}>
+                <LemonBanner
+                    type="info"
+                    action={{
+                        onClick: () => openSidePanel(SidePanelTab.FeaturePreviews),
+                        children: 'Enable feature preview',
+                    }}
+                >
+                    <b>Pipeline Destinations 3000!</b> We're excited to announce that we're working on a new version of
+                    our realtime destinations that include a range of new destinations, native filtering, templating and
+                    even customizing the code.
+                </LemonBanner>
+            </FlaggedFeature>
 
             <div className="flex items-center gap-2">
                 <LemonInput
