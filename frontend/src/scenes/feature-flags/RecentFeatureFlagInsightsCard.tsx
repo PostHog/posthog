@@ -3,7 +3,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { urls } from 'scenes/urls'
 
-import { InsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
@@ -24,7 +24,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
                 }),
             }}
             items={relatedInsights.slice(0, 5)}
-            renderRow={(insight: InsightModel, index) => <InsightRow key={index} insight={insight} />}
+            renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
         />
     )
 }

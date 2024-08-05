@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { queryFromFilters } from 'scenes/insights/insightDataLogic'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
@@ -226,10 +227,12 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                 dashboardItemId: targetResults.fakeInsightId as InsightShortId,
                                 cachedInsight: {
                                     short_id: targetResults.fakeInsightId as InsightShortId,
-                                    filters: transformResultFilters(targetResults.filters ?? {}),
+                                    query: targetResults?.filters
+                                        ? queryFromFilters(transformResultFilters(targetResults.filters))
+                                        : null,
                                     result: targetResults.insight,
                                     disable_baseline: true,
-                                    last_refresh: targetResults.last_refresh,
+                                    last_refresh: targetResults.last_refresh || null,
                                 },
                                 doNotLoad: true,
                             },

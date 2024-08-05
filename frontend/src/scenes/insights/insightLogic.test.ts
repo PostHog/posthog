@@ -4,7 +4,6 @@ import api from 'lib/api'
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -12,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { examples } from '~/queries/examples'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
@@ -25,9 +25,10 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
+    QueryBasedInsightModel,
 } from '~/types'
 
-import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogic, queryFromFilters } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {
@@ -68,12 +69,12 @@ const patchResponseFor = (
     }
 }
 
-function insightModelWith(properties: Record<string, any>): InsightModel {
+function insightModelWith(properties: Record<string, any>): QueryBasedInsightModel {
     return {
         id: 42,
         short_id: Insight42,
         result: ['result 42'],
-        filters: API_FILTERS,
+        query: queryFromFilters(API_FILTERS),
         dashboards: [],
         dashboard_tiles: [],
         saved: true,
@@ -98,7 +99,7 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
         layouts: {},
         color: null,
         ...properties,
-    } as InsightModel
+    } as QueryBasedInsightModel
 }
 
 const seenQueryIDs: string[] = []
@@ -327,7 +328,7 @@ describe('insightLogic', () => {
                             short_id: Insight42,
                             query: { kind: NodeKind.EventsQuery },
                         }),
-                        queryBasedInsight: partial({
+                        insight: partial({
                             short_id: Insight42,
                             query: { kind: NodeKind.EventsQuery },
                         }),
@@ -360,7 +361,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toMatchValues({
                         legacyInsight: insight,
-                        queryBasedInsight: {
+                        insight: {
                             short_id: Insight42,
                             query: {
                                 kind: 'InsightVizNode',
@@ -391,7 +392,7 @@ describe('insightLogic', () => {
             expectLogic(logicUnderTest)
                 .toDispatchActions(['loadInsight'])
                 .toMatchValues({
-                    queryBasedInsight: partial({
+                    insight: partial({
                         short_id: '42',
                     }),
                 })
@@ -463,7 +464,7 @@ describe('insightLogic', () => {
     test('keeps saved name, description, tags', async () => {
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43, false), filters: API_FILTERS },
+            cachedInsight: { ...createEmptyInsight(Insight43), query: queryFromFilters(API_FILTERS) },
         }
 
         logic = insightLogic(insightProps)
@@ -517,9 +518,8 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         await expectLogic(logic, () => {
-            logic.actions.setFilters(cleanFilters({}))
             logic.actions.saveInsight()
-        }).toDispatchActions(['setFilters', 'saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
+        }).toDispatchActions(['saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
@@ -529,7 +529,7 @@ describe('insightLogic', () => {
             dashboardItemId: Insight42,
             cachedInsight: {
                 short_id: Insight42,
-                filters: { insight: InsightType.FUNNELS },
+                query: examples.FunnelsQuery,
                 result: {},
             },
         }
@@ -588,7 +588,7 @@ describe('insightLogic', () => {
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
-                filters: { insight: InsightType.FUNNELS },
+                query: examples.FunnelsQuery,
             },
         }
 
@@ -605,7 +605,7 @@ describe('insightLogic', () => {
             .toMatchValues({
                 savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
                 legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
-                queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
+                insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 insightChanged: false,
             })
 
@@ -642,7 +642,7 @@ describe('insightLogic', () => {
                     legacyInsight: truth(({ name }) => {
                         return name === 'new name'
                     }),
-                    queryBasedInsight: truth(({ name }) => {
+                    insight: truth(({ name }) => {
                         return name === 'new name'
                     }),
                 })
@@ -665,7 +665,7 @@ describe('insightLogic', () => {
                     legacyInsight: truth(({ name }) => {
                         return name === 'original name'
                     }),
-                    queryBasedInsight: truth(({ name }) => {
+                    insight: truth(({ name }) => {
                         return name === 'original name'
                     }),
                 })
@@ -674,50 +674,50 @@ describe('insightLogic', () => {
         it('reacts to removal from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 42 } } as DashboardTile,
+                    tile: { insight: { id: 42 } } as DashboardTile<QueryBasedInsightModel>,
                     dashboardId: 3,
                 })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
         it('does not reacts to removal of a different tile from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 12 } } as DashboardTile,
+                    tile: { insight: { id: 12 } } as DashboardTile<QueryBasedInsightModel>,
                     dashboardId: 3,
                 })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
         it('reacts to deletion of dashboard', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType<QueryBasedInsightModel>)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
         it('does not reacts to deletion of dashboard it is not on', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType<QueryBasedInsightModel>)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -728,7 +728,7 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
                 })
         })
 
@@ -739,7 +739,7 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
     })
@@ -758,8 +758,8 @@ describe('insightLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setInsight(
-                    { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
-                    { overrideFilter: true }
+                    { query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    { overrideQuery: true }
                 )
                 logic.actions.saveInsight()
             })

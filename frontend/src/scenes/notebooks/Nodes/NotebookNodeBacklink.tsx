@@ -1,6 +1,6 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
+import { NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
 import { Link } from '@posthog/lemon-ui'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -47,11 +47,11 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     },
     {
         type: 'insights',
-        regex: new RegExp(urls.insightView('(.+)' as InsightModel['short_id'])),
+        regex: new RegExp(urls.insightView('(.+)' as QueryBasedInsightModel['short_id'])),
         icon: <IconGraph />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
-            const insight = await api.insights.loadInsight(id as InsightModel['short_id'])
+            const insight = await api.insights.loadInsight(id as QueryBasedInsightModel['short_id'])
             return insight.results[0]?.name ?? ''
         },
     },

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType, DashboardBasicType, InsightModel } from '~/types'
+import { AnnotationScope, AnnotationType, DashboardBasicType, QueryBasedInsightModel } from '~/types'
 
 import type { annotationModalLogicType } from './annotationModalLogicType'
 
@@ -64,7 +64,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
     actions({
         openModalToCreateAnnotation: (
             initialDate?: Dayjs | null,
-            insightId?: InsightModel['id'] | null,
+            insightId?: QueryBasedInsightModel['id'] | null,
             dashboardId?: DashboardBasicType['id'] | null
         ) => ({
             initialDate,
@@ -73,7 +73,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         }),
         openModalToEditAnnotation: (
             annotation: AnnotationType,
-            insightId?: InsightModel['id'] | null,
+            insightId?: QueryBasedInsightModel['id'] | null,
             dashboardId?: DashboardBasicType['id'] | null
         ) => ({
             annotation,

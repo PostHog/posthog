@@ -92,26 +92,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
     }),
     selectors(() => ({
-        legacyInsightSelector: [
-            (s) => [s.insightLogicRef],
-            (insightLogicRef) => insightLogicRef?.logic.selectors.legacyInsight,
-        ],
-        legacyInsight: [
-            (s) => [(state, props) => s.legacyInsightSelector?.(state, props)?.(state, props)],
-            (insight) => insight,
-        ],
-        queryBasedInsightSelector: [
-            (s) => [s.insightLogicRef],
-            (insightLogicRef) => insightLogicRef?.logic.selectors.queryBasedInsight,
-        ],
-        queryBasedInsight: [
-            (s) => [(state, props) => s.queryBasedInsightSelector?.(state, props)?.(state, props)],
-            (insight) => insight,
-        ],
+        insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
+        insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
             (s) => [
                 s.insightLogicRef,
-                s.queryBasedInsight,
+                s.insight,
                 groupsModel.selectors.aggregationLabel,
                 cohortsModel.selectors.cohortsById,
                 mathsLogic.selectors.mathDefinitions,
@@ -140,7 +126,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         activityFilters: [
-            (s) => [s.queryBasedInsight],
+            (s) => [s.insight],
             (insight): ActivityFilters | null => {
                 return insight
                     ? {
@@ -153,7 +139,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     })),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
-            const logicInsightId = values.queryBasedInsight?.short_id ?? null
+            const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
 
             if (logicInsightId !== insightId) {
@@ -179,7 +165,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (oldRef2) {
                     oldRef2.unmount()
                 }
-            } else if (insightId && !values.queryBasedInsight?.result) {
+            } else if (insightId && !values.insight?.result) {
                 values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId)
             }
         },
@@ -194,12 +180,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             values.insightDataLogicRef?.logic.actions.setQuery(examples.DataWarehouse)
             values.insightLogicRef?.logic.actions.setInsight(
                 {
-                    ...createEmptyInsight('new-dataWarehouse', false),
+                    ...createEmptyInsight('new-dataWarehouse'),
                     ...(q ? { query: JSON.parse(q) } : {}),
                 },
                 {
                     fromPersistentApi: false,
-                    overrideFilter: false,
+                    overrideQuery: false,
                 }
             )
         },
@@ -271,17 +257,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             // reset the insight's state if we have to
             if (initial || method === 'PUSH' || filters || q) {
                 if (insightId === 'new') {
-                    const teamFilterTestAccounts = values.currentTeam?.test_account_filters_default_checked || false
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new', teamFilterTestAccounts),
-                            ...(filters ? { filters: cleanFilters(filters || {}, teamFilterTestAccounts) } : {}),
+                            ...createEmptyInsight('new'),
+                            ...(filters ? { filters: cleanFilters(filters || {}) } : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             ...(q ? { query: JSON.parse(q) } : {}),
                         },
                         {
                             fromPersistentApi: false,
-                            overrideFilter: true,
+                            overrideQuery: true,
                         }
                     )
 
@@ -339,7 +324,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         },
         message: 'Leave insight?\nChanges you made will be discarded.',
         onConfirm: () => {
-            values.insightLogicRef?.logic.actions.cancelChanges()
             values.insightDataLogicRef?.logic.actions.cancelChanges()
         },
     })),

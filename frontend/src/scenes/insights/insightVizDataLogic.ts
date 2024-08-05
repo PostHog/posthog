@@ -18,7 +18,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterT
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getAllEventNames } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
@@ -66,7 +66,6 @@ import {
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~/types'
 
-import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
@@ -87,12 +86,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             databaseTableListLogic,
             ['dataWarehouseTablesMap'],
         ],
-        actions: [
-            insightLogic,
-            ['setFilters'],
-            insightDataLogic,
-            ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure'],
-        ],
+        actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
     })),
 
     actions({
@@ -396,10 +390,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 if (props.setQuery) {
                     props.setQuery(query)
                 }
-
-                const querySource = query.source
-                const filters = queryNodeToFilter(querySource)
-                actions.setFilters(filters)
             }
         },
 

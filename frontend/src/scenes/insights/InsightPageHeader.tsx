@@ -29,7 +29,14 @@ import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { ExporterFormat, InsightLogicProps, ItemMode, NotebookNodeType } from '~/types'
+import {
+    ExporterFormat,
+    InsightLogicProps,
+    InsightShortId,
+    ItemMode,
+    NotebookNodeType,
+    QueryBasedInsightModel,
+} from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -40,7 +47,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const {
         insightProps,
         canEditInsight,
-        queryBasedInsight: insight,
+        insight,
         queryBasedInsightSaving,
         insightChanged,
         insightSaving,
@@ -69,14 +76,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
                         title="Insight sharing"
                         isOpen={insightMode === ItemMode.Sharing}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
@@ -89,8 +96,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     />
                     <AlertsModal
                         isOpen={insightMode === ItemMode.Alerts}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
-                        insightShortId={insight.short_id}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insight.short_id as InsightShortId}
                         alertId={subscriptionId}
                     />
                     <NewDashboardModal />
@@ -105,7 +112,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(insight, true)}
+                                                onClick={() =>
+                                                    duplicateInsight(insight as QueryBasedInsightModel, true)
+                                                }
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -217,7 +226,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 status="danger"
                                                 onClick={() =>
                                                     void deleteInsightWithUndo({
-                                                        object: insight,
+                                                        object: insight as QueryBasedInsightModel,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()

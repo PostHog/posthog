@@ -1,18 +1,21 @@
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
-import { DashboardLayoutSize, DashboardTile, TileLayout } from '~/types'
+import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
-function textTileWithLayout(layouts: Record<DashboardLayoutSize, TileLayout>, tileId: number = 1): DashboardTile {
+function textTileWithLayout(
+    layouts: Record<DashboardLayoutSize, TileLayout>,
+    tileId: number = 1
+): DashboardTile<QueryBasedInsightModel> {
     return {
         id: tileId,
         text: 'test',
         layouts: layouts,
-    } as unknown as DashboardTile
+    } as unknown as DashboardTile<QueryBasedInsightModel>
 }
 
 describe('calculating tile layouts', () => {
     it('minimum width and height are added if missing', () => {
-        const tiles: DashboardTile[] = [
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({
                 sm: { i: '1', x: 0, y: 0, w: 1, h: 1 },
                 xs: { i: '1', x: 0, y: 0, w: 1, h: 1 },
@@ -36,7 +39,7 @@ describe('calculating tile layouts', () => {
             { i: '3', x: 6, y: 6, w: 6, h: 6, minW: 3, minH: 2 },
             { i: '4', x: 6, y: 0, w: 6, h: 6, minW: 3, minH: 2 },
         ]
-        const tiles: DashboardTile[] = [
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({ sm: smLayouts[0] } as Record<DashboardLayoutSize, TileLayout>, 1),
             textTileWithLayout({ sm: smLayouts[2] } as Record<DashboardLayoutSize, TileLayout>, 2),
             textTileWithLayout({ sm: smLayouts[3] } as Record<DashboardLayoutSize, TileLayout>, 3),

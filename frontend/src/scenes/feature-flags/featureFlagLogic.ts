@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
     AvailableFeature,
     Breadcrumb,
@@ -40,6 +41,7 @@ import {
     OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
+    QueryBasedInsightModel,
     RecordingUniversalFilters,
     RolloutConditionType,
     ScheduledChangeOperationType,
@@ -487,14 +489,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         },
         relatedInsights: [
-            [] as InsightModel[],
+            [] as QueryBasedInsightModel[],
             {
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
-                        const response = await api.get(
+                        const response = await api.get<PaginatedResponse<InsightModel>>(
                             `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
-                        return response.results
+                        return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }
                     return []
                 },

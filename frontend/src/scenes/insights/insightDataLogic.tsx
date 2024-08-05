@@ -20,7 +20,7 @@ import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
 import { insightUsageLogic } from './insightUsageLogic'
-import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
+import { setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { compareFilters } from './utils/compareFilters'
 
 export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
@@ -41,7 +41,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['legacyInsight', 'queryBasedInsight', 'savedInsight'],
+            ['insight', 'savedInsight'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
@@ -99,7 +99,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         query: [
-            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault],
+            (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault],
             (propsQuery, insight, internalQuery, filterTestAccountsDefault): Node | null =>
                 propsQuery ||
                 internalQuery ||
@@ -113,15 +113,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (props: InsightLogicProps) => (props.dashboardItemId?.startsWith('new-AdHoc.') ? props.query : null),
         ],
 
-        isQueryBasedInsight: [
-            (s) => [s.query],
-            (query) => {
-                return !!query && !isInsightVizNode(query)
-            },
-        ],
-
         exportContext: [
-            (s) => [s.query, s.queryBasedInsight],
+            (s) => [s.query, s.insight],
             (query, insight) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
@@ -142,22 +135,33 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.legacyInsight, s.savedInsight, s.currentTeam],
-            (isQueryBasedInsight, query, legacyInsight, savedInsight, currentTeam) => {
-                if (isQueryBasedInsight) {
-                    return !objectsEqual(query, legacyInsight.query)
-                }
-                const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
+            (s) => [s.query, s.savedInsight, s.currentTeam],
+            (query, savedInsight, currentTeam) => {
+                if (savedInsight.query && !isInsightVizNode(savedInsight.query)) {
+                    // saved non-insight query
+                    return !objectsEqual(query, savedInsight.query)
+                } else if (savedInsight.query && isInsightVizNode(savedInsight.query)) {
+                    // saved insight query
+                    if (!isInsightVizNode(query)) {
+                        return true
+                    }
 
-                let savedFilters: Partial<FilterType>
-                if (savedInsight.filters) {
-                    savedFilters = savedInsight.filters
-                } else {
-                    savedFilters = queryNodeToFilter(
-                        insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
-                    )
-                    setTestAccountFilterForNewInsight(savedFilters, currentTeam?.test_account_filters_default_checked)
+                    const currentFilters = queryNodeToFilter(query.source)
+                    const savedFilters = queryNodeToFilter(savedInsight.query.source)
+
+                    return !compareFilters(currentFilters, savedFilters)
                 }
+
+                // new insight
+                if (!isInsightVizNode(query)) {
+                    return true
+                }
+
+                const currentFilters = queryNodeToFilter(query.source)
+                const savedFilters = queryNodeToFilter(
+                    insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
+                )
+                setTestAccountFilterForNewInsight(savedFilters, currentTeam?.test_account_filters_default_checked)
 
                 return !compareFilters(currentFilters, savedFilters, currentTeam?.test_account_filters_default_checked)
             },
@@ -183,10 +187,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setInsight: ({ insight: { filters, query, result }, options: { overrideFilter } }) => {
-            if (overrideFilter && query == null) {
-                actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
-            } else if (query) {
+        setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
+            if (overrideQuery && query) {
                 actions.setQuery(query)
             }
 
@@ -194,18 +196,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setInsightData({ ...values.insightData, result })
             }
         },
-        loadInsightSuccess: ({ legacyInsight }) => {
-            if (legacyInsight.query) {
-                actions.setQuery(legacyInsight.query)
-            } else if (!!legacyInsight.filters && !!Object.keys(legacyInsight.filters).length) {
-                const query = queryFromFilters(legacyInsight.filters)
-                actions.setQuery(query)
+        loadInsightSuccess: ({ insight }) => {
+            if (insight.query) {
+                actions.setQuery(insight.query)
             }
         },
         cancelChanges: () => {
-            const savedFilters = values.savedInsight.filters
+            const savedQuery = values.savedInsight.query
             const savedResult = values.savedInsight.result
-            actions.setQuery(savedFilters ? queryFromFilters(savedFilters) : null)
+            actions.setQuery(savedQuery || null)
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
     })),

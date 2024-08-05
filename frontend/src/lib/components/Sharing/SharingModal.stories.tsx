@@ -6,14 +6,15 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
+import { examples } from '~/queries/examples'
+import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { SharingModal, SharingModalProps } from './SharingModal'
 
-const fakeInsight: Partial<InsightModel> = {
+const fakeInsight: Partial<QueryBasedInsightModel> = {
     id: 123,
     short_id: 'insight123' as InsightShortId,
-    filters: { insight: InsightType.TRENDS },
+    query: examples.InsightTrendsQuery,
 }
 
 const meta: Meta<typeof SharingModal> = {
