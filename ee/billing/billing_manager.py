@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db.models import F
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -130,7 +131,11 @@ class BillingManager:
         try:
             distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
 
-            first_owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
+            first_owner_membership = (
+                OrganizationMembership.objects.filter(organization=organization, level=15)
+                .order_by("-joined_at")
+                .first()
+            )
             first_owner = first_owner_membership.user
 
             admin_emails = list(
@@ -139,12 +144,28 @@ class BillingManager:
                 ).values_list("email", flat=True)
             )
 
+            org_users = list(
+                organization.members.values(
+                    "email",
+                    "distinct_id",
+                    "organization_membership__level",
+                )
+                .annotate(role=F("organization_membership__level"))
+                .filter(role__gte=OrganizationMembership.Level.ADMIN)
+                .values(
+                    "email",
+                    "distinct_id",
+                    "role",
+                )
+            )
+
             self.update_billing(
                 organization,
                 {
                     "distinct_ids": distinct_ids,
                     "org_customer_email": first_owner.email,
                     "org_admin_emails": admin_emails,
+                    "org_admin_users": org_users,
                 },
             )
         except Exception as e:
