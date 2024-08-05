@@ -117,6 +117,7 @@ if (res.status >= 200 and res.status < 300) {
             "key": "aws_kinesis_partition_key",
             "type": "string",
             "label": "Kinesis Partition Key",
+            "description": "If not provided, a random UUID will be generated.",
             "default": "{event.uuid}",
             "secret": False,
             "required": False,
