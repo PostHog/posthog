@@ -26,6 +26,7 @@ class InsightResult:
     columns: Optional[list] = None
     query_status: Optional[Any] = None
     hogql: Optional[str] = None
+    types: Optional[list] = None
 
 
 @dataclass(frozen=True)
