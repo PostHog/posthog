@@ -590,19 +590,14 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
     protected consumerGroupId = 'cdp-overflow-consumer'
 
     public async _handleEachBatch(messages: Message[]): Promise<void> {
-        // This consumer can receive both events and callbacks so needs to check the message being parsed
-        const [overflowedGlobals, callbacks] = await this.runWithHeartbeat(() =>
+        const overflowedGlobals = await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: () => Promise.resolve(this.parseMessages(messages)),
             })
         )
 
-        const invocationResults = (
-            await this.runWithHeartbeat(() =>
-                Promise.all([this.executeAsyncResponses(callbacks), this.executeOverflowedFunctions(overflowedGlobals)])
-            )
-        ).flat()
+        const invocationResults = await this.executeOverflowedFunctions(overflowedGlobals)
 
         await this.processInvocationResults(invocationResults)
     }
@@ -651,17 +646,14 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         })
     }
 
-    private parseMessages(messages: Message[]): [HogFunctionOverflowedGlobals[], HogFunctionInvocationAsyncResponse[]] {
+    private parseMessages(messages: Message[]): HogFunctionOverflowedGlobals[] {
         const invocationGlobals: HogFunctionOverflowedGlobals[] = []
-        const callbacks: HogFunctionInvocationAsyncResponse[] = []
         messages.map((message) => {
             try {
                 const parsed = JSON.parse(message.value!.toString()) as CdpOverflowMessage
 
                 if (parsed.source === 'event_invocations') {
                     invocationGlobals.push(parsed.payload)
-                } else if (parsed.source === 'hog_function_callback') {
-                    callbacks.push(parsed.payload)
                 }
             } catch (e) {
                 // TODO: We probably want to crash here right as this means something went really wrong and needs investigating?
@@ -669,6 +661,6 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
             }
         })
 
-        return [invocationGlobals, callbacks]
+        return invocationGlobals
     }
 }
