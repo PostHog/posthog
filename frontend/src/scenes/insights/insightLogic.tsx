@@ -113,7 +113,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         return values.insight
                     }
 
-                    const response = await insightsApi.update(values.insight.id, insightUpdate, {
+                    const response = await insightsApi.update(values.insight.id as number, insightUpdate, {
                         writeAsQuery: values.queryBasedInsightSaving,
                         readAsQuery: true,
                     })
@@ -145,7 +145,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         beforeUpdates[key] = values.savedInsight[key]
                     }
 
-                    const response = await insightsApi.update(values.insight.id, metadataUpdate, {
+                    const response = await insightsApi.update(values.insight.id as number, metadataUpdate, {
                         writeAsQuery: values.queryBasedInsightSaving,
                         readAsQuery: true,
                     })
@@ -160,7 +160,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             label: 'Undo',
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
-                                const response = await insightsApi.update(values.insight.id, beforeUpdates, {
+                                const response = await insightsApi.update(values.insight.id as number, beforeUpdates, {
                                     writeAsQuery: values.queryBasedInsightSaving,
                                     readAsQuery: true,
                                 })
