@@ -27,6 +27,7 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
+    MathType,
     NodeKind,
     PathsFilter,
     RetentionFilter,
@@ -83,6 +84,8 @@ const actorsOnlyMathTypes = [
     HogQLMathType.HogQL,
 ]
 
+const funnelsMathTypes = [BaseMathType.FirstTimeForUser]
+
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
     actions?: ActionFilter[]
@@ -121,6 +124,13 @@ export const legacyEntityToNode = (
             shared = {
                 ...shared,
                 math: BaseMathType.UniqueUsers,
+            }
+        } else if (mathAvailability === MathAvailability.FunnelsOnly) {
+            if (funnelsMathTypes.includes(entity.math as any)) {
+                shared = {
+                    ...shared,
+                    math: entity.math as MathType,
+                }
             }
         } else {
             shared = {
@@ -283,6 +293,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.All
         } else if (isStickinessQuery(query)) {
             includeMath = MathAvailability.ActorsOnly
+        } else if (isFunnelsQuery(query)) {
+            includeMath = MathAvailability.FunnelsOnly
         }
 
         const { events, actions, data_warehouse } = filters
