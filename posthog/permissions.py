@@ -173,11 +173,7 @@ class TeamMemberLightManagementPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         try:
-            if request.resolver_match.url_name.startswith("team-"):
-                # /projects/ endpoint handling
-                team = view.get_object()
-            else:
-                team = view.team
+            team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
         requesting_level = view.user_permissions.team(team).effective_membership_level

@@ -89,7 +89,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json(), self.not_found_response())
 
-    @patch("posthog.api.team.get_geoip_properties")
+    @patch("posthog.api.project.get_geoip_properties")
     def test_ip_location_is_used_for_new_project_week_day_start(self, get_geoip_properties_mock: MagicMock):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS}
@@ -138,7 +138,7 @@ class TestTeamAPI(APIBaseTest):
             {
                 "type": "authentication_error",
                 "code": "permission_denied",
-                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects.",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
             },
             response_data,
         )
@@ -152,7 +152,7 @@ class TestTeamAPI(APIBaseTest):
             {
                 "type": "authentication_error",
                 "code": "permission_denied",
-                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects.",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
             },
             response_data,
         )
@@ -254,7 +254,7 @@ class TestTeamAPI(APIBaseTest):
         )
 
     @freeze_time("2022-02-08")
-    @patch("posthog.api.team.delete_bulky_postgres_data")
+    @patch("posthog.api.project.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
     def test_delete_team_activity_log(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -297,7 +297,7 @@ class TestTeamAPI(APIBaseTest):
             },
         ]
 
-    @patch("posthog.api.team.delete_bulky_postgres_data")
+    @patch("posthog.api.project.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
     def test_delete_team_own_second(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -511,14 +511,6 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/is_generating_demo_data/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"is_generating_demo_data": False})
-
-    @patch("posthog.api.team.create_data_for_demo_team.delay")
-    def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
-        mock_create_data_for_demo_team.assert_called_once()
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @freeze_time("2022-02-08")
     def test_team_float_config_can_be_serialized_to_activity_log(self):

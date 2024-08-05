@@ -4,10 +4,8 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include
 from django.urls.conf import path
-from rest_framework_extensions.routers import NestedRegistryItem
 
 from ee.api import integration
-from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import (
     authentication,
@@ -25,14 +23,16 @@ from .api import (
 from .session_recordings import session_recording_playlist
 
 
-def extend_api_router(
-    root_router: DefaultRouterPlusPlus,
-    *,
-    projects_router: NestedRegistryItem,
-    organizations_router: NestedRegistryItem,
-    project_dashboards_router: NestedRegistryItem,
-    project_feature_flags_router: NestedRegistryItem,
-) -> None:
+def extend_api_router() -> None:
+    from posthog.api import (
+        router as root_router,
+        register_grandfathered_environment_nested_viewset,
+        projects_router,
+        organizations_router,
+        project_feature_flags_router,
+        project_dashboards_router,
+    )
+
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
@@ -60,8 +60,8 @@ def extend_api_router(
         "organization_resource_access",
         ["organization_id"],
     )
-    projects_router.register(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
-    projects_router.register(
+    register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
+    register_grandfathered_environment_nested_viewset(
         r"explicit_members",
         explicit_team_member.ExplicitTeamMemberViewSet,
         "environment_explicit_members",
@@ -74,7 +74,7 @@ def extend_api_router(
         ["project_id", "dashboard_id"],
     )
 
-    projects_router.register(
+    register_grandfathered_environment_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
     )
     projects_router.register(

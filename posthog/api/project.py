@@ -1,22 +1,21 @@
-import json
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
-from datetime import timedelta
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
-from posthog.jwt import PosthogJwtAudience, encode_jwt
-from rest_framework.permissions import BasePermission, IsAuthenticated
-from rest_framework import exceptions, request, response, serializers, viewsets, views
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import TeamBasicSerializer
-from posthog.constants import AvailableFeature
+from posthog.api.shared import ProjectBasicSerializer
+from posthog.api.team import PremiumMultiProjectPermissions, TeamSerializer, validate_team_attrs
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -29,105 +28,100 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT, generate_random_token_project
 from posthog.permissions import (
-    CREATE_METHODS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    get_organization_from_view,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-class PremiumMultiProjectPermissions(BasePermission):
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
-
-    message = "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments."
-
-    def has_permission(self, request: request.Request, view) -> bool:
-        if request.method in CREATE_METHODS:
-            try:
-                organization = get_organization_from_view(view)
-            except ValueError:
-                return False
-
-            if not request.data.get("is_demo"):
-                # if we're not requesting to make a demo project
-                # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
-                # and the org isn't allowed to make multiple projects
-                if organization.teams.exclude(is_demo=True).count() >= 1 and not organization.is_feature_available(
-                    AvailableFeature.ORGANIZATIONS_PROJECTS
-                ):
-                    return False
-            else:
-                # if we ARE requesting to make a demo project
-                # but the org already has a demo project
-                if organization.teams.filter(is_demo=True).count() > 0:
-                    return False
-
-            # in any other case, we're good to go
-            return True
-        else:
-            return True
-
-
-class CachingTeamSerializer(serializers.ModelSerializer):
-    """
-    This serializer is used for caching teams.
-    Currently used only in `/decide` endpoint.
-    Has all parameters needed for a successful decide request.
-    """
+class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
+    effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
 
     class Meta:
-        model = Team
-        fields = [
-            "id",
-            "uuid",
-            "name",
-            "api_token",
-            "autocapture_opt_out",
-            "autocapture_exceptions_opt_in",
-            "autocapture_web_vitals_opt_in",
-            "autocapture_exceptions_errors_to_ignore",
-            "capture_performance_opt_in",
-            "capture_console_log_opt_in",
-            "session_recording_opt_in",
-            "session_recording_sample_rate",
-            "session_recording_minimum_duration_milliseconds",
-            "session_recording_linked_flag",
-            "session_recording_network_payload_capture_config",
-            "session_replay_config",
-            "recording_domains",
-            "inject_web_apps",
-            "surveys_opt_in",
-            "heatmaps_opt_in",
-        ]
-
-
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
-    effective_membership_level = serializers.SerializerMethodField()
-    has_group_types = serializers.SerializerMethodField()
-    live_events_token = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Team
+        model = Project
         fields = (
+            "id",
+            "organization",
+            "name",
+            "created_at",
+            "effective_membership_level",  # Compat with TeamSerializer
+            "has_group_types",  # Compat with TeamSerializer
+            "live_events_token",  # Compat with TeamSerializer
+            "updated_at",
+            "uuid",  # Compat with TeamSerializer
+            "api_token",  # Compat with TeamSerializer
+            "app_urls",  # Compat with TeamSerializer
+            "slack_incoming_webhook",  # Compat with TeamSerializer
+            "anonymize_ips",  # Compat with TeamSerializer
+            "completed_snippet_onboarding",  # Compat with TeamSerializer
+            "ingested_event",  # Compat with TeamSerializer
+            "test_account_filters",  # Compat with TeamSerializer
+            "test_account_filters_default_checked",  # Compat with TeamSerializer
+            "path_cleaning_filters",  # Compat with TeamSerializer
+            "is_demo",  # Compat with TeamSerializer
+            "timezone",  # Compat with TeamSerializer
+            "data_attributes",  # Compat with TeamSerializer
+            "person_display_name_properties",  # Compat with TeamSerializer
+            "correlation_config",  # Compat with TeamSerializer
+            "autocapture_opt_out",  # Compat with TeamSerializer
+            "autocapture_exceptions_opt_in",  # Compat with TeamSerializer
+            "autocapture_web_vitals_opt_in",  # Compat with TeamSerializer
+            "autocapture_exceptions_errors_to_ignore",  # Compat with TeamSerializer
+            "capture_console_log_opt_in",  # Compat with TeamSerializer
+            "capture_performance_opt_in",  # Compat with TeamSerializer
+            "session_recording_opt_in",  # Compat with TeamSerializer
+            "session_recording_sample_rate",  # Compat with TeamSerializer
+            "session_recording_minimum_duration_milliseconds",  # Compat with TeamSerializer
+            "session_recording_linked_flag",  # Compat with TeamSerializer
+            "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
+            "session_replay_config",  # Compat with TeamSerializer
+            "access_control",  # Compat with TeamSerializer
+            "week_start_day",  # Compat with TeamSerializer
+            "primary_dashboard",  # Compat with TeamSerializer
+            "live_events_columns",  # Compat with TeamSerializer
+            "recording_domains",  # Compat with TeamSerializer
+            "person_on_events_querying_enabled",  # Compat with TeamSerializer
+            "inject_web_apps",  # Compat with TeamSerializer
+            "extra_settings",  # Compat with TeamSerializer
+            "modifiers",  # Compat with TeamSerializer
+            "default_modifiers",  # Compat with TeamSerializer
+            "has_completed_onboarding_for",  # Compat with TeamSerializer
+            "surveys_opt_in",  # Compat with TeamSerializer
+            "heatmaps_opt_in",  # Compat with TeamSerializer
+        )
+        read_only_fields = (
             "id",
             "uuid",
             "organization",
+            "effective_membership_level",
+            "has_group_types",
+            "live_events_token",
+            "created_at",
+            "api_token",
+            "updated_at",
+            "ingested_event",
+            "default_modifiers",
+            "person_on_events_querying_enabled",
+        )
+
+        team_passthrough_fields = {
+            "updated_at",
+            "uuid",
             "api_token",
             "app_urls",
-            "name",
             "slack_incoming_webhook",
-            "created_at",
-            "updated_at",
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",
@@ -151,10 +145,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_replay_config",
-            "effective_membership_level",
             "access_control",
             "week_start_day",
-            "has_group_types",
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
@@ -166,30 +158,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
-            "live_events_token",
-        )
-        read_only_fields = (
-            "id",
-            "uuid",
-            "organization",
-            "api_token",
-            "created_at",
-            "updated_at",
-            "ingested_event",
-            "effective_membership_level",
-            "has_group_types",
-            "default_modifiers",
-            "person_on_events_querying_enabled",
-            "live_events_token",
-        )
+        }
 
-    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+    def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
+        team = project.teams.get(pk=project.pk)
         return self.user_permissions.team(team).effective_membership_level
 
-    def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=team.id).exists()
+    def get_has_group_types(self, project: Project) -> bool:
+        return GroupTypeMapping.objects.filter(team_id=project.id).exists()
 
-    def get_live_events_token(self, team: Team) -> Optional[str]:
+    def get_live_events_token(self, project: Project) -> Optional[str]:
+        team = project.teams.get(pk=project.pk)
         return encode_jwt(
             {"team_id": team.id, "api_token": team.api_token},
             timedelta(days=7),
@@ -198,82 +177,25 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-        received_keys = value.keys()
-        valid_keys = [
-            {"id", "key"},
-            {"id", "key", "variant"},
-        ]
-        if received_keys not in valid_keys:
-            raise exceptions.ValidationError(
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
-            )
-
-        return value
+        return TeamSerializer.validate_session_recording_linked_flag(value)
 
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-        if not all(key in ["recordHeaders", "recordBody"] for key in value.keys()):
-            raise exceptions.ValidationError(
-                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
-            )
-
-        return value
+        return TeamSerializer.validate_session_recording_network_payload_capture_config(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-        known_keys = ["record_canvas", "ai_config"]
-        if not all(key in known_keys for key in value.keys()):
-            raise exceptions.ValidationError(
-                f"Must provide a dictionary with only known keys. One or more of {', '.join(known_keys)}."
-            )
-
-        if "ai_config" in value:
-            TeamSerializer.validate_session_replay_ai_summary_config(value["ai_config"])
-
-        return value
+        return TeamSerializer.validate_session_replay_config(value)
 
     @staticmethod
     def validate_session_replay_ai_summary_config(value: dict | None) -> dict | None:
-        if value is not None:
-            if not isinstance(value, dict):
-                raise exceptions.ValidationError("Must provide a dictionary or None.")
-
-            allowed_keys = [
-                "included_event_properties",
-                "opt_in",
-                "preferred_events",
-                "excluded_events",
-                "important_user_properties",
-            ]
-            if not all(key in allowed_keys for key in value.keys()):
-                raise exceptions.ValidationError(
-                    f"Must provide a dictionary with only allowed keys: {', '.join(allowed_keys)}."
-                )
-
-        return value
+        return TeamSerializer.validate_session_replay_ai_summary_config(value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
 
-    def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
+    def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
@@ -286,7 +208,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
                 validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
-        team = Team.objects.create_with_data(**validated_data)
+        team_fields: dict[str, Any] = {}
+        for field_name in validated_data.copy():  # Copy to avoid iterating over a changing dict
+            if field_name in self.Meta.team_passthrough_fields:
+                team_fields[field_name] = validated_data.pop(field_name)
+        project, team = Project.objects.create_with_team(**validated_data, team_fields=team_fields)
 
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
@@ -303,15 +229,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             detail=Detail(name=str(team.name)),
         )
 
-        return team
+        return project
 
-    def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
-        before_update = instance.__dict__.copy()
+    def update(self, instance: Project, validated_data: dict[str, Any]) -> Project:
+        team = instance.passthrough_team
+        team_before_update = team.__dict__.copy()
 
         if (
             "session_replay_config" in validated_data
             and validated_data["session_replay_config"] is not None
-            and instance.session_replay_config is not None
+            and team.session_replay_config is not None
         ):
             # for session_replay_config and its top level keys we merge existing settings with new settings
             # this way we don't always have to receive the entire settings object to change one setting
@@ -319,24 +246,39 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             # and then merge any top level keys that weren't provided
 
             for key, value in validated_data["session_replay_config"].items():
-                if key in instance.session_replay_config:
+                if key in team.session_replay_config:
                     # if they're both dicts then we merge them, otherwise, the new value overwrites the old
-                    if isinstance(instance.session_replay_config[key], dict) and isinstance(
+                    if isinstance(team.session_replay_config[key], dict) and isinstance(
                         validated_data["session_replay_config"][key], dict
                     ):
                         validated_data["session_replay_config"][key] = {
-                            **instance.session_replay_config[key],  # existing values
+                            **team.session_replay_config[key],  # existing values
                             **value,  # and new values on top
                         }
 
             # then also add back in any keys that exist but are not in the provided data
             validated_data["session_replay_config"] = {
-                **instance.session_replay_config,
+                **team.session_replay_config,
                 **validated_data["session_replay_config"],
             }
 
-        updated_team = super().update(instance, validated_data)
-        changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
+        should_team_be_saved_too = False
+        for attr, value in validated_data.items():
+            if attr in self.Meta.team_passthrough_fields:
+                should_team_be_saved_too = True
+                setattr(team, attr, value)
+            else:
+                if attr == "name":  # `name` should be updated on _both_ the Project and Team
+                    should_team_be_saved_too = True
+                    setattr(team, attr, value)
+                setattr(instance, attr, value)
+
+        instance.save()
+        if should_team_be_saved_too:
+            team.save()
+
+        team_after_update = team.__dict__.copy()
+        changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
 
         log_activity(
             organization_id=cast(UUIDT, instance.organization_id),
@@ -352,17 +294,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             ),
         )
 
-        return updated_team
+        return instance
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
 
-    scope_object: APIScopeObjectOrNotSupported = "project"  # TODO: Change to `environment` on environments rollout
-    serializer_class = TeamSerializer
-    queryset = Team.objects.all().select_related("organization")
+    scope_object: APIScopeObjectOrNotSupported = "project"
+    serializer_class = ProjectSerializer
+    queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"
     ordering = "-created_by"
 
@@ -373,7 +315,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
-            return TeamBasicSerializer
+            return ProjectBasicSerializer
         return super().get_serializer_class()
 
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
@@ -408,58 +350,61 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound()
-            return team
+            return team.project
 
         filter_kwargs = {self.lookup_field: lookup_value}
         try:
-            team = get_object_or_404(queryset, **filter_kwargs)
+            project = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
             raise exceptions.ValidationError(str(error))
-        return team
+        return project
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.
     @property
     def team(self):
-        return self.get_object()
+        project = self.get_object()
+        return project.teams.get(id=project.id)
 
-    def perform_destroy(self, team: Team):
-        team_id = team.pk
-        organization_id = team.organization_id
-        team_name = team.name
+    def perform_destroy(self, project: Project):
+        project_id = project.pk
+        organization_id = project.organization_id
+        project_name = project.name
 
         user = cast(User, self.request.user)
 
-        delete_bulky_postgres_data(team_ids=[team_id])
-        delete_batch_exports(team_ids=[team_id])
+        teams = list(project.teams.all())
+        delete_bulky_postgres_data(team_ids=[team.id for team in teams])
+        delete_batch_exports(team_ids=[team.pk for team in teams])
 
         with mute_selected_signals():
-            super().perform_destroy(team)
+            super().perform_destroy(project)
 
         # Once the project is deleted, queue deletion of associated data
         AsyncDeletion.objects.bulk_create(
             [
                 AsyncDeletion(
                     deletion_type=DeletionType.Team,
-                    team_id=team_id,
-                    key=str(team_id),
+                    team_id=team.id,
+                    key=str(team.id),
                     created_by=user,
                 )
+                for team in teams
             ],
             ignore_conflicts=True,
         )
 
         log_activity(
             organization_id=cast(UUIDT, organization_id),
-            team_id=team_id,
+            team_id=project_id,
             user=user,
             was_impersonated=is_impersonated_session(self.request),
-            scope="Team",
-            item_id=team_id,
+            scope="Team",  # TODO: Change to "Project"
+            item_id=project_id,
             activity="deleted",
-            detail=Detail(name=str(team_name)),
+            detail=Detail(name=str(project_name)),
         )
         # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
-        report_user_action(user, f"team deleted", team=team)
+        report_user_action(user, f"team deleted", team=teams[0])  # TODO: Change to "project deleted"
 
     @action(
         methods=["PATCH"],
@@ -468,7 +413,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         permission_classes=[TeamMemberStrictManagementPermission],
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        team = self.get_object()
+        project = self.get_object()
+        team = project.passthrough_team
         old_token = team.api_token
         team.api_token = generate_random_token_project()
         team.save()
@@ -494,7 +440,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         set_team_in_cache(old_token, None)
-        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+        return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
         methods=["GET"],
@@ -502,21 +448,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         permission_classes=[IsAuthenticated],
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        team = self.get_object()
-        cache_key = f"is_generating_demo_data_{team.pk}"
+        project = self.get_object()
+        cache_key = f"is_generating_demo_data_{project.pk}"
         return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
+        # TODO: Rework for Project scope
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        team = self.get_object()
+        project = self.get_object()
 
         activity_page = load_activity(
             scope="Team",
-            team_id=team.pk,
-            item_ids=[str(team.pk)],
+            team_id=project.pk,
+            item_ids=[str(project.pk)],
             limit=limit,
             page=page,
         )
@@ -524,42 +471,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @cached_property
     def user_permissions(self):
-        team = self.get_object() if self.action == "reset_token" else None
+        project = self.get_object() if self.action == "reset_token" else None
+        team = project.passthrough_team if project else None
         return UserPermissions(cast(User, self.request.user), team)
 
 
-class RootTeamViewSet(TeamViewSet):
-    # NOTE: We don't want people creating environments via the "current_organization"/"current_project" concept, but
-    # rather specify the org ID and project ID in the URL - hence this is hidden from the API docs, but used in the app
+class RootProjectViewSet(ProjectViewSet):
+    # NOTE: We don't want people creating projects via the "current_organization" concept, but rather specify the org ID
+    # in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
-
-
-def validate_team_attrs(attrs: dict[str, Any], view: views.View, request: request.Request, instance) -> dict[str, Any]:
-    attrs["organization_id"] = view.organization_id
-
-    if "primary_dashboard" in attrs and attrs["primary_dashboard"].team_id != instance.id:
-        raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
-
-    if "access_control" in attrs:
-        # Only organization-wide admins and above should be allowed to switch the project between open and private
-        # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
-        org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
-            organization_id=instance.organization_id, user=request.user
-        )
-        if org_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied("Your organization access level is insufficient.")
-
-    if "autocapture_exceptions_errors_to_ignore" in attrs:
-        if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):
-            raise exceptions.ValidationError("Must provide a list for field: autocapture_exceptions_errors_to_ignore.")
-        for error in attrs["autocapture_exceptions_errors_to_ignore"]:
-            if not isinstance(error, str):
-                raise exceptions.ValidationError(
-                    "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
-                )
-
-        if len(json.dumps(attrs["autocapture_exceptions_errors_to_ignore"])) > 300:
-            raise exceptions.ValidationError(
-                "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
-            )
-    return attrs

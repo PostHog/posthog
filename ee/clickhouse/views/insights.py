@@ -26,7 +26,7 @@ class CanEditInsight(BasePermission):
         return view.user_permissions.insight(insight).effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
 
-class ClickhouseInsightsViewSet(InsightViewSet):
+class EnterpriseInsightsViewSet(InsightViewSet):
     permission_classes = [CanEditInsight]
     retention_query_class = ClickhouseRetention
     stickiness_query_class = ClickhouseStickiness

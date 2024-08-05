@@ -28,10 +28,6 @@ from posthog.api import (
     authentication,
     capture,
     decide,
-    organizations_router,
-    project_dashboards_router,
-    project_feature_flags_router,
-    projects_router,
     router,
     sharing,
     signup,
@@ -71,13 +67,7 @@ except ImportError:
         logger.warn(f"Could not import ee.urls", exc_info=True)
     pass
 else:
-    extend_api_router(
-        router,
-        projects_router=projects_router,
-        organizations_router=organizations_router,
-        project_dashboards_router=project_dashboards_router,
-        project_feature_flags_router=project_feature_flags_router,
-    )
+    extend_api_router()
 
 
 @requires_csrf_token

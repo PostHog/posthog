@@ -17,7 +17,7 @@ class TestProject(BaseTest):
 
         self.assertEqual(
             team.name,
-            "Default project",  # TODO: When Environments are rolled out, ensure this says "Default environment"
+            "Test project",  # TODO: When Environments are rolled out, ensure this says "Default environment"
         )
         self.assertEqual(team.organization, self.organization)
         self.assertEqual(team.project, project)

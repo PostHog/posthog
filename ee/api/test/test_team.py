@@ -51,7 +51,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
-        self.assertEqual(Team.objects.count(), 3)
+        self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(response.status_code, 201)
         response_data = response.json()
         self.assertDictContainsSubset(
@@ -68,7 +68,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
-        self.assertEqual(Team.objects.count(), 3)
+        self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(response.status_code, 201)
         response_data = response.json()
         self.assertDictContainsSubset(
@@ -80,13 +80,13 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             response_data,
         )
         response_2 = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
-        self.assertEqual(Team.objects.count(), 3)
+        self.assertEqual(Team.objects.count(), 2)
         response_2_data = response_2.json()
         self.assertDictContainsSubset(
             {
                 "type": "authentication_error",
                 "code": "permission_denied",
-                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects.",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
             },
             response_2_data,
         )

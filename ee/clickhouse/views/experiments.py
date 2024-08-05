@@ -333,7 +333,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
 
 
-class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related("feature_flag", "created_by").all()

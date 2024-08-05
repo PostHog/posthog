@@ -25,7 +25,7 @@ class GroupTypeSerializer(serializers.ModelSerializer):
         read_only_fields = ["group_type", "group_type_index"]
 
 
-class ClickhouseGroupsTypesView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
@@ -54,7 +54,7 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
 
-class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
