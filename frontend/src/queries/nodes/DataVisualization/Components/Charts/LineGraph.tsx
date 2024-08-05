@@ -4,7 +4,16 @@ import './LineGraph.scss'
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
-import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
+import {
+    ChartData,
+    ChartType,
+    ChartTypeRegistry,
+    Color,
+    GridLineOptions,
+    ScaleOptionsByType,
+    TickOptions,
+    TooltipModel,
+} from 'chart.js'
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
@@ -19,6 +28,7 @@ import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { ChartSettings, YAxisSettings } from '~/queries/schema'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import { AxisSeriesSettings, dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
@@ -40,6 +50,41 @@ const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     }
 
     return GraphType.Line
+}
+
+const getYAxisSettings = (
+    chartSettings: ChartSettings,
+    settings: YAxisSettings | undefined,
+    stacked: boolean,
+    position: 'left' | 'right',
+    tickOptions: Partial<TickOptions>,
+    gridOptions: Partial<GridLineOptions>
+): ScaleOptionsByType<ChartTypeRegistry['line']['scales']> => {
+    if (settings?.scale === 'logarithmic') {
+        // @ts-expect-error - needless complaining from chart.js types
+        return {
+            display: true,
+            stacked: stacked,
+            type: 'logarithmic',
+            grid: gridOptions,
+            position,
+        }
+    }
+
+    return {
+        display: true,
+        beginAtZero: settings?.startAtZero ?? chartSettings.yAxisAtZero ?? true,
+        stacked: stacked,
+        type: 'linear',
+        // @ts-expect-error - needless complaining from chart.js types
+        ticks: {
+            display: true,
+            ...tickOptions,
+            precision: 1,
+        },
+        grid: gridOptions,
+        position,
+    }
 }
 
 export const LineGraph = (): JSX.Element => {
@@ -318,38 +363,26 @@ export const LineGraph = (): JSX.Element => {
                 },
                 ...(hasLeftYAxis
                     ? {
-                          yLeft: {
-                              display: true,
-                              beginAtZero:
-                                  chartSettings.leftYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true,
-                              stacked: isAreaChart || isStackedBarChart,
-                              type: chartSettings.leftYAxisSettings?.scale ?? 'linear',
-                              ticks: {
-                                  display: true,
-                                  ...tickOptions,
-                                  precision: 1,
-                              },
-                              grid: gridOptions,
-                              position: 'left',
-                          },
+                          yLeft: getYAxisSettings(
+                              chartSettings,
+                              chartSettings.leftYAxisSettings,
+                              isAreaChart || isStackedBarChart,
+                              'left',
+                              tickOptions,
+                              gridOptions
+                          ),
                       }
                     : {}),
                 ...(hasRightYAxis
                     ? {
-                          yRight: {
-                              display: true,
-                              beginAtZero:
-                                  chartSettings.rightYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true,
-                              stacked: isAreaChart || isStackedBarChart,
-                              type: chartSettings.rightYAxisSettings?.scale ?? 'linear',
-                              ticks: {
-                                  display: true,
-                                  ...tickOptions,
-                                  precision: 1,
-                              },
-                              grid: gridOptions,
-                              position: 'right',
-                          },
+                          yRight: getYAxisSettings(
+                              chartSettings,
+                              chartSettings.rightYAxisSettings,
+                              isAreaChart || isStackedBarChart,
+                              'right',
+                              tickOptions,
+                              gridOptions
+                          ),
                       }
                     : {}),
             },
