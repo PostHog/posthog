@@ -3,7 +3,7 @@ import './InsightViz.scss'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -78,20 +78,28 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
     const showingResults = query.showResults ?? true
     const isEmbedded = embedded || (query.embedded ?? false)
 
+    const Wrapper = ({ children }: { children: React.ReactElement }): JSX.Element => {
+        return isEmbedded ? <>{children}</> : <div className="flex-1 h-full overflow-auto">{children}</div>
+    }
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <BindLogic logic={insightVizDataLogic} props={insightProps}>
                     <div
-                        className={clsx('InsightViz', {
-                            'InsightViz--horizontal': isFunnels || isHorizontalAlways,
-                        })}
+                        className={
+                            !isEmbedded
+                                ? clsx('InsightViz', {
+                                      'InsightViz--horizontal': isFunnels || isHorizontalAlways,
+                                  })
+                                : 'InsightCard__viz'
+                        }
                     >
                         {!readOnly && (
                             <EditorFilters query={query.source} showing={showingFilters} embedded={isEmbedded} />
                         )}
 
-                        <div className="flex-1 h-full overflow-x-hidden">
+                        <Wrapper>
                             <InsightVizDisplay
                                 insightMode={insightMode}
                                 context={context}
@@ -103,7 +111,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
                                 showingResults={showingResults}
                                 embedded={isEmbedded}
                             />
-                        </div>
+                        </Wrapper>
                     </div>
                 </BindLogic>
             </BindLogic>

@@ -1,5 +1,14 @@
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonTag, Popover } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+    LemonSwitch,
+    LemonTabs,
+    LemonTag,
+    Popover,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
@@ -10,7 +19,7 @@ import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
-import { ySeriesLogic } from './ySeriesLogic'
+import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
     const { columns, numericalColumns, xData, yData, responseLoading } = useValues(dataVisualizationLogic)
@@ -68,11 +77,11 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { columns, numericalColumns, responseLoading, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const { updateYSeries, deleteYSeries } = useActions(dataVisualizationLogic)
 
-    const seriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
+    const seriesLogicProps: YSeriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
     const seriesLogic = ySeriesLogic(seriesLogicProps)
 
-    const { isSettingsOpen, canOpenSettings } = useValues(seriesLogic)
-    const { setSettingsOpen, submitFormatting } = useActions(seriesLogic)
+    const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
+    const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
     const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = getSeriesColor(index)
@@ -117,30 +126,25 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
             />
             <Popover
                 overlay={
-                    <Form logic={ySeriesLogic} props={seriesLogicProps} formKey="formatting" className="m-2 space-y-2">
-                        <LemonField name="style" label="Style" className="gap-1">
-                            <LemonSelect
-                                options={[
-                                    { value: 'none', label: 'None' },
-                                    { value: 'number', label: 'Number' },
-                                    { value: 'percent', label: 'Percentage' },
-                                ]}
-                            />
-                        </LemonField>
-                        <LemonField name="prefix" label="Prefix">
-                            <LemonInput placeholder="$" />
-                        </LemonField>
-                        <LemonField name="suffix" label="Suffix">
-                            <LemonInput placeholder="USD" />
-                        </LemonField>
-                        <LemonField name="decimalPlaces" label="Decimal places">
-                            <LemonInput type="number" min={0} />
-                        </LemonField>
-                    </Form>
+                    <div className="m-2">
+                        <LemonTabs
+                            activeKey={activeSettingsTab}
+                            barClassName="justify-around"
+                            onChange={(tab) => setSettingsTab(tab as YSeriesSettingsTab)}
+                            tabs={Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
+                                label: label,
+                                key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
+                                content: <Component ySeriesLogicProps={seriesLogicProps} />,
+                            }))}
+                        />
+                    </div>
                 }
                 visible={isSettingsOpen}
                 placement="bottom"
-                onClickOutside={() => submitFormatting()}
+                onClickOutside={() => {
+                    submitFormatting()
+                    submitDisplay()
+                }}
             >
                 <LemonButton
                     key="seriesSettings"
@@ -161,4 +165,50 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
             />
         </div>
     )
+}
+
+const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+    return (
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="space-y-2">
+            <LemonField name="style" label="Style" className="gap-1">
+                <LemonSelect
+                    options={[
+                        { value: 'none', label: 'None' },
+                        { value: 'number', label: 'Number' },
+                        { value: 'percent', label: 'Percentage' },
+                    ]}
+                />
+            </LemonField>
+            <LemonField name="prefix" label="Prefix">
+                <LemonInput placeholder="$" />
+            </LemonField>
+            <LemonField name="suffix" label="Suffix">
+                <LemonInput placeholder="USD" />
+            </LemonField>
+            <LemonField name="decimalPlaces" label="Decimal places">
+                <LemonInput type="number" min={0} />
+            </LemonField>
+        </Form>
+    )
+}
+
+const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
+    return (
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-2">
+            <LemonField name="trendLine" label="Trend line">
+                {({ value, onChange }) => <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />}
+            </LemonField>
+        </Form>
+    )
+}
+
+const Y_SERIES_SETTINGS_TABS = {
+    [YSeriesSettingsTab.Formatting]: {
+        label: 'Formatting',
+        Component: YSeriesFormattingTab,
+    },
+    [YSeriesSettingsTab.Display]: {
+        label: 'Display',
+        Component: YSeriesDisplayTab,
+    },
 }

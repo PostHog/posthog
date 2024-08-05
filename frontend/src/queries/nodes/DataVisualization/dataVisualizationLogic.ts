@@ -9,6 +9,7 @@ import {
     AnyResponseType,
     ChartAxis,
     ChartSettings,
+    ChartSettingsDisplay,
     ChartSettingsFormatting,
     DataVisualizationNode,
 } from '~/queries/schema'
@@ -38,6 +39,7 @@ export interface Column {
 
 export interface AxisSeriesSettings {
     formatting?: ChartSettingsFormatting
+    display?: ChartSettingsDisplay
 }
 
 export interface AxisSeries<T> {
