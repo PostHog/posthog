@@ -82,7 +82,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['legacyInsight', 'queryBasedInsight', 'savedInsight'],
+            ['queryBasedInsight', 'savedInsight'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,

@@ -116,7 +116,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                             count: response.count + 1,
                             results: [insight, ...response.results],
                             filters,
-                        }
+                            offset: params.offset,
+                        } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
                     } catch (e) {
                         // no insight with this ID found, discard
                     }
@@ -131,7 +132,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     window.scrollTo(0, 0)
                 }
 
-                return { ...response, filters, offset: params.offset }
+                return {
+                    ...response,
+                    filters,
+                    offset: params.offset,
+                } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
                 const response = await insightsApi.update(

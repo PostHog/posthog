@@ -147,7 +147,7 @@ async function getSingleInsight(
     })}`
     const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
     const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-    return legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
+    return legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 }
 
 export const dashboardLogic = kea<dashboardLogicType>([
