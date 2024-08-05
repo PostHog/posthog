@@ -9,6 +9,7 @@ members = [
   "hook-common",
   "hook-janitor",
   "hook-worker",
+  "cyclotron-core",
 ]
 
 [workspace.lints.rust]
@@ -34,7 +35,7 @@ axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
 base64 = "0.22.0"
 bytes = "1"
-chrono = { version = "0.4" }
+chrono = { version = "0.4", features = ["default", "serde"]}
 envconfig = "0.10.0"
 eyre = "0.6.9"
 flate2 = "1.0"
