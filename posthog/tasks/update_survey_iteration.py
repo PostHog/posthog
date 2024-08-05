@@ -11,7 +11,7 @@ def _update_survey_iteration(survey: Survey) -> None:
         return
 
     current_iteration = _get_current_iteration(survey)
-    if current_iteration != survey.current_iteration:
+    if current_iteration != survey.current_iteration & current_iteration <= survey.iteration_start_dates.size:
         survey.current_iteration = _get_current_iteration(survey)
         survey.current_iteration_start_date = survey.iteration_start_dates[survey.current_iteration - 1]
         survey.internal_targeting_flag = _get_targeting_flag(survey)
