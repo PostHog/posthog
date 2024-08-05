@@ -257,11 +257,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setInsightData({ ...values.insightData, result })
             }
         },
-        loadInsightSuccess: ({ legacyInsight }) => {
-            if (legacyInsight.query) {
-                actions.setQuery(legacyInsight.query)
-            } else if (!!legacyInsight.filters && !!Object.keys(legacyInsight.filters).length) {
-                const query = queryFromFilters(legacyInsight.filters)
+        loadInsightSuccess: ({ insight }) => {
+            if (insight.query) {
+                actions.setQuery(insight.query)
+            } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
+                const query = queryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
         },

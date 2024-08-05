@@ -105,14 +105,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
     }),
     selectors(() => ({
-        legacyInsightSelector: [
-            (s) => [s.insightLogicRef],
-            (insightLogicRef) => insightLogicRef?.logic.selectors.legacyInsight,
-        ],
-        legacyInsight: [
-            (s) => [(state, props) => s.legacyInsightSelector?.(state, props)?.(state, props)],
-            (insight) => insight,
-        ],
         queryBasedInsightSelector: [
             (s) => [s.insightLogicRef],
             (insightLogicRef) => insightLogicRef?.logic.selectors.queryBasedInsight,
@@ -266,10 +258,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             // reset the insight's state if we have to
             if (initial || method === 'PUSH' || query) {
                 if (insightId === 'new') {
-                    const teamFilterTestAccounts = values.currentTeam?.test_account_filters_default_checked || false
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new', teamFilterTestAccounts),
+                            ...createEmptyInsight('new'),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             ...(query ? { query } : {}),
                         },

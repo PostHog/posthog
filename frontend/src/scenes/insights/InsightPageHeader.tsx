@@ -42,7 +42,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const {
         insightProps,
         canEditInsight,
-        queryBasedInsight: insight,
+        insight,
         queryBasedInsightSaving,
         insightChanged,
         insightSaving,
