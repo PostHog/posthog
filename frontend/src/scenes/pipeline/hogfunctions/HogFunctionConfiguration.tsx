@@ -26,8 +26,9 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { AvailableFeature, EntityTypes } from '~/types'
+import { AvailableFeature, EntityTypes, SidePanelTab } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
@@ -68,6 +69,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -80,9 +82,13 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
     if (!hogFunctionsEnabled && !id) {
         return (
             <div className="space-y-3">
-                <div className="border rounded text-center p-4">
+                <div className="border flex flex-col items-center rounded p-4">
                     <h2>Feature not enabled</h2>
-                    <p>Hog functions are not enabled for you yet. If you think they should be, contact support.</p>
+                    <p>Pipeline destinations 3000 is in feature preview</p>
+
+                    <LemonButton type="primary" onClick={() => openSidePanel(SidePanelTab.FeaturePreviews)}>
+                        Join the feature preview
+                    </LemonButton>
                 </div>
             </div>
         )
