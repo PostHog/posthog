@@ -1,7 +1,8 @@
 import './NotebookScene.scss'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonTab, LemonTabs, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { base64Encode } from 'lib/utils'
@@ -9,15 +10,41 @@ import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { NotebooksTab } from '~/types'
+
+import { NotebookCanvas } from './NotebookCanvasScene'
+import { notebooksSceneLogic } from './notebooksSceneLogic'
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 
 export const scene: SceneExport = {
     component: NotebooksScene,
+    logic: notebooksSceneLogic,
 }
 
-export function NotebooksScene(): JSX.Element {
+const TABS: LemonTab<NotebooksTab>[] = [
+    {
+        key: NotebooksTab.Notebooks,
+        label: 'Notebooks',
+        content: <TabNotebooks />,
+        link: urls.notebooks(),
+    },
+    {
+        key: NotebooksTab.Canvas,
+        label: (
+            <>
+                Canvas
+                <LemonTag className="ml-2" type="highlight">
+                    NEW
+                </LemonTag>
+            </>
+        ),
+        content: <NotebookCanvas />,
+        link: urls.canvas(),
+    },
+]
+function TabNotebooks(): JSX.Element {
     return (
-        <div className="space-y-4">
+        <>
             <PageHeader
                 buttons={
                     <>
@@ -63,6 +90,17 @@ export function NotebooksScene(): JSX.Element {
             />
 
             <NotebooksTable />
-        </div>
+        </>
+    )
+}
+
+export function NotebooksScene(): JSX.Element {
+    const { tab } = useValues(notebooksSceneLogic)
+    const { setTab } = useActions(notebooksSceneLogic)
+
+    return (
+        <>
+            <LemonTabs className="flex-1" activeKey={tab} onChange={(t) => setTab(t)} tabs={TABS} />
+        </>
     )
 }
