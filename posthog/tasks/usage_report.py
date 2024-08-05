@@ -604,7 +604,7 @@ def get_teams_with_survey_responses_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
         ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end)
         .values("team_id")
