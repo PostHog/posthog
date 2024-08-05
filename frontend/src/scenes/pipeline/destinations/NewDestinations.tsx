@@ -34,9 +34,9 @@ export function DestinationOptionsTable(): JSX.Element {
                         children: 'Enable feature preview',
                     }}
                 >
-                    <b>Pipeline Destinations 3000!</b> We're excited to announce that we're working on a new version of
-                    our realtime destinations that include a range of new destinations, native filtering, templating and
-                    even customizing the code.
+                    We're excited to announce <b>Pipeline Destinations 3000</b> - the new version of our realtime
+                    destinations that include a range of pre-built templates, native filtering, templating and even
+                    customizing the code.
                 </LemonBanner>
             </FlaggedFeature>
 
