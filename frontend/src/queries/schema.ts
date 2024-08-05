@@ -556,6 +556,7 @@ export interface ChartAxis {
     column: string
     settings?: {
         formatting?: ChartSettingsFormatting
+        display?: ChartSettingsDisplay
     }
 }
 
@@ -566,12 +567,18 @@ export interface ChartSettingsFormatting {
     decimalPlaces?: number
 }
 
+export interface ChartSettingsDisplay {
+    trendLine?: boolean
+}
+
 export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
     /** Whether the Y axis should start at zero */
     yAxisAtZero?: boolean
+    /** Whether we fill the bars to 100% in stacked mode */
+    stackBars100?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {

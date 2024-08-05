@@ -159,6 +159,13 @@ class ChartDisplayType(StrEnum):
     WORLD_MAP = "WorldMap"
 
 
+class ChartSettingsDisplay(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    trendLine: Optional[bool] = None
+
+
 class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
@@ -1888,6 +1895,7 @@ class Settings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    display: Optional[ChartSettingsDisplay] = None
     formatting: Optional[ChartSettingsFormatting] = None
 
 
@@ -1904,6 +1912,7 @@ class ChartSettings(BaseModel):
         extra="forbid",
     )
     goalLines: Optional[list[GoalLine]] = None
+    stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
     yAxisAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")

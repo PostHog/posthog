@@ -2001,6 +2001,9 @@
                 "settings": {
                     "additionalProperties": false,
                     "properties": {
+                        "display": {
+                            "$ref": "#/definitions/ChartSettingsDisplay"
+                        },
                         "formatting": {
                             "$ref": "#/definitions/ChartSettingsFormatting"
                         }
@@ -2035,6 +2038,10 @@
                     },
                     "type": "array"
                 },
+                "stackBars100": {
+                    "description": "Whether we fill the bars to 100% in stacked mode",
+                    "type": "boolean"
+                },
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
                 },
@@ -2046,6 +2053,15 @@
                 },
                 "yAxisAtZero": {
                     "description": "Whether the Y axis should start at zero",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "ChartSettingsDisplay": {
+            "additionalProperties": false,
+            "properties": {
+                "trendLine": {
                     "type": "boolean"
                 }
             },
