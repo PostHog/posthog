@@ -153,10 +153,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
-                return (
-                    billing?.custom_limits_usd?.[product.type] ||
-                    (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null)
-                )
+                const customLimit = billing?.custom_limits_usd?.[product.type]
+                if (customLimit === 0 || customLimit) {
+                    return customLimit
+                }
+                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
             },
         ],
         currentAndUpgradePlans: [
@@ -262,7 +263,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLoaded: () => {
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
-                values.customLimitUsd
+                values.customLimitUsd === 0 || values.customLimitUsd
                     ? parseInt(
                           typeof values.customLimitUsd === 'number'
                               ? `${values.customLimitUsd}`
@@ -387,7 +388,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return
                 }
                 actions.updateBillingLimits({
-                    [props.product.type]: input,
+                    [props.product.type]: typeof input === 'number' ? `${input}` : null,
                 })
             },
             options: {
