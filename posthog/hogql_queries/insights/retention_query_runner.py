@@ -373,7 +373,9 @@ class RetentionQueryRunner(QueryRunner):
             first_interval, self.query_date_range.interval_name.title()
         )
         if self.query_date_range.interval_type == IntervalType.HOUR:
-            date = date + self.team.timezone_info.utcoffset(date)
+            utfoffset = self.team.timezone_info.utcoffset(date)
+            if utfoffset is not None:
+                date = date + utfoffset
         return date
 
     def calculate(self) -> RetentionQueryResponse:
