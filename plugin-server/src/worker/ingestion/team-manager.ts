@@ -1,3 +1,4 @@
+import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
@@ -5,6 +6,7 @@ import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/
 import { PipelineEvent, PluginsServerConfig, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
+import { posthog } from '../../utils/posthog'
 
 export class TeamManager {
     postgres: PostgresRouter
@@ -102,7 +104,7 @@ export class TeamManager {
         }
     }
 
-    public async setTeamIngestedEvent(team: Team) {
+    public async setTeamIngestedEvent(team: Team, properties: Properties) {
         if (team && !team.ingested_event) {
             await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -111,11 +113,37 @@ export class TeamManager {
                 'setTeamIngestedEvent'
             )
 
-            // This doesn't totally stop the first event from being spammed if a
-            // new team suddenly gets a lot of events, since other pods will still
-            // wait a while before pulling the team data from the DB, but it might
-            // help a bit.
+            // So long as team id is used as the partition key, this helps avoid
+            // double-firing of the first events, but it's not perfect (pod crashes
+            // or other rebalances, for example, can still cause double-firing). Exactly
+            // once is hard.
             this.teamCache.set(team.id, { ...team, ingested_event: true })
+
+            // First event for the team captured - we fire this because comms and others rely on this event for onboarding flows in downstream systems (e.g. customer.io)
+            const organizationMembers = await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+                [team.organization_id],
+                'posthog_organizationmembership'
+            )
+            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+            for (const { distinct_id } of distinctIds) {
+                posthog.capture({
+                    distinctId: distinct_id,
+                    event: 'first team event ingested',
+                    properties: {
+                        team: team.uuid,
+                        sdk: properties.$lib,
+                        realm: properties.realm,
+                        host: properties.$host,
+                    },
+                    groups: {
+                        project: team.uuid,
+                        organization: team.organization_id,
+                        instance: this.instanceSiteUrl,
+                    },
+                })
+            }
         }
     }
 }

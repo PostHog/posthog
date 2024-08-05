@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -22,7 +23,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             null,
             {
                 createDataWarehouseSavedQuery: async (view: Partial<DatabaseSchemaViewTable>) => {
-                    await api.dataWarehouseSavedQueries.create(view)
+                    const newView = await api.dataWarehouseSavedQueries.create(view)
+
+                    lemonToast.success(`${newView.name ?? 'View'} successfully created`)
+                    router.actions.push(urls.dataWarehouseView(newView.id))
+
                     return null
                 },
                 deleteDataWarehouseSavedQuery: async (viewId: string) => {
@@ -39,7 +44,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
-            router.actions.push(urls.dataWarehouse())
         },
         updateDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()

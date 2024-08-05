@@ -16,7 +16,7 @@ fn getPayload() {
 
   let payload := jsonStringify({
     'StreamName': inputs.aws_kinesis_stream_arn,
-    'PartitionKey': inputs.aws_kinesis_partition_key,
+    'PartitionKey': inputs.aws_kinesis_partition_key ?? generateUUIDv4(),
     'Data': base64Encode(jsonStringify(inputs.payload)),
   })
 
@@ -117,6 +117,8 @@ if (res.status >= 200 and res.status < 300) {
             "key": "aws_kinesis_partition_key",
             "type": "string",
             "label": "Kinesis Partition Key",
+            "description": "If not provided, a random UUID will be generated.",
+            "default": "{event.uuid}",
             "secret": False,
             "required": False,
         },

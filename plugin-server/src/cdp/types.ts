@@ -255,12 +255,7 @@ type CdpOverflowMessageInvocations = {
     payload: HogFunctionOverflowedGlobals
 }
 
-type CdpOverflowMessageFunctionCallback = {
-    source: 'hog_function_callback'
-    payload: HogFunctionInvocationAsyncResponse
-}
-
-export type CdpOverflowMessage = CdpOverflowMessageInvocations | CdpOverflowMessageFunctionCallback
+export type CdpOverflowMessage = CdpOverflowMessageInvocations
 
 export type HogFunctionMessageToProduce = {
     topic: string
