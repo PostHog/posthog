@@ -21,6 +21,7 @@ export const NODE_STAGE_TO_PIPELINE_TAB: Partial<Record<PipelineStage, PipelineT
     [PipelineStage.Transformation]: PipelineTab.Transformations,
     [PipelineStage.Destination]: PipelineTab.Destinations,
     [PipelineStage.SiteApp]: PipelineTab.SiteApps,
+    [PipelineStage.Source]: PipelineTab.Sources,
 }
 export interface PipelineNodeNewLogicProps {
     /** Might be null if a non-existent stage is set in the URL. */

@@ -1,5 +1,6 @@
 from typing import Optional, TypeVar
 
+import dataclasses
 from dateutil.parser import isoparse
 
 from posthog.hogql import ast
@@ -14,6 +15,12 @@ from posthog.utils import relative_date_parse
 T = TypeVar("T", bound=ast.Expr)
 
 
+@dataclasses.dataclass
+class CompareOperationWrapper:
+    compare_operation: ast.CompareOperation
+    skip: bool = False
+
+
 def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team) -> T:
     return ReplaceFilters(filters, team).visit(node)
 
@@ -24,6 +31,7 @@ class ReplaceFilters(CloningVisitor):
         self.filters = filters
         self.team = team
         self.selects: list[ast.SelectQuery] = []
+        self.compare_operations: list[CompareOperationWrapper] = []
 
     def visit_select_query(self, node):
         self.selects.append(node)
@@ -31,8 +39,20 @@ class ReplaceFilters(CloningVisitor):
         self.selects.pop()
         return node
 
+    def visit_compare_operation(self, node):
+        self.compare_operations.append(CompareOperationWrapper(compare_operation=node, skip=False))
+        node = super().visit_compare_operation(node)
+        compare_wrapper = self.compare_operations.pop()
+        if compare_wrapper.skip:
+            return ast.CompareOperation(
+                left=ast.Constant(value=True),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=True),
+            )
+        return node
+
     def visit_placeholder(self, node):
-        if node.field == "filters":
+        if node.chain == ["filters"]:
             if self.filters is None:
                 return ast.Constant(value=True)
 
@@ -111,4 +131,40 @@ class ReplaceFilters(CloningVisitor):
             if len(exprs) == 1:
                 return exprs[0]
             return ast.And(exprs=exprs)
+        if node.chain == ["filters", "dateRange", "from"]:
+            compare_op_wrapper = self.compare_operations[-1]
+
+            if self.filters is None:
+                compare_op_wrapper.skip = True
+                return ast.Constant(value=True)
+
+            dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
+            if dateFrom is not None and dateFrom != "all":
+                try:
+                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
+                except ValueError:
+                    parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
+
+                return ast.Constant(value=parsed_date)
+            else:
+                compare_op_wrapper.skip = True
+                return ast.Constant(value=True)
+        if node.chain == ["filters", "dateRange", "to"]:
+            compare_op_wrapper = self.compare_operations[-1]
+
+            if self.filters is None:
+                compare_op_wrapper.skip = True
+                return ast.Constant(value=True)
+
+            dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
+            if dateTo is not None:
+                try:
+                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
+                except ValueError:
+                    parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
+                return ast.Constant(value=parsed_date)
+            else:
+                compare_op_wrapper.skip = True
+                return ast.Constant(value=True)
+
         return super().visit_placeholder(node)

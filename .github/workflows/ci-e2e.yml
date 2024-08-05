@@ -191,7 +191,7 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   CELERY_METRICS_PORT=8999
-                  CLOUD_DEPLOYMENT=1
+                  CLOUD_DEPLOYMENT=E2E
                   EOT
 
             - name: Start PostHog

@@ -1,5 +1,4 @@
 import { combineUrl } from 'kea-router'
-import { toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
@@ -9,9 +8,7 @@ import {
     ActivityTab,
     AnnotationType,
     AnyPartialFilterType,
-    AppMetricsUrlParams,
     DashboardType,
-    DataWarehouseTab,
     InsightShortId,
     PipelineNodeTab,
     PipelineStage,
@@ -23,7 +20,6 @@ import {
 } from '~/types'
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
-import { PluginTab } from './plugins/types'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -54,7 +50,7 @@ export const urls = {
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
-    copyAction: (action: ActionType | null): string => {
+    duplicateAction: (action: ActionType | null): string => {
         const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
         return `/data-management/actions/new/${queryParams}`
     },
@@ -73,11 +69,6 @@ export const urls = {
     events: (): string => `/events`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
-    batchExports: (): string => '/batch_exports',
-    batchExportNew: (): string => `/batch_exports/new`,
-    batchExport: (id: string, params?: { runId?: string }): string =>
-        `/batch_exports/${id}` + (params ? `?${toParams(params)}` : ''),
-    batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insights: (): string => '/insights',
     insightNew: (
@@ -90,15 +81,17 @@ export const urls = {
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
-        urls.insightNew(
-            undefined,
-            undefined,
-            JSON.stringify({
-                kind: 'DataTableNode',
-                full: true,
-                source: { kind: 'HogQLQuery', query, filters },
-            })
-        ),
+        combineUrl(
+            `/data-warehouse`,
+            {},
+            {
+                q: JSON.stringify({
+                    kind: 'DataTableNode',
+                    full: true,
+                    source: { kind: 'HogQLQuery', query, filters },
+                }),
+            }
+        ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
@@ -119,13 +112,7 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    pipelineNodeDataWarehouseNew: (): string => `/pipeline/new/data-warehouse`,
     pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
-        if (stage === PipelineStage.DataImport) {
-            // should match 'pipelineNodeDataWarehouseNew'
-            return `/pipeline/new/data-warehouse`
-        }
-
         return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
     },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
@@ -155,12 +142,9 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (tab?: DataWarehouseTab | ':tab', query?: string | Record<string, any>): string =>
-        combineUrl(
-            `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
-            {},
-            query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
-        ).url,
+    dataWarehouse: (query?: string | Record<string, any>): string =>
+        combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
+            .url,
     dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
         combineUrl(
             `/data-warehouse/view/${id}`,
@@ -168,26 +152,9 @@ export const urls = {
             query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
         ).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseSettings: (tab?: DataWarehouseTab | ':tab'): string =>
-        `/data-warehouse/${tab ? tab : DataWarehouseTab.Explore}`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
-    dataWarehouseSourceSettings: (id: string, tab?: DataWarehouseTab | ':tab'): string =>
-        `/data-warehouse/settings/${tab ? tab : DataWarehouseTab.ManagedSources}/${id}`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
-    projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
-    projectApp: (id: string | number): string => `/apps/${id}`,
-    projectAppSearch: (name: string): string => `/apps?name=${name}`,
-    projectAppLogs: (id: string | number): string => `/apps/${id}/logs`,
-    projectAppSource: (id: string | number): string => `/apps/${id}/source`,
-    frontendApp: (id: string | number): string => `/app/${id}`,
-    appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
-        combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
-    appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
-    appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
-        combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
-    appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
-        combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',

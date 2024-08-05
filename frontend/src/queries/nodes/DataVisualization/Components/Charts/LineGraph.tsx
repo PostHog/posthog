@@ -7,6 +7,7 @@ import { LemonTable } from '@posthog/lemon-ui'
 import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
@@ -19,10 +20,11 @@ import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
 
 Chart.register(annotationPlugin)
+Chart.register(ChartjsPluginStacked100)
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -31,7 +33,8 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, presetChartHeight, visualizationType, showEditingUI } = useValues(dataVisualizationLogic)
+    const { xData, yData, presetChartHeight, visualizationType, showEditingUI, chartSettings } =
+        useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
@@ -93,15 +96,14 @@ export const LineGraph = (): JSX.Element => {
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 'normal',
             },
         }
 
         const gridOptions: Partial<GridLineOptions> = {
             color: colors.axisLine as Color,
-            borderColor: colors.axisLine as Color,
             tickColor: colors.axisLine as Color,
-            borderDash: [4, 2],
+            tickBorderDash: [4, 2],
         }
 
         const options: ChartOptions = {
@@ -113,6 +115,7 @@ export const LineGraph = (): JSX.Element => {
                 },
             },
             plugins: {
+                stacked100: { enable: isStackedBarChart && chartSettings.stackBars100, precision: 1 },
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
@@ -125,6 +128,17 @@ export const LineGraph = (): JSX.Element => {
                     display: () => {
                         // TODO: Update when "show values on chart" becomes an option
                         return false
+                    },
+                    formatter: () => {
+                        // TODO: Update when "show values on chart" becomes an option
+                        // const data = context.chart.data as ExtendedChartData
+                        // const { datasetIndex, dataIndex } = context
+                        // const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
+                        // if (isStackedBarChart && chartSettings.stackBars100) {
+                        //     value = Number(percentageValue)
+                        //     return percentage(value / 100)
+                        // }
+                        // return value
                     },
                     borderWidth: 2,
                     borderRadius: 4,
@@ -156,7 +170,7 @@ export const LineGraph = (): JSX.Element => {
                 // TODO: A lot of this is v similar to the trends LineGraph - considering merging these
                 tooltip: {
                     enabled: false,
-                    mode: 'nearest',
+                    mode: 'index',
                     intersect: false,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
                         if (!canvasRef.current) {
@@ -180,9 +194,11 @@ export const LineGraph = (): JSX.Element => {
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={yData.map(({ data, column }) => ({
+                                        dataSource={yData.map(({ data, column, settings }) => ({
                                             series: column.name,
-                                            data: data[referenceDataPoint.dataIndex],
+                                            data: formatDataWithSettings(data[referenceDataPoint.dataIndex], settings),
+                                            rawData: data[referenceDataPoint.dataIndex],
+                                            dataIndex: referenceDataPoint.dataIndex,
                                         }))}
                                         columns={[
                                             {
@@ -206,7 +222,22 @@ export const LineGraph = (): JSX.Element => {
                                             {
                                                 title: '',
                                                 dataIndex: 'data',
-                                                render: (value) => {
+                                                render: (value, record) => {
+                                                    if (isStackedBarChart && chartSettings.stackBars100) {
+                                                        const total = yData
+                                                            .map((n) => n.data[record.dataIndex])
+                                                            .reduce((acc, cur) => acc + cur, 0)
+                                                        const percentageLabel: number = parseFloat(
+                                                            ((record.rawData / total) * 100).toFixed(1)
+                                                        )
+
+                                                        return (
+                                                            <div className="series-data-cell">
+                                                                {value} ({percentageLabel}%)
+                                                            </div>
+                                                        )
+                                                    }
+
                                                     return <div className="series-data-cell">{value}</div>
                                                 },
                                             },
@@ -255,7 +286,7 @@ export const LineGraph = (): JSX.Element => {
                 },
                 y: {
                     display: true,
-                    beginAtZero: true,
+                    beginAtZero: chartSettings.yAxisAtZero ?? true,
                     stacked: isAreaChart || isStackedBarChart,
                     ticks: {
                         display: true,
@@ -274,7 +305,7 @@ export const LineGraph = (): JSX.Element => {
             plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
-    }, [xData, yData, visualizationType, goalLines])
+    }, [xData, yData, visualizationType, goalLines, chartSettings])
 
     return (
         <div

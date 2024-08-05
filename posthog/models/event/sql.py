@@ -65,6 +65,10 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
     , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
     , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
+    , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
+    , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
+    , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
+    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
     , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
@@ -72,10 +76,6 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-    , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
-    , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
-    , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
-    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
 """
 
 EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
@@ -86,6 +86,10 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
     , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
     , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
     , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+    , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
+    , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
+    , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
+    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
 """
 
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(

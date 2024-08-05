@@ -153,7 +153,7 @@ export enum AvailableFeature {
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
-    CUSTOMM_MSA = 'custom_msa',
+    CUSTOM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
@@ -657,17 +657,18 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
-    DataImport = 'data-import',
+    Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
+    History = 'history',
 }
 
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
+    Source = 'source',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
-    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
@@ -676,6 +677,8 @@ export enum PipelineNodeTab {
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
+    Schemas = 'schemas',
+    Syncs = 'syncs',
 }
 
 export enum ProgressStatus {
@@ -1584,7 +1587,7 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | null | undefined
+        [key: string]: string | number | null | undefined
     }
     billing_period?: {
         current_period_start: Dayjs
@@ -2965,6 +2968,7 @@ export interface PreflightStatus {
     buffer_conversion_seconds?: number
     object_storage: boolean
     public_egress_ip_addresses?: string[]
+    dev_disable_navigation_hooks?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -3419,6 +3423,7 @@ export enum BaseMathType {
     WeeklyActiveUsers = 'weekly_active',
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
+    FirstTimeForUser = 'first_time_for_user',
 }
 
 export enum PropertyMathType {
@@ -4399,10 +4404,4 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
-}
-
-export enum DataWarehouseTab {
-    Explore = 'explore',
-    ManagedSources = 'managed-sources',
-    SelfManagedSources = 'self-managed-sources',
 }
