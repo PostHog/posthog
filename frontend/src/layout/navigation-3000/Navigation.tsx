@@ -53,7 +53,7 @@ export function Navigation({
                     className={clsx(
                         'Navigation3000__scene',
                         // Hack - once we only have 3000 the "minimal" scenes should become "app-no-margin"
-                        sceneConfig?.layout === 'app-no-margin' && 'Navigation3000__scene--raw'
+                        sceneConfig?.layout === 'app-no-margin' && 'Navigation3000__scene--no-margin'
                     )}
                 >
                     {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}

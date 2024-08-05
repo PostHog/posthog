@@ -48,7 +48,7 @@
     margin: var(--scene-padding);
     margin-bottom: var(--scene-padding-bottom);
 
-    &.Navigation3000__scene--raw {
+    &.Navigation3000__scene--no-margin {
         --scene-padding: 0px;
     }
 }
