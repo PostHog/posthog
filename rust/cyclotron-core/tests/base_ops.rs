@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use cyclotron_common::{
+use cyclotron_core::{
     base_ops::{Job, JobInit, JobState, WaitingOn},
     manager::QueueManager,
     worker::Worker,

@@ -1,5 +1,5 @@
 [package]
-name = "cyclotron-common"
+name = "cyclotron-core"
 version = "0.1.0"
 edition = "2021"
 

@@ -10,6 +10,7 @@ members = [
   "hook-janitor",
   "hook-worker",
   "cyclotron-core",
+  "cyclotron-node",
 ]
 
 [workspace.lints.rust]
