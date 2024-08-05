@@ -128,9 +128,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (
+        const hasQueryChanged = !queryEqual(props.query, oldProps.query)
+        const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
+        if (hasQueryChanged && queryStatus?.complete === false) {
+            // If there is an incomplete query, load the data with the same query_id which should return its status
+            actions.loadData(undefined, queryStatus.id)
+        } else if (
+            hasQueryChanged &&
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
-            !queryEqual(props.query, oldProps.query) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {
@@ -141,7 +146,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
-        loadData: (refresh = false) => ({ refresh, queryId: uuid() }),
+        loadData: (refresh = false, queryId?: string) => ({ refresh, queryId: queryId || uuid() }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
@@ -166,7 +171,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return props.cachedResults
                     }
 
-                    if (props.cachedResults && !refresh) {
+                    const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
+                    if (props.cachedResults && !refresh && queryStatus?.complete !== false) {
                         if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
                         }

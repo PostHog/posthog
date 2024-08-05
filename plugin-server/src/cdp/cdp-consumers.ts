@@ -180,7 +180,7 @@ abstract class CdpConsumerBase {
         counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
     }
 
-    protected producelogs(result: HogFunctionInvocationResult) {
+    protected produceLogs(result: HogFunctionInvocationResult) {
         const logs = prepareLogEntriesForClickhouse(result)
 
         logs.forEach((logEntry) => {
@@ -208,7 +208,7 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
 
-                        this.producelogs(result)
+                        this.produceLogs(result)
 
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
@@ -270,19 +270,7 @@ abstract class CdpConsumerBase {
                 for (const item of asyncResponses) {
                     const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
 
-                    if (functionState === HogWatcherState.overflowed) {
-                        // TODO: _Maybe_ report to AppMetrics 2 when it is ready
-                        this.messagesToProduce.push({
-                            topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                            value: {
-                                source: 'hog_function_callback',
-                                payload: item,
-                            },
-                            key: item.hogFunctionId,
-                        })
-                        // We don't report overflowed metric to appmetrics as it is sort of a meta-metric
-                        counterFunctionInvocation.inc({ outcome: 'overflowed' })
-                    } else if (functionState > HogWatcherState.disabledForPeriod) {
+                    if (functionState > HogWatcherState.disabledForPeriod) {
                         this.produceAppMetric({
                             team_id: item.teamId,
                             app_source_id: item.hogFunctionId,
@@ -357,7 +345,6 @@ abstract class CdpConsumerBase {
                             ...acc,
                             [state]: [...(acc[state] ?? []), item],
                         }
-                        return acc
                     }, {} as Record<HogWatcherState, HogFunctionType[] | undefined>)
 
                     if (hogFunctionsByState[HogWatcherState.overflowed]?.length) {
@@ -603,19 +590,14 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
     protected consumerGroupId = 'cdp-overflow-consumer'
 
     public async _handleEachBatch(messages: Message[]): Promise<void> {
-        // This consumer can receive both events and callbacks so needs to check the message being parsed
-        const [overflowedGlobals, callbacks] = await this.runWithHeartbeat(() =>
+        const overflowedGlobals = await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: () => Promise.resolve(this.parseMessages(messages)),
             })
         )
 
-        const invocationResults = (
-            await this.runWithHeartbeat(() =>
-                Promise.all([this.executeAsyncResponses(callbacks), this.executeOverflowedFunctions(overflowedGlobals)])
-            )
-        ).flat()
+        const invocationResults = await this.executeOverflowedFunctions(overflowedGlobals)
 
         await this.processInvocationResults(invocationResults)
     }
@@ -664,17 +646,14 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         })
     }
 
-    private parseMessages(messages: Message[]): [HogFunctionOverflowedGlobals[], HogFunctionInvocationAsyncResponse[]] {
+    private parseMessages(messages: Message[]): HogFunctionOverflowedGlobals[] {
         const invocationGlobals: HogFunctionOverflowedGlobals[] = []
-        const callbacks: HogFunctionInvocationAsyncResponse[] = []
         messages.map((message) => {
             try {
                 const parsed = JSON.parse(message.value!.toString()) as CdpOverflowMessage
 
                 if (parsed.source === 'event_invocations') {
                     invocationGlobals.push(parsed.payload)
-                } else if (parsed.source === 'hog_function_callback') {
-                    callbacks.push(parsed.payload)
                 }
             } catch (e) {
                 // TODO: We probably want to crash here right as this means something went really wrong and needs investigating?
@@ -682,6 +661,6 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
             }
         })
 
-        return [invocationGlobals, callbacks]
+        return invocationGlobals
     }
 }

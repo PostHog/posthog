@@ -30,6 +30,7 @@
 
     .NotebookNode &,
     .InsightCard &,
+    .ExportedInsight &,
     .ErrorTracking__breakdowns &,
     .WebAnalyticsDashboard & {
         flex: 1;
@@ -105,6 +106,7 @@
 
     .NotebookNode &,
     .InsightCard &,
+    .ExportedInsight &,
     .WebAnalyticsDashboard & {
         .LineGraph {
             position: relative;
@@ -123,6 +125,7 @@
 
     .NotebookNode &,
     .InsightCard &,
+    .ExportedInsight &,
     .WebAnalyticsDashboard & {
         min-height: auto;
     }
@@ -154,6 +157,7 @@
 
         .NotebookNode &,
         .InsightCard &,
+        .ExportedInsight &,
         .WebAnalyticsDashboard & {
             min-height: auto;
         }
