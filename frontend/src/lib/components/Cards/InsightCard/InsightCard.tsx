@@ -145,7 +145,7 @@ function InsightCardInternal(
                     <div className="InsightCard__viz">
                         <Query
                             query={insight.query}
-                            cachedResults={insight.result}
+                            cachedResults={insight}
                             context={{
                                 insightProps: insightLogicProps,
                             }}
