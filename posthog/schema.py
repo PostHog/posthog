@@ -159,11 +159,25 @@ class ChartDisplayType(StrEnum):
     WORLD_MAP = "WorldMap"
 
 
+class DisplayType(StrEnum):
+    AUTO = "auto"
+    LINE = "line"
+    BAR = "bar"
+
+
+class YAxisPosition(StrEnum):
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class ChartSettingsDisplay(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    displayType: Optional[DisplayType] = None
+    label: Optional[str] = None
     trendLine: Optional[bool] = None
+    yAxisPosition: Optional[YAxisPosition] = None
 
 
 class Style(StrEnum):
@@ -1365,6 +1379,19 @@ class WebTopClicksQueryResponse(BaseModel):
     types: Optional[list] = None
 
 
+class Scale(StrEnum):
+    LINEAR = "linear"
+    LOGARITHMIC = "logarithmic"
+
+
+class YAxisSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scale: Optional[Scale] = None
+    startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
+
+
 class ActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1912,10 +1939,14 @@ class ChartSettings(BaseModel):
         extra="forbid",
     )
     goalLines: Optional[list[GoalLine]] = None
+    leftYAxisSettings: Optional[YAxisSettings] = None
+    rightYAxisSettings: Optional[YAxisSettings] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
-    yAxisAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
+    yAxisAtZero: Optional[bool] = Field(
+        default=None, description="Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero"
+    )
 
 
 class Response(BaseModel):

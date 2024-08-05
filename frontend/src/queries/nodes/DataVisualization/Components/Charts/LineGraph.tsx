@@ -21,12 +21,26 @@ import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { AxisSeriesSettings, dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
 Chart.register(chartTrendline)
+
+const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): GraphType => {
+    if (!settings || !settings.display || settings.display?.displayType === 'auto') {
+        return chartType === ChartDisplayType.ActionsBar || chartType === ChartDisplayType.ActionsStackedBar
+            ? GraphType.Bar
+            : GraphType.Line
+    }
+
+    if (settings.display?.displayType === 'bar') {
+        return GraphType.Bar
+    }
+
+    return GraphType.Line
+}
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -49,24 +63,30 @@ export const LineGraph = (): JSX.Element => {
             return
         }
 
+        const hasRightYAxis = !!yData.find((n) => n.settings?.display?.yAxisPosition === 'right')
+        const hasLeftYAxis = !hasRightYAxis || !!yData.find((n) => n.settings?.display?.yAxisPosition === 'left')
+
         const data: ChartData = {
             labels: xData.data,
             datasets: yData.map(({ data, settings }, index) => {
                 const color = getSeriesColor(index)
                 const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
 
+                const graphType = getGraphType(visualizationType, settings)
+
                 return {
                     data,
                     borderColor: color,
                     backgroundColor: backgroundColor,
-                    borderWidth: isBarChart ? 0 : 2,
+                    borderWidth: graphType === GraphType.Bar ? 0 : 2,
                     pointRadius: 0,
                     hitRadius: 0,
                     order: 1,
-                    hoverBorderWidth: isBarChart ? 0 : 2,
-                    hoverBorderRadius: isBarChart ? 0 : 2,
-                    type: isBarChart ? GraphType.Bar : GraphType.Line,
+                    hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
+                    hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
+                    type: graphType,
                     fill: isAreaChart ? 'origin' : false,
+                    yAxisID: settings?.display?.yAxisPosition === 'right' ? 'yRight' : 'yLeft',
                     ...(settings?.display?.trendLine
                         ? {
                               trendlineLinear: {
@@ -89,7 +109,7 @@ export const LineGraph = (): JSX.Element => {
                         content: cur.label,
                         position: 'end',
                     },
-                    scaleID: 'y',
+                    scaleID: hasLeftYAxis ? 'yLeft' : 'yRight',
                     value: cur.value,
                 }
 
@@ -207,7 +227,7 @@ export const LineGraph = (): JSX.Element => {
                                 <div className="InsightTooltip">
                                     <LemonTable
                                         dataSource={yData.map(({ data, column, settings }) => ({
-                                            series: column.name,
+                                            series: settings?.display?.label || column.name,
                                             data: formatDataWithSettings(data[referenceDataPoint.dataIndex], settings),
                                             rawData: data[referenceDataPoint.dataIndex],
                                             dataIndex: referenceDataPoint.dataIndex,
@@ -296,17 +316,42 @@ export const LineGraph = (): JSX.Element => {
                         tickLength: 12,
                     },
                 },
-                y: {
-                    display: true,
-                    beginAtZero: chartSettings.yAxisAtZero ?? true,
-                    stacked: isAreaChart || isStackedBarChart,
-                    ticks: {
-                        display: true,
-                        ...tickOptions,
-                        precision: 1,
-                    },
-                    grid: gridOptions,
-                },
+                ...(hasLeftYAxis
+                    ? {
+                          yLeft: {
+                              display: true,
+                              beginAtZero:
+                                  chartSettings.leftYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true,
+                              stacked: isAreaChart || isStackedBarChart,
+                              type: chartSettings.leftYAxisSettings?.scale ?? 'linear',
+                              ticks: {
+                                  display: true,
+                                  ...tickOptions,
+                                  precision: 1,
+                              },
+                              grid: gridOptions,
+                              position: 'left',
+                          },
+                      }
+                    : {}),
+                ...(hasRightYAxis
+                    ? {
+                          yRight: {
+                              display: true,
+                              beginAtZero:
+                                  chartSettings.rightYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true,
+                              stacked: isAreaChart || isStackedBarChart,
+                              type: chartSettings.rightYAxisSettings?.scale ?? 'linear',
+                              ticks: {
+                                  display: true,
+                                  ...tickOptions,
+                                  precision: 1,
+                              },
+                              grid: gridOptions,
+                              position: 'right',
+                          },
+                      }
+                    : {}),
             },
         }
 
