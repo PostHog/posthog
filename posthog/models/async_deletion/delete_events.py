@@ -15,7 +15,7 @@ deletions_counter = Counter("deletions_executed", "Total number of deletions sen
 # We purposely set this lower than the 256KB limit in ClickHouse to account for the potential overhead of the argument
 # substitution and settings injection. This is a conservative estimate, but it's better to be safe than hit the limit.
 MAX_QUERY_SIZE = 230_000  # 230KB which is less than 256KB limit in ClickHouse
-MAX_SELECT_EXECUTION_TIME = 3 * 60 * 60  # 3 hours
+MAX_SELECT_EXECUTION_TIME = 1 * 60 * 60  # 1 hour(s)
 
 
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
