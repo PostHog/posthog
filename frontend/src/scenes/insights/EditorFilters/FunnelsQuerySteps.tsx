@@ -26,14 +26,14 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const mathAvialability = featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]
+    const mathAvailability = featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]
         ? MathAvailability.FunnelsOnly
         : MathAvailability.None
 
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
         updateQuerySource({
-            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.FunnelsOnly),
+            series: actionsAndEventsToSeries(payload as any, true, mathAvailability),
         } as FunnelsQuery)
     }
 
@@ -62,7 +62,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 filters={actionFilters}
                 setFilters={setActionFilters}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
-                mathAvailability={mathAvialability}
+                mathAvailability={mathAvailability}
                 hideDeleteBtn={filterSteps.length === 1}
                 buttonCopy="Add step"
                 showSeriesIndicator={showSeriesIndicator}
