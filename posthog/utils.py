@@ -49,7 +49,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import RequestParsingError
+from posthog.exceptions import UnspecifiedCompressionFallbackParsingError, RequestParsingError
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -613,7 +613,7 @@ def decompress(data: Any, compression: str):
     if not data:
         return None
 
-    if compression == "gzip" or compression == "gzip-js":
+    if compression in ("gzip", "gzip-js"):
         if data == b"undefined":
             raise RequestParsingError(
                 "data being loaded from the request body for decompression is the literal string 'undefined'"
@@ -637,40 +637,32 @@ def decompress(data: Any, compression: str):
 
         data = data.encode("utf-16", "surrogatepass").decode("utf-16")
 
-    base64_decoded = None
+    # Attempt base64 decoding after decompression
     try:
         base64_decoded = base64_decode(data)
-        KLUDGES_COUNTER.labels(kludge="base64_after_decompression_" + compression).inc()
+        KLUDGES_COUNTER.labels(kludge=f"base64_after_decompression_{compression}").inc()
+        data = base64_decoded
     except Exception:
         pass
 
-    if base64_decoded:
-        data = base64_decoded
-
     try:
-        # parse_constant gets called in case of NaN, Infinity etc
-        # default behaviour is to put those into the DB directly
-        # but we just want it to return None
+        # Use custom parse_constant to handle NaN, Infinity, etc.
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
             try:
+                # Attempt gzip decompression as fallback for unspecified compression
                 fallback = decompress(data, "gzip")
                 KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
                 return fallback
             except Exception:
-                # re-trying with compression set didn't succeed, log error and return None
-                logger.warning(f"Failed to parse JSON after all attempts: {str(error_main)}")
-                # Right now we have a ton of non-actionable Sentry errors
-                # (e.g. https://posthog.sentry.io/issues/5296315667/events/db135023155f4d69a0826d163de990a5/)
-                # so we're just going to log this one.  At this point, we've tried all the decompression methods
-                # we know about, so it's likely that the data is just not valid.  We don't need to alert on this.
-                # We'll increment a counter, though, so we can track how often this happens.
-                KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_all_attempts").inc()
-                return None
+                # Increment a separate counter for JSON parsing failures after all decompression attempts
+                KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_unspecified_gzip_fallback").inc()
+                raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")
         else:
-            raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
+            raise RequestParsingError(f"Invalid JSON: {error_main}")
 
+    # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
 
