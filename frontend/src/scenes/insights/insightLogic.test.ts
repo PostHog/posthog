@@ -758,7 +758,7 @@ describe('insightLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setInsight(
-                    { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    { query: { kind: NodeKind.DataTableNode } as DataTableNode },
                     { overrideQuery: true }
                 )
                 logic.actions.saveInsight()
