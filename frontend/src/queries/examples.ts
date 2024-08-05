@@ -155,7 +155,6 @@ const series: (EventsNode | ActionsNode)[] = [
                 value: 2,
             },
         ],
-        limit: 100, // TODO - can't find a use for `limits` in insights/trends
     },
     // {
     //     kind: NodeKind.ActionsNode,
