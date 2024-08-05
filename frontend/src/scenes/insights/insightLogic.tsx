@@ -107,7 +107,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         return values.insight
                     }
 
-                    const response = await insightsApi.update(values.queryBasedInsight.id, insightUpdate, {
+                    const response = await insightsApi.update(values.insight.id, insightUpdate, {
                         writeAsQuery: values.queryBasedInsightSaving,
                         readAsQuery: true,
                     })
@@ -118,7 +118,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     }
                     callback?.()
 
-                    const removedDashboards = (values.queryBasedInsight.dashboards || []).filter(
+                    const removedDashboards = (values.insight.dashboards || []).filter(
                         (d) => !updatedInsight.dashboards?.includes(d)
                     )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
@@ -127,7 +127,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
                     const editMode =
                         insightSceneLogic.isMounted() &&
-                        insightSceneLogic.values.queryBasedInsight === values.queryBasedInsight &&
+                        insightSceneLogic.values.insight === values.insight &&
                         insightSceneLogic.values.insightMode === ItemMode.Edit
 
                     if (editMode) {
@@ -139,7 +139,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         beforeUpdates[key] = values.savedInsight[key]
                     }
 
-                    const response = await insightsApi.update(values.queryBasedInsight.id, metadataUpdate, {
+                    const response = await insightsApi.update(values.insight.id, metadataUpdate, {
                         writeAsQuery: values.queryBasedInsightSaving,
                         readAsQuery: true,
                     })
@@ -154,7 +154,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             label: 'Undo',
                             dataAttr: 'edit-insight-undo',
                             action: async () => {
-                                const response = await insightsApi.update(values.queryBasedInsight.id, beforeUpdates, {
+                                const response = await insightsApi.update(values.insight.id, beforeUpdates, {
                                     writeAsQuery: values.queryBasedInsightSaving,
                                     readAsQuery: true,
                                 })
@@ -268,7 +268,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
         ],
-        queryBasedInsight: [(s) => [s.insight], (insight) => insight],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
@@ -289,19 +288,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     mathDefinitions,
                 }).slice(0, 400),
         ],
-        insightName: [
-            (s) => [s.queryBasedInsight, s.derivedName],
-            (insight, derivedName) => insight.name || derivedName,
-        ],
-        insightId: [(s) => [s.queryBasedInsight], (insight) => insight?.id || null],
+        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
+        insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.queryBasedInsight],
+            (s) => [s.insight],
             (insight) =>
                 insight.effective_privilege_level == undefined ||
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         insightChanged: [
-            (s) => [s.queryBasedInsight, s.savedInsight],
+            (s) => [s.insight, s.savedInsight],
             (insight, savedInsight): boolean => {
                 return (
                     (insight.name || '') !== (savedInsight.name || '') ||
@@ -315,8 +311,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
-                values.queryBasedInsight.id ||
-                (values.queryBasedInsight.short_id ? await getInsightId(values.queryBasedInsight.short_id) : undefined)
+                values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
 
             let savedInsight: QueryBasedInsightModel
@@ -394,8 +389,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 title: 'Save as new insight',
                 initialValues: {
                     name:
-                        values.queryBasedInsight.name || values.queryBasedInsight.derived_name
-                            ? `${values.queryBasedInsight.name || values.queryBasedInsight.derived_name} (copy)`
+                        values.insight.name || values.insight.derived_name
+                            ? `${values.insight.name || values.insight.derived_name} (copy)`
                             : '',
                 },
                 content: (
@@ -422,9 +417,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 }
             )
             lemonToast.info(
-                `You're now working on a copy of ${
-                    values.queryBasedInsight.name || values.queryBasedInsight.derived_name || name
-                }`
+                `You're now working on a copy of ${values.insight.name || values.insight.derived_name || name}`
             )
             persist && actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh

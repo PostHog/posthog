@@ -328,7 +328,7 @@ describe('insightLogic', () => {
                             short_id: Insight42,
                             query: { kind: NodeKind.EventsQuery },
                         }),
-                        queryBasedInsight: partial({
+                        insight: partial({
                             short_id: Insight42,
                             query: { kind: NodeKind.EventsQuery },
                         }),
@@ -361,7 +361,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toMatchValues({
                         legacyInsight: insight,
-                        queryBasedInsight: {
+                        insight: {
                             short_id: Insight42,
                             query: {
                                 kind: 'InsightVizNode',
@@ -392,7 +392,7 @@ describe('insightLogic', () => {
             expectLogic(logicUnderTest)
                 .toDispatchActions(['loadInsight'])
                 .toMatchValues({
-                    queryBasedInsight: partial({
+                    insight: partial({
                         short_id: '42',
                     }),
                 })
@@ -605,7 +605,7 @@ describe('insightLogic', () => {
             .toMatchValues({
                 savedInsight: partial({ filters: partial({ insight: InsightType.FUNNELS }) }),
                 legacyInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
-                queryBasedInsight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
+                insight: partial({ id: 12, short_id: Insight12, name: 'New Insight (copy)' }),
                 insightChanged: false,
             })
 
@@ -642,7 +642,7 @@ describe('insightLogic', () => {
                     legacyInsight: truth(({ name }) => {
                         return name === 'new name'
                     }),
-                    queryBasedInsight: truth(({ name }) => {
+                    insight: truth(({ name }) => {
                         return name === 'new name'
                     }),
                 })
@@ -665,7 +665,7 @@ describe('insightLogic', () => {
                     legacyInsight: truth(({ name }) => {
                         return name === 'original name'
                     }),
-                    queryBasedInsight: truth(({ name }) => {
+                    insight: truth(({ name }) => {
                         return name === 'original name'
                     }),
                 })
@@ -681,7 +681,7 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
@@ -695,7 +695,7 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -706,7 +706,7 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
                 })
         })
 
@@ -717,7 +717,7 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
 
@@ -728,7 +728,7 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
                 })
         })
 
@@ -739,7 +739,7 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     legacyInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
-                    queryBasedInsight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
     })

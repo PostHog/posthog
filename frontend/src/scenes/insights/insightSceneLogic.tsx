@@ -105,18 +105,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
     }),
     selectors(() => ({
-        queryBasedInsightSelector: [
-            (s) => [s.insightLogicRef],
-            (insightLogicRef) => insightLogicRef?.logic.selectors.queryBasedInsight,
-        ],
-        queryBasedInsight: [
-            (s) => [(state, props) => s.queryBasedInsightSelector?.(state, props)?.(state, props)],
-            (insight) => insight,
-        ],
+        insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
+        insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
             (s) => [
                 s.insightLogicRef,
-                s.queryBasedInsight,
+                s.insight,
                 groupsModel.selectors.aggregationLabel,
                 cohortsModel.selectors.cohortsById,
                 mathsLogic.selectors.mathDefinitions,
@@ -145,7 +139,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         activityFilters: [
-            (s) => [s.queryBasedInsight],
+            (s) => [s.insight],
             (insight): ActivityFilters | null => {
                 return insight
                     ? {
@@ -158,7 +152,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     })),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
-            const logicInsightId = values.queryBasedInsight?.short_id ?? null
+            const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
 
             if (logicInsightId !== insightId) {
@@ -184,7 +178,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (oldRef2) {
                     oldRef2.unmount()
                 }
-            } else if (insightId && !values.queryBasedInsight?.result) {
+            } else if (insightId && !values.insight?.result) {
                 values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId)
             }
         },
