@@ -8,7 +8,14 @@ import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { FunnelVizType, InsightLogicProps, InsightShortId, InsightType, StepOrderValue } from '~/types'
+import {
+    FunnelVizType,
+    InsightLogicProps,
+    InsightShortId,
+    InsightType,
+    QueryBasedInsightModel,
+    StepOrderValue,
+} from '~/types'
 
 import { insightDataLogic } from '../insightDataLogic'
 
@@ -113,7 +120,9 @@ describe('insightNavLogic', () => {
 
             it('sets view from loadInsightSuccess', async () => {
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.loadInsightSuccess({ filters: { insight: InsightType.FUNNELS } })
+                    builtInsightLogic.actions.loadInsightSuccess({
+                        query: examples.InsightFunnels,
+                    } as QueryBasedInsightModel)
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
                 })

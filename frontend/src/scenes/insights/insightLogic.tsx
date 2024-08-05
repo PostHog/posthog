@@ -234,7 +234,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         /** The insight's state as it is in the database. */
         savedInsight: [
-            () => props.cachedInsight || ({} as QueryBasedInsightModel),
+            () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
             {
                 setInsight: (state, { insight, options: { fromPersistentApi } }) =>
                     fromPersistentApi ? { ...insight, query: insight.query || null } : state,
