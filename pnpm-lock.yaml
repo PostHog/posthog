@@ -148,6 +148,9 @@ dependencies:
   chartjs-plugin-stacked100:
     specifier: ^1.4.0
     version: 1.4.0(chart.js@4.4.3)
+  chartjs-plugin-trendline:
+    specifier: ^2.1.2
+    version: 2.1.2
   chokidar:
     specifier: ^3.5.3
     version: 3.5.3
@@ -470,6 +473,9 @@ devDependencies:
   '@types/chartjs-plugin-crosshair':
     specifier: ^1.1.1
     version: 1.1.4
+  '@types/chartjs-plugin-trendline':
+    specifier: ^1.0.4
+    version: 1.0.4
   '@types/clone':
     specifier: ^2.1.1
     version: 2.1.1
@@ -7957,6 +7963,12 @@ packages:
       '@types/chart.js': 2.9.37
     dev: true
 
+  /@types/chartjs-plugin-trendline@1.0.4:
+    resolution: {integrity: sha512-s94at2TCSMfqYoYejp4nzX+H/exAs90aQ8I55sERqQWlVaV4eoMajVhajL6b6uwd9Z9ycJngtAfqEQF2JB6fkw==}
+    dependencies:
+      chart.js: 3.9.1
+    dev: true
+
   /@types/clone@2.1.1:
     resolution: {integrity: sha512-BZIU34bSYye0j/BFcPraiDZ5ka6MJADjcDVELGf7glr9K+iE8NYVjFslJFVWzskSxkLLyCrSPScE82/UUoBSvg==}
     dev: true
@@ -10224,6 +10236,10 @@ packages:
     resolution: {integrity: sha512-yrLQ/yVUFXkzg7EDQsPieE/53+0RlaWTs+wBrvW36cyilJ2SaDWfl4Yj7MtLTXleV9uEKefbAGUPv2/iWSooRA==}
     dev: false
 
+  /chart.js@3.9.1:
+    resolution: {integrity: sha512-Ro2JbLmvg83gXF5F4sniaQ+lTbSv18E+TIf2cOeiH1Iqd2PGFOtem+DUufMZsCJwFE7ywPOpfXFBwRTGq7dh6w==}
+    dev: true
+
   /chart.js@4.4.3:
     resolution: {integrity: sha512-qK1gkGSRYcJzqrrzdR6a+I0vQ4/R+SoODXyAjscQ/4mzuNzySaMCd+hyVxitSY1+L2fjPD1Gbn+ibNqRmwQeLw==}
     engines: {pnpm: '>=8'}
@@ -10272,6 +10288,10 @@ packages:
       chart.js: '>=3.8.0'
     dependencies:
       chart.js: 4.4.3
+    dev: false
+
+  /chartjs-plugin-trendline@2.1.2:
+    resolution: {integrity: sha512-8XmGSI4I1tS3Balm0SsYWQjy4eNtY9aDSpErlD/Z+Zqlhfzir/p8U9zn3ahHsNolfVL/s35MgZ5jM+BCbCGP7A==}
     dev: false
 
   /check-more-types@2.24.0:

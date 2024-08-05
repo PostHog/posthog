@@ -8,6 +8,7 @@ import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
+import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
@@ -25,6 +26,7 @@ import { displayLogic } from '../../displayLogic'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
+Chart.register(chartTrendline)
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -49,7 +51,7 @@ export const LineGraph = (): JSX.Element => {
 
         const data: ChartData = {
             labels: xData.data,
-            datasets: yData.map(({ data }, index) => {
+            datasets: yData.map(({ data, settings }, index) => {
                 const color = getSeriesColor(index)
                 const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
 
@@ -65,6 +67,16 @@ export const LineGraph = (): JSX.Element => {
                     hoverBorderRadius: isBarChart ? 0 : 2,
                     type: isBarChart ? GraphType.Bar : GraphType.Line,
                     fill: isAreaChart ? 'origin' : false,
+                    ...(settings?.display?.trendLine
+                        ? {
+                              trendlineLinear: {
+                                  colorMin: hexToRGBA(color, 0.6),
+                                  colorMax: hexToRGBA(color, 0.6),
+                                  lineStyle: 'dotted',
+                                  width: 3,
+                              },
+                          }
+                        : {}),
                 } as ChartData['datasets'][0]
             }),
         }

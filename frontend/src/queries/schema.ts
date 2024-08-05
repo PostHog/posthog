@@ -556,6 +556,7 @@ export interface ChartAxis {
     column: string
     settings?: {
         formatting?: ChartSettingsFormatting
+        display?: ChartSettingsDisplay
     }
 }
 
@@ -564,6 +565,10 @@ export interface ChartSettingsFormatting {
     suffix?: string
     style?: 'none' | 'number' | 'percent'
     decimalPlaces?: number
+}
+
+export interface ChartSettingsDisplay {
+    trendLine?: boolean
 }
 
 export interface ChartSettings {
