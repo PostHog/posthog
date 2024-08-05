@@ -9,11 +9,13 @@ def create_inputs(overrides: Optional[dict] = None):
         "domain_name": "DOMAIN_NAME",
         "api_key": "API_KEY",
         "host": "api.mailgun.net",
-        "to": "example@posthog.com",
-        "from": "noreply@posthog.com",
-        "subject": "TEST SUBJECT",
-        "html": "<h1>Test</h1>",
-        "text": "Test",
+        "template": {
+            "to": "example@posthog.com",
+            "from": "noreply@posthog.com",
+            "subject": "TEST SUBJECT",
+            "html": "<h1>Test</h1>",
+            "text": "Test",
+        },
     }
     if overrides:
         inputs.update(overrides)
@@ -67,6 +69,6 @@ Content-Disposition: form-data; name="html"\r
         assert self.get_mock_print_calls() == []
 
     def test_function_ignores_no_email(self):
-        self.run_function(inputs=create_inputs({"from": ""}))
+        self.run_function(inputs=create_inputs({"template": {"to": ""}}))
 
         assert self.get_mock_fetch_calls() == []
