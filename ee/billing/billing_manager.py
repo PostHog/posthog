@@ -8,6 +8,7 @@ import jwt
 import requests
 import structlog
 from django.utils import timezone
+from sentry_sdk import capture_message
 from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
@@ -136,6 +137,9 @@ class BillingManager:
                 .order_by("-joined_at")
                 .first()
             )
+            if not first_owner_membership:
+                capture_message(f"No owner membership found for organization {organization.id}")
+                return
             first_owner = first_owner_membership.user
 
             admin_emails = list(
