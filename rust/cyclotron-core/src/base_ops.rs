@@ -2,6 +2,8 @@
 //!
 //! A job queue implementation backed by a PostgreSQL table.
 
+use std::str::FromStr;
+
 use chrono::{self, DateTime, Utc};
 use serde::{self, Deserialize, Serialize};
 use uuid::Uuid;
@@ -15,12 +17,39 @@ pub enum JobState {
     Completed,
     Failed,
 }
+
+impl FromStr for JobState {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "available" => Ok(JobState::Available),
+            "running" => Ok(JobState::Running),
+            "completed" => Ok(JobState::Completed),
+            "failed" => Ok(JobState::Failed),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, sqlx::Type, Copy, Clone, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "WaitingOn", rename_all = "lowercase")]
 pub enum WaitingOn {
     Fetch,
     Hog,
+}
+
+impl FromStr for WaitingOn {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "fetch" => Ok(WaitingOn::Fetch),
+            "hog" => Ok(WaitingOn::Hog),
+            _ => Err(()),
+        }
+    }
 }
 
 // The chunk of data needed to enqueue a job

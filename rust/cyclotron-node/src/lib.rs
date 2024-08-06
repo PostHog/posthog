@@ -10,7 +10,7 @@ use neon::{
     handle::Handle,
     prelude::{Context, FunctionContext, ModuleContext},
     result::{JsResult, NeonResult},
-    types::{JsNull, JsPromise, JsString},
+    types::{JsNull, JsNumber, JsPromise, JsString, JsValue},
 };
 use once_cell::sync::OnceCell;
 use serde::de::DeserializeOwned;
@@ -32,7 +32,7 @@ fn runtime<'a, C: Context<'a>>(cx: &mut C) -> NeonResult<&'static Runtime> {
 // because neon has no nice serde support for function arguments (and generally.
 // rippping objects from the v8 runtime piece by piece is slower than just passing
 // a since chunk of bytes). These are convenience functions for converting between
-pub fn from_js_string<'a, T, C>(cx: &mut C, object: Handle<JsString>) -> NeonResult<T>
+pub fn from_json_string<'a, T, C>(cx: &mut C, object: Handle<JsString>) -> NeonResult<T>
 where
     T: DeserializeOwned,
     C: Context<'a>,
@@ -42,7 +42,7 @@ where
     Ok(value)
 }
 
-pub fn to_string<'a, T, C>(cx: &mut C, value: T) -> NeonResult<String>
+pub fn to_json_string<'a, T, C>(cx: &mut C, value: T) -> NeonResult<String>
 where
     T: serde::Serialize,
     C: Context<'a>,
@@ -54,14 +54,14 @@ where
 
 fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
     let arg1 = cx.argument::<JsString>(0)?;
-    let value: Value = from_js_string(&mut cx, arg1)?;
-    let string = to_string(&mut cx, value)?;
+    let value: Value = from_json_string(&mut cx, arg1)?;
+    let string = to_json_string(&mut cx, value)?;
     Ok(cx.string(string))
 }
 
 fn init_worker_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<JsPromise> {
     let arg1 = cx.argument::<JsString>(0)?;
-    let config: PoolConfig = from_js_string(&mut cx, arg1)?;
+    let config: PoolConfig = from_json_string(&mut cx, arg1)?;
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -90,7 +90,7 @@ fn init_worker_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<
 
 fn init_manager_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<JsPromise> {
     let arg1 = cx.argument::<JsString>(0)?;
-    let config: ManagerConfig = from_js_string(&mut cx, arg1)?;
+    let config: ManagerConfig = from_json_string(&mut cx, arg1)?;
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -147,7 +147,7 @@ where
 
 fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job: JobInit = from_js_string(&mut cx, arg1)?;
+    let job: JobInit = from_json_string(&mut cx, arg1)?;
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -176,14 +176,16 @@ fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
 }
 
 fn dequeue_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
-    let arg1 = cx.argument::<JsString>(0)?;
-    let queue_name = arg1.value(&mut cx);
+    let queue_name = cx.argument::<JsString>(0)?.value(&mut cx);
 
-    let arg2 = cx.argument::<JsString>(1)?;
-    let worker_type: WaitingOn = todo!("kmskmskms");
+    let arg2: String = cx.argument::<JsString>(1)?.value(&mut cx);
+    let worker_type: WaitingOn = cx
+        .argument::<JsString>(1)?
+        .value(&mut cx)
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid worker type: {}", arg2)))?;
 
-    let arg3 = cx.argument::<JsString>(2)?;
-    let limit: usize = from_js_string(&mut cx, arg3)?;
+    let limit = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize; // TODO - I don't love this cast
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -202,7 +204,7 @@ fn dequeue_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let jobs = worker.dequeue_jobs(&queue_name, worker_type, limit).await;
         deferred.settle_with(&channel, move |mut cx| {
             let jobs = jobs.or_else(|e| cx.throw_error(format!("{}", e)))?;
-            let jobs = to_string(&mut cx, jobs)?;
+            let jobs = to_json_string(&mut cx, jobs)?;
             Ok(cx.string(jobs))
         });
     };
@@ -213,14 +215,14 @@ fn dequeue_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
 }
 
 fn dequeue_with_vm_state(mut cx: FunctionContext) -> JsResult<JsPromise> {
-    let arg1 = cx.argument::<JsString>(0)?;
-    let queue_name: String = from_js_string(&mut cx, arg1)?;
+    let queue_name = cx.argument::<JsString>(0)?.value(&mut cx);
 
-    let arg2 = cx.argument::<JsString>(1)?;
-    let worker_type: WaitingOn = from_js_string(&mut cx, arg2)?;
+    let arg = cx.argument::<JsString>(1)?.value(&mut cx);
+    let worker_type = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid worker type {}", arg)))?;
 
-    let arg3 = cx.argument::<JsString>(2)?;
-    let limit: usize = from_js_string(&mut cx, arg3)?;
+    let limit = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize; // TODO - I don't love this cast
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -241,7 +243,7 @@ fn dequeue_with_vm_state(mut cx: FunctionContext) -> JsResult<JsPromise> {
             .await;
         deferred.settle_with(&channel, move |mut cx| {
             let jobs = jobs.or_else(|e| cx.throw_error(format!("{}", e)))?;
-            let jobs = to_string(&mut cx, jobs)?;
+            let jobs = to_json_string(&mut cx, jobs)?;
             Ok(cx.string(jobs))
         });
     };
@@ -252,8 +254,10 @@ fn dequeue_with_vm_state(mut cx: FunctionContext) -> JsResult<JsPromise> {
 }
 
 fn flush_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg1 = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg1
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg1)))?;
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -271,7 +275,7 @@ fn flush_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         };
         let res = worker.flush_job(job_id).await;
         deferred.settle_with(&channel, move |mut cx| {
-            res.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            res.or_else(|e: cyclotron_core::error::QueueError| cx.throw_error(format!("{}", e)))?;
             Ok(cx.null())
         });
     };
@@ -282,11 +286,15 @@ fn flush_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
 }
 
 fn set_state(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
 
-    let arg2: Handle<JsString> = cx.argument::<JsString>(1)?;
-    let state: JobState = from_js_string(&mut cx, arg2)?;
+    let arg = cx.argument::<JsString>(1)?.value(&mut cx);
+    let state: JobState = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job state: {}", arg)))?;
 
     WORKER
         .get()
@@ -298,11 +306,15 @@ fn set_state(mut cx: FunctionContext) -> JsResult<JsNull> {
 }
 
 fn set_waiting_on(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
 
-    let arg2: Handle<JsString> = cx.argument::<JsString>(1)?;
-    let waiting_on: WaitingOn = from_js_string(&mut cx, arg2)?;
+    let arg = cx.argument::<JsString>(1)?.value(&mut cx);
+    let waiting_on: WaitingOn = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid waiting on: {}", arg)))?;
 
     WORKER
         .get()
@@ -314,11 +326,12 @@ fn set_waiting_on(mut cx: FunctionContext) -> JsResult<JsNull> {
 }
 
 fn set_queue(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
 
-    let arg2: Handle<JsString> = cx.argument::<JsString>(1)?;
-    let queue: String = from_js_string(&mut cx, arg2)?;
+    let queue = cx.argument::<JsString>(1)?.value(&mut cx);
 
     WORKER
         .get()
@@ -330,11 +343,13 @@ fn set_queue(mut cx: FunctionContext) -> JsResult<JsNull> {
 }
 
 fn set_priority(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
 
-    let arg2: Handle<JsString> = cx.argument::<JsString>(1)?;
-    let priority: i16 = from_js_string(&mut cx, arg2)?;
+    let arg = cx.argument::<JsNumber>(1)?.value(&mut cx);
+    let priority = arg as i16; // TODO - I /really/ don't love this cast
 
     WORKER
         .get()
@@ -346,11 +361,15 @@ fn set_priority(mut cx: FunctionContext) -> JsResult<JsNull> {
 }
 
 fn set_scheduled_at(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
 
-    let arg2: Handle<JsString> = cx.argument::<JsString>(1)?;
-    let scheduled: DateTime<Utc> = from_js_string(&mut cx, arg2)?;
+    let arg = cx.argument::<JsString>(1)?.value(&mut cx);
+    let scheduled: DateTime<Utc> = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid scheduled at: {}", arg)))?;
 
     WORKER
         .get()
@@ -362,11 +381,22 @@ fn set_scheduled_at(mut cx: FunctionContext) -> JsResult<JsNull> {
 }
 
 fn set_vm_state(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
 
-    let arg2: Handle<JsString> = cx.argument::<JsString>(1)?;
-    let vm_state: Option<String> = from_js_string(&mut cx, arg2)?;
+    // Tricky - we have to support passing nulls here, because that's how you clear vm state.
+    let vm_state = cx.argument::<JsValue>(1)?;
+    let vm_state = if vm_state.is_a::<JsNull, _>(&mut cx) {
+        None
+    } else {
+        Some(
+            vm_state
+                .downcast_or_throw::<JsString, _>(&mut cx)?
+                .value(&mut cx),
+        )
+    };
 
     WORKER
         .get()
@@ -378,11 +408,22 @@ fn set_vm_state(mut cx: FunctionContext) -> JsResult<JsNull> {
 }
 
 fn set_metadata(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
 
-    let arg2: Handle<JsString> = cx.argument::<JsString>(1)?;
-    let metadata: Option<String> = from_js_string(&mut cx, arg2)?;
+    // Tricky - we have to support passing nulls here, because that's how you clear metadata.
+    let metadata = cx.argument::<JsValue>(1)?;
+    let metadata = if metadata.is_a::<JsNull, _>(&mut cx) {
+        None
+    } else {
+        Some(
+            metadata
+                .downcast_or_throw::<JsString, _>(&mut cx)?
+                .value(&mut cx),
+        )
+    };
 
     WORKER
         .get()
@@ -394,11 +435,22 @@ fn set_metadata(mut cx: FunctionContext) -> JsResult<JsNull> {
 }
 
 fn set_parameters(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
-    let job_id: Uuid = from_js_string(&mut cx, arg1)?;
+    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
+    let job_id: Uuid = arg
+        .parse()
+        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
 
-    let arg2: Handle<JsString> = cx.argument::<JsString>(1)?;
-    let parameters: Option<String> = from_js_string(&mut cx, arg2)?;
+    // Tricky - we have to support passing nulls here, because that's how you clear parameters.
+    let parameters = cx.argument::<JsValue>(1)?;
+    let parameters = if parameters.is_a::<JsNull, _>(&mut cx) {
+        None
+    } else {
+        Some(
+            parameters
+                .downcast_or_throw::<JsString, _>(&mut cx)?
+                .value(&mut cx),
+        )
+    };
 
     WORKER
         .get()

@@ -9,7 +9,7 @@ pub mod manager;
 pub mod worker;
 
 // A pool config object, designed to be passable across API boundaries
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PoolConfig {
     pub host: String,
     pub port: u16,
