@@ -1,7 +1,6 @@
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,15 +18,8 @@ import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import {
-    ActionType,
-    AvailableFeature,
-    ChartDisplayType,
-    FilterLogicalOperator,
-    InsightType,
-    ProductKey,
-    ReplayTabs,
-} from '~/types'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
 import { NewActionButton } from '../../actions/NewActionButton'
 import { teamLogic } from '../../teamLogic'
@@ -43,6 +35,25 @@ export function ActionsTable(): JSX.Element {
 
     const { hasAvailableFeature } = useValues(userLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+
+    const tryInInsightsUrl = (action: ActionType): string => {
+        const query: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        id: action.id,
+                        name: action.name || undefined,
+                        kind: NodeKind.ActionsNode,
+                    },
+                ],
+                interval: 'day',
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            },
+        }
+        return urls.insightNew(undefined, undefined, query)
+    }
 
     const columns: LemonTableColumns<ActionType> = [
         {
@@ -183,26 +194,7 @@ export function ActionsTable(): JSX.Element {
                                 >
                                     View recordings
                                 </LemonButton>
-                                <LemonButton
-                                    to={
-                                        combineUrl(
-                                            urls.insightNew({
-                                                insight: InsightType.TRENDS,
-                                                interval: 'day',
-                                                display: ChartDisplayType.ActionsLineGraph,
-                                                actions: [
-                                                    {
-                                                        id: action.id,
-                                                        name: action.name,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                    },
-                                                ],
-                                            })
-                                        ).url
-                                    }
-                                    fullWidth
-                                >
+                                <LemonButton to={tryInInsightsUrl(action)} fullWidth>
                                     Try out in Insights
                                 </LemonButton>
                                 <LemonDivider />
