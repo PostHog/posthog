@@ -168,7 +168,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
-            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow) {
+            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow, recordIndex: number) {
                 if (label) {
                     if (index === (expandable ? 1 : 0)) {
                         return {
@@ -179,9 +179,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                     return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, query, setQuery, context)
+                        return renderColumn(key, result[index], result, recordIndex, query, setQuery, context)
                     }
-                    return renderColumn(key, result[key], result, query, setQuery, context)
+                    return renderColumn(key, result[key], result, recordIndex, query, setQuery, context)
                 }
             },
             sorter: undefined, // using custom sorting code

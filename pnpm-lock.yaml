@@ -131,23 +131,26 @@ dependencies:
     specifier: ^0.1.0
     version: 0.1.0
   chart.js:
-    specifier: ^3.9.1
-    version: 3.9.1
+    specifier: ^4.4.3
+    version: 4.4.3
   chartjs-adapter-dayjs-3:
     specifier: ^1.2.3
-    version: 1.2.3(chart.js@3.9.1)(dayjs@1.11.11)
+    version: 1.2.3(chart.js@4.4.3)(dayjs@1.11.11)
   chartjs-plugin-annotation:
     specifier: 2.2.1
-    version: 2.2.1(chart.js@3.9.1)
+    version: 2.2.1(chart.js@4.4.3)
   chartjs-plugin-crosshair:
     specifier: ^1.2.0
-    version: 1.2.0(chart.js@3.9.1)
+    version: 1.2.0(chart.js@4.4.3)
   chartjs-plugin-datalabels:
     specifier: ^2.2.0
-    version: 2.2.0(chart.js@3.9.1)
+    version: 2.2.0(chart.js@4.4.3)
   chartjs-plugin-stacked100:
     specifier: ^1.4.0
-    version: 1.4.0(chart.js@3.9.1)
+    version: 1.4.0(chart.js@4.4.3)
+  chartjs-plugin-trendline:
+    specifier: ^2.1.2
+    version: 2.1.2
   chokidar:
     specifier: ^3.5.3
     version: 3.5.3
@@ -163,6 +166,9 @@ dependencies:
   cssnano:
     specifier: ^6.0.3
     version: 6.0.3(postcss@8.4.31)
+  cypress-network-idle:
+    specifier: ^1.14.2
+    version: 1.14.2
   d3:
     specifier: ^7.8.2
     version: 7.8.2
@@ -238,6 +244,9 @@ dependencies:
   kea-window-values:
     specifier: ^3.0.0
     version: 3.0.0(kea@3.1.5)
+  lodash.merge:
+    specifier: ^4.6.2
+    version: 4.6.2
   maplibre-gl:
     specifier: ^3.5.1
     version: 3.5.1
@@ -263,8 +272,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.148.2
-    version: 1.148.2
+    specifier: 1.154.2
+    version: 1.154.2
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -463,7 +472,10 @@ devDependencies:
     version: 13.5.0(@testing-library/dom@8.19.0)
   '@types/chartjs-plugin-crosshair':
     specifier: ^1.1.1
-    version: 1.1.1
+    version: 1.1.4
+  '@types/chartjs-plugin-trendline':
+    specifier: ^1.0.4
+    version: 1.0.4
   '@types/clone':
     specifier: ^2.1.1
     version: 2.1.1
@@ -488,6 +500,9 @@ devDependencies:
   '@types/jest-image-snapshot':
     specifier: ^6.1.0
     version: 6.1.0
+  '@types/lodash.merge':
+    specifier: ^4.6.9
+    version: 4.6.9
   '@types/node':
     specifier: ^18.11.9
     version: 18.11.9
@@ -5160,6 +5175,10 @@ packages:
   /@juggle/resize-observer@3.4.0:
     resolution: {integrity: sha512-dfLbk+PwWvFzSxwk3n5ySL0hfBog779o8h68wK/7/APo/7cgyWp5jcXockbxdk5kFRkbeXWm4Fbi9FrdN381sA==}
 
+  /@kurkle/color@0.3.2:
+    resolution: {integrity: sha512-fuscdXJ9G1qb7W8VdHi+IwRqij3lBkosAm4ydQtEmbY58OzHXqQhvlxqEkoz0yssNVn38bcpRWgA9PP+OGoisw==}
+    dev: false
+
   /@linaria/core@3.0.0-beta.13:
     resolution: {integrity: sha512-3zEi5plBCOsEzUneRVuQb+2SAx3qaC1dj0FfFAI6zIJQoDWu0dlSwKijMRack7oO9tUWrchfj3OkKQAd1LBdVg==}
     dev: false
@@ -6551,7 +6570,7 @@ packages:
       '@storybook/client-logger': 7.6.20
       '@storybook/core-events': 7.6.20
       '@storybook/global': 5.0.0
-      qs: 6.12.3
+      qs: 6.13.0
       telejson: 7.2.0
       tiny-invariant: 1.3.3
     dev: true
@@ -7065,7 +7084,7 @@ packages:
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
-      qs: 6.12.3
+      qs: 6.13.0
       synchronous-promise: 2.0.17
       ts-dedent: 2.2.0
       util-deprecate: 1.0.2
@@ -7225,7 +7244,7 @@ packages:
     dependencies:
       '@storybook/client-logger': 7.6.20
       memoizerific: 1.11.3
-      qs: 6.12.3
+      qs: 6.13.0
     dev: true
 
   /@storybook/router@7.6.4:
@@ -7938,10 +7957,16 @@ packages:
       moment: 2.29.4
     dev: true
 
-  /@types/chartjs-plugin-crosshair@1.1.1:
-    resolution: {integrity: sha512-fAO7SX8sJi4gJS0afd/50JFtzg9vNhQPwNx6Kjo5FLyibgmwzMiqO9LnSIvR6OWiX3oN/mDrAuvqKCRs6cFLNw==}
+  /@types/chartjs-plugin-crosshair@1.1.4:
+    resolution: {integrity: sha512-AvHMQMFh7aK+npOcyqezzaRpCgA5vqg3d885RD2xUyXULeUcgvxbLPf5v6yX5QqmbUZB3xRDOv52vCabBw+YKg==}
     dependencies:
       '@types/chart.js': 2.9.37
+    dev: true
+
+  /@types/chartjs-plugin-trendline@1.0.4:
+    resolution: {integrity: sha512-s94at2TCSMfqYoYejp4nzX+H/exAs90aQ8I55sERqQWlVaV4eoMajVhajL6b6uwd9Z9ycJngtAfqEQF2JB6fkw==}
+    dependencies:
+      chart.js: 3.9.1
     dev: true
 
   /@types/clone@2.1.1:
@@ -8350,6 +8375,12 @@ packages:
   /@types/less@3.0.6:
     resolution: {integrity: sha512-PecSzorDGdabF57OBeQO/xFbAkYWo88g4Xvnsx7LRwqLC17I7OoKtA3bQB9uXkY6UkMWCOsA8HSVpaoitscdXw==}
     dev: false
+
+  /@types/lodash.merge@4.6.9:
+    resolution: {integrity: sha512-23sHDPmzd59kUgWyKGiOMO2Qb9YtqRO/x4IhkgNUiPQ1+5MUVqi6bCZeq9nBJ17msjIMbEIO5u+XW4Kz6aGUhQ==}
+    dependencies:
+      '@types/lodash': 4.14.188
+    dev: true
 
   /@types/lodash@4.14.188:
     resolution: {integrity: sha512-zmEmF5OIM3rb7SbLCFYoQhO4dGt2FRM9AMkxvA3LaADOF1n8in/zGJlWji9fmafLoNyz+FoL6FE0SLtGIArD7w==}
@@ -10207,49 +10238,60 @@ packages:
 
   /chart.js@3.9.1:
     resolution: {integrity: sha512-Ro2JbLmvg83gXF5F4sniaQ+lTbSv18E+TIf2cOeiH1Iqd2PGFOtem+DUufMZsCJwFE7ywPOpfXFBwRTGq7dh6w==}
+    dev: true
+
+  /chart.js@4.4.3:
+    resolution: {integrity: sha512-qK1gkGSRYcJzqrrzdR6a+I0vQ4/R+SoODXyAjscQ/4mzuNzySaMCd+hyVxitSY1+L2fjPD1Gbn+ibNqRmwQeLw==}
+    engines: {pnpm: '>=8'}
+    dependencies:
+      '@kurkle/color': 0.3.2
     dev: false
 
-  /chartjs-adapter-dayjs-3@1.2.3(chart.js@3.9.1)(dayjs@1.11.11):
+  /chartjs-adapter-dayjs-3@1.2.3(chart.js@4.4.3)(dayjs@1.11.11):
     resolution: {integrity: sha512-H8m1c2cFi9zdiJ0IfY7txUSSZusnS671sUuE6dbmvcaHmSFTMNoWH5lJvNj+oM1hLRsiP5pSTiB7InAMDJP+rQ==}
     engines: {node: '>=10'}
     peerDependencies:
       chart.js: '>=2.8.0'
       dayjs: ^1.9.7
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.3
       dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
     dev: false
 
-  /chartjs-plugin-annotation@2.2.1(chart.js@3.9.1):
+  /chartjs-plugin-annotation@2.2.1(chart.js@4.4.3):
     resolution: {integrity: sha512-RL9UtrFr2SXd7C47zD0MZqn6ZLgrcRt3ySC6cYal2amBdANcYB1QcwFXcpKWAYnO4SGJYRok7P5rKDDNgJMA/w==}
     peerDependencies:
       chart.js: '>=3.7.0'
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.3
     dev: false
 
-  /chartjs-plugin-crosshair@1.2.0(chart.js@3.9.1):
+  /chartjs-plugin-crosshair@1.2.0(chart.js@4.4.3):
     resolution: {integrity: sha512-yohsbME+wT1ODBdErBzWnC6xUDcn2tLeWmGjGDTykjpiT7+FMgibffajxqaCVmdzselxNPirpt76vx33EewSSQ==}
     peerDependencies:
       chart.js: ^3.4.0
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.3
     dev: false
 
-  /chartjs-plugin-datalabels@2.2.0(chart.js@3.9.1):
+  /chartjs-plugin-datalabels@2.2.0(chart.js@4.4.3):
     resolution: {integrity: sha512-14ZU30lH7n89oq+A4bWaJPnAG8a7ZTk7dKf48YAzMvJjQtjrgg5Dpk9f+LbjCF6bpx3RAGTeL13IXpKQYyRvlw==}
     peerDependencies:
       chart.js: '>=3.0.0'
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.3
     dev: false
 
-  /chartjs-plugin-stacked100@1.4.0(chart.js@3.9.1):
+  /chartjs-plugin-stacked100@1.4.0(chart.js@4.4.3):
     resolution: {integrity: sha512-49oWqcja9E++uVgmYE1AY8t1g56vZhhkt9CXO/eCMnuoTRjlJPD3lznMyemkZMEVpRoAujMw07eVLJcJnpcUKA==}
     peerDependencies:
       chart.js: '>=3.8.0'
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.3
+    dev: false
+
+  /chartjs-plugin-trendline@2.1.2:
+    resolution: {integrity: sha512-8XmGSI4I1tS3Balm0SsYWQjy4eNtY9aDSpErlD/Z+Zqlhfzir/p8U9zn3ahHsNolfVL/s35MgZ5jM+BCbCGP7A==}
     dev: false
 
   /check-more-types@2.24.0:
@@ -10966,6 +11008,10 @@ packages:
       axe-core: 4.5.1
       cypress: 13.11.0
     dev: true
+
+  /cypress-network-idle@1.14.2:
+    resolution: {integrity: sha512-xAdR8dH58KFPv8eCDWjviScITrJOcUpuMXYfYTc175nk2/NvnJ+I6ylSn1CM7yZmoV/gLbFa36QLiH5NfNEaLQ==}
+    dev: false
 
   /cypress-terminal-report@6.1.0(cypress@13.11.0):
     resolution: {integrity: sha512-IC72OQvzZsTlkr3XcnIBF6VXOYUbhivJmdpCg8mywObW297SgEyMLz8V3+lz9LopOuW9cyJ15AolhA8r0bVeSA==}
@@ -13445,7 +13491,7 @@ packages:
       source-map: 0.6.1
       wordwrap: 1.0.0
     optionalDependencies:
-      uglify-js: 3.19.0
+      uglify-js: 3.19.1
     dev: true
 
   /hard-rejection@2.1.0:
@@ -13913,7 +13959,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.22.1
+      preact: 10.23.1
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -15652,7 +15698,6 @@ packages:
 
   /lodash.merge@4.6.2:
     resolution: {integrity: sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==}
-    dev: true
 
   /lodash.once@4.1.1:
     resolution: {integrity: sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==}
@@ -17721,11 +17766,11 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.148.2:
-    resolution: {integrity: sha512-YQt8D+RS1a56ykLPLsqSq73vLYLIFQwlvY40ncgOM/uhxAV4FmbnYv85ZtwnB2SAZD/gChWXI/fprYQA9lhc1w==}
+  /posthog-js@1.154.2:
+    resolution: {integrity: sha512-EM8xn5V86fTg/pUhCyyMCRotI07tXDLQryc5TDQinT9kCRz8799G1n+Bq7drOEYdD/xbvcKfcfTWmlMrTZCZ6A==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.22.1
+      preact: 10.23.1
       web-vitals: 4.2.2
     dev: false
 
@@ -17733,8 +17778,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.22.1:
-    resolution: {integrity: sha512-jRYbDDgMpIb5LHq3hkI0bbl+l/TQ9UnkdQ0ww+lp+4MMOdqaUYdFc5qeyP+IV8FAd/2Em7drVPeKdQxsiWCf/A==}
+  /preact@10.23.1:
+    resolution: {integrity: sha512-O5UdRsNh4vdZaTieWe3XOgSpdMAmkIYBCT3VhQDlKrzyCm8lUYsk0fmVEvoQQifoOjFRTaHZO69ylrzTW2BH+A==}
     dev: false
 
   /prelude-ls@1.2.1:
@@ -18099,8 +18144,8 @@ packages:
       side-channel: 1.0.6
     dev: true
 
-  /qs@6.12.3:
-    resolution: {integrity: sha512-AWJm14H1vVaO/iNZ4/hO+HyaTehuy9nRqVdkTqlJt0HWvBiBIEXFmb4C0DGeYo3Xes9rrEW+TxHsaigCbN5ICQ==}
+  /qs@6.13.0:
+    resolution: {integrity: sha512-+38qI9SOr8tfZ4QmJNplMUxqjbe7LKvvZgWdExBOmd+egZTtjLB67Gu0HRX3u/XOq7UU2Nx6nsjvS16Z9uwfpg==}
     engines: {node: '>=0.6'}
     dependencies:
       side-channel: 1.0.6
@@ -21191,8 +21236,8 @@ packages:
     resolution: {integrity: sha512-8Y75pvTYkLJW2hWQHXxoqRgV7qb9B+9vFEtidML+7koHUFapnVJAZ6cKs+Qjz5Aw3aZWHMC6u0wJE3At+nSGwA==}
     dev: false
 
-  /uglify-js@3.19.0:
-    resolution: {integrity: sha512-wNKHUY2hYYkf6oSFfhwwiHo4WCHzHmzcXsqXYTN9ja3iApYIFbb2U6ics9hBcYLHcYGQoAlwnZlTrf3oF+BL/Q==}
+  /uglify-js@3.19.1:
+    resolution: {integrity: sha512-y/2wiW+ceTYR2TSSptAhfnEtpLaQ4Ups5zrjB2d3kuVxHj16j/QJwPl5PvuGy9uARb39J0+iKxcRPvtpsx4A4A==}
     engines: {node: '>=0.8.0'}
     hasBin: true
     requiresBuild: true

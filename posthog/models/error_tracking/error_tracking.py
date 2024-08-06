@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.postgres.fields import ArrayField
 from posthog.models.utils import UUIDModel
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 
 class ErrorTrackingGroup(UUIDModel):
@@ -27,7 +27,7 @@ class ErrorTrackingGroup(UUIDModel):
     )
 
     @classmethod
-    def filter_fingerprints(cls, queryset, fingerprints: list[str]):
+    def filter_fingerprints(cls, queryset, fingerprints: list[str]) -> QuerySet:
         query = Q(fingerprint__in=fingerprints)
 
         for fp in fingerprints:
@@ -36,17 +36,17 @@ class ErrorTrackingGroup(UUIDModel):
         return queryset.filter(query)
 
     @transaction.atomic
-    def merge(self, groups: list["ErrorTrackingGroup"]) -> None:
-        if not groups:
+    def merge(self, fingerprints: list[str]) -> None:
+        if not fingerprints:
             return
 
         merged_fingerprints = set(self.merged_fingerprints)
-        for group in groups:
-            fingerprints = [group.fingerprint, *group.merged_fingerprints]
-            merged_fingerprints |= set(fingerprints)
+        merged_fingerprints.update(fingerprints)
 
+        merging_groups = ErrorTrackingGroup.objects.filter(team=self.team, fingerprint__in=fingerprints)
+        for group in merging_groups:
+            merged_fingerprints |= set(group.merged_fingerprints)
+
+        merging_groups.delete()
         self.merged_fingerprints = list(merged_fingerprints)
         self.save()
-
-        for group in groups:
-            group.delete()

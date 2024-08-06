@@ -269,17 +269,16 @@ export const defaultSurveyTemplates = [
         questions: [
             {
                 type: SurveyQuestionType.Rating,
-                question: 'How easy was it to use our product?',
+                question: 'PostHog made it easy for me to resolve my issue',
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
-                display: 'emoji',
-                scale: 5,
-                lowerBoundLabel: 'Very difficult',
-                upperBoundLabel: 'Very easy',
+                display: 'number',
+                scale: 7,
+                lowerBoundLabel: 'Strongly disagree',
+                upperBoundLabel: 'Strongly agree',
             },
         ],
         description: 'Works well with churn surveys.',
-        appearance: { ratingButtonColor: '#939393' },
     },
     {
         type: SurveyType.Popover,

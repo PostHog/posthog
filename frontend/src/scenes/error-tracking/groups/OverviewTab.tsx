@@ -71,13 +71,13 @@ const ListItemException = ({
         })
         .filter((property) => !!property.value)
 
-    const person = { ...event.person, properties: event.person.properties ? JSON.parse(event.person.properties) : {} }
+    // const person = { ...event.person, properties: event.person.properties ? JSON.parse(event.person.properties) : {} }
 
     return (
         <div className={clsx('cursor-pointer p-2 space-y-1', isActive && 'border-l-4 border-primary-3000')}>
             <div className="flex justify-between items-center space-x-3">
                 <div className="line-clamp-1">
-                    <PersonDisplay person={person} withIcon noPopover noLink />
+                    <PersonDisplay person={event.person} withIcon noPopover noLink />
                 </div>
                 <PropertyIcons recordingProperties={recordingProperties} iconClassNames="text-muted" />
             </div>

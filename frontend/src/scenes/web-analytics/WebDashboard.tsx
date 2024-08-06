@@ -2,6 +2,7 @@ import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -40,12 +41,10 @@ const Filters = (): JSX.Element => {
 
     return (
         <div
-            className="sticky z-20 pt-2"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                backgroundColor: 'var(--bg-3000)',
-                top: mobileLayout ? 'var(--breadcrumbs-height-full)' : 'var(--breadcrumbs-height-compact)',
-            }}
+            className={clsx(
+                'sticky z-20 pt-2 bg-bg-3000',
+                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
+            )}
         >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
@@ -319,6 +318,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
+                <VersionCheckerBanner />
                 <WebAnalyticsNotice />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <WebAnalyticsLiveUserCount />

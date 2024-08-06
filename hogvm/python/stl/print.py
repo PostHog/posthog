@@ -1,6 +1,6 @@
 import re
 
-from hogvm.python.stl.date import is_hog_datetime, is_hog_date
+from hogvm.python.objects import is_hog_datetime, is_hog_date, is_hog_error
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
 escape_chars_map = {
@@ -40,6 +40,12 @@ def print_hog_value(obj, marked: set | None = None):
         return f"DateTime({float(obj['dt'])}, {escape_string(obj['zone'] or 'UTC')})"
     if isinstance(obj, dict) and is_hog_date(obj):
         return f"Date({obj['year']}, {obj['month']}, {obj['day']})"
+    if isinstance(obj, dict) and is_hog_error(obj):
+        return (
+            f"{obj['type']}({print_hog_value(obj['message'])}"
+            + (f", {print_hog_value(obj['payload'])}" if "payload" in obj and obj["payload"] is not None else "")
+            + ")"
+        )
 
     if isinstance(obj, list) or isinstance(obj, dict) or isinstance(obj, tuple):
         if id(obj) in marked:

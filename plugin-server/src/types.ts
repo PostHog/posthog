@@ -33,7 +33,7 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
-import { LazyPluginVM } from './worker/vm/lazy'
+import { PluginInstance } from './worker/vm/lazy'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -149,6 +149,7 @@ export interface PluginsServerConfig extends CdpConfig {
     KAFKA_SASL_MECHANISM: KafkaSaslMechanism | undefined
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
+    KAFKA_CLIENT_ID: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
@@ -161,6 +162,7 @@ export interface PluginsServerConfig extends CdpConfig {
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
+    KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: number | undefined
     KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
     KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
     KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
@@ -272,9 +274,6 @@ export interface PluginsServerConfig extends CdpConfig {
 
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
-
-    // Whether to use the offset store approach that we are testing to see if it helps rebalances
-    SESSION_RECORDING_USE_OFFSET_STORE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -315,7 +314,7 @@ export interface Hub extends PluginsServerConfig {
     // diagnostics
     lastActivity: number
     lastActivityType: string
-    statelessVms: StatelessVmMap
+    statelessVms: StatelessInstanceMap
     conversionBufferEnabledTeams: Set<number>
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
@@ -345,6 +344,7 @@ export interface PluginServerCapabilities {
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
+    syncInlinePlugins?: boolean
 }
 
 export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
@@ -395,9 +395,9 @@ export interface JobSpec {
 
 export interface Plugin {
     id: number
-    organization_id: string
+    organization_id?: string
     name: string
-    plugin_type: 'local' | 'respository' | 'custom' | 'source'
+    plugin_type: 'local' | 'respository' | 'custom' | 'source' | 'inline'
     description?: string
     is_global: boolean
     is_preinstalled?: boolean
@@ -444,7 +444,7 @@ export interface PluginConfig {
     order: number
     config: Record<string, unknown>
     attachments?: Record<string, PluginAttachment>
-    vm?: LazyPluginVM | null
+    instance?: PluginInstance | null
     created_at: string
     updated_at?: string
     // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
@@ -529,7 +529,7 @@ export interface PluginTask {
     __ignoreForAppMetrics?: boolean
 }
 
-export type VMMethods = {
+export type PluginMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
@@ -539,7 +539,7 @@ export type VMMethods = {
 }
 
 // Helper when ensuring that a required method is implemented
-export type VMMethodsConcrete = Required<VMMethods>
+export type PluginMethodsConcrete = Required<PluginMethods>
 
 export enum AlertLevel {
     P0 = 0,
@@ -566,7 +566,7 @@ export interface Alert {
 }
 export interface PluginConfigVMResponse {
     vm: VM
-    methods: VMMethods
+    methods: PluginMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
     usedImports: Set<string>
@@ -1151,7 +1151,7 @@ export enum PropertyUpdateOperation {
     SetOnce = 'set_once',
 }
 
-export type StatelessVmMap = Record<PluginId, LazyPluginVM>
+export type StatelessInstanceMap = Record<PluginId, PluginInstance>
 
 export enum OrganizationPluginsAccessLevel {
     NONE = 0,
@@ -1224,4 +1224,15 @@ export interface HookPayload {
             created_at: ISOTimestamp | null
         }
     }
+}
+
+export type AppMetric2Type = {
+    team_id: number
+    timestamp: ClickHouseTimestamp
+    app_source: string
+    app_source_id: string
+    instance_id?: string
+    metric_kind: 'failure' | 'success' | 'other'
+    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently'
+    count: number
 }

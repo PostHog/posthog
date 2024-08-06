@@ -36,6 +36,7 @@ import {
     getDisplay,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    isFunnelsQuery,
     isHogQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
@@ -375,6 +376,27 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // breakdown filter
     if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdownFilter) {
         mergedQuery.breakdownFilter = cache.breakdownFilter
+
+        // If we've changed the query kind, convert multiple breakdowns to a single breakdown
+        if (isTrendsQuery(cache) && isFunnelsQuery(query)) {
+            if (cache.breakdownFilter.breakdowns?.length) {
+                const firstBreakdown = cache.breakdownFilter?.breakdowns?.[0]
+                mergedQuery.breakdownFilter = {
+                    ...cache.breakdownFilter,
+                    breakdowns: undefined,
+                    breakdown: firstBreakdown?.property,
+                    breakdown_type: firstBreakdown?.type,
+                    breakdown_histogram_bin_count: firstBreakdown?.histogram_bin_count,
+                    breakdown_group_type_index: firstBreakdown?.group_type_index,
+                    breakdown_normalize_url: firstBreakdown?.normalize_url,
+                }
+            } else {
+                mergedQuery.breakdownFilter = {
+                    ...cache.breakdownFilter,
+                    breakdowns: undefined,
+                }
+            }
+        }
     }
 
     // funnel paths filter

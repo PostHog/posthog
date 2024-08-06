@@ -82,7 +82,7 @@ export default function SurveyEdit(): JSX.Element {
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
-        : 'Subscribe to surveys for repeating surveys over a duration of time'
+        : 'Upgrade your plan to use repeating surveys'
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
@@ -427,7 +427,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 disabledReason={
                                                     surveysMultipleQuestionsAvailable
                                                         ? null
-                                                        : 'Subscribe to surveys for multiple questions'
+                                                        : 'Upgrade your plan to get multiple questions'
                                                 }
                                                 onClick={() => {
                                                     setSurveyValue('questions', [
@@ -441,7 +441,7 @@ export default function SurveyEdit(): JSX.Element {
                                             </LemonButton>
                                             {!surveysMultipleQuestionsAvailable && (
                                                 <Link to="/organization/billing" target="_blank" targetBlankIcon>
-                                                    Subscribe
+                                                    Upgrade
                                                 </Link>
                                             )}
                                         </div>
