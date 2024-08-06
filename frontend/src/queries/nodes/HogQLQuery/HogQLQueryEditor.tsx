@@ -34,9 +34,16 @@ const EDITOR_HEIGHT = 222
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
 
-    const [key] = useState(() =>
-        router.values.location.pathname.includes(urls.dataWarehouse()) ? urls.dataWarehouse() : uniqueNode++
+    const [key, setKey] = useState(() =>
+        router.values.location.pathname.includes(urls.dataWarehouse()) ? router.values.location.pathname : uniqueNode++
     )
+
+    useEffect(() => {
+        if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+            setKey(router.values.location.pathname)
+        }
+    }, [router.values.location.pathname])
+
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
@@ -69,7 +76,12 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         codeEditorLogic(codeEditorLogicProps)
     )
 
-    const { editingView } = useValues(dataWarehouseSceneLogic)
+    const { editingView } = useValues(
+        dataWarehouseSceneLogic({
+            monaco,
+            editor,
+        })
+    )
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     useEffect(() => {
