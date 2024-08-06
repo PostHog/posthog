@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
-import { BaseMathType } from '~/types'
+import { BaseMathType, FeatureFlagType } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { ExtendedListItem, SidebarCategory } from '../types'
