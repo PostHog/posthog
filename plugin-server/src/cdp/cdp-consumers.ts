@@ -123,10 +123,10 @@ abstract class CdpConsumerBase {
         }
 
         posthog.capture({
-            distinctId: 'plugin-server',
+            distinctId: team.uuid,
             event,
             properties: {
-                team_id: hogFunction.team_id,
+                team: team.uuid,
                 ...properties,
             },
             groups: {

@@ -111,7 +111,7 @@ export class GroupTypeManager {
         }
 
         posthog.capture({
-            distinctId: 'plugin-server',
+            distinctId: team.uuid,
             event: 'group type ingested',
             properties: {
                 team: team.uuid,
