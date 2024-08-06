@@ -168,11 +168,29 @@ export class HogExecutor {
             throw new Error('No hog function id provided')
         }
 
+        const { logs = [], response = null, error: asyncError, timings = [] } = asyncFunctionResponse
+
+        if (response?.status && response.status >= 400) {
+            // Generic warn log for bad status codes
+            logs.push({
+                level: 'warn',
+                timestamp: DateTime.now(),
+                message: `Fetch returned bad status: ${response.status}`,
+            })
+        }
+
         const errorRes = (error = 'Something went wrong'): HogFunctionInvocationResult => ({
             invocation,
             finished: false,
             error,
-            logs: [],
+            logs: [
+                ...logs,
+                {
+                    level: 'error',
+                    timestamp: DateTime.now(),
+                    message: error,
+                },
+            ],
         })
 
         const hogFunction = this.hogFunctionManager.getTeamHogFunction(
@@ -180,29 +198,32 @@ export class HogExecutor {
             invocation.hogFunctionId
         )
 
-        if (!hogFunction) {
-            return errorRes(`Hog Function with ID ${invocation.hogFunctionId} not found`)
+        if (!hogFunction || !invocation.vmState || asyncError) {
+            return errorRes(
+                !hogFunction
+                    ? `Hog Function with ID ${invocation.hogFunctionId} not found`
+                    : asyncError
+                    ? asyncError
+                    : 'No VM state provided for async response'
+            )
         }
 
-        if (!invocation.vmState || !asyncFunctionResponse.response || asyncFunctionResponse.error) {
-            return errorRes(asyncFunctionResponse.error ?? 'No VM state provided for async response')
-        }
-
-        if (asyncFunctionResponse.response?.body && typeof asyncFunctionResponse.response?.body === 'string') {
-            // TODO: Ensure this is done in rusty hook
+        if (typeof response?.body === 'string') {
             try {
-                asyncFunctionResponse.response.body = JSON.parse(asyncFunctionResponse.response.body)
-            } catch (e) {}
+                response.body = JSON.parse(response.body)
+            } catch (e) {
+                // pass - if it isn't json we just pass it on
+            }
         }
 
         // Add the response to the stack to continue execution
-        invocation.vmState.stack.push(convertJSToHog(asyncFunctionResponse.response ?? null))
-        invocation.timings.push(...(asyncFunctionResponse.timings ?? []))
+        invocation.vmState.stack.push(convertJSToHog(response))
+        invocation.timings.push(...timings)
 
         const res = this.execute(hogFunction, invocation)
 
         // Add any timings and logs from the async function
-        res.logs = [...(asyncFunctionResponse.logs ?? []), ...res.logs]
+        res.logs = [...(logs ?? []), ...res.logs]
 
         return res
     }
