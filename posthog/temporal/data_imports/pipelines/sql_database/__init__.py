@@ -26,6 +26,70 @@ from .helpers import (
     SqlDatabaseTableConfiguration,
 )
 
+POSTGRES_TO_DLT_TYPES = {
+    # Text types
+    "char": "text",
+    "character": "text",
+    "varchar": "text",
+    "character varying": "text",
+    "text": "text",
+    "xml": "text",
+    "uuid": "text",
+    "cidr": "text",
+    "inet": "text",
+    "macaddr": "text",
+    "macaddr8": "text",
+    "tsvector": "text",
+    "tsquery": "text",
+    # Bigint types
+    "bigint": "bigint",
+    "bigserial": "bigint",
+    # Boolean type
+    "boolean": "bool",
+    # Timestamp types
+    "timestamp": "timestamp",
+    "timestamp with time zone": "timestamp",
+    "timestamp without time zone": "timestamp",
+    # Complex types (geometric types, ranges, json, etc.)
+    "point": "complex",
+    "line": "complex",
+    "lseg": "complex",
+    "box": "complex",
+    "path": "complex",
+    "polygon": "complex",
+    "circle": "complex",
+    "int4range": "complex",
+    "int8range": "complex",
+    "numrange": "complex",
+    "tsrange": "complex",
+    "tstzrange": "complex",
+    "daterange": "complex",
+    "json": "complex",
+    "jsonb": "complex",
+    # Double types
+    "real": "double",
+    "double precision": "double",
+    "numeric": "double",
+    "decimal": "double",
+    # Date type
+    "date": "date",
+    # Additional mappings
+    "smallint": "bigint",
+    "integer": "bigint",
+    "serial": "bigint",
+    "money": "double",
+    "bytea": "text",
+    "time": "timestamp",
+    "time with time zone": "timestamp",
+    "time without time zone": "timestamp",
+    "interval": "complex",
+    "bit": "text",
+    "bit varying": "text",
+    "enum": "text",
+    "oid": "bigint",
+    "pg_lsn": "text",
+}
+
 
 def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> Any:
     if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
@@ -195,13 +259,18 @@ def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[
     columns: dict[str, TColumnSchema] = {}
 
     for column_name, data_type, numeric_precision, numeric_scale in results:
-        if data_type != "numeric":
-            continue
-
-        columns[column_name] = {
-            "data_type": "decimal",
-            "precision": numeric_precision or 76,
-            "scale": numeric_scale or 16,
-        }
+        if data_type == "numeric":
+            columns[column_name] = {
+                "data_type": "decimal",
+                "precision": numeric_precision or 76,
+                "scale": numeric_scale or 16,
+                "nullable": True,
+            }
+        else:
+            columns[column_name] = {
+                "name": column_name,
+                "data_type": POSTGRES_TO_DLT_TYPES.get(data_type, "text"),
+                "nullable": True,
+            }
 
     return columns
