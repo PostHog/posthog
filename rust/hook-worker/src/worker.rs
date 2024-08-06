@@ -266,12 +266,15 @@ async fn process_batch<'a>(
 
     let results = join_all(futures).await;
 
-    if hog_mode && push_hoghook_results_to_kafka(
-        results,
-        metadata_vec,
-        kafka_producer,
-        cdp_function_callbacks_topic,
-    ).await.is_err()
+    if hog_mode
+        && push_hoghook_results_to_kafka(
+            results,
+            metadata_vec,
+            kafka_producer,
+            cdp_function_callbacks_topic,
+        )
+        .await
+        .is_err()
     {
         return;
     }
