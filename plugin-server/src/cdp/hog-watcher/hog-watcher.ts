@@ -95,7 +95,10 @@ export class HogWatcher {
     private instanceId: string
     private syncTimer?: NodeJS.Timeout
 
-    constructor(private hub: Hub) {
+    constructor(
+        private hub: Hub,
+        private onStateTransition?: (id: HogFunctionType['id'], state: HogWatcherState) => void
+    ) {
         this.currentObservations = new HogWatcherActiveObservations(hub)
 
         this.instanceId = randomUUID()
@@ -352,6 +355,7 @@ export class HogWatcher {
             globalState.states[id] = globalState.states[id].slice(-this.hub.CDP_WATCHER_MAX_RECORDED_STATES)
             stateChanges.states[id] = newState
             hogStateChangeCounter.inc({ state: newState })
+            this.onStateTransition?.(id, newState)
         }
 
         changedHogFunctionRatings.forEach((id) => {
