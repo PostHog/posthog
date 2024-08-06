@@ -96,14 +96,16 @@ export const stringToPluginServerMode = Object.fromEntries(
 ) as Record<string, PluginServerMode>
 
 export type CdpConfig = {
-    CDP_WATCHER_OBSERVATION_PERIOD: number
-    CDP_WATCHER_DISABLED_PERIOD: number
-    CDP_WATCHER_MAX_RECORDED_STATES: number
-    CDP_WATCHER_MAX_RECORDED_RATINGS: number
-    CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED: number
-    CDP_WATCHER_MIN_OBSERVATIONS: number
-    CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: number
-    CDP_WATCHER_DISABLED_RATING_THRESHOLD: number
+    CDP_WATCHER_SCORE_ERROR: number
+    CDP_WATCHER_SCORE_SUCCESS: number
+    CDP_WATCHER_SCORE_TIMING_UPPER: number
+    CDP_WATCHER_SCORE_TIMING_LOWER: number
+    CDP_WATCHER_THRESHOLD_HEALTHY: number // The max score a function can have
+    CDP_WATCHER_THRESHOLD_DEGRADED: number // The score below which a function is moved to degraded
+    CDP_WATCHER_THRESHOLD_DISABLED: number // The score below which a function is moved to disabled
+    CDP_WATCHER_DISABLED_TTL: number // How long a function should be temporarily disabled for
+    CDP_WATCHER_TTL: number // How long a function's observation should be valid for before resetting
+    CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
 }
 
