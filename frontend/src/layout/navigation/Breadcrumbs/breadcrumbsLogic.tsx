@@ -126,6 +126,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         symbol: (
                             <UploadedLogo
                                 name={currentOrganization.name}
+                                entityId={currentOrganization.id}
                                 mediaId={currentOrganization.logo_media_id}
                                 size="xsmall"
                             />

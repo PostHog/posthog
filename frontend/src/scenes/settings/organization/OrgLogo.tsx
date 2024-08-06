@@ -37,7 +37,12 @@ export function OrganizationLogo(): JSX.Element {
                 callToAction={
                     <>
                         <div className="relative">
-                            <UploadedLogo name={currentOrganization?.name || '?'} mediaId={logoMediaId} size="xlarge" />
+                            <UploadedLogo
+                                name={currentOrganization?.name || '?'}
+                                entityId={currentOrganization?.id || 1}
+                                mediaId={logoMediaId}
+                                size="xlarge"
+                            />
                             {logoMediaId && (
                                 <div className="absolute -inset-2 group">
                                     <LemonButton
