@@ -257,7 +257,8 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
             func: async () => {
-                this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
+                // NOTE: Disabled for now as it needs some rethinking
+                // this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 asyncResponses.forEach((x) => {
                     counterAsyncFunctionResponse.inc({
                         outcome: x.asyncFunctionResponse.error ? 'failed' : 'succeeded',
