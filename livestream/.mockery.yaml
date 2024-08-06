@@ -9,3 +9,4 @@ packages:
     github.com/posthog/posthog/livestream:
         config:
             recursive: True
+            outpkg: mocks
