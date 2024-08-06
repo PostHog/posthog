@@ -20,7 +20,7 @@ func loadConfigs() {
 	err := viper.ReadInConfig()
 	if err != nil {
 		sentry.CaptureException(err)
-		log.Fatalf("fatal error config file: %w", err)
+		log.Fatalf("fatal error config file: %v", err)
 	}
 
 	viper.OnConfigChange(func(e fsnotify.Event) {

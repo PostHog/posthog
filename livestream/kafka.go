@@ -28,15 +28,20 @@ type PostHogEvent struct {
 	Lng        float64
 }
 
-type KafkaConsumer struct {
+type PostHogKafkaConsumer struct {
 	consumer     *kafka.Consumer
 	topic        string
-	geolocator   *GeoLocator
+	geolocator   GeoLocator
 	outgoingChan chan PostHogEvent
 	statsChan    chan PostHogEvent
 }
 
-func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator *GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*KafkaConsumer, error) {
+type KafkaConsumer interface {
+	Consume()
+	Close()
+}
+
+func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*PostHogKafkaConsumer, error) {
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  brokers,
 		"group.id":           groupID,
@@ -50,7 +55,7 @@ func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, t
 		return nil, err
 	}
 
-	return &KafkaConsumer{
+	return &PostHogKafkaConsumer{
 		consumer:     consumer,
 		topic:        topic,
 		geolocator:   geolocator,
@@ -59,7 +64,7 @@ func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, t
 	}, nil
 }
 
-func (c *KafkaConsumer) Consume() {
+func (c *PostHogKafkaConsumer) Consume() {
 	err := c.consumer.SubscribeTopics([]string{c.topic}, nil)
 	if err != nil {
 		sentry.CaptureException(err)
@@ -126,6 +131,6 @@ func (c *KafkaConsumer) Consume() {
 	}
 }
 
-func (c *KafkaConsumer) Close() {
+func (c *PostHogKafkaConsumer) Close() {
 	c.consumer.Close()
 }

@@ -57,7 +57,7 @@ func main() {
 		log.Fatal("kafka.group_id must be set")
 	}
 
-	geolocator, err := NewGeoLocator(mmdb)
+	geolocator, err := NewMaxMindGeoLocator(mmdb)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatalf("Failed to open MMDB: %v", err)
