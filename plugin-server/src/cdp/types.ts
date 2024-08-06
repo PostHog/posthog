@@ -175,7 +175,7 @@ export type HogFunctionAsyncFunctionResponse = {
     response?: {
         status: number
         body: any
-    }
+    } | null
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
 }

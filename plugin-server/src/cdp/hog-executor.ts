@@ -171,6 +171,7 @@ export class HogExecutor {
         const { logs = [], response = null, error: asyncError, timings = [] } = asyncFunctionResponse
 
         if (response?.status && response.status >= 400) {
+            // Generic warn log for bad status codes
             logs.push({
                 level: 'warn',
                 timestamp: DateTime.now(),
