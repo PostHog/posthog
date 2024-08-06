@@ -839,8 +839,14 @@ dependencies = [
 name = "cyclotron-node"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "cyclotron-core",
  "neon",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

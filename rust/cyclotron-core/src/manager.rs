@@ -1,5 +1,6 @@
 use std::sync::atomic::AtomicUsize;
 
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 
@@ -13,6 +14,7 @@ use crate::{
 // e.g. routing work to alive shards if one is down, or reporting shard failure, etc.
 // TODO - here's also where queue management commands will go, like "downgrade the priority of this function"
 // or "pause jobs for this team", but we're going to add those ad-hoc as they're needed, not up front
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ManagerConfig {
     pub shards: Vec<PoolConfig>,
 }

@@ -11,16 +11,16 @@ pub mod worker;
 // A pool config object, designed to be passable across API boundaries
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PoolConfig {
-    host: String,
-    port: u16,
-    user: String,
-    password: String,
-    db: String,
-    max_connections: Option<u32>,         // Default to 10
-    min_connections: Option<u32>,         // Default to 1
-    acquire_timeout_seconds: Option<u64>, // Default to 30
-    max_lifetime_seconds: Option<u64>,    // Default to 300
-    idle_timeout_seconds: Option<u64>,    // Default to 60
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub db: String,
+    pub max_connections: Option<u32>,         // Default to 10
+    pub min_connections: Option<u32>,         // Default to 1
+    pub acquire_timeout_seconds: Option<u64>, // Default to 30
+    pub max_lifetime_seconds: Option<u64>,    // Default to 300
+    pub idle_timeout_seconds: Option<u64>,    // Default to 60
 }
 
 impl PoolConfig {

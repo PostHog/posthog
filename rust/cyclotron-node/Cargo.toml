@@ -13,4 +13,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cyclotron-core = { path = "../cyclotron-core" }
-neon = "1"
+neon = { workspace = true }
+once_cell = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

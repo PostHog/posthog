@@ -71,11 +71,9 @@ async fn test_queue(db: PgPool) {
     // Now we can re-queue these jobs (imagine we had done work)
     worker
         .set_state(jobs[0].id, JobState::Available)
-        .await
         .expect("failed to set state");
     worker
         .set_state(jobs[1].id, JobState::Available)
-        .await
         .expect("failed to set state");
 
     // Flush the two jobs, having made no other changes, then assert we can re-dequeue them
@@ -100,11 +98,9 @@ async fn test_queue(db: PgPool) {
     // Re-queue them again
     worker
         .set_state(jobs[0].id, JobState::Available)
-        .await
         .expect("failed to set state");
     worker
         .set_state(jobs[1].id, JobState::Available)
-        .await
         .expect("failed to set state");
 
     worker
@@ -159,7 +155,6 @@ async fn test_queue(db: PgPool) {
 
     worker
         .set_state(jobs[1].id, JobState::Running)
-        .await
         .expect("failed to set state");
     worker
         .flush_job(jobs[1].id)
@@ -169,11 +164,9 @@ async fn test_queue(db: PgPool) {
     // But if we properly set the state to completed or failed, now we can flush
     worker
         .set_state(jobs[0].id, JobState::Completed)
-        .await
         .expect("failed to set state");
     worker
         .set_state(jobs[1].id, JobState::Failed)
-        .await
         .expect("failed to set state");
 
     worker
@@ -222,35 +215,27 @@ async fn test_queue(db: PgPool) {
     // Set everything we're able to set, including state to available, so we can dequeue it again
     worker
         .set_state(job.id, JobState::Available)
-        .await
         .expect("failed to set state");
     worker
         .set_waiting_on(job.id, WaitingOn::Hog)
-        .await
         .expect("failed to set waiting_on");
     worker
         .set_queue(job.id, "test_2")
-        .await
         .expect("failed to set queue");
     worker
         .set_priority(job.id, 1)
-        .await
         .expect("failed to set priority");
     worker
         .set_scheduled_at(job.id, now - Duration::minutes(10))
-        .await
         .expect("failed to set scheduled_at");
     worker
         .set_vm_state(job.id, Some("test".to_string()))
-        .await
         .expect("failed to set vm_state");
     worker
         .set_parameters(job.id, Some("test".to_string()))
-        .await
         .expect("failed to set parameters");
     worker
         .set_metadata(job.id, Some("test".to_string()))
-        .await
         .expect("failed to set metadata");
 
     // Flush the job

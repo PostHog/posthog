@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
@@ -31,6 +31,8 @@ pub struct Worker {
     // TODO - we don't handle people "forgetting" to abort a job, because we expect that to
     //       only happen if a process dies (in which case the job queue janitor should handle
     //       it)... this is a memory leak, but I think it's ok.
+    // TRICKY - this is a sync mutex, because we never hold it across an await point, and that
+    // radically simplifies using this for FFI (because there's no message passing across runtimes)
     pending: Arc<Mutex<HashMap<Uuid, JobUpdate>>>,
 }
 
@@ -58,7 +60,7 @@ impl Worker {
     ) -> Result<Vec<Job>, QueueError> {
         let jobs = dequeue_jobs(&self.pool, queue, worker_type, limit).await?;
 
-        let mut pending = self.pending.lock().await;
+        let mut pending = self.pending.lock().unwrap();
         for job in &jobs {
             // This lets us know that if we receive an update piece for a job, and that
             // job isn't in our pending queue, that's due to some programming error, and
@@ -77,7 +79,7 @@ impl Worker {
     ) -> Result<Vec<Job>, QueueError> {
         let jobs = dequeue_with_vm_state(&self.pool, queue, worker_type, limit).await?;
 
-        let mut pending = self.pending.lock().await;
+        let mut pending = self.pending.lock().unwrap();
         for job in &jobs {
             pending.insert(job.id, Default::default());
         }
@@ -86,24 +88,32 @@ impl Worker {
     }
 
     pub async fn flush_job(&self, job_id: Uuid) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
-        let update = pending
-            .remove(&job_id)
-            .ok_or(QueueError::UnknownJobId(job_id))?;
-        let mut connection = self.pool.acquire().await?;
-        // It's a programming error to flush a job without setting a new state
-        match update.state {
-            Some(JobState::Running) | None => {
-                pending.insert(job_id, update); // Keep track of any /other/ updates that might have been stored, even in this case
-                return Err(QueueError::FlushWithoutNextState(job_id));
+        // TODO - this drops the job from the known jobs before the flush succeeds,
+        // which means that if the flush fails, we'll lose the job and can never
+        // update it's state (leaving it to the reaper). This is a bug, but I'm not
+        // sure I want to make flushes retryable just yet, so I'm leaving it for now.
+        // NIT: this wrapping is to ensure pending is dropped prior to the await
+        let update = {
+            let mut pending = self.pending.lock().unwrap();
+            let update = pending
+                .remove(&job_id)
+                .ok_or(QueueError::UnknownJobId(job_id))?;
+            // It's a programming error to flush a job without setting a new state
+            match update.state {
+                Some(JobState::Running) | None => {
+                    pending.insert(job_id, update); // Keep track of any /other/ updates that might have been stored, even in this case
+                    return Err(QueueError::FlushWithoutNextState(job_id));
+                }
+                _ => {}
             }
-            _ => {}
-        }
+            update
+        };
+        let mut connection = self.pool.acquire().await?;
         Ok(flush_job(connection.as_mut(), job_id, update).await?)
     }
 
-    pub async fn set_state(&self, job_id: Uuid, state: JobState) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
+    pub fn set_state(&self, job_id: Uuid, state: JobState) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
@@ -111,12 +121,8 @@ impl Worker {
         Ok(())
     }
 
-    pub async fn set_waiting_on(
-        &self,
-        job_id: Uuid,
-        waiting_on: WaitingOn,
-    ) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
+    pub fn set_waiting_on(&self, job_id: Uuid, waiting_on: WaitingOn) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
@@ -124,8 +130,8 @@ impl Worker {
         Ok(())
     }
 
-    pub async fn set_queue(&self, job_id: Uuid, queue: &str) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
+    pub fn set_queue(&self, job_id: Uuid, queue: &str) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
@@ -133,8 +139,8 @@ impl Worker {
         Ok(())
     }
 
-    pub async fn set_priority(&self, job_id: Uuid, priority: i16) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
+    pub fn set_priority(&self, job_id: Uuid, priority: i16) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
@@ -142,12 +148,12 @@ impl Worker {
         Ok(())
     }
 
-    pub async fn set_scheduled_at(
+    pub fn set_scheduled_at(
         &self,
         job_id: Uuid,
         scheduled: DateTime<Utc>,
     ) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
@@ -155,12 +161,12 @@ impl Worker {
         Ok(())
     }
 
-    pub async fn set_vm_state(
+    pub fn set_vm_state(
         &self,
         job_id: Uuid,
         vm_state: Option<String>, // This (and the following) are Options, because the user can null them (by calling with None)
     ) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
@@ -168,12 +174,8 @@ impl Worker {
         Ok(())
     }
 
-    pub async fn set_metadata(
-        &self,
-        job_id: Uuid,
-        metadata: Option<String>,
-    ) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
+    pub fn set_metadata(&self, job_id: Uuid, metadata: Option<String>) -> Result<(), QueueError> {
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
@@ -181,12 +183,12 @@ impl Worker {
         Ok(())
     }
 
-    pub async fn set_parameters(
+    pub fn set_parameters(
         &self,
         job_id: Uuid,
         parameters: Option<String>,
     ) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().await;
+        let mut pending = self.pending.lock().unwrap();
         pending
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
