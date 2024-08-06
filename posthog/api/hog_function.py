@@ -31,8 +31,7 @@ logger = structlog.get_logger(__name__)
 
 class HogFunctionStatusSerializer(serializers.Serializer):
     state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
-    states: serializers.ListField = serializers.ListField(child=serializers.DictField())
-    ratings: serializers.ListField = serializers.ListField(child=serializers.DictField())
+    score: serializers.IntegerField = serializers.IntegerField()
 
 
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
@@ -181,7 +180,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         res: HogFunction = super().update(instance, validated_data)
 
         if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
-            res.set_function_status(HogFunctionState.OVERFLOWED.value)
+            res.set_function_status(HogFunctionState.DEGRADED.value)
 
         return res
 

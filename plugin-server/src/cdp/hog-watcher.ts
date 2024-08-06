@@ -66,6 +66,38 @@ export class HogWatcher {
         }, {} as Record<HogFunctionType['id'], HogWatcherFunctionState>)
     }
 
+    public async getState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
+        const res = await runRedis(this.hub.redisPool, 'getState', async (client) => {
+            const score = await client.get(`${REDIS_KEY_SCORES}/${id}`)
+            return score
+        })
+
+        const score = Number(res)
+
+        return {
+            state: this.scoreToState(score),
+            score,
+        }
+    }
+
+    public async forceStateChange(id: HogFunctionType['id'], state: HogWatcherState): Promise<void> {
+        await runRedis(this.hub.redisPool, 'forceStateChange', async (client) => {
+            const pipeline = client.pipeline()
+
+            const newScore =
+                state === HogWatcherState.healthy
+                    ? 0
+                    : state === HogWatcherState.degraded
+                    ? this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
+                    : this.hub.CDP_WATCHER_THRESHOLD_DISABLED
+
+            pipeline.set(`${REDIS_KEY_SCORES}/${id}`, newScore)
+            pipeline.expire(`${REDIS_KEY_SCORES}/${id}`, this.hub.CDP_WATCHER_TTL)
+
+            await pipeline.exec()
+        })
+    }
+
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
         const changes: Record<HogFunctionType['id'], number> = {}
 
