@@ -18,5 +18,8 @@ jobs:
               with:
                   go-version: 1.22
 
+            - name: Change directory to livestream
+              run: cd livestream
+
             - name: Run tests
-              run: go test ./livestream/...
+              run: go test -v
