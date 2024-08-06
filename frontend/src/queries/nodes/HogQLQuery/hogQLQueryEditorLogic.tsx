@@ -77,12 +77,13 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     selectors({
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
         multitab: [
-            (s) => [s.featureFlags],
-            (featureFlags) =>
+            (s) => [s.featureFlags, () => !!dataWarehouseSceneLogic.findMounted()?.values.editingView],
+            (featureFlags, isEditingView) =>
                 !!(
                     featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] &&
                     router.values.location.pathname.includes(urls.dataWarehouse()) &&
-                    Object.keys(router.values.hashParams).length === 0
+                    Object.keys(router.values.hashParams).length === 0 &&
+                    !isEditingView
                 ),
         ],
     }),
