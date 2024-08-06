@@ -1,7 +1,7 @@
 import { GroupTypeIndex, GroupTypeToColumnIndex, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
-import { captureTeamEvent, posthog } from '../../utils/posthog'
+import { captureTeamEvent } from '../../utils/posthog'
 import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
 

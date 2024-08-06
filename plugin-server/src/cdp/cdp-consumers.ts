@@ -17,7 +17,7 @@ import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kaf
 import { runInstrumentedFunction } from '../main/utils'
 import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
-import { captureTeamEvent, posthog } from '../utils/posthog'
+import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
