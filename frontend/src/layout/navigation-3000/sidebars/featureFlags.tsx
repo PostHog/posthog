@@ -71,7 +71,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                     },
                                 ],
                                 breakdownFilter: {
-                                    breakdowns: [{ property: `$feature/${featureFlag.key}`, type: 'event' }],
+                                    breakdown: `$feature/${featureFlag.key}`,
+                                    breakdown_type: 'event',
                                 },
                             },
                         }
