@@ -41,7 +41,13 @@ const LemonPureField = ({
     return (
         <div
             onClick={onClick}
-            className={clsx('Field flex gap-2', className, error && 'Field--error', inline ? 'flex-row' : 'flex-col')}
+            className={clsx(
+                'Field flex',
+                { 'gap-2': className && className.indexOf('gap-') === -1 },
+                className,
+                error && 'Field--error',
+                inline ? 'flex-row' : 'flex-col'
+            )}
         >
             {label ? (
                 <LemonLabel
