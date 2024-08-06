@@ -17,7 +17,7 @@ import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kaf
 import { runInstrumentedFunction } from '../main/utils'
 import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
-import { posthog } from '../utils/posthog'
+import { captureTeamEvent, posthog } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
@@ -122,18 +122,10 @@ abstract class CdpConsumerBase {
             return
         }
 
-        posthog.capture({
-            distinctId: team.uuid,
-            event,
-            properties: {
-                team: team.uuid,
-                ...properties,
-            },
-            groups: {
-                project: team.uuid,
-                organization: team.organization_id,
-                instance: this.hub.SITE_URL ?? 'unknown',
-            },
+        captureTeamEvent(team, event, {
+            ...properties,
+            hog_function_id: hogFunctionId,
+            hog_function_url: `${this.hub.SITE_URL}/project/${team.id}/pipeline/destinations/hog-${hogFunctionId}`,
         })
     }
 
