@@ -454,6 +454,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except QueryNotFoundError:
             return None
 
+    def count_query_cache_hit(self, hit: str, trigger: str = "") -> None:
+        if (get_query_tag_value("trigger") or "").startswith("warming"):
+            # We don't want to count for cache hits caused by warming itself
+            return
+        QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=hit, trigger=trigger).inc()
+
     def handle_cache_and_async_logic(
         self, execution_mode: ExecutionMode, cache_manager: QueryCacheManager, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
@@ -479,18 +485,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             assert isinstance(cached_response, CachedResponse)
 
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
-                QUERY_CACHE_HIT_COUNTER.labels(
-                    team_id=self.team.pk,
-                    cache_hit="hit",
-                    trigger=cached_response.calculation_trigger or "",
-                ).inc()
+                self.count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
 
-            QUERY_CACHE_HIT_COUNTER.labels(
-                team_id=self.team.pk, cache_hit="stale", trigger=cached_response.calculation_trigger or ""
-            ).inc()
+            self.count_query_cache_hit(hit="stale", trigger=cached_response.calculation_trigger or "")
             # We have a stale result. If we aren't allowed to calculate, let's still return it
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -512,7 +512,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
         else:
-            QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss", trigger="").inc()
+            self.count_query_cache_hit(hit="miss", trigger="")
             # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
             # – otherwise let's proceed to calculation
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:

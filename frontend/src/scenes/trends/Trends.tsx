@@ -69,7 +69,8 @@ export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
                     {renderViz()}
                 </div>
             )}
-            {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
+            {!embedded &&
+                display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdownFilter &&
                 (hasBreakdownOther || loadMoreBreakdownUrl) && (
                     <div className="my-4 flex flex-col items-center px-2">

@@ -695,17 +695,12 @@ async def execute_batch_export_insert_activity(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     get_export_started_metric().add(1)
-    retry_policy = RetryPolicy(
-        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
-        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
-        maximum_attempts=maximum_attempts,
-        non_retryable_error_types=non_retryable_error_types,
-    )
 
     if interval == "hour":
         start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
+        maximum_attempts = 0
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -713,6 +708,13 @@ async def execute_batch_export_insert_activity(
         start_to_close_timeout = max(dt.timedelta(minutes=10), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
+
+    retry_policy = RetryPolicy(
+        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
+        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
+        maximum_attempts=maximum_attempts,
+        non_retryable_error_types=non_retryable_error_types,
+    )
 
     try:
         records_completed = await workflow.execute_activity(

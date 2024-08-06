@@ -399,7 +399,7 @@ function SavedInsightsGrid(): JSX.Element {
                     return (
                         <InsightCard
                             key={insight.short_id}
-                            insight={{ ...legacyInsight }}
+                            insight={insight}
                             rename={() => renameInsight(insight)}
                             duplicate={() => duplicateInsight(insight)}
                             deleteWithUndo={async () =>
