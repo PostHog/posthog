@@ -44,6 +44,7 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
     def _inputs(self, **kwargs):
         inputs = {
             "oauth": {
+                "instance_url": "https://example.my.salesforce.com",
                 "access_token": "oauth-1234",
             },
             "path": "Lead/Email/example@posthog.com",
