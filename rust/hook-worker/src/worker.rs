@@ -266,23 +266,17 @@ async fn process_batch<'a>(
 
     let results = join_all(futures).await;
 
-    if hog_mode {
-        // System relevant - this means that our requests are at-least once, since if we do the
-        // request, it succeeds, and then our kafka is down, we'll do the request again. This was
-        // already true on batch commit, but now it's true on kafka send as well. We could add a
-        // "returned" state to the state machine that indicates "we made the request but haven't
-        // pushed it to kafka yet", but we need to decide that's something we care about first.
-        if (push_hoghook_results_to_kafka(
+    if hog_mode
+        && push_hoghook_results_to_kafka(
             results,
             metadata_vec,
             kafka_producer,
             cdp_function_callbacks_topic,
         )
-        .await)
-            .is_err()
-        {
-            return;
-        }
+        .await
+        .is_err()
+    {
+        return;
     }
 
     let _ = batch.commit().await.map_err(|e| {

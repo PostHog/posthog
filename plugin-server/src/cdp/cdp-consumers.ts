@@ -18,7 +18,7 @@ import { runInstrumentedFunction } from '../main/utils'
 import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { status } from '../utils/status'
-import { castTimestampOrNow, UUIDT } from '../utils/utils'
+import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
@@ -180,7 +180,7 @@ abstract class CdpConsumerBase {
         counterFunctionInvocation.inc({ outcome: appMetric.metric_name }, appMetric.count)
     }
 
-    protected producelogs(result: HogFunctionInvocationResult) {
+    protected produceLogs(result: HogFunctionInvocationResult) {
         const logs = prepareLogEntriesForClickhouse(result)
 
         logs.forEach((logEntry) => {
@@ -208,7 +208,7 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
 
-                        this.producelogs(result)
+                        this.produceLogs(result)
 
                         // PostHog capture events
                         const capturedEvents = result.capturedPostHogEvents
@@ -257,46 +257,13 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
             func: async () => {
-                this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
+                // NOTE: Disabled for now as it needs some rethinking
+                // this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 asyncResponses.forEach((x) => {
                     counterAsyncFunctionResponse.inc({
                         outcome: x.asyncFunctionResponse.error ? 'failed' : 'succeeded',
                     })
                 })
-
-                // Filter for blocked functions
-                const asyncResponsesToRun: HogFunctionInvocationAsyncResponse[] = []
-
-                for (const item of asyncResponses) {
-                    const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
-
-                    if (functionState === HogWatcherState.overflowed) {
-                        this.messagesToProduce.push({
-                            topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                            value: {
-                                source: 'hog_function_callback',
-                                payload: item,
-                            },
-                            key: new UUIDT().toString(), // Random key to spread across consumers
-                        })
-                        // We don't report overflowed metric to appmetrics as it is sort of a meta-metric
-                        counterFunctionInvocation.inc({ outcome: 'overflowed' })
-                    } else if (functionState > HogWatcherState.disabledForPeriod) {
-                        this.produceAppMetric({
-                            team_id: item.teamId,
-                            app_source_id: item.hogFunctionId,
-                            metric_kind: 'failure',
-                            metric_name:
-                                functionState === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
-                            count: 1,
-                        })
-                        continue
-                    } else {
-                        asyncResponsesToRun.push(item)
-                    }
-                }
 
                 const invocationsWithResponses: [HogFunctionInvocation, HogFunctionAsyncFunctionResponse][] = []
 
@@ -356,7 +323,6 @@ abstract class CdpConsumerBase {
                             ...acc,
                             [state]: [...(acc[state] ?? []), item],
                         }
-                        return acc
                     }, {} as Record<HogWatcherState, HogFunctionType[] | undefined>)
 
                     if (hogFunctionsByState[HogWatcherState.overflowed]?.length) {
@@ -602,19 +568,14 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
     protected consumerGroupId = 'cdp-overflow-consumer'
 
     public async _handleEachBatch(messages: Message[]): Promise<void> {
-        // This consumer can receive both events and callbacks so needs to check the message being parsed
-        const [overflowedGlobals, callbacks] = await this.runWithHeartbeat(() =>
+        const overflowedGlobals = await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: () => Promise.resolve(this.parseMessages(messages)),
             })
         )
 
-        const invocationResults = (
-            await this.runWithHeartbeat(() =>
-                Promise.all([this.executeAsyncResponses(callbacks), this.executeOverflowedFunctions(overflowedGlobals)])
-            )
-        ).flat()
+        const invocationResults = await this.executeOverflowedFunctions(overflowedGlobals)
 
         await this.processInvocationResults(invocationResults)
     }
@@ -663,17 +624,14 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         })
     }
 
-    private parseMessages(messages: Message[]): [HogFunctionOverflowedGlobals[], HogFunctionInvocationAsyncResponse[]] {
+    private parseMessages(messages: Message[]): HogFunctionOverflowedGlobals[] {
         const invocationGlobals: HogFunctionOverflowedGlobals[] = []
-        const callbacks: HogFunctionInvocationAsyncResponse[] = []
         messages.map((message) => {
             try {
                 const parsed = JSON.parse(message.value!.toString()) as CdpOverflowMessage
 
                 if (parsed.source === 'event_invocations') {
                     invocationGlobals.push(parsed.payload)
-                } else if (parsed.source === 'hog_function_callback') {
-                    callbacks.push(parsed.payload)
                 }
             } catch (e) {
                 // TODO: We probably want to crash here right as this means something went really wrong and needs investigating?
@@ -681,6 +639,6 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
             }
         })
 
-        return [invocationGlobals, callbacks]
+        return invocationGlobals
     }
 }

@@ -23,9 +23,11 @@ DEFAULT_DATE_TIME = datetime.datetime(2024, 6, 1, tzinfo=datetime.UTC)
 
 def capture_external_data_rows_synced() -> None:
     # the teams that are not demo and not internal metrics of existing sources
-    team_ids = ExternalDataSource.objects.filter(
-        ~Q(team__is_demo=True) & ~Q(team__organization__for_internal_metrics=True)
-    ).values_list("team", flat=True)
+    team_ids = (
+        ExternalDataSource.objects.filter(~Q(team__is_demo=True) & ~Q(team__organization__for_internal_metrics=True))
+        .values_list("team", flat=True)
+        .distinct()
+    )
     for team_id in team_ids:
         capture_workspace_rows_synced_by_team.delay(team_id)
 

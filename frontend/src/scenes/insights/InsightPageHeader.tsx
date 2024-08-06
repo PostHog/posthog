@@ -88,8 +88,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         canEditInsight={canEditInsight}
                     />
                     <AlertsModal
-                        isOpen={insightMode === ItemMode.Alerts}
                         closeModal={() => push(urls.insightView(insight.short_id))}
+                        isOpen={insightMode === ItemMode.Alerts}
+                        insightLogicProps={insightLogicProps}
                         insightShortId={insight.short_id}
                         alertId={subscriptionId}
                     />
@@ -241,7 +242,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         <LemonDivider vertical />
 
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
-                            <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => setInsightMode(ItemMode.View, null)}
+                                data-attr="insight-cancel-edit-button"
+                            >
                                 Cancel
                             </LemonButton>
                         )}

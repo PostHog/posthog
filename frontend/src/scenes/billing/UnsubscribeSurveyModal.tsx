@@ -119,7 +119,7 @@ export const UnsubscribeSurveyModal = ({
                             key={reason}
                             label={reason}
                             dataAttr={`unsubscribe-reason-${reason.toLowerCase().replace(' ', '-')}`}
-                            checked={surveyResponse['$survey_reasons'].includes(reason)}
+                            checked={surveyResponse['$survey_response_2'].includes(reason)}
                             onChange={() => toggleSurveyReason(reason)}
                             className="w-full"
                             labelClassName="w-full"
