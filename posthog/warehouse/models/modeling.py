@@ -1,16 +1,37 @@
-from django.contrib.postgres import fields as pg_fields
-from django.contrib.postgres import indexes as pg_indexes
-from django.core.exceptions import ValidationError
-from django.db import models
-from django.utils.translation import gettext_lazy
+import collections.abc
+import dataclasses
+import typing
+import uuid
 
+from django.contrib.postgres import indexes as pg_indexes
+from django.core.exceptions import ObjectDoesNotExist
+from django.db import connection, models, transaction
+
+from posthog.hogql import ast
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import (
     CreatedMetaFields,
     DeletedMetaFields,
     UpdatedMetaFields,
     UUIDModel,
+    uuid7,
 )
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.table import DataWarehouseTable
+
+POSTHOG_ROOT_SOURCES = {
+    "events",
+    "groups",
+    "persons",
+    "person_distinct_ids",
+    "session_replay_events",
+    "cohort_people",
+    "static_cohort_people",
+    "log_entries",
+    "sessions",
+    "heatmaps",
+}
 
 LabelPath = list[str]
 
@@ -51,92 +72,210 @@ class LabelQuery(models.Lookup):
         lhs, lhs_params = self.process_lhs(compiler, connection)
         rhs, rhs_params = self.process_rhs(compiler, connection)
         params = lhs_params + rhs_params
-        return "%s ~ %s" % (lhs, rhs), params
+        return "%s ~ %s" % (lhs, rhs), params  # noqa: UP031
 
 
 LabelTreeField.register_lookup(LabelQuery)
 
 
-class DataWarehouseModel(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
-    class Meta:
-        indexes = [
-            models.Index(fields=("team_id", "name"), name="model_team_id_name"),
-        ]
+def get_hogql_query(query: str, team: Team) -> ast.SelectQuery | ast.SelectUnionQuery:
+    from posthog.hogql.context import HogQLContext
+    from posthog.hogql.parser import parse_select
+    from posthog.hogql.printer import prepare_ast_for_printing
+    from posthog.hogql.query import create_default_modifiers_for_team
 
-    class Materialization(models.TextChoices):
-        TABLE = "Table"
-        VIEW = "View"
-        INCREMENTAL = "Incremental"
-
-    name: models.CharField = models.CharField(max_length=128)
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-
-    materialization: models.CharField = models.CharField(
-        max_length=128, choices=Materialization.choices, default=Materialization.VIEW
+    context = HogQLContext(
+        team_id=team.pk,
+        enable_select_queries=True,
+        modifiers=create_default_modifiers_for_team(team),
     )
-    incremental_key = pg_fields.ArrayField(models.CharField(null=False), null=True, blank=True)
-    unique_key = pg_fields.ArrayField(models.CharField(null=False), null=True, blank=True)
-    query: models.JSONField = models.JSONField(default=dict, help_text="HogQL query")
+    parsed_query = parse_select(query)
+    select_query = prepare_ast_for_printing(
+        parsed_query,
+        context=context,
+        dialect="hogql",
+    )
+    return select_query
 
-    def clean(self) -> None:
-        """Clean this model by running validation methods."""
-        super().clean()
-        self.validate_key_fields_in_query()
 
-    def hogql_query(self) -> "ast.SelectQuery":
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.parser import parse_select
-        from posthog.hogql.printer import prepare_ast_for_printing
-        from posthog.hogql.query import create_default_modifiers_for_team
+def get_parents_from_model_query(model_query: str, team: Team):
+    """Get parent models from a given query.
 
-        context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            modifiers=create_default_modifiers_for_team(self.team),
+    This corresponds to any names in the FROM clause of the query.
+    """
+    hogql_query = get_hogql_query(query=model_query, team=team)
+
+    if isinstance(hogql_query, ast.SelectUnionQuery):
+        queries = hogql_query.select_queries
+    else:
+        queries = [hogql_query]
+
+    parents = set()
+
+    while queries:
+        query = queries.pop()
+
+        if isinstance(query.select_from.table, ast.SelectQuery):
+            if query.select_from.table.view_name is not None:
+                parents.add(query.select_from.table.view_name)
+                continue
+
+            queries.append(query.select_from.table)
+        elif isinstance(query.select_from.table, ast.SelectUnionQuery):
+            queries.extend(query.select_from.table.select_queries)
+
+        join = query.select_from
+
+        while join is not None:
+            parents.add(join.table.chain[0])
+            join = join.next_join
+    return parents
+
+
+NodeType = typing.Literal["SavedQuery", "Table", "PostHog"]
+NodeId = str
+Node = tuple[NodeId, NodeType]
+Edge = tuple[NodeId, NodeId]
+
+
+@dataclasses.dataclass
+class DAG:
+    """A basic DAG composed of nodes and edges."""
+
+    edges: set[Edge]
+    nodes: set[Node]
+
+
+class DataWarehouseModelPathManager(models.Manager):
+    def create_from_saved_query_instance(self, saved_query: DataWarehouseSavedQuery) -> "list[DataWarehouseModelPath]":
+        return self.create_from_saved_query(
+            saved_query=saved_query.query["query"],
+            team=saved_query.team,
+            created_by=saved_query.created_by,
+            saved_query_id=saved_query.id,
         )
-        parsed_query = parse_select(self.query["query"])
-        select_query = prepare_ast_for_printing(
-            parsed_query,
-            context=context,
-            dialect="hogql",
-        )
-        return select_query
 
-    def validate_key_fields_in_query(self) -> None:
-        """Validate `incremental_key` and `unique_key` are present in this model's query."""
-        select_query = self.hogql_query()
+    def create_from_saved_query(
+        self, saved_query: str, team: Team, saved_query_id: uuid.UUID, created_by: User | None = None
+    ) -> "list[DataWarehouseModelPath]":
+        base_params = {
+            "team": team,
+            "created_by": created_by,
+            "saved_query_id": saved_query_id,
+            "table_id": None,
+        }
 
-        fields_set = set(select_query.select)
-        incremental_key_set = set(self.incremental_key or [])
-        unique_key_set = set(self.unique_key or [])
+        with transaction.atomic():
+            parent_paths = []
 
-        incremental_key_error = {}
-        if missing_incremental_keys := (incremental_key_set - fields_set):
-            incremental_key_error = {
-                "incremental_key": gettext_lazy(
-                    f"The following incremental key fields are not present in the query: {','.join(missing_incremental_keys)}"
-                )
-            }
+            for parent in get_parents_from_model_query(saved_query, team):
+                if parent in POSTHOG_ROOT_SOURCES:
+                    parent_model_path, _ = DataWarehouseModelPath.objects.get_or_create(
+                        path=[parent],
+                        team=team,
+                        defaults={"deleted": False, "table": None, "saved_query": None},
+                    )
+                    parent_paths.append(parent_model_path.path)
 
-        unique_key_error = {}
-        if missing_unique_keys := (unique_key_set - fields_set):
-            unique_key_error = {
-                "unique_key": gettext_lazy(
-                    f"The following unique key fields are not present in the query: {','.join(missing_unique_keys)}"
-                )
-            }
+                else:
+                    try:
+                        parent_query = DataWarehouseSavedQuery.objects.filter(name=parent).get()
+                        parent_model_paths = self.filter(
+                            team=team, saved_query=parent_query, path__lquery=f"*.{parent_query.id.hex}"
+                        ).all()
+                        parent_paths.extend(parent_model_path.path for parent_model_path in parent_model_paths)
 
-        if incremental_key_error or unique_key_error:
-            raise ValidationError({**incremental_key_error, **unique_key_error})
+                    except ObjectDoesNotExist:
+                        parent_table = DataWarehouseTable.objects.filter(name=parent).get()
+
+                        # Treat instances of `DataWarehouseTable` as root nodes
+                        parent_model_path, _ = self.get_or_create(
+                            path=[parent_table.id.hex],
+                            team=team,
+                            defaults={"table": parent_table, "deleted": False},
+                        )
+                        parent_paths.append(parent_model_path.path)
+
+            results = self.bulk_create(
+                [
+                    DataWarehouseModelPath(id=uuid7(), path=[*parent_path, saved_query_id.hex], **base_params)
+                    for parent_path in parent_paths
+                ]
+            )
+        return results
+
+    def get_paths_to_leaf_model(
+        self, leaf_model: DataWarehouseSavedQuery | DataWarehouseTable
+    ) -> "models.QuerySet[DataWarehouseModelPath]":
+        """Return all paths to a leaf model."""
+        return self.filter(path__lquery=f"*.{leaf_model.id.hex}").all()
+
+    def get_longest_common_ancestor_path(
+        self, leaf_models: collections.abc.Iterable[DataWarehouseSavedQuery | DataWarehouseTable]
+    ) -> str | None:
+        """Return the longest common ancestor path among paths from all leaf models, if any."""
+        query = "select lca(array_agg(path)) from posthog_datawarehousemodelpath where path ? %(lqueries)s"
+
+        with connection.cursor() as cursor:
+            cursor.execute(query, params={"lqueries": [f"*.{leaf_model.id.hex}" for leaf_model in leaf_models]})
+            row = cursor.fetchone()
+
+        return row[0] or None
+
+    def get_dag(self, team: Team):
+        """Return a DAG of all the models for the given team.
+
+        A DAG is composed by a set of edges and a set of nodes, where each node is a tuple
+        of a node id and type, and each edge is a pair of two nodes. The edges are directed in the
+        order of the tuple elements.
+
+        TODO:
+        * Should we resolve node id and node type to their underlying models?
+        * Edges could be indexed by node if required by callers.
+        * Certain paths can be redundant and could be excluded from the query.
+        """
+        edges = set()
+        nodes = set()
+
+        for model_path in self.filter(team=team).select_related("saved_query", "table").all():
+            if model_path.table is not None:
+                node_type = "Table"
+            elif model_path.saved_query is not None:
+                node_type = "SavedQuery"
+            else:
+                node_type = "PostHog"
+
+            for index, node_id in enumerate(model_path.path):
+                try:
+                    next_node_id = model_path.path[index + 1]
+                except IndexError:
+                    node = (node_id, node_type)
+                    nodes.add(node)
+                else:
+                    edges.add((node_id, next_node_id))
+
+        return DAG(edges=edges, nodes=nodes)
 
 
 class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+    """Represent a path to a model."""
+
     class Meta:
         indexes = [
-            models.Index(fields=("team_id", "path"), name="model_path_team_id_path"),
+            models.Index(fields=("team_id", "path"), name="team_id_path"),
+            models.Index(fields=("team_id", "table_id"), name="team_id_table_id"),
+            models.Index(fields=("team_id", "saved_query_id"), name="team_id_saved_query_id"),
             pg_indexes.GistIndex("path", name="model_path_path"),
         ]
-        constraints = [models.UniqueConstraint(fields=("team_id", "path"), name="unique_team_id_path")]
+        constraints = [
+            models.UniqueConstraint(fields=("team_id", "path"), name="unique_team_id_path"),
+        ]
+
+    objects: DataWarehouseModelPathManager = DataWarehouseModelPathManager()
 
     path = LabelTreeField(null=False)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    table: models.ForeignKey = models.ForeignKey(DataWarehouseTable, null=True, default=None, on_delete=models.SET_NULL)
+    saved_query: models.ForeignKey = models.ForeignKey(
+        DataWarehouseSavedQuery, null=True, default=None, on_delete=models.SET_NULL
+    )
