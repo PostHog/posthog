@@ -15,6 +15,11 @@ export interface YSeriesLogicProps {
     dataVisualizationProps: DataVisualizationLogicProps
 }
 
+export enum YSeriesSettingsTab {
+    Formatting = 'formatting',
+    Display = 'display',
+}
+
 export const ySeriesLogic = kea<ySeriesLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'ySeriesLogic']),
     key((props) => props.series?.column?.name ?? `new-${props.seriesIndex}`),
@@ -24,12 +29,19 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
     props({ series: EmptyYAxisSeries } as YSeriesLogicProps),
     actions({
         setSettingsOpen: (open: boolean) => ({ open }),
+        setSettingsTab: (tab: YSeriesSettingsTab) => ({ tab }),
     }),
     reducers({
         isSettingsOpen: [
             false as boolean,
             {
                 setSettingsOpen: (_, { open }) => open,
+            },
+        ],
+        activeSettingsTab: [
+            YSeriesSettingsTab.Formatting as YSeriesSettingsTab,
+            {
+                setSettingsTab: (_state, { tab }) => tab,
             },
         ],
     }),
@@ -57,6 +69,25 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                         style: format.style,
                         decimalPlaces:
                             format.decimalPlaces === '' ? undefined : parseInt(format.decimalPlaces.toString(), 10),
+                    },
+                })
+                actions.setSettingsOpen(false)
+            },
+        },
+        display: {
+            defaults: {
+                label: props.series?.settings?.display?.label ?? '',
+                trendLine: props.series?.settings?.display?.trendLine ?? false,
+                yAxisPosition: props.series?.settings?.display?.yAxisPosition ?? 'left',
+                displayType: props.series?.settings?.display?.displayType ?? 'auto',
+            },
+            submit: async (display) => {
+                actions.updateYSeries(props.seriesIndex, props.series.column.name, {
+                    display: {
+                        label: display.label,
+                        trendLine: display.trendLine,
+                        yAxisPosition: display.yAxisPosition,
+                        displayType: display.displayType,
                     },
                 })
                 actions.setSettingsOpen(false)

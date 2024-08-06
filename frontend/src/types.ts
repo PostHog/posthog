@@ -2658,6 +2658,7 @@ export interface SurveyAppearance {
     submitButtonColor?: string
     // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
+    submitButtonTextColor?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
     borderColor?: string
