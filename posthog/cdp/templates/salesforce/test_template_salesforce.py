@@ -63,7 +63,7 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
                 "https://example.my.salesforce.com/services/data/v61.0/sobjects/Lead/Email/example@posthog.com",
                 {
                     "body": {"foo": "bar"},
-                    "method": "PATCH",
+                    "msethod": "PATCH",
                     "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
                 },
             )
