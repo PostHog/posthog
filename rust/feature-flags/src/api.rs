@@ -57,8 +57,6 @@ pub enum FlagError {
     NoTokenError,
     #[error("API key is not valid")]
     TokenValidationError,
-    #[error("rate limited")]
-    RateLimited,
     #[error("failed to parse redis cache data")]
     DataParsingError,
     #[error("failed to update redis cache")]
@@ -105,7 +103,6 @@ impl IntoResponse for FlagError {
             FlagError::TokenValidationError => {
                 (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())
             }
-            FlagError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded. Please reduce your request frequency and try again later.".to_string()),
             FlagError::DataParsingError => {
                 tracing::error!("Data parsing error: {:?}", self);
                 (

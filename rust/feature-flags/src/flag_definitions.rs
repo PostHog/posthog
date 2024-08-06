@@ -193,8 +193,11 @@ impl FeatureFlagList {
 
 #[cfg(test)]
 mod tests {
+    use crate::flag_definitions;
     use rand::Rng;
     use serde_json::json;
+    use std::time::Instant;
+    use tokio::task;
 
     use super::*;
     use crate::test_utils::{
@@ -477,23 +480,6 @@ mod tests {
             assert_eq!(flag.team_id, team.id);
         }
     }
-}
-
-#[cfg(test)]
-mod additional_tests {
-    use std::time::Instant;
-
-    use crate::{
-        flag_definitions,
-        test_utils::{
-            insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-            setup_pg_client, setup_redis_client,
-        },
-    };
-
-    use super::*;
-    use serde_json::json;
-    use tokio::task;
 
     #[test]
     fn test_operator_type_deserialization() {
@@ -623,6 +609,148 @@ mod additional_tests {
         assert_eq!(pg_flag.get_variants().len(), 3);
     }
 
+    #[tokio::test]
+    async fn test_multivariate_flag_with_payloads() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(pg_client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let multivariate_flag_with_payloads = json!({
+            "id": 1,
+            "team_id": team.id,
+            "name": "Multivariate Flag with Payloads",
+            "key": "multivariate_flag_with_payloads",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33.33
+                        },
+                        {
+                            "key": "test_a",
+                            "name": "Test Group A",
+                            "rollout_percentage": 33.33
+                        },
+                        {
+                            "key": "test_b",
+                            "name": "Test Group B",
+                            "rollout_percentage": 33.34
+                        }
+                    ]
+                },
+                "payloads": {
+                    "control": {"type": "json", "value": {"feature": "old"}},
+                    "test_a": {"type": "json", "value": {"feature": "new_a"}},
+                    "test_b": {"type": "json", "value": {"feature": "new_b"}}
+                }
+            },
+            "active": true,
+            "deleted": false
+        });
+
+        // Insert into Redis
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(json!([multivariate_flag_with_payloads]).to_string()),
+        )
+        .await
+        .expect("Failed to insert flag in Redis");
+
+        // Insert into Postgres
+        insert_flag_for_team_in_pg(
+            pg_client.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 1,
+                team_id: team.id,
+                name: Some("Multivariate Flag with Payloads".to_string()),
+                key: "multivariate_flag_with_payloads".to_string(),
+                filters: multivariate_flag_with_payloads["filters"].clone(),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert flag in Postgres");
+
+        // Fetch and verify from Redis
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
+
+        assert_eq!(redis_flags.flags.len(), 1);
+        let redis_flag = &redis_flags.flags[0];
+        assert_eq!(redis_flag.key, "multivariate_flag_with_payloads");
+
+        // Fetch and verify from Postgres
+        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
+
+        assert_eq!(pg_flags.flags.len(), 1);
+        let pg_flag = &pg_flags.flags[0];
+        assert_eq!(pg_flag.key, "multivariate_flag_with_payloads");
+
+        // Verify flag contents for both Redis and Postgres
+        for (source, flag) in [("Redis", redis_flag), ("Postgres", pg_flag)].iter() {
+            // Check multivariate options
+            assert!(flag.filters.multivariate.is_some());
+            let multivariate = flag.filters.multivariate.as_ref().unwrap();
+            assert_eq!(multivariate.variants.len(), 3);
+
+            // Check variant details
+            let variant_keys = ["control", "test_a", "test_b"];
+            let expected_names = ["Control Group", "Test Group A", "Test Group B"];
+            for (i, (key, expected_name)) in
+                variant_keys.iter().zip(expected_names.iter()).enumerate()
+            {
+                let variant = &multivariate.variants[i];
+                assert_eq!(variant.key, *key);
+                assert_eq!(
+                    variant.name,
+                    Some(expected_name.to_string()),
+                    "Incorrect variant name for {} in {}",
+                    key,
+                    source
+                );
+            }
+
+            // Check payloads
+            assert!(flag.filters.payloads.is_some());
+            let payloads = flag.filters.payloads.as_ref().unwrap();
+
+            for key in variant_keys.iter() {
+                let payload = payloads[key].as_object().unwrap();
+                assert_eq!(payload["type"], "json");
+
+                let value = payload["value"].as_object().unwrap();
+                let expected_feature = match *key {
+                    "control" => "old",
+                    "test_a" => "new_a",
+                    "test_b" => "new_b",
+                    _ => panic!("Unexpected variant key"),
+                };
+                assert_eq!(
+                    value["feature"], expected_feature,
+                    "Incorrect payload value for {} in {}",
+                    key, source
+                );
+            }
+        }
+    }
     #[tokio::test]
     async fn test_flag_with_super_groups() {
         let redis_client = setup_redis_client(None);
