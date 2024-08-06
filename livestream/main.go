@@ -78,7 +78,7 @@ func main() {
 	if !isProd {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
-	consumer, err := NewKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
+	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatalf("Failed to create Kafka consumer: %v", err)

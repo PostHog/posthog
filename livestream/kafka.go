@@ -28,12 +28,10 @@ type PostHogEvent struct {
 	Lng        float64
 }
 
-type PostHogKafkaConsumer struct {
-	consumer     *kafka.Consumer
-	topic        string
-	geolocator   GeoLocator
-	outgoingChan chan PostHogEvent
-	statsChan    chan PostHogEvent
+type KafkaConsumerInterface interface {
+	SubscribeTopics(topics []string, rebalanceCb kafka.RebalanceCb) error
+	ReadMessage(timeout time.Duration) (*kafka.Message, error)
+	Close() error
 }
 
 type KafkaConsumer interface {
@@ -41,7 +39,15 @@ type KafkaConsumer interface {
 	Close()
 }
 
-func NewKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*PostHogKafkaConsumer, error) {
+type PostHogKafkaConsumer struct {
+	consumer     KafkaConsumerInterface
+	topic        string
+	geolocator   GeoLocator
+	outgoingChan chan PostHogEvent
+	statsChan    chan PostHogEvent
+}
+
+func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*PostHogKafkaConsumer, error) {
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  brokers,
 		"group.id":           groupID,
