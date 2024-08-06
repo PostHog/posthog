@@ -326,8 +326,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
-            // If just the hash changes, don't show the prompt
-            if (router.values.currentLocation.pathname === newLocation?.pathname) {
+            // If just the hash or project part changes, don't show the prompt
+            const currentPathname = router.values.currentLocation.pathname.replace(/\/project\/\d+/, '')
+            const newPathname = newLocation?.pathname.replace(/\/project\/\d+/, '')
+            if (currentPathname === newPathname) {
                 return false
             }
 
