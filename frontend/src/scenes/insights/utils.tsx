@@ -9,7 +9,15 @@ import { urls } from 'scenes/urls'
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    DataWarehouseNode,
+    EventsNode,
+    InsightVizNode,
+    NodeKind,
+    PathsFilter,
+} from '~/queries/schema'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
@@ -24,7 +32,8 @@ import {
     InsightShortId,
     InsightType,
     PathType,
-    TrendsFilterType,
+    PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import { insightLogic } from './insightLogic'
@@ -379,46 +388,48 @@ export function concatWithPunctuation(phrases: string[]): string {
 }
 
 export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
-    let insightParams: Partial<TrendsFilterType> | undefined
+    let query: InsightVizNode | undefined
     if (event.event === '$pageview') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: 0,
-                    properties: [
-                        {
-                            key: '$current_url',
-                            value: event.properties.$current_url,
-                            type: 'event',
-                        },
-                    ],
-                },
-            ],
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                series: [
+                    {
+                        event: '$pageview',
+                        name: '$pageview',
+                        kind: NodeKind.EventsNode,
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: event.properties.$current_url,
+                                type: PropertyFilterType.Event,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            },
         }
     } else if (event.event !== '$autocapture') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: event.event,
-                    name: event.event,
-                    type: 'events',
-                    order: 0,
-                    properties: [],
-                },
-            ],
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                series: [
+                    {
+                        event: event.event,
+                        name: event.event,
+                        kind: NodeKind.EventsNode,
+                    },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            },
         }
     }
 
-    return insightParams ? urls.insightNew(insightParams) : undefined
+    return query ? urls.insightNew(undefined, undefined, query) : undefined
 }
