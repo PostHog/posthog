@@ -2,10 +2,12 @@ import { actions, connect, kea, key, listeners, path, props, propsChanged, reduc
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { examples } from '~/queries/examples'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -99,12 +101,25 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         query: [
-            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault],
-            (propsQuery, insight, internalQuery, filterTestAccountsDefault): Node | null =>
+            (s) => [
+                s.propsQuery,
+                s.queryBasedInsight,
+                s.internalQuery,
+                s.filterTestAccountsDefault,
+                s.isDataWarehouseQuery,
+            ],
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
-                queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
+                (isDataWarehouseQuery
+                    ? examples.DataWarehouse
+                    : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)),
+        ],
+
+        isDataWarehouseQuery: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps) => props.dashboardItemId?.startsWith(DATAWAREHOUSE_EDITOR_ITEM_ID),
         ],
 
         propsQuery: [
