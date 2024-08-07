@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
+import scipy.stats as stats
 
 from ee.clickhouse.queries.experiments import (
     CONTROL_VARIANT_KEY,
@@ -111,6 +112,8 @@ class ClickhouseFunnelExperimentResult:
             }
 
             significance_code, loss = self.are_results_significant(control_variant, test_variants, probabilities)
+
+            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
         except ValidationError:
             if validate:
                 raise
@@ -124,6 +127,7 @@ class ClickhouseFunnelExperimentResult:
             "significance_code": significance_code,
             "expected_loss": loss,
             "variants": [asdict(variant) for variant in [control_variant, *test_variants]],
+            "credible_intervals": credible_intervals,
         }
 
     def get_variants(self, funnel_results):
@@ -318,6 +322,37 @@ def calculate_probability_of_winning_for_each(variants: list[Variant]) -> list[P
     total_test_probabilities = sum(probabilities[1:])
 
     return [max(0, 1 - total_test_probabilities), *probabilities[1:]]
+
+
+def calculate_credible_intervals(variants, lower_bound=0.025, upper_bound=0.975):
+    """
+    Calculate the Bayesian credible intervals for a list of variants.
+    If no lower/upper bound provided, the function calculates the 95% credible interval.
+    """
+    intervals = {}
+
+    for variant in variants:
+        try:
+            if variant.success_count < 0 or variant.failure_count < 0:
+                raise ValidationError(
+                    f"Success and failure counts must be non-negative for variant {variant.key}.",
+                    code="invalid_data",
+                )
+
+            # Calculate the credible interval
+            # Laplace smoothing: we add 1 to alpha and beta to avoid division errors if either is zero
+            alpha = variant.success_count + 1
+            beta = variant.failure_count + 1
+            credible_interval = stats.beta.ppf([lower_bound, upper_bound], alpha, beta)
+
+            intervals[variant.key] = (credible_interval[0], credible_interval[1])
+        except Exception as e:
+            raise ValidationError(
+                f"Error calculating credible interval for variant {variant.key}: {str(e)}",
+                code="calculation_error",
+            )
+
+    return intervals
 
 
 def validate_event_variants(funnel_results, variants):
