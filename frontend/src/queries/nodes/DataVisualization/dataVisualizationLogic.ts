@@ -577,46 +577,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                         return formatDataWithSettings(value, series.settings)
                     })
-
-                    // return row.map((value, index) => {
-                    //     const originalColumn = columns[index]
-                    //     const series = selectedTabularSeries.find((n) => n?.name === originalColumn.name)
-                    //     if (!series) {
-                    //         return null
-                    //     }
-
-                    //     const column = columns.find((n) => n.name === series.name)
-                    //     if (!column) {
-                    //         return null
-                    //     }
-
-                    //     if (column.type.isNumerical) {
-                    //         try {
-                    //             const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
-
-                    //             if (series.settings.formatting?.decimalPlaces) {
-                    //                 return formatDataWithSettings(
-                    //                     parseFloat(
-                    //                         (parseFloat(value) * multiplier).toFixed(
-                    //                             series.settings.formatting.decimalPlaces
-                    //                         )
-                    //                     ),
-                    //                     series.settings
-                    //                 )
-                    //             }
-
-                    //             const isInt = Number.isInteger(value)
-                    //             return formatDataWithSettings(
-                    //                 isInt ? parseInt(value, 10) * multiplier : parseFloat(value) * multiplier,
-                    //                 series.settings
-                    //             )
-                    //         } catch {
-                    //             return 0
-                    //         }
-                    //     }
-
-                    //     return formatDataWithSettings(value, series.settings)
-                    // })
                 })
             },
         ],
