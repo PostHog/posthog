@@ -8090,6 +8090,9 @@
         "RetentionFilter": {
             "additionalProperties": false,
             "properties": {
+                "cumulative": {
+                    "type": "boolean"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
