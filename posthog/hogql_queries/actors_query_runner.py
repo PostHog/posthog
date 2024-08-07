@@ -267,7 +267,11 @@ class ActorsQueryRunner(QueryRunner):
                 # For some of our users, the persons table is large. If we're looking for person,
                 # help make the join smarter by limiting the people it has to look up
                 # The persons table inlines `in` conditions on the join (see `persons.py`)
-                if isinstance(self.strategy, PersonStrategy):
+                # Funnels queries are very big. Don't do this for funnels as it blows up the query size.
+                if isinstance(self.strategy, PersonStrategy) and not (
+                    isinstance(self.source_query_runner, InsightActorsQueryRunner)
+                    and isinstance(self.source_query_runner.source_runner, FunnelsQueryRunner)
+                ):
                     join_on = ast.And(
                         exprs=[
                             join_on,
