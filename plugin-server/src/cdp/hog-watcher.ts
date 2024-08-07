@@ -1,3 +1,6 @@
+import { readFileSync } from 'fs'
+import path from 'path'
+
 import { Hub } from '../types'
 import { HogFunctionInvocationResult, HogFunctionType } from './types'
 import { runRedis } from './utils'
@@ -24,7 +27,45 @@ export type HogWatcherFunctionState = {
 }
 
 export class HogWatcher {
+    setupPromise?: Promise<void>
+
     constructor(private hub: Hub) {}
+
+    private setup(): Promise<void> {
+        if (!this.setupPromise) {
+            this.setupPromise = runRedis(this.hub.redisPool, 'init', (client) => {
+                client.defineCommand('consumeTokenBucket', {
+                    numberOfKeys: 2,
+                    // The lua here is needed to ensure that we can do things atomically without multiple round trips
+                    // It takes arguments for the max bucket size, the rate at which the bucket refills over time.
+
+                    // When we call it, we pass in the cost. Unlike normal rate limiting a cost is only incurred if something went wrong
+
+                    // It returns the numnber
+
+                    lua: `
+                        local key = KEYS[1]
+                        local bucket_size = tonumber(ARGV[1])
+                        local refill_rate = tonumber(ARGV[2])
+                        local cost = tonumber(ARGV[3])
+
+                        local current = tonumber(redis.call('get', key) or 0)
+                        local refill_amount = math.max(0, (current - refill_rate) + cost)
+
+                        if refill_amount > bucket_size then
+                            return 0
+                        end
+
+                        redis.call('set', key, refill_amount)
+                        return 1
+                    `,
+                })
+                return Promise.resolve()
+            })
+        }
+
+        return this.setupPromise
+    }
 
     public scoreToState(score: number): HogWatcherState {
         // TODO: Add check for permanent disabled
@@ -41,6 +82,7 @@ export class HogWatcher {
     public async getStates(
         ids: HogFunctionType['id'][]
     ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
+        await this.setup()
         const idsSet = new Set(ids)
 
         // TODO: Gracefully handle errors
@@ -67,6 +109,7 @@ export class HogWatcher {
     }
 
     public async getState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
+        await this.setup()
         const res = await runRedis(this.hub.redisPool, 'getState', async (client) => {
             const score = await client.get(`${REDIS_KEY_SCORES}/${id}`)
             return score
@@ -81,6 +124,7 @@ export class HogWatcher {
     }
 
     public async forceStateChange(id: HogFunctionType['id'], state: HogWatcherState): Promise<void> {
+        await this.setup()
         await runRedis(this.hub.redisPool, 'forceStateChange', async (client) => {
             const pipeline = client.pipeline()
 
@@ -99,6 +143,7 @@ export class HogWatcher {
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
+        await this.setup()
         const changes: Record<HogFunctionType['id'], number> = {}
 
         results.forEach((result) => {
