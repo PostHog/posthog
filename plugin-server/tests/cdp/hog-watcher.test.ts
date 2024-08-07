@@ -204,7 +204,6 @@ describe('HogWatcher', () => {
                     }
                 `)
             })
-
             it('should force degraded', async () => {
                 await watcher.forceStateChange('id1', HogWatcherState.degraded)
                 expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
@@ -219,9 +218,9 @@ describe('HogWatcher', () => {
                 await watcher.forceStateChange('id1', HogWatcherState.disabledForPeriod)
                 expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                     Object {
-                      "rating": 1,
+                      "rating": 0,
                       "state": 3,
-                      "tokens": 10000,
+                      "tokens": 0,
                     }
                 `)
             })
@@ -229,9 +228,9 @@ describe('HogWatcher', () => {
                 await watcher.forceStateChange('id1', HogWatcherState.disabledIndefinitely)
                 expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                     Object {
-                      "rating": 1,
-                      "state": 3,
-                      "tokens": 10000,
+                      "rating": 0,
+                      "state": 4,
+                      "tokens": 0,
                     }
                 `)
             })
