@@ -50,15 +50,6 @@ export class HogWatcher {
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
         const nowSeconds = Math.round(now() / 1000)
-        console.log(
-            'Rate limit args',
-            id,
-            nowSeconds,
-            cost,
-            this.hub.CDP_WATCHER_BUCKET_SIZE,
-            this.hub.CDP_WATCHER_REFILL_RATE,
-            this.hub.CDP_WATCHER_TTL
-        )
         return [
             `${REDIS_KEY_HEALTH}/${id}`,
             nowSeconds,
