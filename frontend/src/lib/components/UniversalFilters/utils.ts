@@ -1,4 +1,4 @@
-import { ActionFilter, FilterLogicalOperator, RecordingPropertyFilter } from '~/types'
+import { ActionFilter, FilterLogicalOperator, RecordingConsoleFilter, RecordingPropertyFilter } from '~/types'
 
 import { isCohortPropertyFilter } from '../PropertyFilters/utils'
 import { UniversalFiltersGroup, UniversalFiltersGroupValue, UniversalFilterValue } from './UniversalFilters'
@@ -25,4 +25,8 @@ export function isRecordingPropertyFilter(filter: UniversalFilterValue): filter 
 
 export function isEditableFilter(filter: UniversalFilterValue): boolean {
     return isEntityFilter(filter) ? false : !isCohortPropertyFilter(filter)
+}
+
+export function isRecordingConsoleFilter(filter: RecordingPropertyFilter): filter is RecordingConsoleFilter {
+    return ['console_log_level', 'console_log_query'].includes(filter.key)
 }

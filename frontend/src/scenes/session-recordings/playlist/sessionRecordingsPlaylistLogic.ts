@@ -6,24 +6,28 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { isActionFilter, isEventFilter, isRecordingPropertyFilter } from 'lib/components/UniversalFilters/utils'
+import {
+    isActionFilter,
+    isEntityFilter,
+    isEventFilter,
+    isRecordingConsoleFilter,
+    isRecordingPropertyFilter,
+} from 'lib/components/UniversalFilters/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
-import { NodeKind, RecordingsQueryResponse } from '~/queries/schema'
+import { DateRange, NodeKind, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
 import {
-    AnyPropertyFilter,
     DurationType,
     EntityTypes,
-    FilterableLogLevel,
     FilterLogicalOperator,
     FilterType,
+    LegacyRecordingFilters,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
-    RecordingFilters,
     RecordingPropertyFilter,
     RecordingUniversalFilters,
     SessionRecordingId,
@@ -40,8 +44,8 @@ export type SessionOrderingType = DurationType | 'start_time' | 'console_error_c
 
 interface Params {
     filters?: RecordingUniversalFilters
-    simpleFilters?: RecordingFilters
-    advancedFilters?: RecordingFilters
+    simpleFilters?: LegacyRecordingFilters
+    advancedFilters?: LegacyRecordingFilters
     sessionRecordingId?: SessionRecordingId
 }
 
@@ -65,7 +69,7 @@ interface BackendEventsMatching {
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
-export type SimpleFiltersType = Pick<RecordingFilters, 'events' | 'properties'>
+export type SimpleFiltersType = Pick<LegacyRecordingFilters, 'events' | 'properties'>
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
@@ -107,34 +111,23 @@ const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
     })
 }
 
-export function convertUniversalFiltersToLegacyFilters(universalFilters: RecordingUniversalFilters): RecordingFilters {
+export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
     const filters = filtersFromUniversalFilterGroups(universalFilters)
 
-    const properties: AnyPropertyFilter[] = []
-    const events: FilterType['events'] = []
-    const actions: FilterType['actions'] = []
-    let console_logs: FilterableLogLevel[] = []
-    let snapshot_source: AnyPropertyFilter | null = null
-    let console_search_query = ''
+    const entities: RecordingsQuery['entities'] = []
+    const properties: RecordingsQuery['properties'] = []
+    const console_log_filters: RecordingsQuery['console_log_filters'] = []
+    const having_predicates: RecordingsQuery['having_predicates'] = [universalFilters.duration[0]]
 
     filters.forEach((f) => {
-        if (isEventFilter(f)) {
-            events.push(f)
-        } else if (isActionFilter(f)) {
-            actions.push(f)
+        if (isEntityFilter(f)) {
+            entities.push(f)
         } else if (isAnyPropertyfilter(f)) {
-            if (f.type === PropertyFilterType.Recording) {
-                if (f.key === 'console_log_level') {
-                    console_logs = f.value as FilterableLogLevel[]
-                } else if (f.key === 'console_log_query') {
-                    console_search_query = (f.value || '') as string
-                } else if (f.key === 'snapshot_source') {
-                    const value = f.value as string[] | null
-                    if (value) {
-                        snapshot_source = f
-                    }
+            if (isRecordingPropertyFilter(f)) {
+                if (isRecordingConsoleFilter(f)) {
+                    console_log_filters.push(f)
                 } else if (f.key === 'visited_page') {
-                    events.push({
+                    entities.push({
                         id: '$pageview',
                         name: '$pageview',
                         type: EntityTypes.EVENTS,
@@ -147,6 +140,8 @@ export function convertUniversalFiltersToLegacyFilters(universalFilters: Recordi
                             },
                         ],
                     })
+                } else if (f.key === 'snapshot_source' && f.value) {
+                    having_predicates.push(f)
                 }
             } else {
                 properties.push(f)
@@ -154,18 +149,19 @@ export function convertUniversalFiltersToLegacyFilters(universalFilters: Recordi
         }
     })
 
-    const durationFilter = universalFilters.duration[0]
+    const date_range: DateRange = {
+        date_from: universalFilters.date_from,
+        date_to: universalFilters.date_to,
+    }
 
     return {
-        ...universalFilters,
+        kind: NodeKind.RecordingsQuery,
+        date_range,
         properties,
-        events,
-        actions,
-        session_recording_duration: { ...durationFilter, key: 'duration' },
-        duration_type_filter: durationFilter.key,
-        console_search_query,
-        console_logs,
-        snapshot_source,
+        entities,
+        console_log_filters,
+        having_predicates,
+        filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
     }
 }
@@ -309,7 +305,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {} as Record<string, boolean>,
             {
                 loadEventsHaveSessionId: async () => {
-                    const events: FilterType['events'] = convertUniversalFiltersToLegacyFilters(values.filters).events
+                    const filters = filtersFromUniversalFilterGroups(values.filters)
+                    const events: FilterType['events'] = filters.filter(isEventFilter)
 
                     if (events === undefined || events.length === 0) {
                         return {}
@@ -330,9 +327,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
                     const params = {
-                        kind: NodeKind.RecordingsQuery,
-                        // TODO: requires a backend change so will include in a separate PR
-                        ...convertUniversalFiltersToLegacyFilters(values.filters),
+                        ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
@@ -340,12 +335,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     if (values.orderBy === 'start_time') {
                         if (direction === 'older') {
-                            params['date_to'] =
+                            params['date_range']['date_to'] =
                                 values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
                         }
 
                         if (direction === 'newer') {
-                            params['date_from'] = values.sessionRecordings[0]?.start_time
+                            params['date_range']['date_from'] = values.sessionRecordings[0]?.start_time
                         }
                     } else {
                         if (direction === 'older') {

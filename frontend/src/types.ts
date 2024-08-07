@@ -966,11 +966,20 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
     value: number
 }
 
-export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
+export interface RecordingConsoleLogLevelFilter extends RecordingPropertyFilter {
+    key: 'console_log_level'
+    value: FilterableLogLevel[]
+}
+export interface RecordingConsoleQueryFilter extends RecordingPropertyFilter {
+    key: 'console_log_query'
+    value: string
+}
 
+export type RecordingConsoleFilter = RecordingConsoleLogLevelFilter | RecordingConsoleQueryFilter
+export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
-export interface RecordingFilters {
+export interface LegacyRecordingFilters {
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -978,8 +987,8 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
-    console_search_query?: string
     snapshot_source?: AnyPropertyFilter | null
+    console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
@@ -1302,7 +1311,7 @@ export interface SessionRecordingPlaylistType {
     created_by: UserBasicType | null
     last_modified_at: string
     last_modified_by: UserBasicType | null
-    filters?: RecordingFilters
+    filters?: LegacyRecordingFilters
 }
 
 export interface SessionRecordingSegmentType {

@@ -11,6 +11,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    FilterLogicalOperator,
     FilterType,
     FunnelsFilterType,
     GroupMathType,
@@ -24,6 +25,7 @@ import {
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyMathType,
+    RecordingConsoleFilter,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -275,7 +277,10 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     date_range: DateRange
     entities: FilterType['events' | 'actions']
     properties?: AnyPropertyFilter[]
+    console_log_filters?: RecordingConsoleFilter[]
     having_predicates: AnyPropertyFilter[] // duration and snapshot_source filters
+    filter_test_accounts?: boolean
+    operand?: FilterLogicalOperator
 }
 
 export interface HogQLNotice {
