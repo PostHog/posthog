@@ -15,6 +15,7 @@ export function DashboardEditBar(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const isEditInProgress: boolean = canEditDashboard && stale
+
     const disabledReason = !canEditDashboard ? "You don't have permission to edit this dashboard" : undefined
 
     return (

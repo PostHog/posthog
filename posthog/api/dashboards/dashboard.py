@@ -123,6 +123,7 @@ class DashboardBasicSerializer(
 
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
+    # filters = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
@@ -376,6 +377,17 @@ class DashboardSerializer(DashboardBasicSerializer):
             serialized_tiles.append(tile_data)
 
         return serialized_tiles
+
+    # TODO: should we return filter_overrides as an extra field?
+    # def get_filters(self, dashboard: Dashboard) -> dict:
+    #     request = self.context.get("request")
+    #     if request:
+    #         filters_override = filters_override_requested_by_client(request)
+
+    #         if filters_override:
+    #             return filters_override
+
+    #     return dashboard.filters
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
