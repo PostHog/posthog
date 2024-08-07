@@ -15,11 +15,16 @@ class Command(BaseCommand):
         "Useful when you need data deleted asap (cannot wait for the scheduled job)"
     )
 
-    def handle(self, *args, **options):
-        run()
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--dry-run", default=False, type=bool, help="Don't run the delete, just print out the delete statement"
+        )
+
+    def handle(self, *args, **kwargs):
+        run(**kwargs)
 
 
-def run():
+def run(dry_run):
     logger.info("Starting deletion of data for teams")
-    clickhouse_clear_removed_data()
+    clickhouse_clear_removed_data(dry_run)
     logger.info("Finished deletion of data for teams")
