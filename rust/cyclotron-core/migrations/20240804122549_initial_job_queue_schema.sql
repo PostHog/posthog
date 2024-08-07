@@ -17,6 +17,7 @@ CREATE TYPE WaitingOn AS ENUM(
     'hog'
 );
 
+-- TODO - add worker id and heartbeat
 CREATE TABLE IF NOT EXISTS cyclotron_jobs (
     id UUID PRIMARY KEY,
     team_id INT NOT NULL,
