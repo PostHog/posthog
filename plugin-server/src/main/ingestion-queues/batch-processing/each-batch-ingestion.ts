@@ -301,6 +301,9 @@ export function splitIngestionBatch(
         overflowMode
     )
 
+    // Key = distinct_id, alias, and event_name, used to prevent executing duplicate merges in a single batch
+    const known_merge_events = new Set<string>()
+
     if (
         overflowMode === IngestionOverflowMode.ConsumeSplitEvenly ||
         overflowMode === IngestionOverflowMode.ConsumeSplitEventlyWithoutIngestionWarning
@@ -313,6 +316,25 @@ export function splitIngestionBatch(
         for (const message of kafkaMessages) {
             // Drop based on a token blocklist
             const pluginEvent = formPipelineEvent(message)
+
+            // We de-duplicate merge events here, because if we don't, the later concurrency will cause
+            // us to lock up PG, and if we're getting a large amount of duplicated merge events, bring down
+            // the whole pipeline.
+            if (['$create_alias', '$merge_dangerously', '$identify', '$anon_distinct_id'].includes(pluginEvent.event)) {
+                const alias = pluginEvent.properties?.alias || "I don't know what should be here"
+                const key = `${pluginEvent.distinct_id}:${alias}:${pluginEvent.event}`
+                if (known_merge_events.has(key)) {
+                    eventDroppedCounter
+                        .labels({
+                            event_type: 'analytics',
+                            drop_cause: 'duplicate_merge',
+                        })
+                        .inc()
+                    continue
+                }
+                known_merge_events.add(key)
+            }
+
             if (pluginEvent.token && tokenBlockList(pluginEvent.token)) {
                 eventDroppedCounter
                     .labels({
