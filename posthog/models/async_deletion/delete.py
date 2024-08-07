@@ -5,6 +5,7 @@ import structlog
 from django.utils import timezone
 from prometheus_client import Counter
 
+from posthog.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
 
@@ -19,8 +20,14 @@ class AsyncDeletionProcess(ABC):
     CLICKHOUSE_VERIFY_CHUNK_SIZE = 300
     DELETION_TYPES: list[DeletionType] = []
 
-    def __init__(self) -> None:
+    def __init__(self, dry_run: bool = False) -> None:
         super().__init__()
+        self.dry_run = dry_run
+        if self.dry_run:
+            logger.warn("Dry run enabled, no deletions will be performed")
+            self.sync_execute = self._dry_sync_execute
+        else:
+            self.sync_execute = self._query
 
     def run(self):
         queued_deletions = list(
@@ -84,3 +91,12 @@ class AsyncDeletionProcess(ABC):
     @abstractmethod
     def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> tuple[str, dict]:
         raise NotImplementedError()
+
+    @staticmethod
+    def _query(query, args, settings):
+        logger.info("Executing query", {"query": query, "args": args, "settings": settings})
+        return sync_execute(query, args, settings)
+
+    @staticmethod
+    def _dry_sync_execute(query, args, settings):
+        logger.info("Dry run", {"query": query, "args": args, "settings": settings})
