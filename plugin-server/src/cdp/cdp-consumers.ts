@@ -262,7 +262,6 @@ abstract class CdpConsumerBase {
                     })
                 })
 
-                // Filter for blocked functions
                 const invocationsWithResponses: [HogFunctionInvocation, HogFunctionAsyncFunctionResponse][] = []
 
                 // Deserialize the compressed data
