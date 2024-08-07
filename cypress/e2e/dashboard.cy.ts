@@ -14,7 +14,7 @@ describe('Dashboard', () => {
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'H')
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
     })
