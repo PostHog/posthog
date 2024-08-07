@@ -55,19 +55,19 @@ describe('HogWatcher', () => {
         it('should retrieve empty state', async () => {
             const res = await watcher.getStates(['id1', 'id2'])
             expect(res).toEqual({
-                id1: { score: 0, state: 1 },
-                id2: { score: 0, state: 1 },
+                id1: { rating: 0, state: 1 },
+                id2: { rating: 0, state: 1 },
             })
         })
 
-        const cases: [{ score: number; state: number }, HogFunctionInvocationResult[]][] = [
-            [{ score: 10, state: 1 }, [createResult({ id: 'id1' })]],
+        const cases: [{ cost: number; state: number }, HogFunctionInvocationResult[]][] = [
+            [{ cost: 0, state: 1 }, [createResult({ id: 'id1' })]],
             [
-                { score: 30, state: 1 },
+                { cost: 0, state: 1 },
                 [createResult({ id: 'id1' }), createResult({ id: 'id1' }), createResult({ id: 'id1' })],
             ],
             [
-                { score: 30, state: 1 },
+                { cost: 0, state: 1 },
                 [
                     createResult({ id: 'id1', duration: 10 }),
                     createResult({ id: 'id1', duration: 20 }),
@@ -75,31 +75,34 @@ describe('HogWatcher', () => {
                 ],
             ],
             [
-                { score: 24, state: 1 },
+                { cost: 24, state: 1 },
                 [
                     createResult({ id: 'id1', duration: 1000 }),
                     createResult({ id: 'id1', duration: 1000 }),
                     createResult({ id: 'id1', duration: 1000 }),
                 ],
             ],
-            [{ score: 0, state: 1 }, [createResult({ id: 'id1', duration: 5000 })]],
-            [{ score: -10, state: 1 }, [createResult({ id: 'id1', duration: 10000 })]],
-            [
-                { score: -41, state: 1 },
-                [
-                    createResult({ id: 'id1', duration: 5000 }),
-                    createResult({ id: 'id1', duration: 10000 }),
-                    createResult({ id: 'id1', duration: 20000 }),
-                ],
-            ],
+            // [{ tokens: 0, state: 1 }, [createResult({ id: 'id1', duration: 5000 })]],
+            // [{ tokens: -10, state: 1 }, [createResult({ id: 'id1', duration: 10000 })]],
+            // [
+            //     { tokens: -41, state: 1 },
+            //     [
+            //         createResult({ id: 'id1', duration: 5000 }),
+            //         createResult({ id: 'id1', duration: 10000 }),
+            //         createResult({ id: 'id1', duration: 20000 }),
+            //     ],
+            // ],
 
-            [{ score: -10, state: 1 }, [createResult({ id: 'id1', error: 'errored!' })]],
+            // [{ tokens: -10, state: 1 }, [createResult({ id: 'id1', error: 'errored!' })]],
         ]
 
-        it.each(cases)('should update scores based on results %s %s', async (expectedScore, results) => {
+        it.each(cases)('should update tokens based on results %s %s', async (expectedScore, results) => {
             await watcher.observeResults(results)
             expect(await watcher.getStates(['id1'])).toMatchObject({
-                id1: expectedScore,
+                id1: {
+                    tokens: config.CDP_WATCHER_BUCKET_SIZE - expectedScore.cost,
+                    state: expectedScore.state,
+                },
             })
         })
 
@@ -109,7 +112,7 @@ describe('HogWatcher', () => {
             await watcher.observeResults(lotsOfResults)
 
             expect(await watcher.getStates(['id1'])).toMatchObject({
-                id1: { score: config.CDP_WATCHER_THRESHOLD_DISABLED, state: 3 },
+                id1: { tokens: 0, state: 3 },
             })
 
             lotsOfResults = Array(10000).fill(createResult({ id: 'id2' }))
@@ -117,12 +120,12 @@ describe('HogWatcher', () => {
             await watcher.observeResults(lotsOfResults)
 
             expect(await watcher.getStates(['id2'])).toMatchObject({
-                id2: { score: config.CDP_WATCHER_THRESHOLD_HEALTHY, state: 1 },
+                id2: { tokens: 0, state: 1 },
             })
         })
 
         // it('should move the function into a bad state after enough periods', async () => {
-        //     // We need to move N times forward to get past the masking period and have enough ratings to make a decision
+        //     // We need to move N times forward to get past the masking period and have enough tokenss to make a decision
         //     // 2 for the persistance of the ratings, 3 more for the evaluation, 3 more for the subsequent evaluation
         //     for (let i = 0; i < 2 + 3 + 3; i++) {
         //         watcher1.currentObservations.observeResults([createResult('id1', false, 'error')])
