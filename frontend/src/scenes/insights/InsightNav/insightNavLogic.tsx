@@ -4,11 +4,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
-import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
+import { getDefaultQuery, insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
-import { examples, TotalEventsTable } from '~/queries/examples'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     ActionsNode,
@@ -20,7 +19,6 @@ import {
     InsightVizNode,
     LifecycleFilter,
     LifecycleQuery,
-    NodeKind,
     PathsFilter,
     PathsQuery,
     RetentionFilter,
@@ -224,41 +222,17 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
-            if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(view as InsightType)) {
-                // if the selected view is SQL or JSON then we must have the "allow queries" flag on,
-                // so no need to check it
-                if (view === InsightType.JSON) {
-                    actions.setQuery(TotalEventsTable)
-                } else if (view === InsightType.SQL) {
-                    actions.setQuery(examples.DataVisualization)
-                } else if (view === InsightType.HOG) {
-                    actions.setQuery(examples.Hoggonacci)
-                }
-            } else {
-                let query: InsightVizNode
+            const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
-                if (view === InsightType.TRENDS) {
-                    query = queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.FUNNELS) {
-                    query = queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.RETENTION) {
-                    query = queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.PATHS) {
-                    query = queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.STICKINESS) {
-                    query = queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.LIFECYCLE) {
-                    query = queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault)
-                } else {
-                    throw new Error('encountered unexpected type for view')
-                }
-
+            if (isInsightVizNode(query)) {
                 actions.setQuery({
                     ...query,
                     source: values.queryPropertyCache
                         ? mergeCachedProperties(query.source, values.queryPropertyCache)
                         : query.source,
                 } as InsightVizNode)
+            } else {
+                actions.setQuery(query)
             }
         },
         setQuery: ({ query }) => {
