@@ -1,5 +1,3 @@
-from django.core.exceptions import ValidationError
-
 from posthog.test.base import BaseTest
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
@@ -64,13 +62,53 @@ class TestModelPath(BaseTest):
         self.assertIn(["events", parent_saved_query.id.hex, child_saved_query.id.hex], child_paths)
         self.assertIn(["persons", parent_saved_query.id.hex, child_saved_query.id.hex], child_paths)
 
-    def test_validate_table_or_saved_query_is_set(self):
-        """Test validation properly checks a path must have a query or a table."""
-        model_path = DataWarehouseModelPath.objects.create(
-            path=["abc", "abc"], team=self.team, table=None, saved_query=None
+    def test_update_path_from_saved_query(self):
+        """Test creation of a model path from a query that reads from another query."""
+        parent_query = """\
+          select
+            events.event,
+            persons.properties
+          from events
+          left join persons on events.person_id = persons.id
+          where events.event = 'login' and person.pdi != 'some_distinct_id'
+        """
+        parent_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": parent_query},
+        )
+        child_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model_child",
+            query={"query": "select * from my_model as my_other_model"},
+        )
+        grand_child_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model_grand_child",
+            query={"query": "select * from my_model_child"},
         )
 
-        self.assertRaises(ValidationError, model_path.clean)
+        DataWarehouseModelPath.objects.create_from_saved_query_instance(parent_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query_instance(child_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query_instance(grand_child_saved_query)
+
+        child_saved_query.query = {"query": "select * from events as my_other_model"}
+        child_saved_query.save()
+        DataWarehouseModelPath.objects.update_from_saved_query_instance(child_saved_query)
+
+        child_refreshed_model_paths = DataWarehouseModelPath.objects.filter(
+            team=self.team, saved_query=child_saved_query
+        ).all()
+        child_paths = [model_path.path for model_path in child_refreshed_model_paths]
+        grand_child_refreshed_model_paths = DataWarehouseModelPath.objects.filter(
+            team=self.team, saved_query=grand_child_saved_query
+        ).all()
+        grand_child_paths = [model_path.path for model_path in grand_child_refreshed_model_paths]
+
+        self.assertEqual(len(child_paths), 1)
+        self.assertIn(["events", child_saved_query.id.hex], child_paths)
+        self.assertEqual(len(grand_child_paths), 1)
+        self.assertIn(["events", child_saved_query.id.hex, grand_child_saved_query.id.hex], grand_child_paths)
 
     def test_get_longest_common_ancestor_path(self):
         """Test resolving the longest common ancestor of two simple queries."""

@@ -79,23 +79,10 @@ LabelTreeField.register_lookup(LabelQuery)
 
 
 def get_hogql_query(query: str, team: Team) -> ast.SelectQuery | ast.SelectUnionQuery:
-    from posthog.hogql.context import HogQLContext
     from posthog.hogql.parser import parse_select
-    from posthog.hogql.printer import prepare_ast_for_printing
-    from posthog.hogql.query import create_default_modifiers_for_team
 
-    context = HogQLContext(
-        team_id=team.pk,
-        enable_select_queries=True,
-        modifiers=create_default_modifiers_for_team(team),
-    )
     parsed_query = parse_select(query)
-    select_query = prepare_ast_for_printing(
-        parsed_query,
-        context=context,
-        dialect="hogql",
-    )
-    return select_query
+    return parsed_query  # type: ignore
 
 
 def get_parents_from_model_query(model_query: str, team: Team):
@@ -114,20 +101,22 @@ def get_parents_from_model_query(model_query: str, team: Team):
 
     while queries:
         query = queries.pop()
-
-        if isinstance(query.select_from.table, ast.SelectQuery):
-            if query.select_from.table.view_name is not None:
-                parents.add(query.select_from.table.view_name)
-                continue
-
-            queries.append(query.select_from.table)
-        elif isinstance(query.select_from.table, ast.SelectUnionQuery):
-            queries.extend(query.select_from.table.select_queries)
-
         join = query.select_from
 
+        if join is None:
+            continue
+
+        if isinstance(join.table, ast.SelectQuery):
+            if join.table.view_name is not None:
+                parents.add(join.table.view_name)
+                continue
+
+            queries.append(join.table)
+        elif isinstance(join.table, ast.SelectUnionQuery):
+            queries.extend(join.table.select_queries)
+
         while join is not None:
-            parents.add(join.table.chain[0])
+            parents.add(join.table.chain[0])  # type: ignore
             join = join.next_join
     return parents
 
@@ -146,8 +135,78 @@ class DAG:
     nodes: set[Node]
 
 
+INSERT_QUERY = """\
+insert into posthog_datawarehousemodelpath (
+  id,
+  team_id,
+  table_id,
+  saved_query_id,
+  path,
+  created_by_id,
+  created_at,
+  updated_at,
+  deleted
+) (
+  select
+    id,
+    team_id,
+    table_id,
+    saved_query_id,
+    parent.path || subpath(model_path.path, index(model_path.path, text2ltree(%(child)s))) as path,
+    created_by_id,
+    created_at,
+    now() as updated_at,
+    false as deleted
+  from
+    posthog_datawarehousemodelpath as model_path,
+    (
+      select
+        path
+      from posthog_datawarehousemodelpath
+      where path ~ ('*.' || %(parent)s)::lquery
+      and team_id = %(team_id)s
+    ) as parent
+  where
+    model_path.path ~ ('*.' || %(child)s || '.*')::lquery
+    and team_id = %(team_id)s
+)
+on conflict (id) do
+update
+  set path = EXCLUDED.path,
+      updated_at = now()
+"""
+
+DELETE_DUPLICATE_PATHS_QUERY = """\
+delete from posthog_datawarehousemodelpath
+where
+  team_id = %(team_id)s
+  and id in (
+    select id
+    from (
+      select id, row_number() over (partition by team_id, path) as row_number
+      from posthog_datawarehousemodelpath
+    ) partitioned
+    where partitioned.row_number > 1
+);
+"""
+
+
 class DataWarehouseModelPathManager(models.Manager):
+    model: "DataWarehouseModelPath"
+
     def create_from_saved_query_instance(self, saved_query: DataWarehouseSavedQuery) -> "list[DataWarehouseModelPath]":
+        """Create a new model path from a new `DataWarehouseSavedQuery`.
+
+        Creating from a new `DataWarehouseSavedQuery` is straight-forward as we don't have to worry
+        about this model having its own children paths that need updating: We are only adding a leaf
+        node to all ancestor paths.
+
+        Raises:
+            ValueError: If no paths exists for the provided `DataWarehouseSavedQuery`.
+        """
+        if self.filter(team=saved_query.team, saved_query=saved_query).exists():
+            raise ValueError("Model cannot be created as it already exists, use `update_from_saved_query_instance`")
+
         return self.create_from_saved_query(
             saved_query=saved_query.query["query"],
             team=saved_query.team,
@@ -170,7 +229,7 @@ class DataWarehouseModelPathManager(models.Manager):
 
             for parent in get_parents_from_model_query(saved_query, team):
                 if parent in POSTHOG_ROOT_SOURCES:
-                    parent_model_path, _ = DataWarehouseModelPath.objects.get_or_create(
+                    parent_model_path, _ = self.get_or_create(
                         path=[parent],
                         team=team,
                         defaults={"deleted": False, "table": None, "saved_query": None},
@@ -179,14 +238,14 @@ class DataWarehouseModelPathManager(models.Manager):
 
                 else:
                     try:
-                        parent_query = DataWarehouseSavedQuery.objects.filter(name=parent).get()
+                        parent_query = DataWarehouseSavedQuery.objects.filter(team=team, name=parent).get()
                         parent_model_paths = self.filter(
                             team=team, saved_query=parent_query, path__lquery=f"*.{parent_query.id.hex}"
                         ).all()
                         parent_paths.extend(parent_model_path.path for parent_model_path in parent_model_paths)
 
                     except ObjectDoesNotExist:
-                        parent_table = DataWarehouseTable.objects.filter(name=parent).get()
+                        parent_table = DataWarehouseTable.objects.filter(team=team, name=parent).get()
 
                         # Treat instances of `DataWarehouseTable` as root nodes
                         parent_model_path, _ = self.get_or_create(
@@ -203,6 +262,44 @@ class DataWarehouseModelPathManager(models.Manager):
                 ]
             )
         return results
+
+    def update_from_saved_query_instance(self, saved_query: DataWarehouseSavedQuery) -> None:
+        """Update model paths from an existing `DataWarehouseSavedQuery`."""
+        if not self.filter(team=saved_query.team, saved_query=saved_query).exists():
+            raise ValueError("Provided saved query contains no paths to update.")
+
+        # Update descendants
+        self.update_from_saved_query(
+            saved_query=saved_query.query["query"],
+            team=saved_query.team,
+            saved_query_id=saved_query.id,
+        )
+
+    def update_from_saved_query(self, saved_query: str, team: Team, saved_query_id: uuid.UUID):
+        parents = get_parents_from_model_query(saved_query, team)
+        parent_ids = []
+
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                for parent in parents:
+                    if parent in POSTHOG_ROOT_SOURCES:
+                        parent_id = parent
+                    else:
+                        try:
+                            parent_query = DataWarehouseSavedQuery.objects.filter(team=team, name=parent).get()
+                            parent_id = parent_query.id.hex
+                        except ObjectDoesNotExist:
+                            parent_table = DataWarehouseTable.objects.filter(team=team, name=parent).get()
+                            parent_id = parent_table.id.hex
+
+                    parent_ids.append(parent_id)
+
+                    cursor.execute(
+                        INSERT_QUERY, params={"child": saved_query_id.hex, "parent": parent_id, "team_id": team.pk}
+                    )
+
+                cursor.execute(DELETE_DUPLICATE_PATHS_QUERY, params={"team_id": team.pk})
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     def get_paths_to_leaf_model(
         self, leaf_model: DataWarehouseSavedQuery | DataWarehouseTable
@@ -268,7 +365,9 @@ class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDModel, De
             pg_indexes.GistIndex("path", name="model_path_path"),
         ]
         constraints = [
-            models.UniqueConstraint(fields=("team_id", "path"), name="unique_team_id_path"),
+            models.UniqueConstraint(
+                fields=("team_id", "path"), name="unique_team_id_path", deferrable=models.Deferrable.IMMEDIATE
+            ),
         ]
 
     objects: DataWarehouseModelPathManager = DataWarehouseModelPathManager()
