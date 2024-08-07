@@ -2,7 +2,8 @@ CREATE TYPE JobState AS ENUM(
     'available',
     'completed',
     'failed',
-    'running'
+    'running',
+    'paused'
 );
 
 -- TODO - I go back and forth on whether this should just be an open text field,

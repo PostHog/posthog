@@ -16,6 +16,7 @@ pub enum JobState {
     Running,
     Completed,
     Failed,
+    Paused,
 }
 
 impl FromStr for JobState {

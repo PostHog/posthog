@@ -826,6 +826,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures",
+ "rand",
  "serde",
  "serde_json",
  "sqlx",
