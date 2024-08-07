@@ -5,6 +5,7 @@ import path from 'path'
 
 import { Hub } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
+import { now } from '../utils/now'
 import { status } from '../utils/status'
 import { HogFunctionInvocationResult, HogFunctionType } from './types'
 
@@ -48,10 +49,19 @@ export class HogWatcher {
     constructor(private hub: Hub) {}
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
-        const now = Date.now()
+        const nowSeconds = Math.round(now() / 1000)
+        console.log(
+            'Rate limit args',
+            id,
+            nowSeconds,
+            cost,
+            this.hub.CDP_WATCHER_BUCKET_SIZE,
+            this.hub.CDP_WATCHER_REFILL_RATE,
+            this.hub.CDP_WATCHER_TTL
+        )
         return [
             `${REDIS_KEY_HEALTH}/${id}`,
-            now,
+            nowSeconds,
             cost,
             this.hub.CDP_WATCHER_BUCKET_SIZE,
             this.hub.CDP_WATCHER_REFILL_RATE,
@@ -165,8 +175,6 @@ export class HogWatcher {
             if (result.error) {
                 cost += this.hub.CDP_WATCHER_COST_ERROR
             }
-
-            console.log('COST', cost)
 
             costs[result.invocation.hogFunctionId] = cost
         })

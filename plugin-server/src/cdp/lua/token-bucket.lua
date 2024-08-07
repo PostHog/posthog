@@ -16,16 +16,16 @@ if before == false then
 end
 
 -- We update the timestamp if it has changed
-local timediff = now - before
+local timeDiffSeconds = now - before
 
-if timediff > 0 then
+if timeDiffSeconds > 0 then
   redis.call('hset', key, 'ts', now)
 else
-  timediff = 0
+  timeDiffSeconds = 0
 end
 
 -- Calculate how much should be refilled in the bucket and add it
-local owedTokens = timediff / fillRate
+local owedTokens = timeDiffSeconds * fillRate
 local currentTokens = redis.call('hget', key, 'pool')
 
 if currentTokens == false then

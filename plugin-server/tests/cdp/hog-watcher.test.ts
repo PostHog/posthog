@@ -1,11 +1,15 @@
+jest.mock('../../src/utils/now', () => {
+    return {
+        now: jest.fn(() => Date.now()),
+    }
+})
 import { BASE_REDIS_KEY, HogWatcher } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationResult } from '../../src/cdp/types'
-import { defaultConfig } from '../../src/config/config'
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { deleteKeysWithPrefix } from '../helpers/redis'
 
-const config = defaultConfig
+const mockNow: jest.Mock = require('../../src/utils/now').now as any
 
 const createResult = (options: {
     id: string
@@ -34,6 +38,7 @@ const createResult = (options: {
 
 describe('HogWatcher', () => {
     describe('integration', () => {
+        let now: number
         let hub: Hub
         let closeHub: () => Promise<void>
         let watcher: HogWatcher
@@ -41,10 +46,18 @@ describe('HogWatcher', () => {
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub()
 
+            now = 1720000000000
+            mockNow.mockReturnValue(now)
+
             await deleteKeysWithPrefix(hub.redisPool, BASE_REDIS_KEY)
 
             watcher = new HogWatcher(hub)
         })
+
+        const advanceTime = (ms: number) => {
+            now += ms
+            mockNow.mockReturnValue(now)
+        }
 
         afterEach(async () => {
             jest.useRealTimers()
@@ -54,10 +67,20 @@ describe('HogWatcher', () => {
 
         it('should retrieve empty state', async () => {
             const res = await watcher.getStates(['id1', 'id2'])
-            expect(res).toEqual({
-                id1: { rating: 0, state: 1 },
-                id2: { rating: 0, state: 1 },
-            })
+            expect(res).toMatchInlineSnapshot(`
+                Object {
+                  "id1": Object {
+                    "rating": 1,
+                    "state": 1,
+                    "tokens": 10000,
+                  },
+                  "id2": Object {
+                    "rating": 1,
+                    "state": 1,
+                    "tokens": 10000,
+                  },
+                }
+            `)
         })
 
         const cases: [{ cost: number; state: number }, HogFunctionInvocationResult[]][] = [
@@ -75,35 +98,33 @@ describe('HogWatcher', () => {
                 ],
             ],
             [
-                { cost: 24, state: 1 },
+                { cost: 12, state: 1 },
                 [
                     createResult({ id: 'id1', duration: 1000 }),
                     createResult({ id: 'id1', duration: 1000 }),
                     createResult({ id: 'id1', duration: 1000 }),
                 ],
             ],
-            // [{ tokens: 0, state: 1 }, [createResult({ id: 'id1', duration: 5000 })]],
-            // [{ tokens: -10, state: 1 }, [createResult({ id: 'id1', duration: 10000 })]],
-            // [
-            //     { tokens: -41, state: 1 },
-            //     [
-            //         createResult({ id: 'id1', duration: 5000 }),
-            //         createResult({ id: 'id1', duration: 10000 }),
-            //         createResult({ id: 'id1', duration: 20000 }),
-            //     ],
-            // ],
+            [{ cost: 20, state: 1 }, [createResult({ id: 'id1', duration: 5000 })]],
+            [{ cost: 40, state: 1 }, [createResult({ id: 'id1', duration: 10000 })]],
+            [
+                { cost: 141, state: 1 },
+                [
+                    createResult({ id: 'id1', duration: 5000 }),
+                    createResult({ id: 'id1', duration: 10000 }),
+                    createResult({ id: 'id1', duration: 20000 }),
+                ],
+            ],
 
-            // [{ tokens: -10, state: 1 }, [createResult({ id: 'id1', error: 'errored!' })]],
+            [{ cost: 20, state: 1 }, [createResult({ id: 'id1', error: 'errored!' })]],
         ]
 
         it.each(cases)('should update tokens based on results %s %s', async (expectedScore, results) => {
             await watcher.observeResults(results)
-            expect(await watcher.getStates(['id1'])).toMatchObject({
-                id1: {
-                    tokens: config.CDP_WATCHER_BUCKET_SIZE - expectedScore.cost,
-                    state: expectedScore.state,
-                },
-            })
+            const result = await watcher.getState('id1')
+
+            expect(hub.CDP_WATCHER_BUCKET_SIZE - result.tokens).toEqual(expectedScore.cost)
+            expect(result.state).toEqual(expectedScore.state)
         })
 
         it('should max out scores', async () => {
@@ -111,17 +132,40 @@ describe('HogWatcher', () => {
 
             await watcher.observeResults(lotsOfResults)
 
-            expect(await watcher.getStates(['id1'])).toMatchObject({
-                id1: { tokens: 0, state: 3 },
-            })
+            expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
+                Object {
+                  "rating": -0.0001,
+                  "state": 3,
+                  "tokens": -1,
+                }
+            `)
 
             lotsOfResults = Array(10000).fill(createResult({ id: 'id2' }))
 
             await watcher.observeResults(lotsOfResults)
 
-            expect(await watcher.getStates(['id2'])).toMatchObject({
-                id2: { tokens: 0, state: 1 },
-            })
+            expect(await watcher.getState('id2')).toMatchInlineSnapshot(`
+                Object {
+                  "rating": 1,
+                  "state": 1,
+                  "tokens": 10000,
+                }
+            `)
+        })
+
+        it('should refill over time', async () => {
+            hub.CDP_WATCHER_REFILL_RATE = 10
+            await watcher.observeResults([
+                createResult({ id: 'id1', duration: 10000 }),
+                createResult({ id: 'id1', duration: 10000 }),
+                createResult({ id: 'id1', duration: 10000 }),
+            ])
+
+            expect((await watcher.getState('id1')).tokens).toMatchInlineSnapshot(`9880`)
+            advanceTime(1000)
+            expect((await watcher.getState('id1')).tokens).toMatchInlineSnapshot(`9890`)
+            advanceTime(10000)
+            expect((await watcher.getState('id1')).tokens).toMatchInlineSnapshot(`9990`)
         })
 
         // it('should move the function into a bad state after enough periods', async () => {
