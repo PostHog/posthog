@@ -262,7 +262,6 @@ abstract class CdpConsumerBase {
                     })
                 })
 
-                // Filter for blocked functions
                 const invocationsWithResponses: [HogFunctionInvocation, HogFunctionAsyncFunctionResponse][] = []
 
                 // Deserialize the compressed data
@@ -326,6 +325,8 @@ abstract class CdpConsumerBase {
 
                 const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
 
+                const overflowGlobalsAndFunctions: Record<string, HogFunctionOverflowedGlobals> = {}
+
                 const invocations = possibleInvocations.filter((item) => {
                     const state = states[item.hogFunction.id].state
                     if (state >= HogWatcherState.disabledForPeriod) {
@@ -341,25 +342,32 @@ abstract class CdpConsumerBase {
                         })
                         return false
                     }
+
                     if (state === HogWatcherState.degraded) {
-                        // Group all overflowed functions into one event
-                        // TODO: Fix overflowing
-                        // counterFunctionInvocation.inc({ outcome: 'overflowed' }, overflowed.length)
-                        // this.messagesToProduce.push({
-                        //     topic: KAFKA_CDP_FUNCTION_OVERFLOW,
-                        //     value: {
-                        //         source: 'event_invocations',
-                        //         payload: {
-                        //             hogFunctionIds: overflowed.map((x) => x.id),
-                        //             globals,
-                        //         },
-                        //     },
-                        //     key: globals.event.uuid,
-                        // })
-                        return true // TODO: Change to false once fixed
+                        const key = `${item.globals.project.id}-${item.globals.event.uuid}`
+                        overflowGlobalsAndFunctions[key] = overflowGlobalsAndFunctions[key] || {
+                            globals: item.globals,
+                            hogFunctionIds: [],
+                        }
+
+                        overflowGlobalsAndFunctions[key].hogFunctionIds.push(item.hogFunction.id)
+                        counterFunctionInvocation.inc({ outcome: 'overflowed' }, 1)
+
+                        return false
                     }
 
                     return true
+                })
+
+                Object.values(overflowGlobalsAndFunctions).forEach((item) => {
+                    this.messagesToProduce.push({
+                        topic: KAFKA_CDP_FUNCTION_OVERFLOW,
+                        value: {
+                            source: 'event_invocations',
+                            payload: item,
+                        },
+                        key: item.globals.event.uuid,
+                    })
                 })
 
                 const results = (
@@ -444,7 +452,6 @@ abstract class CdpConsumerBase {
     }
 
     public isHealthy() {
-        // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
         return this.batchConsumer?.isHealthy()
     }
 }

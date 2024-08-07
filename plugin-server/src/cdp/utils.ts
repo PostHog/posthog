@@ -1,11 +1,10 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
-import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
-import { RawClickHouseEvent, RedisPool, Team, TimestampFormat } from '../types'
-import { safeClickhouseString, timeoutGuard } from '../utils/db/utils'
+import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
+import { safeClickhouseString } from '../utils/db/utils'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import {
     HogFunctionCapturedEvent,
@@ -25,8 +24,6 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'Username',
     'UserName',
 ]
-
-const REDIS_TIMEOUT_SECONDS = 5
 
 const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -201,23 +198,4 @@ export const prepareLogEntriesForClickhouse = (
     })
 
     return preparedLogs
-}
-
-export async function runRedis<T>(
-    redisPool: RedisPool,
-    description: string,
-    fn: (client: Redis) => Promise<T>
-): Promise<T> {
-    const client = await redisPool.acquire()
-    const timeout = timeoutGuard(
-        `${description} delayed. Waiting over ${REDIS_TIMEOUT_SECONDS} seconds.`,
-        undefined,
-        REDIS_TIMEOUT_SECONDS * 1000
-    )
-    try {
-        return await fn(client)
-    } finally {
-        clearTimeout(timeout)
-        await redisPool.release(client)
-    }
 }

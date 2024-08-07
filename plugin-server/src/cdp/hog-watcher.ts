@@ -1,12 +1,16 @@
+import { captureException } from '@sentry/node'
 import { readFileSync } from 'fs'
+import { Redis } from 'ioredis'
 import path from 'path'
 
 import { Hub } from '../types'
+import { timeoutGuard } from '../utils/db/utils'
+import { status } from '../utils/status'
 import { HogFunctionInvocationResult, HogFunctionType } from './types'
-import { runRedis } from './utils'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_SCORES = `${BASE_REDIS_KEY}/scores`
+const REDIS_TIMEOUT_SECONDS = 5
 
 export enum HogWatcherState {
     healthy = 1,
@@ -27,49 +31,50 @@ export type HogWatcherFunctionState = {
 }
 
 export class HogWatcher {
-    setupPromise?: Promise<void>
-
     constructor(private hub: Hub) {}
 
-    private setup(): Promise<void> {
-        if (!this.setupPromise) {
-            this.setupPromise = runRedis(this.hub.redisPool, 'init', (client) => {
-                client.defineCommand('consumeTokenBucket', {
-                    numberOfKeys: 2,
-                    // The lua here is needed to ensure that we can do things atomically without multiple round trips
-                    // It takes arguments for the max bucket size, the rate at which the bucket refills over time.
+    private async runRedis<T>(fn: (client: Redis) => Promise<T>): Promise<T | null> {
+        // We want all of this to fail open in the issue of redis being unavailable - we'd rather have the function continue
+        const client = await this.hub.redisPool.acquire()
 
-                    // When we call it, we pass in the cost. Unlike normal rate limiting a cost is only incurred if something went wrong
+        client.defineCommand('consumeTokenBucket', {
+            numberOfKeys: 2,
+            lua: `
+                local key = KEYS[1]
+                local bucket_size = tonumber(ARGV[1])
+                local refill_rate = tonumber(ARGV[2])
+                local cost = tonumber(ARGV[3])
 
-                    // It returns the numnber
+                local current = tonumber(redis.call('get', key) or 0)
+                local refill_amount = math.max(0, (current - refill_rate) + cost)
 
-                    lua: `
-                        local key = KEYS[1]
-                        local bucket_size = tonumber(ARGV[1])
-                        local refill_rate = tonumber(ARGV[2])
-                        local cost = tonumber(ARGV[3])
+                if refill_amount > bucket_size then
+                    return 0
+                end
 
-                        local current = tonumber(redis.call('get', key) or 0)
-                        local refill_amount = math.max(0, (current - refill_rate) + cost)
+                redis.call('set', key, refill_amount)
+                return 1
+            `,
+        })
 
-                        if refill_amount > bucket_size then
-                            return 0
-                        end
-
-                        redis.call('set', key, refill_amount)
-                        return 1
-                    `,
-                })
-                return Promise.resolve()
-            })
+        const timeout = timeoutGuard(
+            `Redis call delayed. Waiting over ${REDIS_TIMEOUT_SECONDS} seconds.`,
+            undefined,
+            REDIS_TIMEOUT_SECONDS * 1000
+        )
+        try {
+            return await fn(client)
+        } catch (e) {
+            status.error('HogWatcher Redis error', e)
+            captureException(e)
+            return null
+        } finally {
+            clearTimeout(timeout)
+            await this.hub.redisPool.release(client)
         }
-
-        return this.setupPromise
     }
 
     public scoreToState(score: number): HogWatcherState {
-        // TODO: Add check for permanent disabled
-
         if (score <= this.hub.CDP_WATCHER_THRESHOLD_DISABLED) {
             return HogWatcherState.disabledForPeriod
         } else if (score <= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED) {
@@ -82,11 +87,9 @@ export class HogWatcher {
     public async getStates(
         ids: HogFunctionType['id'][]
     ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
-        await this.setup()
         const idsSet = new Set(ids)
 
-        // TODO: Gracefully handle errors
-        const states = await runRedis(this.hub.redisPool, 'getStates', async (client) => {
+        const states = await this.runRedis(async (client) => {
             const pipeline = client.pipeline()
 
             for (const id of idsSet) {
@@ -97,7 +100,7 @@ export class HogWatcher {
         })
 
         return Array.from(idsSet).reduce((acc, id, index) => {
-            const score = Number(states[index][1])
+            const score = states ? Number(states[index][1]) : 0
             return {
                 ...acc,
                 [id]: {
@@ -109,13 +112,12 @@ export class HogWatcher {
     }
 
     public async getState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
-        await this.setup()
-        const res = await runRedis(this.hub.redisPool, 'getState', async (client) => {
+        const res = await this.runRedis(async (client) => {
             const score = await client.get(`${REDIS_KEY_SCORES}/${id}`)
             return score
         })
 
-        const score = Number(res)
+        const score = Number(res ?? 0)
 
         return {
             state: this.scoreToState(score),
@@ -124,8 +126,7 @@ export class HogWatcher {
     }
 
     public async forceStateChange(id: HogFunctionType['id'], state: HogWatcherState): Promise<void> {
-        await this.setup()
-        await runRedis(this.hub.redisPool, 'forceStateChange', async (client) => {
+        await this.runRedis(async (client) => {
             const pipeline = client.pipeline()
 
             const newScore =
@@ -143,7 +144,6 @@ export class HogWatcher {
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
-        await this.setup()
         const changes: Record<HogFunctionType['id'], number> = {}
 
         results.forEach((result) => {
@@ -169,8 +169,7 @@ export class HogWatcher {
             changes[result.invocation.hogFunctionId] = change
         })
 
-        // TODO: Gracefully handle errors
-        await runRedis(this.hub.redisPool, 'stop', async (client) => {
+        await this.runRedis(async (client) => {
             let pipeline = client.pipeline()
 
             const changeEntries = Object.entries(changes)

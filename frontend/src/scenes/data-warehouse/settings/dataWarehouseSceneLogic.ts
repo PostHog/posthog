@@ -1,7 +1,9 @@
+import { Monaco } from '@monaco-editor/react'
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
@@ -11,8 +13,14 @@ import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
+export interface DataWarehouseSceneLogicProps {
+    monaco?: Monaco | null
+    editor?: editor.IStandaloneCodeEditor | null
+}
+
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),
+    props({} as DataWarehouseSceneLogicProps),
     connect(() => ({
         values: [
             databaseTableListLogic,
