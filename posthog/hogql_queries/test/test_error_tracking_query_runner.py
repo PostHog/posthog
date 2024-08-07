@@ -272,8 +272,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
 
-    maxDiff = None
-
     def test_merges_and_defaults_groups(self):
         ErrorTrackingGroup.objects.create(
             team=self.team,
