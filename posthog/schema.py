@@ -462,6 +462,12 @@ class FilterLogicalOperator(StrEnum):
     OR_ = "OR"
 
 
+class FilterableLogLevel(StrEnum):
+    INFO = "info"
+    WARN = "warn"
+    ERROR = "error"
+
+
 class FunnelConversionWindowTimeUnit(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
@@ -935,6 +941,28 @@ class QueryTiming(BaseModel):
     )
     k: str = Field(..., description="Key. Shortened to 'k' to save on data.")
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
+
+
+class RecordingConsoleLogLevelFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Literal["console_log_level"] = "console_log_level"
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["recording"] = "recording"
+    value: list[FilterableLogLevel]
+
+
+class RecordingConsoleQueryFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Literal["console_log_query"] = "console_log_query"
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["recording"] = "recording"
+    value: str
 
 
 class RecordingPropertyFilter(BaseModel):
@@ -4211,8 +4239,10 @@ class RecordingsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    console_log_filters: Optional[list[Union[RecordingConsoleLogLevelFilter, RecordingConsoleQueryFilter]]] = None
     date_range: DateRange
     entities: Optional[list[dict[str, Any]]] = None
+    filter_test_accounts: Optional[bool] = None
     having_predicates: list[
         Union[
             EventPropertyFilter,
@@ -4233,6 +4263,7 @@ class RecordingsQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    operand: Optional[FilterLogicalOperator] = None
     properties: Optional[
         list[
             Union[

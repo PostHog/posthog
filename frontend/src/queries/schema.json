@@ -3910,6 +3910,10 @@
             "enum": ["AND", "OR"],
             "type": "string"
         },
+        "FilterableLogLevel": {
+            "enum": ["info", "warn", "error"],
+            "type": "string"
+        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -8043,6 +8047,67 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "RecordingConsoleFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/RecordingConsoleLogLevelFilter"
+                },
+                {
+                    "$ref": "#/definitions/RecordingConsoleQueryFilter"
+                }
+            ]
+        },
+        "RecordingConsoleLogLevelFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "const": "console_log_level",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "recording",
+                    "type": "string"
+                },
+                "value": {
+                    "items": {
+                        "$ref": "#/definitions/FilterableLogLevel"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
+        "RecordingConsoleQueryFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "const": "console_log_query",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "recording",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -8089,6 +8154,12 @@
         "RecordingsQuery": {
             "additionalProperties": false,
             "properties": {
+                "console_log_filters": {
+                    "items": {
+                        "$ref": "#/definitions/RecordingConsoleFilter"
+                    },
+                    "type": "array"
+                },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -8097,6 +8168,9 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
                 },
                 "having_predicates": {
                     "items": {
@@ -8111,6 +8185,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "operand": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
                 },
                 "properties": {
                     "items": {
