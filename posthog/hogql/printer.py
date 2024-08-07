@@ -838,6 +838,12 @@ class _Printer(Visitor):
                                     args.append("''")
                                 else:
                                     args.append(self.visit(arg))
+                            elif (
+                                len(arg.args) == 1
+                                and isinstance(arg.args[0].type, ast.CallType)
+                                and arg.args[0].type.return_type.nullable is False
+                            ):
+                                args.append(self.visit(arg))
                             else:
                                 args.append(f"ifNull({self.visit(arg)}, '')")
                         else:
