@@ -13,7 +13,7 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingGroupQuery } from './queries'
 
 export interface ErrorTrackingGroupSceneLogicProps {
-    fingerprint: string
+    fingerprint: string[]
 }
 
 export enum ErrorGroupTab {

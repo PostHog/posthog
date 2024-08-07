@@ -30,10 +30,6 @@ class Visitor(Generic[T]):
                 e.start = node.start
                 e.end = node.end
             raise
-        except AttributeError as meme:
-            # print(node)
-            print(meme)
-            raise
 
 
 class TraversingVisitor(Visitor[None]):
