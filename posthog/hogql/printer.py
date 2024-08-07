@@ -1250,6 +1250,8 @@ class _Printer(Visitor):
             return node.value is None
         elif isinstance(node.type, ast.PropertyType):
             return True
+        elif isinstance(node.type, ast.CallType):
+            return node.type.return_type.nullable
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
