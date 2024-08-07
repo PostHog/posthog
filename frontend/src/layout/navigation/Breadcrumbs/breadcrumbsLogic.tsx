@@ -1,3 +1,4 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
@@ -124,12 +125,14 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         key: 'organization',
                         symbol: (
-                            <UploadedLogo
-                                name={currentOrganization.name}
-                                entityId={currentOrganization.id}
-                                mediaId={currentOrganization.logo_media_id}
-                                size="xsmall"
-                            />
+                            <Tooltip title={currentOrganization.name} placement="left">
+                                <UploadedLogo
+                                    name={currentOrganization.name}
+                                    entityId={currentOrganization.id}
+                                    mediaId={currentOrganization.logo_media_id}
+                                    size="xsmall"
+                                />
+                            </Tooltip>
                         ),
                         popover: {
                             overlay: <OrganizationSwitcherOverlay />,

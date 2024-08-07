@@ -47,7 +47,6 @@ export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(func
                 rounded && 'Lettermark--rounded',
                 representation === '?' && 'Lettermark--unknown'
             )}
-            title={String(name)}
             ref={ref}
         >
             {representation}

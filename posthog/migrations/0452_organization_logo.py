@@ -26,8 +26,8 @@ class Migration(migrations.Migration):
                 # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
                 migrations.RunSQL(
                     """
-                    ALTER TABLE "posthog_organization" ADD COLUMN "logo_media_id" uuid NULL CONSTRAINT "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" REFERENCES "posthog_uploadedmedia"("id") DEFERRABLE INITIALLY DEFERRED;
-                    SET CONSTRAINTS "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" IMMEDIATE; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_organization" ADD COLUMN "logo_media_id" uuid NULL CONSTRAINT "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" REFERENCES "posthog_uploadedmedia"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" IMMEDIATE;
                     """,
                     reverse_sql="""
                         ALTER TABLE "posthog_organization" DROP COLUMN IF EXISTS "logo_media_id";

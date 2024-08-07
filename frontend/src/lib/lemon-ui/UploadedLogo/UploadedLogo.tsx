@@ -1,5 +1,7 @@
 import clsx from 'clsx'
+import React, { useState } from 'react'
 
+import { LemonSkeleton } from '../LemonSkeleton'
 import { Lettermark } from '../Lettermark'
 
 export interface UploadedLogoProps {
@@ -15,7 +17,12 @@ export interface UploadedLogoProps {
     size?: 'xsmall' | 'medium' | 'xlarge'
 }
 
-export function UploadedLogo({ name, mediaId, entityId, size = 'medium' }: UploadedLogoProps): JSX.Element {
+export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(function UploadedLogo(
+    { name, mediaId, entityId, size = 'medium' },
+    ref
+) {
+    const [isLoadingImage, setIsLoadingImage] = useState(true)
+
     if (!mediaId) {
         if (typeof entityId === 'string') {
             // A whole UUID doesn't fit into the JS number type, so for simplicity
@@ -35,11 +42,15 @@ export function UploadedLogo({ name, mediaId, entityId, size = 'medium' }: Uploa
                     ? 'size-6 rounded-sm'
                     : 'size-4 rounded-sm'
             )}
+            ref={ref}
         >
+            {isLoadingImage && <LemonSkeleton className="absolute inset-0" />}
             <img
                 className="size-full object-cover"
                 src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                onError={() => setIsLoadingImage(false)}
+                onLoad={() => setIsLoadingImage(false)}
             />
         </div>
     )
-}
+})
