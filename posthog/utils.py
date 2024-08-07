@@ -605,7 +605,6 @@ def base64_decode(data):
         data = data.encode("ascii")
 
     # Check if the data is URL-encoded
-    # See
     if data.startswith(b"data="):
         data = unquote(data.decode("ascii")).split("=", 1)[1]
         data = data.encode("ascii")
