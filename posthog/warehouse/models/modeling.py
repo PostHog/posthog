@@ -82,7 +82,7 @@ def get_hogql_query(query: str, team: Team) -> ast.SelectQuery | ast.SelectUnion
     from posthog.hogql.parser import parse_select
 
     parsed_query = parse_select(query)
-    return parsed_query  # type: ignore
+    return parsed_query
 
 
 def get_parents_from_model_query(model_query: str, team: Team):
@@ -191,9 +191,7 @@ where
 """
 
 
-class DataWarehouseModelPathManager(models.Manager):
-    model: "DataWarehouseModelPath"
-
+class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
     def create_from_saved_query_instance(self, saved_query: DataWarehouseSavedQuery) -> "list[DataWarehouseModelPath]":
         """Create a new model path from a new `DataWarehouseSavedQuery`.
 
@@ -332,7 +330,9 @@ class DataWarehouseModelPathManager(models.Manager):
         * Certain paths can be redundant and could be excluded from the query.
         """
         edges = set()
-        nodes = set()
+        nodes: set[Node] = set()
+        node_type: NodeType
+        node_id: NodeId
 
         for model_path in self.filter(team=team).select_related("saved_query", "table").all():
             if model_path.table is not None:
@@ -346,7 +346,7 @@ class DataWarehouseModelPathManager(models.Manager):
                 try:
                     next_node_id = model_path.path[index + 1]
                 except IndexError:
-                    node = (node_id, node_type)
+                    node: tuple[NodeId, NodeType] = (node_id, node_type)
                     nodes.add(node)
                 else:
                     edges.add((node_id, next_node_id))
