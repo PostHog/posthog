@@ -5961,12 +5961,9 @@
                 "FunnelsActorsQuery",
                 "FunnelCorrelationActorsQuery",
                 "SessionsTimelineQuery",
-<<<<<<< HEAD
                 "RecordingsQuery",
-=======
                 "SessionAttributionExplorerQuery",
                 "ErrorTrackingQuery",
->>>>>>> master
                 "DataTableNode",
                 "DataVisualizationNode",
                 "SavedInsightNode",

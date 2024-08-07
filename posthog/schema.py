@@ -694,20 +694,19 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
-<<<<<<< HEAD
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     uuid: str
-=======
+
+
 class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
->>>>>>> master
 
 
 class NodeKind(StrEnum):
@@ -724,12 +723,9 @@ class NodeKind(StrEnum):
     FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
     FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
-<<<<<<< HEAD
     RECORDINGS_QUERY = "RecordingsQuery"
-=======
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
->>>>>>> master
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
@@ -2523,20 +2519,19 @@ class LifecycleQueryResponse(BaseModel):
     )
 
 
-<<<<<<< HEAD
 class MatchedRecording(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     events: list[MatchedRecordingEvent]
     session_id: Optional[str] = None
-=======
+
+
 class MultipleBreakdownOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     values: list[BreakdownItem]
->>>>>>> master
 
 
 class PathsQueryResponse(BaseModel):
@@ -3214,7 +3209,29 @@ class SavedInsightNode(BaseModel):
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
-<<<<<<< HEAD
+class Filters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    properties: Optional[list[SessionPropertyFilter]] = None
+
+
+class SessionAttributionExplorerQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filters: Optional[Filters] = None
+    groupBy: list[SessionAttributionGroupBy]
+    kind: Literal["SessionAttributionExplorerQuery"] = "SessionAttributionExplorerQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    response: Optional[SessionAttributionExplorerQueryResponse] = None
+
+
 class SessionRecordingType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3242,29 +3259,6 @@ class SessionRecordingType(BaseModel):
     storage: Optional[Storage] = Field(default=None, description="Where this recording information was loaded from")
     summary: Optional[str] = None
     viewed: bool = Field(..., description="Whether this recording has been viewed already.")
-=======
-class Filters(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    properties: Optional[list[SessionPropertyFilter]] = None
-
-
-class SessionAttributionExplorerQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    filters: Optional[Filters] = None
-    groupBy: list[SessionAttributionGroupBy]
-    kind: Literal["SessionAttributionExplorerQuery"] = "SessionAttributionExplorerQuery"
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    response: Optional[SessionAttributionExplorerQueryResponse] = None
->>>>>>> master
 
 
 class SessionsTimelineQueryResponse(BaseModel):
