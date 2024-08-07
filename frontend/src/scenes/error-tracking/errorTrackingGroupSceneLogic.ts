@@ -1,24 +1,36 @@
 import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, EventType } from '~/types'
+import { ErrorTrackingGroup } from '~/queries/schema'
+import { Breadcrumb } from '~/types'
 
 import type { errorTrackingGroupSceneLogicType } from './errorTrackingGroupSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingGroupQuery } from './queries'
 
 export interface ErrorTrackingGroupSceneLogicProps {
-    id: string
+    fingerprint: string
 }
-
-export type ExceptionEventType = Pick<EventType, 'id' | 'properties' | 'timestamp' | 'person'>
 
 export enum ErrorGroupTab {
     Overview = 'overview',
     Breakdowns = 'breakdowns',
+}
+
+export type ErrorTrackingGroupEvent = {
+    uuid: string
+    properties: string
+    timestamp: string
+    person: {
+        distinct_id: string
+        uuid?: string
+        created_at?: string
+        properties?: Record<string, any>
+    }
 }
 
 export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType>([
@@ -43,25 +55,22 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     })),
 
     loaders(({ props, values }) => ({
-        events: [
-            [] as ExceptionEventType[],
+        group: [
+            null as ErrorTrackingGroup | null,
             {
-                loadEvents: async () => {
+                loadGroup: async () => {
                     const response = await api.query(
                         errorTrackingGroupQuery({
-                            group: props.id,
+                            fingerprint: props.fingerprint,
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
                         })
                     )
 
-                    return response.results.map((r) => ({
-                        id: r[0],
-                        properties: JSON.parse(r[1]),
-                        timestamp: r[2],
-                        person: r[3],
-                    }))
+                    // ErrorTrackingQuery returns a list of groups
+                    // when a fingerprint is supplied there will only be a single group
+                    return response.results[0]
                 },
             },
         ],
@@ -69,8 +78,8 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     selectors({
         breadcrumbs: [
-            (_, p) => [p.id],
-            (id): Breadcrumb[] => {
+            (_, p) => [p.fingerprint],
+            (fingerprint): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.ErrorTracking,
@@ -78,15 +87,37 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         path: urls.errorTracking(),
                     },
                     {
-                        key: [Scene.ErrorTrackingGroup, id],
-                        name: id,
+                        key: [Scene.ErrorTrackingGroup, fingerprint],
+                        name: fingerprint,
                     },
                 ]
             },
         ],
+
+        events: [(s) => [s.group], (group) => (group?.events || []) as ErrorTrackingGroupEvent[]],
     }),
 
+    actionToUrl(({ values }) => ({
+        setErrorGroupTab: () => {
+            const searchParams = router.values.searchParams
+
+            if (values.errorGroupTab != ErrorGroupTab.Overview) {
+                searchParams['tab'] = values.errorGroupTab
+            }
+
+            return [router.values.location.pathname, searchParams]
+        },
+    })),
+
+    urlToAction(({ actions }) => ({
+        [urls.errorTrackingGroup('*')]: (_, searchParams) => {
+            if (searchParams.tab) {
+                actions.setErrorGroupTab(searchParams.tab)
+            }
+        },
+    })),
+
     afterMount(({ actions }) => {
-        actions.loadEvents()
+        actions.loadGroup()
     }),
 ])

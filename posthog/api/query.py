@@ -100,9 +100,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         responses={200: QueryStatusResponse},
     )
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
-        query_status = get_query_status(
-            team_id=self.team.pk, query_id=pk, show_progress=request.query_params.get("showProgress", False)
-        )
+        show_progress: bool = request.query_params.get("show_progress", False) == "true"
+        show_progress = (
+            show_progress or request.query_params.get("showProgress", False) == "true"
+        )  # TODO: Remove this once we have a consistent naming convention
+        query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
         query_status_response = QueryStatusResponse(query_status=query_status)
 
         http_code: int = status.HTTP_202_ACCEPTED

@@ -21,6 +21,7 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
+  order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
   LIMIT 10
   '''
 # ---
@@ -34,6 +35,7 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%QW%'
+  order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
   LIMIT 10
   '''
 # ---
@@ -47,6 +49,7 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
   LIMIT 10
   '''
 # ---
@@ -61,6 +64,7 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND (event = 'random event')
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
   LIMIT 10
   '''
 # ---
@@ -76,6 +80,7 @@
     AND (event = 'foo'
          OR event = 'random event')
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
   LIMIT 10
   '''
 # ---
@@ -90,6 +95,7 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND (event = '404_i_dont_exist')
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
+  order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
   LIMIT 10
   '''
 # ---
@@ -115,6 +121,7 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%qw%'
+  order by length("mat_random_prop")
   LIMIT 10
   '''
 # ---
@@ -128,6 +135,7 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%QW%'
+  order by length("mat_random_prop")
   LIMIT 10
   '''
 # ---
@@ -141,6 +149,7 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%6%'
+  order by length("mat_random_prop")
   LIMIT 10
   '''
 # ---
@@ -155,6 +164,7 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND (event = 'random event')
     AND "mat_random_prop" ILIKE '%6%'
+  order by length("mat_random_prop")
   LIMIT 10
   '''
 # ---
@@ -170,6 +180,7 @@
     AND (event = 'foo'
          OR event = 'random event')
     AND "mat_random_prop" ILIKE '%6%'
+  order by length("mat_random_prop")
   LIMIT 10
   '''
 # ---
@@ -184,6 +195,7 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND (event = '404_i_dont_exist')
     AND "mat_random_prop" ILIKE '%qw%'
+  order by length("mat_random_prop")
   LIMIT 10
   '''
 # ---

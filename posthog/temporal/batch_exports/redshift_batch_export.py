@@ -31,11 +31,12 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
+    Fields,
     PostgresInsertInputs,
-    create_table_in_postgres,
-    postgres_connection,
+    PostgreSQLClient,
+    PostgreSQLField,
 )
-from posthog.temporal.batch_exports.utils import apeek_first_and_rewind, set_status_to_running_task
+from posthog.temporal.batch_exports.utils import JsonType, apeek_first_and_rewind, set_status_to_running_task
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -78,22 +79,112 @@ def remove_escaped_whitespace_recursive(value):
             return value
 
 
-@contextlib.asynccontextmanager
-async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
-    """Manage a Redshift connection.
+class RedshiftClient(PostgreSQLClient):
+    @contextlib.asynccontextmanager
+    async def connect(self) -> typing.AsyncIterator[typing.Self]:
+        """Manage a Redshift connection.
 
-    This just yields a Postgres connection but we adjust a couple of things required for
-    psycopg to work with Redshift:
-    1. Set UNICODE encoding to utf-8 as Redshift reports back UNICODE.
-    2. Set prepare_threshold to None on the connection as psycopg attempts to run DEALLOCATE ALL otherwise
-        which is not supported on Redshift.
-    """
-    psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
-    psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
+        This just yields a Postgres connection but we adjust a couple of things required for
+        psycopg to work with Redshift:
+        1. Set UNICODE encoding to utf-8 as Redshift reports back UNICODE.
+        2. Set prepare_threshold to None on the connection as psycopg attempts to run DEALLOCATE ALL otherwise
+            which is not supported on Redshift.
+        """
+        psycopg._encodings._py_codecs["UNICODE"] = "utf-8"
+        psycopg._encodings.py_codecs.update((k.encode(), v) for k, v in psycopg._encodings._py_codecs.items())
 
-    async with postgres_connection(inputs) as connection:
-        connection.prepare_threshold = None
-        yield connection
+        async with super().connect():
+            self.connection.prepare_threshold = None
+            yield self
+
+    @contextlib.asynccontextmanager
+    async def async_client_cursor(self) -> typing.AsyncIterator[psycopg.AsyncClientCursor]:
+        """Yield a AsyncClientCursor from a psycopg.AsyncConnection.
+
+        Keeps track of the current cursor_factory to set it after we are done.
+        """
+        current_factory = self.connection.cursor_factory
+        self.connection.cursor_factory = psycopg.AsyncClientCursor
+
+        try:
+            async with self.connection.cursor() as cursor:
+                # Not a fan of typing.cast, but we know this is an psycopg.AsyncClientCursor
+                # as we have just set cursor_factory.
+                cursor = typing.cast(psycopg.AsyncClientCursor, cursor)
+                yield cursor
+        finally:
+            self.connection.cursor_factory = current_factory
+
+    async def amerge_identical_tables(
+        self,
+        final_table_name: str,
+        stage_table_name: str,
+        schema: str,
+        merge_key: Fields,
+        person_version_key: str = "person_version",
+        person_distinct_id_version_key: str = "person_distinct_id_version",
+    ) -> None:
+        """Merge two identical tables in PostgreSQL."""
+        if schema:
+            final_table_identifier = sql.Identifier(schema, final_table_name)
+            stage_table_identifier = sql.Identifier(schema, stage_table_name)
+
+        else:
+            final_table_identifier = sql.Identifier(final_table_name)
+            stage_table_identifier = sql.Identifier(stage_table_name)
+
+        and_separator = sql.SQL("AND")
+        merge_condition = and_separator.join(
+            sql.SQL("{final_field} = {stage_field}").format(
+                final_field=sql.Identifier(schema, final_table_name, field[0]),
+                stage_field=sql.Identifier("stage", field[0]),
+            )
+            for field in merge_key
+        )
+
+        delete_condition = and_separator.join(
+            sql.SQL("{final_field} = {stage_field}").format(
+                final_field=sql.Identifier("final", field[0]),
+                stage_field=sql.Identifier(schema, stage_table_name, field[0]),
+            )
+            for field in merge_key
+        )
+
+        delete_query = sql.SQL(
+            """\
+        DELETE FROM {stage_table}
+        USING {final_table} AS final
+        WHERE {merge_condition}
+        AND {stage_table}.{stage_person_version_key} < final.{final_person_version_key}
+        AND {stage_table}.{stage_person_distinct_id_version_key} < final.{final_person_distinct_id_version_key};
+        """
+        ).format(
+            final_table=final_table_identifier,
+            stage_table=stage_table_identifier,
+            merge_condition=delete_condition,
+            stage_person_version_key=sql.Identifier(person_version_key),
+            final_person_version_key=sql.Identifier(person_version_key),
+            stage_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
+            final_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
+        )
+
+        merge_query = sql.SQL(
+            """\
+        MERGE INTO {final_table}
+        USING {stage_table} AS stage
+        ON {merge_condition}
+        REMOVE DUPLICATES
+        """
+        ).format(
+            final_table=final_table_identifier,
+            stage_table=stage_table_identifier,
+            merge_condition=merge_condition,
+        )
+
+        async with self.connection.transaction():
+            async with self.connection.cursor() as cursor:
+                await cursor.execute(delete_query)
+                await cursor.execute(merge_query)
 
 
 def redshift_default_fields() -> list[BatchExportField]:
@@ -119,30 +210,30 @@ def redshift_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
-RedshiftField = tuple[str, str]
-
-
 def get_redshift_fields_from_record_schema(
-    record_schema: pa.Schema, known_super_columns: list[str]
-) -> list[RedshiftField]:
-    """Generate a list of supported PostgreSQL fields from PyArrow schema.
+    record_schema: pa.Schema, known_super_columns: list[str], use_super: bool = False
+) -> Fields:
+    """Generate a list of supported Redshift fields from PyArrow schema.
 
     This function is used to map custom schemas to Redshift-supported types. Some loss of precision is
     expected.
     """
-    pg_schema: list[RedshiftField] = []
+    pg_schema: list[PostgreSQLField] = []
 
     for name in record_schema.names:
         pa_field = record_schema.field(name)
 
-        if pa.types.is_string(pa_field.type):
-            if pa_field.name in known_super_columns:
+        if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
+            if pa_field.name in known_super_columns and use_super is True:
                 pg_type = "SUPER"
             else:
-                pg_type = "TEXT"
+                # Redshift treats `TEXT` as `VARCHAR(256)`, not as unlimited length like PostgreSQL.
+                # So, instead of `TEXT` we use the largest possible `VARCHAR`.
+                # See: https://docs.aws.amazon.com/redshift/latest/dg/r_Character_types.html
+                pg_type = "VARCHAR(65535)"
 
-        elif pa.types.is_signed_integer(pa_field.type):
-            if pa.types.is_int64(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            if pa.types.is_uint64(pa_field.type) or pa.types.is_int64(pa_field.type):
                 pg_type = "BIGINT"
             else:
                 pg_type = "INTEGER"
@@ -172,7 +263,7 @@ def get_redshift_fields_from_record_schema(
 
 async def insert_records_to_redshift(
     records: collections.abc.AsyncGenerator[dict[str, typing.Any], None],
-    redshift_connection: psycopg.AsyncConnection,
+    redshift_client: RedshiftClient,
     schema: str | None,
     table: str,
     batch_size: int = 100,
@@ -216,55 +307,34 @@ async def insert_records_to_redshift(
 
     total_rows_exported = 0
 
-    async with async_client_cursor_from_connection(redshift_connection) as cursor:
-        batch = []
-        pre_query_str = pre_query.as_string(cursor).encode("utf-8")
-
-        async def flush_to_redshift(batch):
-            nonlocal total_rows_exported
-
-            values = b",".join(batch).replace(b" E'", b" '")
-
-            await cursor.execute(pre_query_str + values)
-            rows_exported.add(len(batch))
-            total_rows_exported += len(batch)
-            # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
-            # the byte size of each batch the way things are currently written. We can revisit this
-            # in the future if we decide it's useful enough.
-
-        async for record in records_iterator:
-            batch.append(cursor.mogrify(template, record).encode("utf-8"))
-            if len(batch) < batch_size:
-                continue
-
-            await flush_to_redshift(batch)
+    async with redshift_client.connection.transaction():
+        async with redshift_client.async_client_cursor() as cursor:
             batch = []
+            pre_query_str = pre_query.as_string(cursor).encode("utf-8")
 
-        if len(batch) > 0:
-            await flush_to_redshift(batch)
+            async def flush_to_redshift(batch):
+                nonlocal total_rows_exported
+
+                values = b",".join(batch).replace(b" E'", b" '")
+                await cursor.execute(pre_query_str + values)
+                rows_exported.add(len(batch))
+                total_rows_exported += len(batch)
+                # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
+                # the byte size of each batch the way things are currently written. We can revisit this
+                # in the future if we decide it's useful enough.
+
+            async for record in records_iterator:
+                batch.append(cursor.mogrify(template, record).encode("utf-8"))
+                if len(batch) < batch_size:
+                    continue
+
+                await flush_to_redshift(batch)
+                batch = []
+
+            if len(batch) > 0:
+                await flush_to_redshift(batch)
 
     return total_rows_exported
-
-
-@contextlib.asynccontextmanager
-async def async_client_cursor_from_connection(
-    psycopg_connection: psycopg.AsyncConnection,
-) -> typing.AsyncIterator[psycopg.AsyncClientCursor]:
-    """Yield a AsyncClientCursor from a psycopg.AsyncConnection.
-
-    Keeps track of the current cursor_factory to set it after we are done.
-    """
-    current_factory = psycopg_connection.cursor_factory
-    psycopg_connection.cursor_factory = psycopg.AsyncClientCursor
-
-    try:
-        async with psycopg_connection.cursor() as cursor:
-            # Not a fan of typing.cast, but we know this is an psycopg.AsyncClientCursor
-            # as we have just set cursor_factory.
-            cursor = typing.cast(psycopg.AsyncClientCursor, cursor)
-            yield cursor
-    finally:
-        psycopg_connection.cursor_factory = current_factory
 
 
 @dataclasses.dataclass
@@ -338,14 +408,14 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             return 0
 
         known_super_columns = ["properties", "set", "set_once", "person_properties"]
-
         if inputs.properties_data_type != "varchar":
             properties_type = "SUPER"
+
         else:
             properties_type = "VARCHAR(65535)"
 
-        if inputs.batch_export_schema is None:
-            table_fields = [
+        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+            table_fields: Fields = [
                 ("uuid", "VARCHAR(200)"),
                 ("event", "VARCHAR(200)"),
                 ("properties", properties_type),
@@ -362,49 +432,76 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
             record_schema = first_record_batch.select(column_names).schema
             table_fields = get_redshift_fields_from_record_schema(
-                record_schema, known_super_columns=known_super_columns
+                record_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
             )
 
-        async with redshift_connection(inputs) as connection:
-            await create_table_in_postgres(
-                connection,
-                schema=inputs.schema,
-                table_name=inputs.table_name,
-                fields=table_fields,
-            )
+        requires_merge = (
+            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
+        )
+        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
 
-        schema_columns = {field[0] for field in table_fields}
+        if requires_merge:
+            primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
+        else:
+            primary_key = None
 
-        def map_to_record(row: dict) -> dict:
-            """Map row to a record to insert to Redshift."""
-            record = {k: v for k, v in row.items() if k in schema_columns}
+        async with RedshiftClient.from_inputs(inputs).connect() as redshift_client:
+            async with (
+                redshift_client.managed_table(
+                    inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key
+                ) as redshift_table,
+                redshift_client.managed_table(
+                    inputs.schema,
+                    stagle_table_name,
+                    table_fields,
+                    create=requires_merge,
+                    delete=requires_merge,
+                    primary_key=primary_key,
+                ) as redshift_stage_table,
+            ):
+                schema_columns = {field[0] for field in table_fields}
 
-            for column in known_super_columns:
-                if record.get(column, None) is not None:
-                    # TODO: We should be able to save a json.loads here.
-                    record[column] = json.dumps(
-                        remove_escaped_whitespace_recursive(json.loads(record[column])), ensure_ascii=False
+                def map_to_record(row: dict) -> dict:
+                    """Map row to a record to insert to Redshift."""
+                    record = {k: v for k, v in row.items() if k in schema_columns}
+
+                    for column in known_super_columns:
+                        if record.get(column, None) is not None:
+                            # TODO: We should be able to save a json.loads here.
+                            record[column] = json.dumps(
+                                remove_escaped_whitespace_recursive(json.loads(record[column])), ensure_ascii=False
+                            )
+
+                    return record
+
+                async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any], None]:
+                    async for record_batch in record_iterator:
+                        for record in record_batch.to_pylist():
+                            yield map_to_record(record)
+
+                records_completed = await insert_records_to_redshift(
+                    record_generator(),
+                    redshift_client,
+                    inputs.schema,
+                    redshift_stage_table if requires_merge else redshift_table,
+                )
+
+                if requires_merge:
+                    merge_key: Fields = (
+                        ("team_id", "INT"),
+                        ("distinct_id", "TEXT"),
+                    )
+                    await redshift_client.amerge_identical_tables(
+                        final_table_name=redshift_table,
+                        stage_table_name=redshift_stage_table,
+                        schema=inputs.schema,
+                        merge_key=merge_key,
                     )
 
-            return record
-
-        async def record_generator() -> collections.abc.AsyncGenerator[dict[str, typing.Any], None]:
-            async for record_batch in record_iterator:
-                for record in record_batch.to_pylist():
-                    yield map_to_record(record)
-
-        async with postgres_connection(inputs) as connection:
-            records_completed = await insert_records_to_redshift(
-                record_generator(),
-                connection,
-                inputs.schema,
-                inputs.table_name,
-            )
-
-        return records_completed
+                return records_completed
 
 
-@workflow.defn(name="redshift-export")
+@workflow.defn(name="redshift-export", failure_exception_types=[workflow.NondeterminismError])
 class RedshiftBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into Postgres.
 

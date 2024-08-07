@@ -1,4 +1,3 @@
-import posthoganalytics
 import json
 from functools import lru_cache
 from typing import Any, Optional, Union, cast
@@ -64,9 +63,9 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import (
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.hogql_queries.query_runner import execution_mode_from_refresh, ExecutionMode
+from posthog.hogql_queries.query_runner import execution_mode_from_refresh, shared_insights_execution_mode
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, User, Team
+from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -76,6 +75,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -238,6 +238,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     (see from_dashboard query parameter).
     """,
     )
+    cache_target_age = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The target age of the cached results for this insight.",
+    )
     next_allowed_client_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
@@ -269,6 +273,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     )
     query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
     query_status = serializers.SerializerMethodField()
+    hogql = serializers.SerializerMethodField()
+    types = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -284,6 +290,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "dashboards",
             "dashboard_tiles",
             "last_refresh",
+            "cache_target_age",
             "next_allowed_client_refresh",
             "result",
             "columns",
@@ -302,6 +309,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "timezone",
             "is_cached",
             "query_status",
+            "hogql",
+            "types",
         ]
         read_only_fields = (
             "created_at",
@@ -356,6 +365,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return insight
 
+    @transaction.atomic()
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
         dashboards_before_change: list[Union[str, dict]] = []
         try:
@@ -388,6 +398,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
+        if not are_alerts_supported_for_insight(updated_insight):
+            instance.alert_set.all().delete()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
@@ -409,18 +421,17 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
         changes = detected_changes + synthetic_dashboard_changes
 
-        with transaction.atomic():
-            log_insight_activity(
-                activity="updated",
-                insight=updated_insight,
-                insight_id=updated_insight.id,
-                insight_short_id=updated_insight.short_id,
-                organization_id=self.context["request"].user.current_organization_id,
-                team_id=self.context["team_id"],
-                user=self.context["request"].user,
-                was_impersonated=is_impersonated_session(self.context["request"]),
-                changes=changes,
-            )
+        log_insight_activity(
+            activity="updated",
+            insight=updated_insight,
+            insight_id=updated_insight.id,
+            insight_short_id=updated_insight.short_id,
+            organization_id=self.context["request"].user.current_organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
+            changes=changes,
+        )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
         artificial_dashboard_changes = self.context.get("after_dashboard_changes", [])
@@ -488,6 +499,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def get_last_refresh(self, insight: Insight):
         return self.insight_result(insight).last_refresh
 
+    def get_cache_target_age(self, insight: Insight):
+        return self.insight_result(insight).cache_target_age
+
     def get_next_allowed_client_refresh(self, insight: Insight):
         return self.insight_result(insight).next_allowed_client_refresh
 
@@ -496,6 +510,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_query_status(self, insight: Insight):
         return self.insight_result(insight).query_status
+
+    def get_hogql(self, insight: Insight):
+        return self.insight_result(insight).hogql
+
+    def get_types(self, insight: Insight):
+        return self.insight_result(insight).types
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
@@ -545,27 +565,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return representation
 
-    def is_async_shared_dashboard(self, team: Team) -> bool:
-        flag_enabled = posthoganalytics.feature_enabled(
-            "hogql-dashboard-async",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        return flag_enabled and self.context.get("is_shared", False)
-
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -577,14 +576,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
 
-                if (
-                    self.is_async_shared_dashboard(insight.team)
-                    and execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
-                ):
-                    execution_mode = ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE
-                elif self.context.get("is_shared", False) and execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                    # On shared insights, we don't give the ability to refresh at will
-                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                if self.context.get("is_shared", False):
+                    execution_mode = shared_insights_execution_mode(execution_mode)
 
                 return calculate_for_query_based_insight(
                     insight,

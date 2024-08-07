@@ -56,6 +56,19 @@ class ReturnStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class ThrowStatement(Statement):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
+class TryCatchStatement(Statement):
+    try_stmt: Statement
+    # var name (e), error type (RetryError), stmt ({})  # (e: RetryError) {}
+    catches: list[tuple[Optional[str], Optional[str], Statement]]
+    finally_stmt: Optional[Statement] = None
+
+
+@dataclass(kw_only=True)
 class IfStatement(Statement):
     expr: Expr
     then: Statement
@@ -73,6 +86,14 @@ class ForStatement(Statement):
     initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
     condition: Optional[Expr]
     increment: Optional[Expr]
+    body: Statement
+
+
+@dataclass(kw_only=True)
+class ForInStatement(Statement):
+    keyVar: Optional[str]
+    valueVar: str
+    expr: Expr
     body: Statement
 
 
@@ -144,7 +165,9 @@ class BaseTableType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+                return ExpressionFieldType(
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
+                )
             return FieldType(name=name, table_type=self)
         raise QueryError(f"Field not found: {name}")
 
@@ -295,7 +318,9 @@ class SelectViewType(Type):
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
-                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+                return ExpressionFieldType(
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
+                )
             return FieldType(name=name, table_type=self)
         raise ResolutionError(f"Field {name} not found on view query with name {self.view_name}")
 
@@ -443,6 +468,8 @@ class ExpressionFieldType(Type):
     name: str
     expr: Expr
     table_type: TableOrSelectType
+    # Pushes the parent table type to the scope when resolving any child fields
+    isolate_scope: bool = False
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         if self.expr.type is not None:
@@ -628,6 +655,7 @@ class OrderExpr(Expr):
 class ArrayAccess(Expr):
     array: Expr
     property: Expr
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)
@@ -644,6 +672,7 @@ class Dict(Expr):
 class TupleAccess(Expr):
     tuple: Expr
     index: int
+    nullish: bool = False
 
 
 @dataclass(kw_only=True)
@@ -669,7 +698,11 @@ class Field(Expr):
 
 @dataclass(kw_only=True)
 class Placeholder(Expr):
-    field: str
+    chain: list[str | int]
+
+    @property
+    def field(self):
+        return ".".join(str(chain) for chain in self.chain)
 
 
 @dataclass(kw_only=True)

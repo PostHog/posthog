@@ -44,6 +44,7 @@ def get_materialized_columns(
         WHERE database = %(database)s
           AND table = %(table)s
           AND comment LIKE '%%column_materializer::%%'
+          AND comment not LIKE '%%column_materializer::elements_chain::%%'
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
@@ -200,7 +201,7 @@ def _materialized_column_name(
 ) -> str:
     "Returns a sanitized and unique column name to use for materialized column"
 
-    prefix = "mat_" if table == "events" or table == "groups" else "pmat_"
+    prefix = "pmat_" if table == "person" else "mat_"
 
     if table_column != DEFAULT_TABLE_COLUMN:
         prefix += f"{SHORT_TABLE_COLUMN_NAME[table_column]}_"

@@ -1,6 +1,7 @@
 import { urls } from 'scenes/urls'
-import { randomString } from '../support/random'
+
 import { insight } from '../productAnalytics'
+import { randomString } from '../support/random'
 
 const hogQLQuery = `select event,
           count()

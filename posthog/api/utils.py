@@ -4,8 +4,10 @@ import socket
 import urllib.parse
 from enum import Enum, auto
 from ipaddress import ip_address
+from urllib.parse import urlparse
+
 from requests.adapters import HTTPAdapter
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, Any
 
 from rest_framework.fields import Field
 from urllib3 import HTTPSConnectionPool, HTTPConnectionPool, PoolManager
@@ -20,7 +22,11 @@ from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
 from posthog.constants import EventDefinitionType
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+    generate_exception_response,
+)
 from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
@@ -180,7 +186,7 @@ def get_data(request):
     data = None
     try:
         data = load_data_from_request(request)
-    except RequestParsingError as error:
+    except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
         statsd.incr("capture_endpoint_invalid_payload")
         logger.exception(f"Invalid payload", error=error)
         return (
@@ -384,3 +390,35 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
             "http": PublicIPOnlyHTTPConnectionPool,
             "https": PublicIPOnlyHTTPSConnectionPool,
         }
+
+
+def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    # if the browser url encodes the hostname, we need to decode it first
+    hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
+    return hostname_in_allowed_url_list(allowed_url_list, hostname)
+
+
+def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    if not hostname:
+        return False
+
+    permitted_domains = []
+    if allowed_url_list:
+        for url in allowed_url_list:
+            host = parse_domain(url)
+            if host:
+                permitted_domains.append(host)
+
+    for permitted_domain in permitted_domains:
+        if "*" in permitted_domain:
+            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
+            if re.search(pattern, hostname):
+                return True
+        elif permitted_domain == hostname:
+            return True
+
+    return False
+
+
+def parse_domain(url: Any) -> Optional[str]:
+    return urlparse(url).hostname

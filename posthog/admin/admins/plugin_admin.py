@@ -47,12 +47,13 @@ class PluginAdmin(admin.ModelAdmin):
                 "fields": ["error", "from_json", "from_web", "source", "metrics", "public_jobs"],
             },
         ),
-        (
-            "Access control",
-            {
-                "fields": ["has_private_access"],
-            },
-        ),
+        # Not used for now and very slow to load
+        # (
+        #     "Access control",
+        #     {
+        #         "fields": ["has_private_access"],
+        #     },
+        # ),
     ]
 
     def organization_link(self, plugin: Plugin):

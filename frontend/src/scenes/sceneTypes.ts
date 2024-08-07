@@ -28,7 +28,6 @@ export enum Scene {
     ReplayFilePlayback = 'ReplayFilePlayback',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
-    pipelineNodeDataWarehouseNew = 'pipelineNodeDataWarehouseNew',
     PipelineNodeNew = 'PipelineNodeNew',
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',
@@ -36,9 +35,6 @@ export enum Scene {
     Action = 'Action',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
-    BatchExports = 'BatchExports',
-    BatchExport = 'BatchExport',
-    BatchExportEdit = 'BatchExportEdit',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
@@ -49,7 +45,6 @@ export enum Scene {
     DataWarehouse = 'DataWarehouse',
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseTable = 'DataWarehouseTable',
-    DataWarehouseSettings = 'DataWarehouseSettings',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
@@ -58,9 +53,6 @@ export enum Scene {
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
     Billing = 'Billing',
-    Apps = 'Apps',
-    FrontendAppScene = 'FrontendAppScene',
-    AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     Site = 'Site',
@@ -85,6 +77,7 @@ export enum Scene {
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
+    SessionAttributionExplorer = 'SessionAttributionExplorer',
 }
 
 export type SceneProps = Record<string, any>

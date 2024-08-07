@@ -26,14 +26,38 @@ export function renderColumn(
     key: string,
     value: any,
     record: Record<string, any> | any[],
+    recordIndex: number,
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+
     if (value === loadingColumn) {
         return <Spinner />
     } else if (value === errorColumn) {
-        return <LemonTag color="red">Error</LemonTag>
+        return <LemonTag className="text-danger">Error</LemonTag>
+    } else if (queryContextColumnName && queryContextColumn?.render) {
+        const Component = queryContextColumn?.render
+        return (
+            <Component
+                record={record}
+                columnName={queryContextColumnName}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+            />
+        )
+    } else if (context?.columns?.[key] && context?.columns?.[key].render) {
+        const Component = context?.columns?.[key]?.render
+        return Component ? (
+            <Component record={record} columnName={key} value={value} query={query} recordIndex={recordIndex} />
+        ) : (
+            String(value)
+        )
+    } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
+        return renderHogQLX(value)
     } else if (value === null) {
         return (
             <Tooltip title="NULL" placement="right" delayMs={0}>
@@ -42,8 +66,6 @@ export function renderColumn(
                 </span>
             </Tooltip>
         )
-    } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
-        return renderHogQLX(value)
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -223,10 +245,11 @@ export function renderColumn(
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
-        return Component ? <Component record={record} columnName={columnName} value={value} query={query} /> : ''
-    } else if (context?.columns?.[key]) {
-        const Component = context?.columns?.[key]?.render
-        return Component ? <Component record={record} columnName={key} value={value} query={query} /> : ''
+        return Component ? (
+            <Component record={record} columnName={columnName} value={value} query={query} recordIndex={recordIndex} />
+        ) : (
+            String(value)
+        )
     } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline

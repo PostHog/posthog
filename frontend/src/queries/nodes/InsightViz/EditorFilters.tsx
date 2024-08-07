@@ -177,15 +177,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 hasBreakdown
                     ? {
                           key: 'breakdown',
-                          label: 'Breakdown by',
                           position: 'right',
-                          tooltip: (
-                              <>
-                                  Use breakdown to see the aggregation (total volume, active users, etc.) for each value
-                                  of that property. For example, breaking down by Current URL with total volume will
-                                  give you the event volume for each URL your users have visited.
-                              </>
-                          ),
                           component: Breakdown,
                       }
                     : null,

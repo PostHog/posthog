@@ -95,7 +95,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.wait('@signupRequest').then((interception) => {
+        cy.wait('@signupRequest').then(() => {
             cy.get('.LemonBanner').should('contain', 'There is already an account with this email address.')
         })
 

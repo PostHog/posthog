@@ -1,12 +1,16 @@
+import uuid
 from abc import ABC
 from functools import cached_property
 from typing import Any, Optional, Union, cast
-import uuid
+
+from rest_framework.exceptions import ValidationError
+
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import (
@@ -17,19 +21,20 @@ from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property.property import PropertyName
-from posthog.queries.util import correct_result_for_sampling
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_cohort_name
+from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     BreakdownAttributionType,
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelTimeToConvertResults,
+    FunnelVizType,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
-from rest_framework.exceptions import ValidationError
 
 
 class FunnelBase(ABC):
@@ -572,6 +577,8 @@ class FunnelBase(ABC):
         entity_name: str,
         step_prefix: str,
     ) -> ast.Expr:
+        filters: list[ast.Expr] = []
+
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
             action = Action.objects.get(pk=int(entity.id), team=self.context.team)
@@ -585,12 +592,21 @@ class FunnelBase(ABC):
             # event
             event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=entity.event)})
 
+        filters.append(event_expr)
+
+        filter_expr: ast.Expr | None = None
         if entity.properties is not None and entity.properties != []:
             # add property filters
             filter_expr = property_to_expr(entity.properties, self.context.team)
-            return ast.And(exprs=[event_expr, filter_expr])
-        else:
-            return event_expr
+            filters.append(filter_expr)
+
+        if entity.math == BaseMathType.FIRST_TIME_FOR_USER:
+            subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
+            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            return ast.And(exprs=[*filters, first_time_filter])
+        elif len(filters) > 1:
+            return ast.And(exprs=filters)
+        return filters[0]
 
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         if self.context.includePrecedingTimestamp:
@@ -965,7 +981,7 @@ class FunnelBase(ABC):
         return exprs
 
     def _get_step_counts_query(self, outer_select: list[ast.Expr], inner_select: list[ast.Expr]) -> ast.SelectQuery:
-        max_steps = self.context.max_steps
+        max_steps, funnel_viz_type = self.context.max_steps, self.context.funnelsFilter.funnelVizType
         breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
@@ -984,11 +1000,16 @@ class FunnelBase(ABC):
             *outer_timestamps,
             *person_and_group_properties,
         ]
-        if breakdown and breakdownType in [
-            BreakdownType.PERSON,
-            BreakdownType.EVENT,
-            BreakdownType.GROUP,
-        ]:
+        if (
+            funnel_viz_type != FunnelVizType.TIME_TO_CONVERT
+            and breakdown
+            and breakdownType
+            in [
+                BreakdownType.PERSON,
+                BreakdownType.EVENT,
+                BreakdownType.GROUP,
+            ]
+        ):
             time_fields = [
                 parse_expr(f"min(step_{i}_conversion_time) as step_{i}_conversion_time") for i in range(1, max_steps)
             ]

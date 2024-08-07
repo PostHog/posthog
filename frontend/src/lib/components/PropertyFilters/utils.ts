@@ -271,9 +271,10 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
+    [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
 }
 
-const filterToTaxonomicFilterType = (
+export const filterToTaxonomicFilterType = (
     type?: string | null,
     group_type_index?: number | null,
     value?: (string | number)[] | string | number | null

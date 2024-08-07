@@ -51,9 +51,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
         toggleIsPlanComparisonModalOpen: (highlightedFeatureKey?: string) => ({ highlightedFeatureKey }),
-        setSurveyResponse: (surveyResponse: string, key: string) => ({ surveyResponse, key }),
+        setSurveyResponse: (key: string, value: string | string[]) => ({ key, value }),
+        toggleSurveyReason: (reason: string) => ({ reason }),
         reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
-        reportSurveySent: (surveyID: string, surveyResponse: Record<string, string>) => ({
+        reportSurveySent: (surveyID: string, surveyResponse: Record<string, string | string[]>) => ({
             surveyID,
             surveyResponse,
         }),
@@ -110,10 +111,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         surveyResponse: [
-            {},
+            { $survey_response_2: [], $survey_response: '' } as {
+                $survey_response_2: string[]
+                $survey_response: string
+            },
             {
-                setSurveyResponse: (state, { surveyResponse, key }) => {
-                    return { ...state, [key]: surveyResponse }
+                setSurveyResponse: (state, { key, value }) => {
+                    return { ...state, [key]: value }
+                },
+                toggleSurveyReason: (state, { reason }) => {
+                    const reasons = state.$survey_response_2.includes(reason)
+                        ? state.$survey_response_2.filter((r) => r !== reason)
+                        : [...state.$survey_response_2, reason]
+                    return { ...state, $survey_response_2: reasons }
                 },
             },
         ],
@@ -146,10 +156,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
-                return (
-                    billing?.custom_limits_usd?.[product.type] ||
-                    (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : '')
-                )
+                const customLimit = billing?.custom_limits_usd?.[product.type]
+                if (customLimit === 0 || customLimit) {
+                    return customLimit
+                }
+                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
             },
         ],
         currentAndUpgradePlans: [
@@ -197,7 +208,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               productAndAddonTiers,
                               billing?.discount_percent
                           )
-                        : convertAmountToUsage(customLimitUsd || '', productAndAddonTiers, billing?.discount_percent)
+                        : convertAmountToUsage(
+                              typeof customLimitUsd === 'number' ? `${customLimitUsd}` : customLimitUsd || '',
+                              productAndAddonTiers,
+                              billing?.discount_percent
+                          )
                     : 0
             },
         ],
@@ -251,8 +266,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLoaded: () => {
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
-                values.customLimitUsd
-                    ? parseInt(values.customLimitUsd)
+                values.customLimitUsd === 0 || values.customLimitUsd
+                    ? parseInt(
+                          typeof values.customLimitUsd === 'number'
+                              ? `${values.customLimitUsd}`
+                              : values.customLimitUsd || ''
+                      )
                     : props.product.tiers && parseInt(props.product.projected_amount_usd || '0')
                     ? parseInt(props.product.projected_amount_usd || '0') * 1.5
                     : DEFAULT_BILLING_LIMIT
@@ -265,6 +284,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.setSurveyID(surveyID)
         },
         reportSurveySent: ({ surveyID, surveyResponse }) => {
+            // @note(zach): this is submitting to https://us.posthog.com/project/2/surveys/018b6e13-590c-0000-decb-c727a2b3f462?edit=true
+            // $survey_response: open text response
+            // $survey_response_1: this is the product type
+            // $survey_response_2: list of reasons
+            // The order is due to the form being built before reasons we're supported. Please do not change the order.
             posthog.capture('survey sent', {
                 $survey_id: surveyID,
                 ...surveyResponse,
@@ -277,13 +301,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
             })
             actions.setSurveyID('')
         },
-        deactivateProductSuccess: () => {
+        deactivateProductSuccess: async (_, breakpoint) => {
             if (!values.unsubscribeError) {
+                const hasSurveyReasons = values.surveyResponse['$survey_response_2']?.length > 0
                 const textAreaNotEmpty = values.surveyResponse['$survey_response']?.length > 0
-                textAreaNotEmpty
+                const shouldReportSurvey = hasSurveyReasons || textAreaNotEmpty
+                shouldReportSurvey
                     ? actions.reportSurveySent(values.surveyID, values.surveyResponse)
                     : actions.reportSurveyDismissed(values.surveyID)
             }
+            await breakpoint(200)
+            location.reload()
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
             if (scrollToProductKey && scrollToProductKey === props.product.type) {

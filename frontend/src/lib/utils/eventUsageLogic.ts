@@ -45,7 +45,6 @@ import {
     EntityType,
     Experiment,
     FilterLogicalOperator,
-    FilterType,
     FunnelCorrelation,
     HelpType,
     InsightModel,
@@ -292,7 +291,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         // insights
         reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
-        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
+        reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             query: Node | null,
@@ -539,6 +538,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
+        reportBillingDowngradeClicked: (plan: string) => ({ plan }),
         reportRoleCreated: (role: string) => ({ role }),
         reportResourceAccessLevelUpdated: (resourceType: Resource, roleName: string, accessLevel: AccessLevel) => ({
             resourceType,
@@ -635,10 +635,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
             posthog.capture('insight created', { insight: insightType })
         },
-        reportInsightSaved: async ({ filters, isNewInsight }) => {
+        reportInsightSaved: async ({ query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
-                ...filters,
+                ...sanitizeQuery(query),
                 is_new_insight: isNewInsight,
             })
         },
@@ -1176,6 +1176,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportBillingUpgradeClicked: ({ plan }) => {
             posthog.capture('billing upgrade button clicked', {
+                plan,
+            })
+        },
+        reportBillingDowngradeClicked: ({ plan }) => {
+            posthog.capture('billing downgrade button clicked', {
                 plan,
             })
         },

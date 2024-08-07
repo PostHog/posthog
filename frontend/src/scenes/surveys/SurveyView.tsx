@@ -2,8 +2,9 @@ import './SurveyView.scss'
 
 import { TZLabel } from '@posthog/apps-common'
 import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
@@ -16,9 +17,17 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { InsightType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    ActivityScope,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
-import { SURVEY_EVENT_NAME } from './constants'
+import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -89,7 +98,28 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.end_date && !survey.archived && (
                                                 <LemonButton
                                                     data-attr="archive-survey"
-                                                    onClick={() => archiveSurvey()}
+                                                    onClick={() => {
+                                                        LemonDialog.open({
+                                                            title: 'Archive this survey?',
+                                                            content: (
+                                                                <div className="text-sm text-muted">
+                                                                    This action will remove the survey from your active
+                                                                    surveys list. It can be restored at any time.
+                                                                </div>
+                                                            ),
+                                                            primaryButton: {
+                                                                children: 'Archive',
+                                                                type: 'primary',
+                                                                onClick: () => archiveSurvey(),
+                                                                size: 'small',
+                                                            },
+                                                            secondaryButton: {
+                                                                children: 'Cancel',
+                                                                type: 'tertiary',
+                                                                size: 'small',
+                                                            },
+                                                        })
+                                                    }}
                                                     fullWidth
                                                 >
                                                     Archive
@@ -99,7 +129,28 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 status="danger"
                                                 data-attr="delete-survey"
                                                 fullWidth
-                                                onClick={() => deleteSurvey(id)}
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: 'Delete this survey?',
+                                                        content: (
+                                                            <div className="text-sm text-muted">
+                                                                This action cannot be undone. All survey data will be
+                                                                permanently removed.
+                                                            </div>
+                                                        ),
+                                                        primaryButton: {
+                                                            children: 'Delete',
+                                                            type: 'primary',
+                                                            onClick: () => deleteSurvey(id),
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
+                                                        },
+                                                    })
+                                                }}
                                             >
                                                 Delete survey
                                             </LemonButton>
@@ -112,13 +163,55 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         type="primary"
                                         data-attr="launch-survey"
                                         onClick={() => {
-                                            launchSurvey()
+                                            LemonDialog.open({
+                                                title: 'Launch this survey?',
+                                                content: (
+                                                    <div className="text-sm text-muted">
+                                                        The survey will immediately start displaying to users matching
+                                                        the display conditions.
+                                                    </div>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Launch',
+                                                    type: 'primary',
+                                                    onClick: () => launchSurvey(),
+                                                    size: 'small',
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
                                         }}
                                     >
                                         Launch
                                     </LemonButton>
                                 ) : survey.end_date && !survey.archived ? (
-                                    <LemonButton type="secondary" onClick={() => resumeSurvey()}>
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Resume this survey?',
+                                                content: (
+                                                    <div className="text-sm text-muted">
+                                                        Once resumed, the survey will be visible to your users again.
+                                                    </div>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Resume',
+                                                    type: 'primary',
+                                                    onClick: () => resumeSurvey(),
+                                                    size: 'small',
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'tertiary',
+                                                    size: 'small',
+                                                },
+                                            })
+                                        }}
+                                    >
                                         Resume
                                     </LemonButton>
                                 ) : (
@@ -127,7 +220,27 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             data-attr="stop-survey"
                                             type="secondary"
                                             status="danger"
-                                            onClick={() => stopSurvey()}
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: 'Stop this survey?',
+                                                    content: (
+                                                        <div className="text-sm text-muted">
+                                                            The survey will no longer be displayed to users.
+                                                        </div>
+                                                    ),
+                                                    primaryButton: {
+                                                        children: 'Stop',
+                                                        type: 'primary',
+                                                        onClick: () => stopSurvey(),
+                                                        size: 'small',
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                        type: 'tertiary',
+                                                        size: 'small',
+                                                    },
+                                                })
+                                            }}
                                         >
                                             Stop
                                         </LemonButton>
@@ -180,11 +293,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.questions[0].question && (
                                                 <>
                                                     <span className="card-secondary mt-4">Type</span>
-                                                    <span>
-                                                        {survey.questions.length > 1
-                                                            ? 'Multiple questions'
-                                                            : capitalizeFirstLetter(survey.questions[0].type)}
-                                                    </span>
+                                                    <span>{SurveyQuestionLabel[survey.questions[0].type]}</span>
                                                     <span className="card-secondary mt-4">
                                                         {pluralize(
                                                             survey.questions.length,
@@ -291,6 +400,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 ),
                                 key: 'overview',
                                 label: 'Overview',
+                            },
+                            {
+                                label: 'History',
+                                key: 'History',
+                                content: <ActivityLog scope={ActivityScope.SURVEY} id={survey.id} />,
                             },
                         ]}
                     />

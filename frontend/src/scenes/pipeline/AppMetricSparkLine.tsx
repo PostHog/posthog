@@ -1,7 +1,9 @@
-import { useValues } from 'kea'
-import { Sparkline, SparklineTimeSeries } from 'lib/lemon-ui/Sparkline'
+import { useActions, useValues } from 'kea'
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
+import { useEffect } from 'react'
 
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
+import { pipelineNodeMetricsV2Logic } from './pipelineNodeMetricsV2Logic'
 import { PipelineNode } from './types'
 
 export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNode }): JSX.Element {
@@ -17,17 +19,59 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
     const displayData: SparklineTimeSeries[] = [
         {
             color: 'success',
-            name: pipelineNode.backend == 'batch_export' ? 'Runs succeeded' : 'Events sent',
+            name: 'Success',
             values: successes,
         },
     ]
+
     if (appMetricsResponse?.metrics.failures.some((failure) => failure > 0)) {
         displayData.push({
             color: 'danger',
-            name: pipelineNode.backend == 'batch_export' ? 'Runs failed' : 'Events dropped',
+            name: 'Failure',
             values: failures,
         })
     }
 
-    return <Sparkline loading={appMetricsResponse === null} labels={dates} data={displayData} className="max-w-24" />
+    return (
+        <Sparkline
+            loading={appMetricsResponse === null}
+            labels={dates}
+            data={displayData}
+            className="max-w-24 h-8"
+            maximumIndicator={false}
+        />
+    )
+}
+
+export function AppMetricSparkLineV2({ pipelineNode }: { pipelineNode: PipelineNode }): JSX.Element {
+    const logic = pipelineNodeMetricsV2Logic({ id: `${pipelineNode.id}`.replace('hog-', '') })
+    const { appMetrics, appMetricsLoading } = useValues(logic)
+    const { loadMetrics } = useActions(logic)
+
+    useEffect(() => {
+        loadMetrics()
+    }, [])
+
+    const displayData: SparklineTimeSeries[] = [
+        {
+            color: 'success',
+            name: 'Success',
+            values: appMetrics?.series.find((s) => s.name === 'succeeded')?.values || [],
+        },
+        {
+            color: 'danger',
+            name: 'Failures',
+            values: appMetrics?.series.find((s) => s.name === 'failed')?.values || [],
+        },
+    ]
+
+    return (
+        <Sparkline
+            loading={appMetricsLoading}
+            labels={appMetrics?.labels}
+            data={displayData}
+            className="max-w-24 h-8"
+            maximumIndicator={false}
+        />
+    )
 }

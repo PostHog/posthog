@@ -10,6 +10,7 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import {
     DatabaseSerializedFieldType,
+    ErrorTrackingGroup,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -20,8 +21,10 @@ import {
     ActionType,
     ActivityScope,
     AlertType,
+    AppMetricsTotalsV2Response,
+    AppMetricsV2RequestParams,
+    AppMetricsV2Response,
     BatchExportConfiguration,
-    BatchExportLogEntry,
     BatchExportRun,
     CohortType,
     CommentType,
@@ -41,6 +44,7 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataJob,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
@@ -58,6 +62,7 @@ import {
     IntegrationType,
     ListOrganizationMembersParams,
     LogEntry,
+    LogEntryRequestParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -77,6 +82,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
+    RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
     RoleType,
@@ -327,10 +333,6 @@ class ApiRequest {
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
-    }
-
-    public pluginLogs(pluginConfigId: number, teamId?: TeamType['id']): ApiRequest {
-        return this.pluginConfig(pluginConfigId, teamId).addPathComponent('logs')
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
@@ -656,6 +658,26 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
 
+    public surveyActivity(id: Survey['id'] | undefined, teamId?: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.survey(id, teamId).addPathComponent('activity')
+        }
+        return this.surveys(teamId).addPathComponent('activity')
+    }
+
+    // Error tracking
+    public errorTracking(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('error_tracking')
+    }
+
+    public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent(fingerprint)
+    }
+
+    public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
+        return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -736,7 +758,7 @@ class ApiRequest {
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
-            return apiRequest.withQueryString('showProgress=true')
+            return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
     }
@@ -759,10 +781,6 @@ class ApiRequest {
         return this.batchExports(teamId).addPathComponent(id)
     }
 
-    public batchExportLogs(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.batchExport(id, teamId).addPathComponent('logs')
-    }
-
     public batchExportRuns(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
     }
@@ -773,14 +791,6 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.batchExportRuns(id, teamId).addPathComponent(runId)
-    }
-
-    public batchExportRunLogs(
-        id: BatchExportConfiguration['id'],
-        runId: BatchExportRun['id'],
-        teamId?: TeamType['id']
-    ): ApiRequest {
-        return this.batchExportRun(id, runId, teamId).addPathComponent('logs')
     }
 
     // External Data Source
@@ -890,17 +900,25 @@ const api = {
     insights: {
         loadInsight(
             shortId: InsightModel['short_id'],
-            basic?: boolean
+            basic?: boolean,
+            refresh?: RefreshType
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
                 .withQueryString(
                     toParams({
                         short_id: encodeURIComponent(shortId),
-                        basic: basic,
+                        basic,
+                        refresh,
                     })
                 )
                 .get()
+        },
+        async create(data: any): Promise<InsightModel> {
+            return await new ApiRequest().insights().create({ data })
+        },
+        async update(id: number, data: any): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data })
         },
     },
 
@@ -1010,10 +1028,14 @@ const api = {
                     return new ApiRequest().insightsActivity(teamId)
                 },
                 [ActivityScope.PLUGIN]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return new ApiRequest().pluginsActivity()
+                    return activityLogProps.id
+                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
                     return new ApiRequest().dataManagementActivity()
@@ -1033,6 +1055,9 @@ const api = {
                 },
                 [ActivityScope.TEAM]: () => {
                     return new ApiRequest().projectsDetail().withAction('activity')
+                },
+                [ActivityScope.SURVEY]: (props) => {
+                    return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
             }
 
@@ -1580,91 +1605,40 @@ const api = {
         async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
             return await new ApiRequest().pluginConfigs().get()
         },
-    },
-
-    pluginLogs: {
-        async search(
-            pluginConfigId: number,
-            searchTerm: string | null = null,
-            typeFilters: CheckboxValueType[] = [],
-            trailingEntry: PluginLogEntry | null = null,
-            leadingEntry: PluginLogEntry | null = null
-        ): Promise<PluginLogEntry[]> {
-            const params = toParams(
-                {
-                    limit: LOGS_PORTION_LIMIT,
-                    type_filter: typeFilters,
-                    search: searchTerm || undefined,
-                    before: trailingEntry?.timestamp,
-                    after: leadingEntry?.timestamp,
-                },
-                true
-            )
-
-            const response = await new ApiRequest().pluginLogs(pluginConfigId).withQueryString(params).get()
-
-            return response.results
-        },
-    },
-
-    batchExportLogs: {
-        async search(
-            batchExportId: string,
-            searchTerm: string | null = null,
-            typeFilters: CheckboxValueType[] = [],
-            trailingEntry: BatchExportLogEntry | null = null,
-            leadingEntry: BatchExportLogEntry | null = null
-        ): Promise<BatchExportLogEntry[]> {
-            const params = toParams(
-                {
-                    limit: LOGS_PORTION_LIMIT,
-                    level_filter: typeFilters,
-                    search: searchTerm || undefined,
-                    before: trailingEntry?.timestamp,
-                    after: leadingEntry?.timestamp,
-                },
-                true
-            )
-
-            const response = await new ApiRequest().batchExportLogs(batchExportId).withQueryString(params).get()
-
-            return response.results
-        },
-    },
-
-    batchExportRunLogs: {
-        async search(
-            batchExportId: string,
-            batchExportRunId: string,
-            currentTeamId: number | null,
-            searchTerm: string | null = null,
-            typeFilters: CheckboxValueType[] = [],
-            trailingEntry: BatchExportLogEntry | null = null,
-            leadingEntry: BatchExportLogEntry | null = null
-        ): Promise<BatchExportLogEntry[]> {
-            const params = toParams(
-                {
-                    limit: LOGS_PORTION_LIMIT,
-                    type_filter: typeFilters,
-                    search: searchTerm || undefined,
-                    before: trailingEntry?.timestamp,
-                    after: leadingEntry?.timestamp,
-                },
-                true
-            )
-
+        async logs(pluginConfigId: number, params: LogEntryRequestParams): Promise<LogEntry[]> {
+            const levels = (params.level?.split(',') ?? []).filter((x) => x !== 'WARNING')
             const response = await new ApiRequest()
-                .batchExportRunLogs(batchExportId, batchExportRunId, currentTeamId || undefined)
-                .withQueryString(params)
+                .pluginConfig(pluginConfigId)
+                .withAction('logs')
+                .withQueryString(
+                    toParams(
+                        {
+                            limit: LOGS_PORTION_LIMIT,
+                            type_filter: levels,
+                            search: params.search,
+                            before: params.before,
+                            after: params.after,
+                        },
+                        true
+                    )
+                )
                 .get()
 
-            return response.results
+            const results = response.results.map((entry: PluginLogEntry) => ({
+                log_source_id: `${entry.plugin_config_id}`,
+                instance_id: entry.source,
+                timestamp: entry.timestamp,
+                level: entry.type,
+                message: entry.message,
+            }))
+
+            return results
         },
     },
 
     hogFunctions: {
-        async list(): Promise<PaginatedResponse<HogFunctionType>> {
-            return await new ApiRequest().hogFunctions().get()
+        async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest().hogFunctions().withQueryString(params).get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).get()
@@ -1675,11 +1649,23 @@ const api = {
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
         },
-        async searchLogs(
+        async logs(
             id: HogFunctionType['id'],
-            params: Record<string, any> = {}
+            params: LogEntryRequestParams = {}
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
+        },
+        async metrics(
+            id: HogFunctionType['id'],
+            params: AppMetricsV2RequestParams = {}
+        ): Promise<AppMetricsV2Response> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics').withQueryString(params).get()
+        },
+        async metricsTotals(
+            id: HogFunctionType['id'],
+            params: Partial<AppMetricsV2RequestParams> = {}
+        ): Promise<AppMetricsTotalsV2Response> {
+            return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
 
         async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
@@ -1698,7 +1684,7 @@ const api = {
             data: {
                 configuration: Partial<HogFunctionType>
                 mock_async_functions: boolean
-                event: any
+                globals: any
             }
         ): Promise<any> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
@@ -1715,7 +1701,7 @@ const api = {
         },
         async update(
             annotationId: RawAnnotationType['id'],
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
@@ -1729,12 +1715,30 @@ const api = {
                 .get()
         },
         async create(
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().annotations().assembleEndpointUrl()
+        },
+    },
+
+    errorTracking: {
+        async update(
+            fingerprint: ErrorTrackingGroup['fingerprint'],
+            data: Partial<Pick<ErrorTrackingGroup, 'assignee'>>
+        ): Promise<ErrorTrackingGroup> {
+            return await new ApiRequest().errorTrackingGroup(fingerprint).update({ data })
+        },
+
+        async merge(
+            primaryFingerprint: ErrorTrackingGroup['fingerprint'],
+            mergingFingerprints: ErrorTrackingGroup['fingerprint'][]
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingMerge(primaryFingerprint)
+                .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
     },
 
@@ -1939,7 +1943,7 @@ const api = {
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
-        ): Promise<PaginatedResponse<BatchExportRun>> {
+        ): Promise<PaginatedResponse<RawBatchExportRun>> {
             return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
         },
         async createBackfill(
@@ -1947,6 +1951,12 @@ const api = {
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+        },
+        async logs(
+            id: BatchExportConfiguration['id'],
+            params: LogEntryRequestParams = {}
+        ): Promise<PaginatedResponse<LogEntry>> {
+            return await new ApiRequest().batchExport(id).withAction('logs').withQueryString(params).get()
         },
     },
 
@@ -2039,10 +2049,12 @@ const api = {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
     },
-
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
             return await new ApiRequest().externalDataSources().get(options)
+        },
+        async get(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataStripeSource> {
+            return await new ApiRequest().externalDataSource(sourceId).get()
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
@@ -2077,6 +2089,17 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
+        async jobs(
+            sourceId: ExternalDataStripeSource['id'],
+            before: string | null,
+            after: string | null
+        ): Promise<ExternalDataJob[]> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('jobs')
+                .withQueryString({ before, after })
+                .get()
+        },
     },
 
     externalDataSchemas: {
@@ -2094,6 +2117,16 @@ const api = {
         },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
+        },
+        async logs(
+            schemaId: ExternalDataSourceSchema['id'],
+            params: LogEntryRequestParams = {}
+        ): Promise<PaginatedResponse<LogEntry>> {
+            return await new ApiRequest()
+                .externalDataSourceSchema(schemaId)
+                .withAction('logs')
+                .withQueryString(params)
+                .get()
         },
     },
 
@@ -2163,6 +2196,9 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
+        },
+        authorizeUrl(params: { kind: string; next?: string }): string {
+            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()

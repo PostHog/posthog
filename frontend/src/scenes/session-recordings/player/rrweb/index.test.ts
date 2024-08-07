@@ -18,12 +18,13 @@ describe('CorsPlugin', () => {
         }
     )
 
-    it.each(['https://app.posthog.com/my-image.jpeg'])(
-        'should not replace non-font urls in links',
-        (content: string) => {
-            expect(CorsPlugin._replaceFontUrl(content)).toEqual(content)
-        }
-    )
+    it.each([
+        'https://app.posthog.com/my-image.jpeg',
+        // ttf substring was matching in a previous version
+        'https://app-static.eu.posthog.com/static/index-EBVVDttf.css',
+    ])('should not replace non-font urls in links', (content: string) => {
+        expect(CorsPlugin._replaceFontUrl(content)).toEqual(content)
+    })
 
     it('can replace a modulepreload js link', () => {
         const el = document.createElement('link')

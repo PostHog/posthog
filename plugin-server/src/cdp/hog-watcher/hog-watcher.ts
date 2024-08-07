@@ -64,7 +64,7 @@ export class HogWatcherActiveObservations {
 
     observeResults(results: HogFunctionInvocationResult[]) {
         results.forEach((result) =>
-            this.addObservations(result.hogFunctionId, {
+            this.addObservations(result.invocation.hogFunctionId, {
                 successes: result.finished ? 1 : 0,
                 failures: result.error ? 1 : 0,
             })
@@ -75,8 +75,8 @@ export class HogWatcherActiveObservations {
         // NOTE: This probably wants to be done using the response status instead :thinking:
         responses.forEach((response) =>
             this.addObservations(response.hogFunctionId, {
-                asyncFunctionSuccesses: response.error ? 0 : 1,
-                asyncFunctionFailures: response.error ? 1 : 0,
+                asyncFunctionSuccesses: response.asyncFunctionResponse.error ? 0 : 1,
+                asyncFunctionFailures: response.asyncFunctionResponse.error ? 1 : 0,
             })
         )
     }
@@ -363,6 +363,13 @@ export class HogWatcher {
 
             if (currentState !== newState) {
                 transitionToState(id, newState)
+                // Extra logging to help debugging:
+
+                status.info('👀', `[HogWatcher] Function ${id} changed state`, {
+                    oldState: currentState,
+                    newState: newState,
+                    ratings: newRatings,
+                })
             }
         })
 
@@ -390,9 +397,11 @@ export class HogWatcher {
             return
         }
 
-        status.info('👀', '[HogWatcher] Functions changed state', {
-            changes: stateChanges,
-        })
+        if (Object.keys(stateChanges.states).length) {
+            status.info('👀', '[HogWatcher] Functions changed state', {
+                changes: stateChanges,
+            })
+        }
 
         // Finally write the state summary
         const states: Record<HogFunctionType['id'], HogWatcherState> = Object.fromEntries(

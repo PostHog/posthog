@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -7,7 +8,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { DatabaseSchemaViewTable } from '~/queries/schema'
-import { ProductKey } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
@@ -23,7 +23,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             null,
             {
                 createDataWarehouseSavedQuery: async (view: Partial<DatabaseSchemaViewTable>) => {
-                    await api.dataWarehouseSavedQueries.create(view)
+                    const newView = await api.dataWarehouseSavedQueries.create(view)
+
+                    lemonToast.success(`${newView.name ?? 'View'} successfully created`)
+                    router.actions.push(urls.dataWarehouseView(newView.id))
+
                     return null
                 },
                 deleteDataWarehouseSavedQuery: async (viewId: string) => {
@@ -40,7 +44,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
-            router.actions.push(urls.dataWarehouse())
         },
         updateDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
@@ -51,12 +54,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             (s) => [s.views, s.databaseLoading],
             (views, databaseLoading): boolean => {
                 return views?.length == 0 && !databaseLoading
-            },
-        ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.DATA_WAREHOUSE_SAVED_QUERY]
             },
         ],
     }),

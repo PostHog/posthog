@@ -64,12 +64,7 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-import {
-    groupDataMissingCounter,
-    groupInfoCacheResultCounter,
-    personUpdateVersionMismatchCounter,
-    pluginLogEntryCounter,
-} from './metrics'
+import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
@@ -453,97 +448,6 @@ export class DB {
                 body_encoding: 'base64',
             },
         })
-    }
-
-    REDIS_GROUP_DATA_PREFIX = 'group_data_cache_v2'
-
-    public getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
-        return `${this.REDIS_GROUP_DATA_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
-    }
-
-    public async updateGroupCache(
-        teamId: number,
-        groupTypeIndex: number,
-        groupKey: string,
-        groupData: CachedGroupData
-    ): Promise<void> {
-        const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
-        await this.redisSet(groupCacheKey, groupData, 'updateGroupCache')
-    }
-
-    public async getGroupsColumns(
-        teamId: number,
-        groupIds: GroupId[]
-    ): Promise<Record<string, string | ClickHouseTimestamp>> {
-        const groupPropertiesColumns: Record<string, string> = {}
-        const groupCreatedAtColumns: Record<string, ClickHouseTimestamp> = {}
-
-        for (const [groupTypeIndex, groupKey] of groupIds) {
-            const groupCacheKey = this.getGroupDataCacheKey(teamId, groupTypeIndex, groupKey)
-            const propertiesColumnName = `group${groupTypeIndex}_properties`
-            const createdAtColumnName = `group${groupTypeIndex}_created_at`
-
-            // Lookup data from the cache, but don't throw errors - we'll fallback to Postgres if Redis is unavailable
-            try {
-                const cachedGroupData = await this.redisGet<CachedGroupData | null>(
-                    groupCacheKey,
-                    null,
-                    'getGroupsColumns'
-                )
-
-                if (cachedGroupData) {
-                    groupInfoCacheResultCounter.labels({ result: 'hit' }).inc()
-                    groupPropertiesColumns[propertiesColumnName] = JSON.stringify(cachedGroupData.properties)
-                    groupCreatedAtColumns[createdAtColumnName] = cachedGroupData.created_at
-
-                    continue
-                }
-            } catch (error) {
-                captureException(error, { tags: { team_id: teamId } })
-            }
-
-            groupInfoCacheResultCounter.labels({ result: 'miss' }).inc()
-
-            // If we didn't find cached data, lookup the group from Postgres
-            const storedGroupData = await this.fetchGroup(teamId, groupTypeIndex as GroupTypeIndex, groupKey)
-
-            if (storedGroupData) {
-                groupPropertiesColumns[propertiesColumnName] = JSON.stringify(storedGroupData.group_properties)
-
-                const createdAt = castTimestampOrNow(
-                    storedGroupData.created_at.toUTC(),
-                    TimestampFormat.ClickHouse
-                ) as ClickHouseTimestamp
-
-                groupCreatedAtColumns[createdAtColumnName] = createdAt
-
-                // We found data in Postgres, so update the cache
-                // We also don't want to throw here, worst case is we'll have to fetch from Postgres again next time
-                try {
-                    await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
-                        properties: storedGroupData.group_properties,
-                        created_at: createdAt,
-                    })
-                } catch (error) {
-                    captureException(error, { tags: { team_id: teamId } })
-                }
-            } else {
-                // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
-                groupDataMissingCounter.inc()
-                status.debug('🔍', `Could not find group data for group ${groupCacheKey} in cache or storage`)
-
-                groupPropertiesColumns[propertiesColumnName] = '{}'
-                groupCreatedAtColumns[createdAtColumnName] = castTimestampOrNow(
-                    DateTime.fromJSDate(new Date(0)).toUTC(),
-                    TimestampFormat.ClickHouse
-                ) as ClickHouseTimestamp
-            }
-        }
-
-        return {
-            ...groupPropertiesColumns,
-            ...groupCreatedAtColumns,
-        }
     }
 
     private toPerson(row: RawPerson): InternalPerson {

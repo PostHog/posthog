@@ -5,8 +5,8 @@ from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
 from rest_framework import status
 
-from posthog.models import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest
+from posthog.models import User, NotificationViewed
+from posthog.test.base import APIBaseTest, QueryMatchingTest, FuzzyInt
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -266,6 +266,22 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert changes.status_code == status.HTTP_200_OK
         assert changes.json()["last_read"] == "2023-08-17T04:24:25Z"
         assert [c["unread"] for c in changes.json()["results"]] == [True, True]
+
+    def test_notifications_viewed_n_plus_1(self) -> None:
+        for i in range(1, 9):
+            if i % 3 == 0:
+                user = self.user
+            elif i % 3 == 1:
+                user = self.other_user
+            else:
+                user = self.third_user
+
+            NotificationViewed.objects.update_or_create(
+                user=user, defaults={"last_viewed_activity_date": f"2023-0{i}-17T04:36:50Z"}
+            )
+
+            with self.assertNumQueries(FuzzyInt(37, 37)):
+                self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
 
     def _create_insight(
         self,

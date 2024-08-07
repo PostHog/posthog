@@ -32,6 +32,8 @@ from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.tasks.usage_report import (
+    OrgReport,
+    _add_team_report_to_org_reports,
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
@@ -41,8 +43,6 @@ from posthog.tasks.usage_report import (
     capture_event,
     get_instance_metadata,
     send_all_org_usage_reports,
-    OrgReport,
-    _add_team_report_to_org_reports,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -54,6 +54,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.utils import get_machine_id, get_previous_day
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
@@ -165,7 +166,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_internal_team_0,
                 )
@@ -177,6 +178,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             _create_event(
                 distinct_id=distinct_id,
                 event="survey sent",
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
             )
@@ -219,7 +221,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     event_uuid=uuid,
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
@@ -230,7 +232,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     event_uuid=uuid,
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
@@ -238,7 +240,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
             )
@@ -285,7 +287,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 distinct_id=distinct_id,
                 team=self.team,
                 timestamp=now() - relativedelta(hours=12),
-                properties={"$group_0": "org:5"},
+                properties={"$group_0": "org:5", "$is_identified": True},
             )
             _create_event(
                 event="event",
@@ -293,7 +295,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 distinct_id=distinct_id,
                 team=self.team,
                 timestamp=now() - relativedelta(hours=12),
-                properties={"$group_0": "org:6"},
+                properties={"$group_0": "org:6", "$is_identified": True},
             )
 
             # Events for org 1 team 2
@@ -304,17 +306,26 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_2,
                 )
+
+            _create_event(
+                distinct_id=distinct_id,
+                event="$eventAnonymousPersonfull",
+                properties={"$lib": "web", "$is_identified": False},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_2,
+                person_mode="full",
+            )
 
             _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=False)
 
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_2,
             )
@@ -327,14 +338,14 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 _create_event(
                     distinct_id=distinct_id,
                     event="$event1",
-                    properties={"$lib": "$web"},
+                    properties={"$lib": "web", "$is_identified": True},
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_2_team_3,
                 )
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_2_team_3,
             )
@@ -342,7 +353,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 event_uuid=uuid4(),
                 distinct_id=distinct_id,
                 event="$propertyless_event",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
                 person_mode="propertyless",
@@ -351,7 +362,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 event_uuid=uuid4(),
                 distinct_id=distinct_id,
                 event="$propertyless_event",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web", "$is_identified": True},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
                 person_mode="force_upgrade",
@@ -411,8 +422,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 24,
-                    "enhanced_persons_event_count_in_period": 23,
+                    "event_count_in_period": 25,
+                    "enhanced_persons_event_count_in_period": 24,
+                    "anonymous_personful_event_count_in_period": 1,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "mobile_recording_count_in_period": 0,
@@ -450,6 +462,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_1.id): {
                             "event_count_in_period": 14,
                             "enhanced_persons_event_count_in_period": 13,
+                            "anonymous_personful_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
@@ -479,8 +492,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "rows_synced_in_period": 0,
                         },
                         str(self.org_1_team_2.id): {
-                            "event_count_in_period": 10,
-                            "enhanced_persons_event_count_in_period": 10,
+                            "event_count_in_period": 11,
+                            "enhanced_persons_event_count_in_period": 11,
+                            "anonymous_personful_event_count_in_period": 1,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
                             "mobile_recording_count_in_period": 0,
@@ -535,6 +549,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_in_period": 10,
                     "enhanced_persons_event_count_in_period": 10,
+                    "anonymous_personful_event_count_in_period": 0,
                     "event_count_with_groups_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_count_in_period": 0,
@@ -572,6 +587,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_2_team_3.id): {
                             "event_count_in_period": 10,
                             "enhanced_persons_event_count_in_period": 10,
+                            "anonymous_personful_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
@@ -709,7 +725,7 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
             _create_event(
                 distinct_id="hello",
                 event="$event1",
-                properties={"$lib": "$web"},
+                properties={"$lib": "web"},
                 timestamp=now() - relativedelta(hours=12),
                 team=self.team,
             )
@@ -1080,46 +1096,21 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
+        source = ExternalDataSource.objects.create(
+            team=self.analytics_team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+
         for i in range(5):
             start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            _create_event(
-                distinct_id="3",
-                event="$data_sync_job_completed",
-                properties={
-                    "count": 10,
-                    "job_id": 10924,
-                    "start_time": start_time,
-                },
-                timestamp=now() - relativedelta(hours=i),
-                team=self.analytics_team,
-            )
-            # identical job id should be deduped and not counted
-            _create_event(
-                distinct_id="3",
-                event="$data_sync_job_completed",
-                properties={
-                    "count": 10,
-                    "job_id": 10924,
-                    "start_time": start_time,
-                },
-                timestamp=now() - relativedelta(hours=i, minutes=i),
-                team=self.analytics_team,
-            )
+            ExternalDataJob.objects.create(team_id=3, created_at=start_time, rows_synced=10, pipeline=source)
 
         for i in range(5):
-            _create_event(
-                distinct_id="4",
-                event="$data_sync_job_completed",
-                properties={
-                    "count": 10,
-                    "job_id": 10924,
-                    "start_time": (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                },
-                timestamp=now() - relativedelta(hours=i),
-                team=self.analytics_team,
-            )
-
-        flush_persons_and_events()
+            start_time = (now() - relativedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ExternalDataJob.objects.create(team_id=4, created_at=start_time, rows_synced=10, pipeline=source)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -1136,10 +1127,10 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["rows_synced_in_period"] == 20
+        assert org_1_report["rows_synced_in_period"] == 100
 
-        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 10
-        assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 10
+        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
+        assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0

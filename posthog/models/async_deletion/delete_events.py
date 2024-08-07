@@ -1,9 +1,22 @@
 from typing import Any
 
+from prometheus_client import Counter
+
 from posthog.client import sync_execute
-from posthog.models.async_deletion import AsyncDeletion, DeletionType, MAX_QUERY_SIZE
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+
+logger.setLevel("DEBUG")
+
+deletions_counter = Counter("deletions_executed", "Total number of deletions sent to clickhouse", ["deletion_type"])
+
+# We purposely set this lower than the 256KB limit in ClickHouse to account for the potential overhead of the argument
+# substitution and settings injection. This is a conservative estimate, but it's better to be safe than hit the limit.
+MAX_QUERY_SIZE = 230_000  # 230KB which is less than 256KB limit in ClickHouse
+MAX_SELECT_EXECUTION_TIME = 1 * 60 * 60  # 1 hour(s)
+
 
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
 TABLES_TO_DELETE_TEAM_DATA_FROM = [
@@ -21,6 +34,8 @@ class AsyncEventDeletion(AsyncDeletionProcess):
     DELETION_TYPES = [DeletionType.Team, DeletionType.Group, DeletionType.Person]
 
     def process(self, deletions: list[AsyncDeletion]):
+        deletions_counter.labels(deletion_type="event").inc(len(deletions))
+
         if len(deletions) == 0:
             logger.debug("No AsyncDeletion to perform")
             return
@@ -35,20 +50,46 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             },
         )
 
-        conditions, args = self._conditions(deletions)
+        conditions, args = [], {}
+        for i, deletion in enumerate(deletions):
+            condition, arg = self._condition(deletion, str(i))
+
+            conditions.append(condition)
+            args.update(arg)
+
+            # Get estimated  byte size of the query
+            str_predicate = " OR ".join(conditions)
+            query = f"DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {str_predicate}"
+            query_size = len(query.encode("utf-8"))
+
+            logger.debug(f"Query size: {query_size}")
+            logger.debug(f"Query: {query}")
+            logger.debug(f"Query deletions: {deletions}")
+
+            # If the query size is greater than the max predicate size, execute the query and reset the query predicate
+            if query_size > MAX_QUERY_SIZE:
+                logger.debug(f"Executing query with args: {args}")
+                sync_execute(
+                    query,
+                    args,
+                    settings={},
+                )
+
+                conditions, args = [], {}
+
+        logger.debug(f"Executing query with args: {args}")
+
+        # This is the default condition if we don't hit the MAX_QUERY_SIZE
         sync_execute(
-            f"""
-            ALTER TABLE sharded_events
-            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-            DELETE WHERE {" OR ".join(conditions)}
-            """,
+            query,
             args,
-            settings={"max_query_size": MAX_QUERY_SIZE},
+            settings={},
         )
 
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
         team_deletions = [row for row in deletions if row.deletion_type == DeletionType.Team]
 
+        deletions_counter.labels(deletion_type=DeletionType.Team).inc(len(team_deletions))
         if len(team_deletions) == 0:
             return
 
@@ -61,14 +102,11 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         )
         conditions, args = self._conditions(team_deletions)
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
+            query = f"""DELETE FROM {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {" OR ".join(conditions)}"""
             sync_execute(
-                f"""
-                ALTER TABLE {table}
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                DELETE WHERE {" OR ".join(conditions)}
-                """,
+                query,
                 args,
-                settings={"max_query_size": MAX_QUERY_SIZE},
+                settings={},
             )
 
     def _verify_by_group(self, deletion_type: int, async_deletions: list[AsyncDeletion]) -> list[AsyncDeletion]:
@@ -91,7 +129,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
-            settings={"max_query_size": MAX_QUERY_SIZE},
+            settings={"max_execution_time": MAX_SELECT_EXECUTION_TIME},
         )
         return {tuple(row) for row in clickhouse_result}
 

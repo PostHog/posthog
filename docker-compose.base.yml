@@ -19,6 +19,11 @@ services:
         image: redis:6.2.7-alpine
         restart: on-failure
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 3s
+            timeout: 10s
+            retries: 10
 
     clickhouse:
         #
@@ -42,6 +47,11 @@ services:
             KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
+        healthcheck:
+            test: kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1
+            interval: 3s
+            timeout: 10s
+            retries: 10
 
     kafka_ui:
         image: provectuslabs/kafka-ui:latest

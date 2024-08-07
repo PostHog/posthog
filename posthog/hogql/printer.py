@@ -522,16 +522,17 @@ class _Printer(Visitor):
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
         visited_index = int(str(node.index))
-        if isinstance(node.tuple, ast.Field):
-            return f"{visited_tuple}.{visited_index}"
-
-        return f"({visited_tuple}).{visited_index}"
+        symbol = "?." if self.dialect == "hogql" and node.nullish else "."
+        if isinstance(node.tuple, ast.Field) or isinstance(node.tuple, ast.Tuple) or isinstance(node.tuple, ast.Call):
+            return f"{visited_tuple}{symbol}{visited_index}"
+        return f"({visited_tuple}){symbol}{visited_index}"
 
     def visit_tuple(self, node: ast.Tuple):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return f"{self.visit(node.array)}[{self.visit(node.property)}]"
+        symbol = "?." if self.dialect == "hogql" and node.nullish else ""
+        return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
@@ -904,21 +905,15 @@ class _Printer(Visitor):
 
             if self.dialect in ("hogql", "clickhouse"):
                 if node.name == "hogql_lookupDomainType":
-                    return f"dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
-                elif node.name == "hogql_lookupPaidDomainType":
-                    return f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidSourceType":
-                    return (
-                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source'))"
-                    )
+                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidMediumType":
                     return (
                         f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
                     )
-                elif node.name == "hogql_lookupOrganicDomainType":
-                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
                 elif node.name == "hogql_lookupOrganicSourceType":
-                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source'))"
+                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
             raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")

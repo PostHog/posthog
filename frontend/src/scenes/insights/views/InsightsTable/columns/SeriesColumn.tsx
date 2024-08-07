@@ -1,6 +1,6 @@
 import { IconPencil } from '@posthog/icons'
 import clsx from 'clsx'
-import { getSeriesColor } from 'lib/colors'
+import { getTrendLikeSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -12,7 +12,6 @@ type SeriesColumnItemProps = {
     item: IndexedTrendResult
     indexedResults: IndexedTrendResult[]
     canEditSeriesNameInline: boolean
-    compare?: boolean | null
     handleEditClick: (item: IndexedTrendResult) => void
     hasMultipleSeries?: boolean
 }
@@ -21,16 +20,17 @@ export function SeriesColumnItem({
     item,
     indexedResults,
     canEditSeriesNameInline,
-    compare,
     handleEditClick,
     hasMultipleSeries,
 }: SeriesColumnItemProps): JSX.Element {
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
+    const isPrevious = !!item.compare && item.compare_label === 'previous'
+
     return (
         <div className="series-name-wrapper-col space-x-1">
             <InsightLabel
-                seriesColor={getSeriesColor(item.seriesIndex, compare || false)}
+                seriesColor={getTrendLikeSeriesColor(item.colorIndex, isPrevious)}
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                 hasMultipleSeries={hasMultipleSeries}
@@ -43,7 +43,7 @@ export function SeriesColumnItem({
                     editable: canEditSeriesNameInline,
                 })}
                 pillMaxWidth={165}
-                compareValue={compare ? formatCompareLabel(item) : undefined}
+                compareValue={item.compare ? formatCompareLabel(item) : undefined}
                 onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
             />
             {canEditSeriesNameInline && (

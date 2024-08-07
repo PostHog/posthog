@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
+import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
 import { ActionMatcher } from 'worker/ingestion/action-matcher'
 import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
@@ -7,6 +8,7 @@ import { OrganizationManager } from 'worker/ingestion/organization-manager'
 
 import { GroupTypeToColumnIndex, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
+import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
@@ -65,12 +67,21 @@ export async function eachBatchWebhooksHandlers(
     hookCannon: HookCommander,
     concurrency: number,
     groupTypeManager: GroupTypeManager,
-    organizationManager: OrganizationManager
+    organizationManager: OrganizationManager,
+    postgres: PostgresRouter
 ): Promise<void> {
     await eachBatchHandlerHelper(
         payload,
         (teamId) => actionMatcher.hasWebhooks(teamId),
-        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, groupTypeManager, organizationManager),
+        (event) =>
+            eachMessageWebhooksHandlers(
+                event,
+                actionMatcher,
+                hookCannon,
+                groupTypeManager,
+                organizationManager,
+                postgres
+            ),
         concurrency,
         'webhooks'
     )
@@ -140,26 +151,80 @@ export async function eachBatchHandlerHelper(
     }
 }
 
+async function addGroupPropertiesToPostIngestionEvent(
+    event: PostIngestionEvent,
+    groupTypeManager: GroupTypeManager,
+    organizationManager: OrganizationManager,
+    postgres: PostgresRouter
+): Promise<PostIngestionEvent> {
+    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+    if (await organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
+        // If the organization has group analytics enabled then we enrich the event with group data
+        groupTypes = await groupTypeManager.fetchGroupTypes(event.teamId)
+    }
+
+    let groups: PostIngestionEvent['groups'] = undefined
+    if (groupTypes) {
+        groups = {}
+
+        for (const [groupType, columnIndex] of Object.entries(groupTypes)) {
+            const groupKey = (event.properties[`$groups`] || {})[groupType]
+            if (!groupKey) {
+                continue
+            }
+
+            const queryString = `SELECT group_properties FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
+
+            const selectResult: QueryResult = await postgres.query(
+                PostgresUse.COMMON_READ,
+                queryString,
+                [event.teamId, columnIndex, groupKey],
+                'fetchGroup'
+            )
+
+            const groupProperties = selectResult.rows.length > 0 ? selectResult.rows[0].group_properties : {}
+
+            if (groupKey && groupProperties) {
+                groups[groupType] = {
+                    index: columnIndex,
+                    key: groupKey,
+                    type: groupType,
+                    properties: groupProperties,
+                }
+            }
+        }
+    }
+
+    return {
+        ...event,
+        groups,
+    }
+}
+
 export async function eachMessageWebhooksHandlers(
     clickHouseEvent: RawClickHouseEvent,
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander,
     groupTypeManager: GroupTypeManager,
-    organizationManager: OrganizationManager
+    organizationManager: OrganizationManager,
+    postgres: PostgresRouter
 ): Promise<void> {
     if (!actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
         // exit early if no webhooks nor resthooks
         return
     }
 
-    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
-
-    if (await organizationManager.hasAvailableFeature(clickHouseEvent.team_id, 'group_analytics')) {
-        // If the organization has group analytics enabled then we enrich the event with group data
-        groupTypes = await groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
-    }
-
-    const event = convertToPostIngestionEvent(clickHouseEvent, groupTypes)
+    const eventWithoutGroups = convertToPostIngestionEvent(clickHouseEvent)
+    // This is very inefficient, we always pull group properties for all groups (up to 5) for this event
+    // from PG if a webhook is defined for this team.
+    // Instead we should be lazily loading group properties only when needed, but this is the fastest way to fix this consumer
+    // that will be deprecated in the near future by CDP/Hog
+    const event = await addGroupPropertiesToPostIngestionEvent(
+        eventWithoutGroups,
+        groupTypeManager,
+        organizationManager,
+        postgres
+    )
 
     await runInstrumentedFunction({
         func: () => runWebhooks(actionMatcher, hookCannon, event),
