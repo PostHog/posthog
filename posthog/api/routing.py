@@ -329,7 +329,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         if "project_id" in parents_query_dict:
             # KLUDGE: This rewrite can be removed once the relevant models get that field directly
-            parents_query_dict["team__project_id"] = parents_query_dict["project_id"]
+            parents_query_dict["team__project_id"] = self.team.project_id
             del parents_query_dict["project_id"]
 
         if parents_query_dict:
