@@ -79,7 +79,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             setattr(updated_membership, attr, value)
         updated_membership.save()
         if level_changed:
-            self.context["request"].user.update_billing_admin_emails(updated_membership.organization)
+            self.context["request"].user.update_billing_organization_users(updated_membership.organization)
         return updated_membership
 
 
