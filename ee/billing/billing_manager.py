@@ -169,7 +169,7 @@ class BillingManager:
                     "distinct_ids": distinct_ids,
                     "org_customer_email": first_owner.email,
                     "org_admin_emails": admin_emails,
-                    "org_admin_users": org_users,
+                    "org_users": org_users,
                 },
             )
         except Exception as e:

@@ -78,7 +78,7 @@ class TestBillingManager(BaseTest):
         assert len(billing_patch_request_mock.call_args[1]["json"]["distinct_ids"]) == 2
         assert billing_patch_request_mock.call_args[1]["json"]["org_customer_email"] == "y@x.com"
         assert billing_patch_request_mock.call_args[1]["json"]["org_admin_emails"] == ["y@x.com"]
-        assert billing_patch_request_mock.call_args[1]["json"]["org_admin_users"] == [
+        assert billing_patch_request_mock.call_args[1]["json"]["org_users"] == [
             {"email": "y@x.com", "distinct_id": y.distinct_id, "role": 15},
         ]
 
@@ -121,7 +121,7 @@ class TestBillingManager(BaseTest):
         assert len(billing_patch_request_mock.call_args[1]["json"]["distinct_ids"]) == 4
         assert billing_patch_request_mock.call_args[1]["json"]["org_customer_email"] == "y3@x.com"
         assert sorted(billing_patch_request_mock.call_args[1]["json"]["org_admin_emails"]) == ["y2@x.com", "y3@x.com"]
-        assert billing_patch_request_mock.call_args[1]["json"]["org_admin_users"] == [
+        assert billing_patch_request_mock.call_args[1]["json"]["org_users"] == [
             {"email": "y2@x.com", "distinct_id": y2.distinct_id, "role": 8},
             {"email": "y3@x.com", "distinct_id": y3.distinct_id, "role": 15},
         ]
