@@ -208,6 +208,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_LIVE_USER_COUNT: 'web-analytics-live-user-count', // owner: @robbie-c
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
     FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
+    MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
