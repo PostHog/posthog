@@ -66,7 +66,6 @@ export class HogWatcher {
     ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
         const idsSet = new Set(ids)
 
-        // TODO: Gracefully handle errors
         const states = await this.runRedis(async (client) => {
             const pipeline = client.pipeline()
 
