@@ -1,17 +1,9 @@
-jest.mock('../../../src/utils/now', () => {
-    return {
-        now: jest.fn(() => Date.now()),
-    }
-})
-
-import { BASE_REDIS_KEY, HogWatcher } from '../../../src/cdp/hog-watcher'
-import { HogFunctionInvocationResult } from '../../../src/cdp/types'
-import { defaultConfig } from '../../../src/config/config'
-import { Hub } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
-import { deleteKeysWithPrefix } from '../../helpers/redis'
-
-const mockNow: jest.Mock = require('../../../src/utils/now').now as any
+import { BASE_REDIS_KEY, HogWatcher } from '../../src/cdp/hog-watcher'
+import { HogFunctionInvocationResult } from '../../src/cdp/types'
+import { defaultConfig } from '../../src/config/config'
+import { Hub } from '../../src/types'
+import { createHub } from '../../src/utils/db/hub'
+import { deleteKeysWithPrefix } from '../helpers/redis'
 
 const config = defaultConfig
 
@@ -42,16 +34,12 @@ const createResult = (options: {
 
 describe('HogWatcher', () => {
     describe('integration', () => {
-        let now: number
         let hub: Hub
         let closeHub: () => Promise<void>
         let watcher: HogWatcher
 
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub()
-
-            now = 1720000000000
-            mockNow.mockReturnValue(now)
 
             await deleteKeysWithPrefix(hub.redisPool, BASE_REDIS_KEY)
 
@@ -109,7 +97,6 @@ describe('HogWatcher', () => {
         ]
 
         it.each(cases)('should update scores based on results %s %s', async (expectedScore, results) => {
-            console.log('Checking', expectedScore, results)
             await watcher.observeResults(results)
             expect(await watcher.getStates(['id1'])).toMatchObject({
                 id1: expectedScore,

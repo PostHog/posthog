@@ -1,9 +1,14 @@
+import { captureException } from '@sentry/node'
+import { Redis } from 'ioredis'
+
 import { Hub } from '../types'
+import { timeoutGuard } from '../utils/db/utils'
+import { status } from '../utils/status'
 import { HogFunctionInvocationResult, HogFunctionType } from './types'
-import { runRedis } from './utils'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_SCORES = `${BASE_REDIS_KEY}/scores`
+const REDIS_TIMEOUT_SECONDS = 5
 
 export enum HogWatcherState {
     healthy = 1,
@@ -26,9 +31,27 @@ export type HogWatcherFunctionState = {
 export class HogWatcher {
     constructor(private hub: Hub) {}
 
-    public scoreToState(score: number): HogWatcherState {
-        // TODO: Add check for permanent disabled
+    private async runRedis<T>(fn: (client: Redis) => Promise<T>): Promise<T | null> {
+        // We want all of this to fail open in the issue of redis being unavailable - we'd rather have the function continue
+        const client = await this.hub.redisPool.acquire()
+        const timeout = timeoutGuard(
+            `Redis call delayed. Waiting over ${REDIS_TIMEOUT_SECONDS} seconds.`,
+            undefined,
+            REDIS_TIMEOUT_SECONDS * 1000
+        )
+        try {
+            return await fn(client)
+        } catch (e) {
+            status.error('HogWatcher Redis error', e)
+            captureException(e)
+            return null
+        } finally {
+            clearTimeout(timeout)
+            await this.hub.redisPool.release(client)
+        }
+    }
 
+    public scoreToState(score: number): HogWatcherState {
         if (score <= this.hub.CDP_WATCHER_THRESHOLD_DISABLED) {
             return HogWatcherState.disabledForPeriod
         } else if (score <= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED) {
@@ -44,7 +67,7 @@ export class HogWatcher {
         const idsSet = new Set(ids)
 
         // TODO: Gracefully handle errors
-        const states = await runRedis(this.hub.redisPool, 'getStates', async (client) => {
+        const states = await this.runRedis(async (client) => {
             const pipeline = client.pipeline()
 
             for (const id of idsSet) {
@@ -55,7 +78,7 @@ export class HogWatcher {
         })
 
         return Array.from(idsSet).reduce((acc, id, index) => {
-            const score = Number(states[index][1])
+            const score = states ? Number(states[index][1]) : 0
             return {
                 ...acc,
                 [id]: {
@@ -67,12 +90,12 @@ export class HogWatcher {
     }
 
     public async getState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
-        const res = await runRedis(this.hub.redisPool, 'getState', async (client) => {
+        const res = await this.runRedis(async (client) => {
             const score = await client.get(`${REDIS_KEY_SCORES}/${id}`)
             return score
         })
 
-        const score = Number(res)
+        const score = Number(res ?? 0)
 
         return {
             state: this.scoreToState(score),
@@ -81,7 +104,7 @@ export class HogWatcher {
     }
 
     public async forceStateChange(id: HogFunctionType['id'], state: HogWatcherState): Promise<void> {
-        await runRedis(this.hub.redisPool, 'forceStateChange', async (client) => {
+        await this.runRedis(async (client) => {
             const pipeline = client.pipeline()
 
             const newScore =
@@ -124,8 +147,7 @@ export class HogWatcher {
             changes[result.invocation.hogFunctionId] = change
         })
 
-        // TODO: Gracefully handle errors
-        await runRedis(this.hub.redisPool, 'stop', async (client) => {
+        await this.runRedis(async (client) => {
             let pipeline = client.pipeline()
 
             const changeEntries = Object.entries(changes)
