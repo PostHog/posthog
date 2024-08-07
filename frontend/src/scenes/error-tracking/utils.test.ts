@@ -123,7 +123,7 @@ describe('mergeGroups', () => {
             assignee: 400,
             description: 'This is the original description',
             exception_type: 'TypeError',
-            fingerprint: 'Fingerprint',
+            fingerprint: ['Fingerprint'],
             status: 'active',
             // earliest first_seen
             first_seen: '2023-07-22T13:15:07.074Z',
