@@ -540,7 +540,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_key = self.get_cache_key()
 
         tag_queries(cache_key=cache_key)
-        set_tag("client_query_id", str(query_id))
+        set_tag("cache_key", cache_key)
         if insight_id:
             tag_queries(insight_id=insight_id)
             set_tag("insight_id", str(insight_id))
