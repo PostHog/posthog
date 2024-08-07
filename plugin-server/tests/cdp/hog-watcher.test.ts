@@ -3,7 +3,7 @@ jest.mock('../../src/utils/now', () => {
         now: jest.fn(() => Date.now()),
     }
 })
-import { BASE_REDIS_KEY, HogWatcher } from '../../src/cdp/hog-watcher'
+import { BASE_REDIS_KEY, HogWatcher, HogWatcherState } from '../../src/cdp/hog-watcher'
 import { HogFunctionInvocationResult } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -116,7 +116,7 @@ describe('HogWatcher', () => {
                 ],
             ],
 
-            [{ cost: 20, state: 1 }, [createResult({ id: 'id1', error: 'errored!' })]],
+            [{ cost: 100, state: 1 }, [createResult({ id: 'id1', error: 'errored!' })]],
         ]
 
         it.each(cases)('should update tokens based on results %s %s', async (expectedScore, results) => {
@@ -166,6 +166,75 @@ describe('HogWatcher', () => {
             expect((await watcher.getState('id1')).tokens).toMatchInlineSnapshot(`9890`)
             advanceTime(10000)
             expect((await watcher.getState('id1')).tokens).toMatchInlineSnapshot(`9990`)
+        })
+
+        it('should remain disabled for period', async () => {
+            const badResults = Array(100).fill(createResult({ id: 'id1', error: 'error!' }))
+
+            await watcher.observeResults(badResults)
+
+            expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
+                Object {
+                  "rating": 0,
+                  "state": 3,
+                  "tokens": 0,
+                }
+            `)
+
+            advanceTime(10000)
+
+            // Should still be disabled even though tokens have been refilled
+            expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
+                Object {
+                  "rating": 0.01,
+                  "state": 3,
+                  "tokens": 100,
+                }
+            `)
+        })
+
+        describe('forceStateChange', () => {
+            it('should force healthy', async () => {
+                await watcher.forceStateChange('id1', HogWatcherState.healthy)
+                expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
+                    Object {
+                      "rating": 1,
+                      "state": 1,
+                      "tokens": 10000,
+                    }
+                `)
+            })
+
+            it('should force degraded', async () => {
+                await watcher.forceStateChange('id1', HogWatcherState.degraded)
+                expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
+                    Object {
+                      "rating": 0.8,
+                      "state": 1,
+                      "tokens": 8000,
+                    }
+                `)
+            })
+            it('should force disabledForPeriod', async () => {
+                await watcher.forceStateChange('id1', HogWatcherState.disabledForPeriod)
+                expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
+                    Object {
+                      "rating": 1,
+                      "state": 3,
+                      "tokens": 10000,
+                    }
+                `)
+            })
+            it('should force disabledIndefinitely', async () => {
+                await watcher.forceStateChange('id1', HogWatcherState.disabledIndefinitely)
+                expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
+                    Object {
+                      "rating": 1,
+                      "state": 3,
+                      "tokens": 10000,
+                    }
+                `)
+            })
         })
 
         // it('should move the function into a bad state after enough periods', async () => {

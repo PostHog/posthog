@@ -16,7 +16,8 @@ from posthog.plugins.plugin_server_api import (
     reload_hog_functions_on_workers,
 )
 
-DEFAULT_STATE = {"state": 0, "score": 0}
+DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
+
 
 logger = structlog.get_logger(__name__)
 

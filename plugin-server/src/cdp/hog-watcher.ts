@@ -87,16 +87,18 @@ export class HogWatcher {
         }
     }
 
-    public tokensToFunctionState(tokens?: number | null): HogWatcherFunctionState {
+    public tokensToFunctionState(tokens?: number | null, stateOverride?: HogWatcherState): HogWatcherFunctionState {
+        console.log(tokens, stateOverride)
         tokens = tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE
         const rating = tokens / this.hub.CDP_WATCHER_BUCKET_SIZE
 
         const state =
-            rating >= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
+            stateOverride ??
+            (rating >= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
                 ? HogWatcherState.healthy
                 : rating > 0
                 ? HogWatcherState.degraded
-                : HogWatcherState.disabledForPeriod
+                : HogWatcherState.disabledForPeriod)
 
         return { state, tokens, rating }
     }
@@ -106,22 +108,34 @@ export class HogWatcher {
     ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
         const idsSet = new Set(ids)
 
-        const buckets = await this.runRedis(async (client) => {
+        const res = await this.runRedis(async (client) => {
             const pipeline = client.pipeline()
 
             for (const id of idsSet) {
                 pipeline.checkRateLimit(...this.rateLimitArgs(id, 0))
-                // Also check if it is actively disabled
-                pipeline.get(`${REDIS_KEY_DISABLED}/${id}`, 0, 'EX', this.hub.CDP_WATCHER_TTL)
+                pipeline.get(`${REDIS_KEY_DISABLED}/${id}`)
+                pipeline.ttl(`${REDIS_KEY_DISABLED}/${id}`)
             }
 
             return pipeline.exec()
         })
 
         return Array.from(idsSet).reduce((acc, id, index) => {
+            const resIndex = index * 3
+            const tokens = res ? res[resIndex][1] : undefined
+            const disabled = res ? res[resIndex + 1][1] : false
+            const disabledTemporarily = disabled && res ? !!res[resIndex + 2][1] : false
+
             return {
                 ...acc,
-                [id]: this.tokensToFunctionState(buckets ? buckets[index][1] : undefined),
+                [id]: this.tokensToFunctionState(
+                    tokens,
+                    disabled
+                        ? disabledTemporarily
+                            ? HogWatcherState.disabledForPeriod
+                            : HogWatcherState.disabledIndefinitely
+                        : undefined
+                ),
             }
         }, {} as Record<HogFunctionType['id'], HogWatcherFunctionState>)
     }
@@ -142,7 +156,18 @@ export class HogWatcher {
                     ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
                     : 0
 
+            const nowSeconds = Math.round(now() / 1000)
+
             pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'pool', newScore)
+            pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)
+
+            if (state === HogWatcherState.disabledForPeriod) {
+                pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1', 'EX', this.hub.CDP_WATCHER_DISABLED_TTL)
+            } else if (state === HogWatcherState.disabledIndefinitely) {
+                pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1')
+            } else {
+                pipeline.del(`${REDIS_KEY_DISABLED}/${id}`)
+            }
 
             await pipeline.exec()
         })
@@ -183,6 +208,22 @@ export class HogWatcher {
             return await pipeline.exec()
         })
 
-        console.log('Observe results', res)
+        const disabledFunctionIds = Object.entries(costs)
+            .filter((_, index) => (res ? res[index][1] <= 0 : false))
+            .map(([id]) => id)
+
+        if (disabledFunctionIds.length) {
+            // Mark them all as disabled in redis
+
+            await this.runRedis(async (client) => {
+                const pipeline = client.pipeline()
+
+                disabledFunctionIds.forEach((id) => {
+                    pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1', 'EX', this.hub.CDP_WATCHER_DISABLED_TTL)
+                })
+
+                await pipeline.exec()
+            })
+        }
     }
 }

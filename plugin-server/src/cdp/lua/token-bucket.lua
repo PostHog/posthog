@@ -11,7 +11,7 @@ if before == false then
   local ret = poolMax - cost
   redis.call('hset', key, 'ts', now)
   redis.call('hset', key, 'pool', ret)
-  -- redis.call('expire', key, expiry)
+  redis.call('expire', key, expiry)
   return ret
 end
 

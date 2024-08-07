@@ -58,7 +58,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
-    status = HogFunctionStatusSerializer(read_only=True)
+    status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
