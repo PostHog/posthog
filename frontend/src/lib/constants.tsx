@@ -210,6 +210,7 @@ export const FEATURE_FLAGS = {
     FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
     MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
     WEB_ANALYTICS_REPLAY: 'web-analytics-replay', // owner: @robbie-c
+    WEB_ANALYTICS_ERROR_TRACKING: 'web-analytics-error-tracking', // owner: @robbie-c
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
