@@ -21,7 +21,6 @@ const meta: Meta = {
             post: {
                 '/api/projects/:team_id/query': async (req, res, ctx) => {
                     const query = (await req.clone().json()).query
-                    console.log(query)
                     if (query.fingerprint) {
                         return res(ctx.json(errorTrackingGroupQueryResponse))
                     }
@@ -42,7 +41,6 @@ export function ListPage(): JSX.Element {
 export function GroupPage(): JSX.Element {
     useEffect(() => {
         const stringifiedFingerprint = base64Encode(JSON.stringify(['TypeError']))
-        console.log(stringifiedFingerprint)
         router.actions.push(urls.errorTrackingGroup(stringifiedFingerprint))
     }, [])
     return <App />

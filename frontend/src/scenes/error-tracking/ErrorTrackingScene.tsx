@@ -113,8 +113,6 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
     const checked = selectedRowIndexes.includes(props.recordIndex)
 
-    const fingerprint = base64Encode(JSON.stringify(record.fingerprint))
-
     return (
         <div className="flex items-start space-x-1.5 group">
             <LemonCheckbox
@@ -139,7 +137,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 }
                 className="flex-1"
-                to={urls.errorTrackingGroup(fingerprint)}
+                to={urls.errorTrackingGroup(base64Encode(JSON.stringify(record.fingerprint)))}
             />
         </div>
     )
