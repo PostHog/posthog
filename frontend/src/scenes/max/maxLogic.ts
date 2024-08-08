@@ -3,15 +3,20 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { maxLogicType } from './maxLogicType'
 
+interface ThreadMessage {
+    role: 'user' | 'assistant'
+    content: string
+}
+
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     actions({
         askMax: (prompt: string) => ({ prompt }),
-        addMessage: (message: any) => ({ message }),
+        addMessage: (message: ThreadMessage) => ({ message }),
     }),
     reducers({
         thread: [
-            [] as any[],
+            [] as ThreadMessage[],
             {
                 addMessage: (state, { message }) => {
                     return [...state, message]
@@ -22,6 +27,7 @@ export const maxLogic = kea<maxLogicType>([
     listeners(({ actions }) => ({
         askMax: ({ prompt }) =>
             new Promise<void>((resolve) => {
+                actions.addMessage({ role: 'user', content: prompt })
                 const url = new URL(`/api/projects/${teamLogic.values.currentTeamId}/query/chat/`, location.origin)
                 url.searchParams.append('prompt', prompt)
                 const source = new window.EventSource(url.toString())
