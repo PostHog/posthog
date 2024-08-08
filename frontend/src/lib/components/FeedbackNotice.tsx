@@ -1,12 +1,13 @@
 import { IconBug } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconFeedback } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-export const WebAnalyticsNotice = (): JSX.Element => {
+import { supportLogic } from './Support/supportLogic'
+
+export const FeedbackNotice = ({ text }: { text: string }): JSX.Element => {
     const { openSupportForm } = useActions(supportLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -15,9 +16,7 @@ export const WebAnalyticsNotice = (): JSX.Element => {
     return (
         <LemonBanner type="info" className="my-4">
             <div className="flex items-center flex-wrap gap-2 justify-between">
-                <div className="flex-1 min-w-full sm:min-w-0">
-                    PostHog Web Analytics is in open beta. Thanks for taking part! We'd love to hear what you think.
-                </div>
+                <div className="flex-1 min-w-full sm:min-w-0">{text}</div>
                 {showSupportOptions ? (
                     <span className="flex items-center gap-2">
                         <LemonButton
