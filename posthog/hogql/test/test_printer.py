@@ -1698,10 +1698,9 @@ class TestPrinter(BaseTest):
         )
 
     def test_only_lets_posthog_print(self):
-        query = parse_select("select query from query_log")
         from posthog.models import Team
 
-        def zprint(team_id):
+        def zprint(query, team_id):
             Team.objects.get_or_create(
                 id=team_id,
                 organization=self.team.organization,
@@ -1718,6 +1717,9 @@ class TestPrinter(BaseTest):
                 settings=HogQLGlobalSettings(max_execution_time=10),
             )
 
-        zprint(1)
-        zprint(2)
-        self.assertRaises(Exception, lambda: zprint(3))
+        for table in ("query_log", "raw_query_log"):
+            query = parse_select(f"select query from {table}")
+
+            zprint(query, 1)
+            zprint(query, 2)
+            self.assertRaises(Exception, lambda: zprint(query, 3))
