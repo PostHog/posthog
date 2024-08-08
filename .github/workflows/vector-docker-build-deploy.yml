@@ -32,15 +32,6 @@ jobs:
                   sparse-checkout: 'vector/'
                   sparse-checkout-cone-mode: false
 
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
-            - name: Login to DockerHub
-              uses: docker/login-action@v2
-              with:
-                  username: posthog
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
             - name: Login to ghcr.io
               uses: docker/login-action@v2
               with:
@@ -70,7 +61,7 @@ jobs:
 
             - name: Build and push image
               id: docker_build
-              uses: depot/build-push-action@v1
+              uses: docker/build-push-action@v5
               with:
                   context: ./vector/replay-capture/
                   file: ./vector/replay-capture/Dockerfile
@@ -78,9 +69,6 @@ jobs:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
-                  build-args: BIN=${{ matrix.image }}
 
             - name: Container image digest
               run: echo ${{ steps.docker_build.outputs.digest }}
