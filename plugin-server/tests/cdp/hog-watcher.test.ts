@@ -43,6 +43,7 @@ describe('HogWatcher', () => {
         let hub: Hub
         let closeHub: () => Promise<void>
         let watcher: HogWatcher
+        let mockStateChangeCallback: jest.Mock
 
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub()
@@ -52,7 +53,7 @@ describe('HogWatcher', () => {
 
             await deleteKeysWithPrefix(hub.redisPool, BASE_REDIS_KEY)
 
-            watcher = new HogWatcher(hub)
+            watcher = new HogWatcher(hub, mockStateChangeCallback)
         })
 
         const advanceTime = (ms: number) => {

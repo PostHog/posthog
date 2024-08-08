@@ -91,10 +91,7 @@ type HogWatcherRedisClient = Omit<Redis, 'pipeline'> &
     }
 
 export class HogWatcher {
-    constructor(
-        private hub: Hub,
-        private onStateChange: (id: HogFunctionType['id'], state: HogWatcherFunctionState) => void
-    ) {}
+    constructor(private hub: Hub, private onStateChange: (id: HogFunctionType['id'], state: HogWatcherState) => void) {}
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
         const nowSeconds = Math.round(now() / 1000)
@@ -217,6 +214,8 @@ export class HogWatcher {
 
             await pipeline.exec()
         })
+
+        this.onStateChange(id, state)
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
@@ -281,7 +280,9 @@ export class HogWatcher {
                 return pipeline.exec()
             })
 
-            const functionsTempDisabled = disabledFunctionIds.filter((_, index) => (results ? results[index][1] : false))
+            const functionsTempDisabled = disabledFunctionIds.filter((_, index) =>
+                results ? results[index][1] : false
+            )
 
             if (!functionsTempDisabled.length) {
                 return
@@ -320,12 +321,12 @@ export class HogWatcher {
 
             // Finally track the results
             functionsToDisablePermanently.forEach((id) => {
-                this.onStateChange(id, this.tokensToFunctionState(0, HogWatcherState.disabledForPeriod))
+                this.onStateChange(id, HogWatcherState.disabledIndefinitely)
             })
 
             functionsTempDisabled.forEach((id) => {
                 if (!functionsToDisablePermanently.includes(id)) {
-                    this.onStateChange(id, this.tokensToFunctionState(0, HogWatcherState.disabledIndefinitely))
+                    this.onStateChange(id, HogWatcherState.disabledForPeriod)
                 }
             })
         }
