@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use cyclotron_core::{
     base_ops::{bulk_create_jobs, Job, JobInit, JobState, WaitingOn},
     manager::QueueManager,
@@ -23,19 +23,23 @@ fn create_new_job() -> JobInit {
     }
 }
 
+fn dates_match(left: &DateTime<Utc>, right: &DateTime<Utc>) -> bool {
+    // Roundtripping a datetime to PG can cause sub-ms differences, so we need to check within a margin of error
+    // Seeing errors like this in CI:
+    //      assertion `left == right` failed
+    //          left: 2024-08-08T20:41:55.964936Z
+    //         right: 2024-08-08T20:41:55.964936997Z
+    let diff = *left - *right;
+    diff.abs() < Duration::milliseconds(1)
+}
+
 fn assert_job_matches_init(job: &Job, init: &JobInit) {
     assert_eq!(job.team_id, init.team_id);
     assert_eq!(job.function_id, init.function_id);
     assert_eq!(job.waiting_on, init.waiting_on);
     assert_eq!(job.queue_name, init.queue_name);
     assert_eq!(job.priority, init.priority);
-    // Roundtripping a datetime to PG can cause sub-ms differences, so we need to check within a margin of error
-    // Seeing errors like this in CI:
-    //      assertion `left == right` failed
-    //          left: 2024-08-08T20:41:55.964936Z
-    //         right: 2024-08-08T20:41:55.964936997Z
-    let scheduled_diff = job.scheduled - init.scheduled;
-    assert!(scheduled_diff.abs() < Duration::milliseconds(1));
+    assert!(dates_match(&job.scheduled, &init.scheduled));
     assert_eq!(job.vm_state, init.vm_state);
     assert_eq!(job.parameters, init.parameters);
     assert_eq!(job.metadata, init.metadata);
@@ -259,7 +263,7 @@ async fn test_queue(db: PgPool) {
     assert_eq!(job.waiting_on, WaitingOn::Hog);
     assert_eq!(job.queue_name, "test_2");
     assert_eq!(job.priority, 1);
-    assert_eq!(job.scheduled, now - Duration::minutes(10));
+    assert!(dates_match(&job.scheduled, &(now - Duration::minutes(10))),);
     assert_eq!(job.vm_state, Some("test".to_string()));
     assert_eq!(job.parameters, Some("test".to_string()));
     assert_eq!(job.metadata, Some("test".to_string()));
