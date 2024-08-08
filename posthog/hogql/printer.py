@@ -46,10 +46,17 @@ from posthog.models.utils import UUIDT
 from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsOnEventsMode
 
 
-def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
+def team_id_guard_for_table(
+    table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext
+) -> ast.Expr | None:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.team_id:
         raise InternalHogQLError("context.team_id not found")
+
+    if isinstance(table_type.table, QueryLogTable) or isinstance(table_type.table, RawQueryLogTable):
+        if context.team_id not in (1, 2):
+            raise InternalHogQLError("Only posthog team members can view the query log table")
+        return
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
@@ -414,8 +421,6 @@ class _Printer(Visitor):
                 self.dialect == "clickhouse"
                 and not isinstance(table_type.table, FunctionCallTable)
                 and not isinstance(table_type.table, SavedQuery)
-                and not isinstance(table_type.table, QueryLogTable)
-                and not isinstance(table_type.table, RawQueryLogTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 

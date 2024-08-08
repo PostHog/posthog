@@ -1696,3 +1696,28 @@ class TestPrinter(BaseTest):
             f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
             in printed
         )
+
+    def test_only_lets_posthog_print(self):
+        query = parse_select("select query from query_log")
+        from posthog.models import Team
+
+        def zprint(team_id):
+            Team.objects.get_or_create(
+                id=team_id,
+                organization=self.team.organization,
+                project=self.team.project,
+                name=self.team.name,
+                ingested_event=True,
+                completed_snippet_onboarding=True,
+                is_demo=True,
+            )
+            return print_ast(
+                query,
+                HogQLContext(team_id=team_id, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=HogQLGlobalSettings(max_execution_time=10),
+            )
+
+        zprint(1)
+        zprint(2)
+        self.assertRaises(Exception, lambda: zprint(3))
