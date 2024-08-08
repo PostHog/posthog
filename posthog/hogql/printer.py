@@ -53,7 +53,8 @@ def team_id_guard_for_table(
     if not context.team_id:
         raise InternalHogQLError("context.team_id not found")
 
-    if isinstance(table_type.table, QueryLogTable) or isinstance(table_type.table, RawQueryLogTable):
+    table = table_type.resolve_database_table(context)
+    if isinstance(table, QueryLogTable) or isinstance(table, RawQueryLogTable):
         if context.team_id not in (1, 2):
             raise InternalHogQLError("Only posthog team members can view the query log table")
         return
