@@ -6,7 +6,7 @@ from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 import structlog
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception, push_scope, set_tag
+from sentry_sdk import capture_exception, push_scope, set_tag, get_traceparent
 
 from posthog.caching.utils import is_stale, ThresholdMode, cache_target_age, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import enqueue_process_query_task, get_query_status, QueryNotFoundError
@@ -540,6 +540,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_key = self.get_cache_key()
 
         tag_queries(cache_key=cache_key)
+        tag_queries(sentry_trace=get_traceparent())
         set_tag("cache_key", cache_key)
         if insight_id:
             tag_queries(insight_id=insight_id)

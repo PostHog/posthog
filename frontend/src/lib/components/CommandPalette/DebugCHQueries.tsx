@@ -212,7 +212,16 @@ function DebugCHQueries(): JSX.Element {
                                     </div>
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
-                                            {item.exception}
+                                            <div>{item.exception}</div>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
+                                                to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+issue.priority%3A%5Bhigh%2C+medium%5D+trace%3A${item.logComment.sentry_trace}&statsPeriod=1d`}
+                                                targetBlank
+                                                className="mt-4 mb-1"
+                                            >
+                                                View in Sentry
+                                            </LemonButton>
                                         </LemonBanner>
                                     )}
                                     <CodeSnippet
