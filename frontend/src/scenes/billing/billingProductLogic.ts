@@ -302,13 +302,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.setSurveyID('')
         },
         deactivateProductSuccess: async (_, breakpoint) => {
-            if (!values.unsubscribeError) {
-                const hasSurveyReasons = values.surveyResponse['$survey_response_2']?.length > 0
-                const textAreaNotEmpty = values.surveyResponse['$survey_response']?.length > 0
-                const shouldReportSurvey = hasSurveyReasons || textAreaNotEmpty
-                shouldReportSurvey
-                    ? actions.reportSurveySent(values.surveyID, values.surveyResponse)
-                    : actions.reportSurveyDismissed(values.surveyID)
+            if (!values.unsubscribeError && values.surveyID) {
+                actions.reportSurveySent(values.surveyID, values.surveyResponse)
             }
             await breakpoint(200)
             location.reload()

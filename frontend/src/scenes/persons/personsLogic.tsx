@@ -202,6 +202,15 @@ export const personsLogic = kea<personsLogicType>([
             loadPerson: () => null,
             setPerson: (_, { person }): PersonType | null => person,
         },
+        personError: [
+            null as string | null,
+            {
+                loadPerson: () => null,
+                setPerson: () => null,
+                loadPersonUUID: () => null,
+                loadPersonFailure: (_, { error }) => error,
+            },
+        ],
         distinctId: [
             null as string | null,
             {
