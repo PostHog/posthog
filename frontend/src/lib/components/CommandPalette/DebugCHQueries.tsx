@@ -142,26 +142,29 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                           ))
                         : null}
                     {!debugResponseLoading && !!debugResponse.stats ? (
-                        <div className="flex flex-row space-x-4 p-4">
+                        <div className="flex flex-row space-x-4 p-4 border rounded bg-bg-light">
+                            <div className="flex flex-col items-center">
+                                <span className="text-sm font-bold">last 14 days</span>
+                            </div>
                             <div className="flex flex-col items-center">
                                 <span className="text-xl font-bold">{debugResponse.stats.total_queries}</span>
-                                <span className="text-sm text-gray-600">Total Queries</span>
+                                <span className="text-sm text-gray-600">Total queries</span>
                             </div>
                             <div className="flex flex-col items-center">
                                 <span className="text-xl font-bold">{debugResponse.stats.total_exceptions}</span>
-                                <span className="text-sm text-gray-600">Total Exceptions</span>
+                                <span className="text-sm text-gray-600">Total exceptions</span>
                             </div>
                             <div className="flex flex-col items-center">
                                 <span className="text-xl font-bold">
                                     {debugResponse.stats.average_query_duration_ms.toFixed(2)} ms
                                 </span>
-                                <span className="text-sm text-gray-600">Avg Query Duration</span>
+                                <span className="text-sm text-gray-600">Avg query duration</span>
                             </div>
                             <div className="flex flex-col items-center">
                                 <span className="text-xl font-bold">
                                     {debugResponse.stats.max_query_duration_ms} ms
                                 </span>
-                                <span className="text-sm text-gray-600">Max Query Duration</span>
+                                <span className="text-sm text-gray-600">Max query duration</span>
                             </div>
                             <div className="flex flex-col items-center">
                                 <span className="text-xl font-bold">
