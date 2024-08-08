@@ -248,7 +248,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filters by events and actions">
+                                <LemonField name="filters" label="Filters by events and actions" className="gap-2">
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch

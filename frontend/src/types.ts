@@ -3501,6 +3501,12 @@ export enum DateOperatorType {
     IsNotSet = 'is_not_set',
 }
 
+export enum SingleFieldDateType {
+    IsDateExact = 'is_date_exact',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
+}
+
 export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
@@ -4324,14 +4330,8 @@ export enum HogWatcherState {
 
 export type HogFunctionStatus = {
     state: HogWatcherState
-    states: {
-        timestamp: number
-        state: HogWatcherState
-    }[]
-    ratings: {
-        timestamp: number
-        rating: number
-    }[]
+    rating: number
+    tokens: number
 }
 
 export type HogFunctionInvocationGlobals = {
