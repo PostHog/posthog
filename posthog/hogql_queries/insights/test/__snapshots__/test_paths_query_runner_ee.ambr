@@ -59,7 +59,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -143,7 +143,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -227,7 +227,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -311,7 +311,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -395,7 +395,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 0)))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 0)))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -478,7 +478,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 0)))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(equals(events.event, '$pageview'), ifNull(notIn(path_item, ['/bar/*/foo']), 0)))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -561,7 +561,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -644,7 +644,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$screen'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$screen'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -727,7 +727,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -810,7 +810,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))), ifNull(notIn(path_item, ['/custom1', '/1', '/2', '/3']), 0)))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))), ifNull(notIn(path_item, ['/custom1', '/1', '/2', '/3']), 0)))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -893,7 +893,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-03 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-03 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -984,7 +984,7 @@
                     WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
-                 WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_0.properties___industry, 'finance'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_0.properties___industry, 'finance'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1068,7 +1068,7 @@
                     WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
-                 WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_0.properties___industry, 'technology'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_0.properties___industry, 'technology'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY events.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1152,7 +1152,7 @@
                     WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 1), 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_1 ON equals(events.`$group_1`, events__group_1.key)
-                 WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_1.properties___industry, 'technology'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_1.properties___industry, 'technology'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY events.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1268,7 +1268,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1303,7 +1303,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -1418,7 +1418,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1452,7 +1452,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -1566,7 +1566,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1600,7 +1600,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -1714,7 +1714,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1749,7 +1749,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -1864,7 +1864,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -1898,7 +1898,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2012,7 +2012,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2046,7 +2046,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2160,7 +2160,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2195,7 +2195,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2310,7 +2310,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2344,7 +2344,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2458,7 +2458,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2492,7 +2492,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), not(startsWith(events.event, '$')))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2582,7 +2582,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 2)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
                  ORDER BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -2701,7 +2701,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2736,7 +2736,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -2868,7 +2868,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -2904,7 +2904,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -3022,7 +3022,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -3058,7 +3058,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -3191,7 +3191,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -3226,7 +3226,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -3366,7 +3366,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -3402,7 +3402,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-02 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -3499,7 +3499,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3586,7 +3586,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3711,7 +3711,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -3746,7 +3746,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -3832,7 +3832,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3957,7 +3957,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -3992,7 +3992,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -4078,7 +4078,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4203,7 +4203,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -4238,7 +4238,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -4324,7 +4324,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4449,7 +4449,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -4484,7 +4484,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -4566,7 +4566,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4650,7 +4650,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4733,7 +4733,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4849,7 +4849,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -4883,7 +4883,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -4997,7 +4997,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -5031,7 +5031,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -5112,7 +5112,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5228,7 +5228,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -5262,7 +5262,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -5343,7 +5343,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5459,7 +5459,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -5493,7 +5493,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -5607,7 +5607,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -5641,7 +5641,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -5755,7 +5755,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                    WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                     ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                  GROUP BY person_id) ARRAY
               JOIN session_paths AS path_time_tuple,
@@ -5789,7 +5789,7 @@
                                                                      WHERE equals(person_distinct_id2.team_id, 2)
                                                                      GROUP BY person_distinct_id2.distinct_id
                                                                      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
+                                                                  WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2011-12-31 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-07 23:59:59', 6, 'UTC')))))
                                                                   ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
                                                                GROUP BY person_id) ARRAY
                                                             JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index) ARRAY
@@ -5870,7 +5870,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5958,7 +5958,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC')))), equals(events.event, '$pageview'))
                  ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
