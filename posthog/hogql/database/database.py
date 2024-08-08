@@ -8,6 +8,7 @@ from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
 
 from posthog.hogql import ast
+from posthog.constants import POSTHOG_INTERNAL_TEAM_IDS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldOrTable,
@@ -140,7 +141,6 @@ class Database(BaseModel):
         "log_entries",
         "sessions",
         "heatmaps",
-        "query_log",
     ]
 
     _warehouse_table_names: list[str] = []
@@ -492,6 +492,11 @@ def serialize_database(
 
     # PostHog Tables
     posthog_tables = context.database.get_posthog_tables()
+
+    # Only internal users can access query_log
+    if context.team_id in POSTHOG_INTERNAL_TEAM_IDS:
+        posthog_tables += ["query_log"]
+
     for table_key in posthog_tables:
         field_input: dict[str, Any] = {}
         table = getattr(context.database, table_key, None)
