@@ -88,7 +88,6 @@ export class HogWatcher {
     }
 
     public tokensToFunctionState(tokens?: number | null, stateOverride?: HogWatcherState): HogWatcherFunctionState {
-        console.log(tokens, stateOverride)
         tokens = tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE
         const rating = tokens / this.hub.CDP_WATCHER_BUCKET_SIZE
 
@@ -124,7 +123,7 @@ export class HogWatcher {
             const resIndex = index * 3
             const tokens = res ? res[resIndex][1] : undefined
             const disabled = res ? res[resIndex + 1][1] : false
-            const disabledTemporarily = disabled && res ? !!res[resIndex + 2][1] : false
+            const disabledTemporarily = disabled && res ? res[resIndex + 2][1] !== -1 : false
 
             return {
                 ...acc,
@@ -215,15 +214,20 @@ export class HogWatcher {
         if (disabledFunctionIds.length) {
             // Mark them all as disabled in redis
 
-            await this.runRedis(async (client) => {
+            const results = await this.runRedis(async (client) => {
                 const pipeline = client.pipeline()
 
                 disabledFunctionIds.forEach((id) => {
-                    pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1', 'EX', this.hub.CDP_WATCHER_DISABLED_TTL)
+                    pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1', 'EX', this.hub.CDP_WATCHER_DISABLED_TTL, 'NX')
                 })
 
-                await pipeline.exec()
+                return pipeline.exec()
             })
+
+            console.log(results)
+            // TODO: Detect if we did the disabling and fire an event for it
+            // TODO: If we did the disabling then also increment a counter of how many times we did it
+            // if the counter is above the threshold then we should remove the ttl and log that we are disabling indefinitely
         }
     }
 }
