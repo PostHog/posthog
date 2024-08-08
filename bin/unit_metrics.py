@@ -54,18 +54,18 @@ def application(environ, start_response):
         response = connection.getresponse()
 
         statj = json.loads(response.read())
-    except Exception as e:
+    except Exception:
         if retries > 0:
             retries -= 1
             time.sleep(1)
             return application(environ, start_response)
         else:
-            raise e
+            raise
     finally:
         try:
             connection.close()
         except Exception as e:
-            logger.error("Failed to close connection to unit: ", e)
+            logger.exception("Failed to close connection to unit: ", e)
 
     UNIT_CONNECTIONS_ACCEPTED_TOTAL.set(statj["connections"]["accepted"])
     UNIT_CONNECTIONS_ACTIVE.set(statj["connections"]["active"])

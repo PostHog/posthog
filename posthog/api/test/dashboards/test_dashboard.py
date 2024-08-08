@@ -1280,6 +1280,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,
+                    "cache_target_age": ANY,
                     "order": None,
                     "query": {
                         "kind": "DataTableNode",
@@ -1296,6 +1297,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "tags": [],
                     "timezone": None,
                     "updated_at": ANY,
+                    "hogql": ANY,
+                    "types": ANY,
                 },
                 "is_cached": False,
                 "last_refresh": None,

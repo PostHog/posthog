@@ -12,6 +12,7 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
     return (
         <LemonTable
             dataSource={selfManagedTables}
+            pagination={{ pageSize: 10 }}
             columns={[
                 {
                     title: 'Name',

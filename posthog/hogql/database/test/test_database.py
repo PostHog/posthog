@@ -18,7 +18,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.schema import DatabaseSchemaDataWarehouseTable, HogQLQueryModifiers, PersonsOnEventsMode
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, QueryMatchingTest, FuzzyInt
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
@@ -27,7 +27,7 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.join import DataWarehouseJoin
 
 
-class TestDatabase(BaseTest):
+class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -101,7 +101,7 @@ class TestDatabase(BaseTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 1
+        assert len(table.fields.keys()) == 2
         assert table.source is None
         assert table.schema_ is None
 
@@ -161,8 +161,8 @@ class TestDatabase(BaseTest):
             source=source,
             table=warehouse_table,
             should_sync=True,
-            status=ExternalDataSchema.Status.COMPLETED,
             last_synced_at="2024-01-01",
+            # No status but should be completed because a data warehouse table already exists
         )
 
         database = create_hogql_database(team_id=self.team.pk)
@@ -171,7 +171,7 @@ class TestDatabase(BaseTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 1
+        assert len(table.fields.keys()) == 2
 
         assert table.source is not None
         assert table.source.id == source.source_id
@@ -183,7 +183,7 @@ class TestDatabase(BaseTest):
         assert table.schema_.name == "table_1"
         assert table.schema_.should_sync is True
         assert table.schema_.incremental is False
-        assert table.schema_.status == "Completed"
+        assert table.schema_.status is None
         assert table.schema_.last_synced_at == "2024-01-01 00:00:00+00:00"
 
         field = table.fields.get("id")
@@ -216,7 +216,7 @@ class TestDatabase(BaseTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288, max_bytes_before_external_group_by=0",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
         )
 
     def test_database_group_type_mappings(self):
@@ -462,7 +462,7 @@ class TestDatabase(BaseTest):
         sql = "select id from persons"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 
@@ -480,6 +480,88 @@ class TestDatabase(BaseTest):
         sql = "select person.id from events"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(person.created_at, person.version), plus(now64(6, %(hogql_val_0)s), toIntervalDay(1)))"
+            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
+
+    def test_database_credentials_is_not_n_plus_1(self) -> None:
+        for i in range(10):
+            # we keep adding credentials and tables, number of queries should be stable
+            credentials = DataWarehouseCredential.objects.create(
+                access_key=f"blah-{i}", access_secret="blah", team=self.team
+            )
+            DataWarehouseTable.objects.create(
+                name=f"table_{i}",
+                format="Parquet",
+                team=self.team,
+                credential=credentials,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+
+            with self.assertNumQueries(FuzzyInt(5, 7)):
+                create_hogql_database(team_id=self.team.pk)
+
+    def test_external_data_source_is_not_n_plus_1(self) -> None:
+        for i in range(10):
+            # we keep adding sources, credentials and tables, number of queries should be stable
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id=f"source_id_{i}",
+                connection_id=f"connection_id_{i}",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSource.Type.STRIPE,
+            )
+            credentials = DataWarehouseCredential.objects.create(
+                access_key=f"blah-{i}", access_secret="blah", team=self.team
+            )
+            warehouse_table = DataWarehouseTable.objects.create(
+                name=f"table_{i}",
+                format="Parquet",
+                team=self.team,
+                external_data_source=source,
+                external_data_source_id=source.id,
+                credential=credentials,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                name=f"table_{i}",
+                source=source,
+                table=warehouse_table,
+                should_sync=True,
+                last_synced_at="2024-01-01",
+                # No status but should be completed because a data warehouse table already exists
+            )
+
+            with self.assertNumQueries(FuzzyInt(5, 7)):
+                create_hogql_database(team_id=self.team.pk)
+
+    @patch.object(Team, "_person_on_events_person_id_override_properties_joined", True)
+    def test_database_warehouse_joins_persons_poe_old_properties(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="some_field",
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        person_on_event_table = cast(LazyJoin, db.events.fields["person"])
+        assert "some_field" in person_on_event_table.join_table.fields.keys()  # type: ignore
+
+        print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")

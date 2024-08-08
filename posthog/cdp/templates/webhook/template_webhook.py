@@ -6,13 +6,18 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     id="template-webhook",
     name="HTTP Webhook",
     description="Sends a webhook templated by the incoming event data",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=posthog.com&temp=true",
+    icon_url="/static/posthog-icon.svg",
     hog="""
-fetch(inputs.url, {
+let res := fetch(inputs.url, {
   'headers': inputs.headers,
   'body': inputs.body,
   'method': inputs.method
 });
+
+if (inputs.debug) {
+  print('Response', res.status, res.body);
+}
+
 """.strip(),
     inputs_schema=[
         {
@@ -37,6 +42,10 @@ fetch(inputs.url, {
                     "value": "PUT",
                 },
                 {
+                    "label": "PATCH",
+                    "value": "PATCH",
+                },
+                {
                     "label": "GET",
                     "value": "GET",
                 },
@@ -45,12 +54,14 @@ fetch(inputs.url, {
                     "value": "DELETE",
                 },
             ],
+            "default": "POST",
             "required": False,
         },
         {
             "key": "body",
             "type": "json",
             "label": "JSON Body",
+            "default": {"event": "{event}", "person": "{person}"},
             "secret": False,
             "required": False,
         },
@@ -60,6 +71,15 @@ fetch(inputs.url, {
             "label": "Headers",
             "secret": False,
             "required": False,
+        },
+        {
+            "key": "debug",
+            "type": "boolean",
+            "label": "Log responses",
+            "description": "Logs the response of http calls for debugging.",
+            "secret": False,
+            "required": False,
+            "default": False,
         },
     ],
 )

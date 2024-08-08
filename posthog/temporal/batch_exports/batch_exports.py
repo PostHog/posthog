@@ -16,13 +16,13 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
     acount_failed_batch_export_runs,
-    acreate_batch_export_backfill,
-    acreate_batch_export_run,
     apause_batch_export,
-    aupdate_batch_export_backfill_status,
-    aupdate_batch_export_run,
     cancel_running_batch_export_backfill,
+    create_batch_export_backfill,
+    create_batch_export_run,
     running_backfills_for_batch_export,
+    update_batch_export_backfill_status,
+    update_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
@@ -31,6 +31,7 @@ from posthog.temporal.batch_exports.metrics import (
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.warehouse.util import database_sync_to_async
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -39,17 +40,28 @@ AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
 AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
 
 SELECT_FROM_PERSONS_VIEW = """
-SELECT *
+SELECT
+    persons.team_id AS team_id,
+    persons.distinct_id AS distinct_id,
+    persons.person_id AS person_id,
+    persons.properties AS properties,
+    persons.person_distinct_id_version AS person_distinct_id_version,
+    persons.person_version AS person_version,
+    persons._inserted_at AS _inserted_at
 FROM
     persons_batch_export(
         team_id={team_id},
         interval_start={interval_start},
         interval_end={interval_end}
-    )
+    ) AS persons
 FORMAT ArrowStream
+-- This is half of configured MAX_MEMORY_USAGE for batch exports.
+-- TODO: Make the setting available to all queries.
+SETTINGS max_bytes_before_external_group_by=50000000000
 """
 
-SELECT_FROM_EVENTS_VIEW = Template("""
+SELECT_FROM_EVENTS_VIEW = Template(
+    """
 SELECT
     $fields
 FROM
@@ -60,11 +72,13 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
-""")
+"""
+)
 
-SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template("""
+SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template(
+    """
 SELECT
     $fields
 FROM
@@ -75,11 +89,13 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
-""")
+"""
+)
 
-SELECT_FROM_EVENTS_VIEW_BACKFILL = Template("""
+SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
+    """
 SELECT
     $fields
 FROM
@@ -89,9 +105,10 @@ FROM
         interval_end={interval_end},
         include_events={include_events}::Array(String),
         exclude_events={exclude_events}::Array(String)
-    )
+    ) AS events
 FORMAT ArrowStream
-""")
+"""
+)
 
 
 def default_fields() -> list[BatchExportField]:
@@ -365,7 +382,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
-    run = await acreate_batch_export_run(
+    run = await database_sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
@@ -423,7 +440,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
-    batch_export_run = await aupdate_batch_export_run(
+    batch_export_run = await database_sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
         finished_at=dt.datetime.now(),
         **update_params,
@@ -433,14 +450,16 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        logger.error("Batch export failed with non-retryable error: %s", batch_export_run.latest_error)
+        logger.error("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
 
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
-            await send_batch_export_run_failure(inputs.id)
+            await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
         except Exception:
             logger.exception("Failure email notification could not be sent")
+        else:
+            logger.info("Failure notification email for run %s has been sent", inputs.id)
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,
@@ -602,7 +621,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         inputs.start_at,
         inputs.end_at,
     )
-    run = await acreate_batch_export_backfill(
+    run = await database_sync_to_async(create_batch_export_backfill)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -624,7 +643,9 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
-    backfill = await aupdate_batch_export_backfill_status(backfill_id=uuid.UUID(inputs.id), status=inputs.status)
+    backfill = await database_sync_to_async(update_batch_export_backfill_status)(
+        backfill_id=uuid.UUID(inputs.id), status=inputs.status
+    )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
@@ -674,17 +695,12 @@ async def execute_batch_export_insert_activity(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     get_export_started_metric().add(1)
-    retry_policy = RetryPolicy(
-        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
-        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
-        maximum_attempts=maximum_attempts,
-        non_retryable_error_types=non_retryable_error_types,
-    )
 
     if interval == "hour":
         start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
+        maximum_attempts = 0
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -692,6 +708,13 @@ async def execute_batch_export_insert_activity(
         start_to_close_timeout = max(dt.timedelta(minutes=10), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
+
+    retry_policy = RetryPolicy(
+        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
+        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
+        maximum_attempts=maximum_attempts,
+        non_retryable_error_types=non_retryable_error_types,
+    )
 
     try:
         records_completed = await workflow.execute_activity(

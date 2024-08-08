@@ -43,6 +43,18 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitThrowStmt(HogQLParser::ThrowStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitCatchBlock(HogQLParser::CatchBlockContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTryCatchStmt(HogQLParser::TryCatchStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitIfStmt(HogQLParser::IfStmtContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -52,6 +64,10 @@ public:
   }
 
   virtual std::any visitForStmt(HogQLParser::ForStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitForInStmt(HogQLParser::ForInStmtContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -311,6 +327,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprNullTupleAccess(HogQLParser::ColumnExprNullTupleAccessContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprPrecedence1(HogQLParser::ColumnExprPrecedence1Context *ctx) override {
     return visitChildren(ctx);
   }
@@ -332,6 +352,10 @@ public:
   }
 
   virtual std::any visitColumnExprWinFunctionTarget(HogQLParser::ColumnExprWinFunctionTargetContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprNullPropertyAccess(HogQLParser::ColumnExprNullPropertyAccessContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -364,6 +388,10 @@ public:
   }
 
   virtual std::any visitColumnExprParens(HogQLParser::ColumnExprParensContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprNullArrayAccess(HogQLParser::ColumnExprNullArrayAccessContext *ctx) override {
     return visitChildren(ctx);
   }
 

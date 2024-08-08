@@ -128,10 +128,17 @@ export function PropertyValue({
             loading={options[propertyKey]?.status === 'loading'}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues={options[propertyKey]?.allowCustomValues}
+            allowCustomValues={options[propertyKey]?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
+            title={
+                !displayOptions.length
+                    ? undefined
+                    : type === PropertyFilterType.Event
+                    ? 'Suggested values (last 7 days)'
+                    : 'Suggested values'
+            }
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
                 return {

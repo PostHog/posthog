@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -56,7 +57,7 @@ func main() {
 		log.Fatal("kafka.group_id must be set")
 	}
 
-	geolocator, err := NewGeoLocator(mmdb)
+	geolocator, err := NewMaxMindGeoLocator(mmdb)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatalf("Failed to open MMDB: %v", err)
@@ -77,7 +78,7 @@ func main() {
 	if !isProd {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
-	consumer, err := NewKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
+	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
 	if err != nil {
 		sentry.CaptureException(err)
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
@@ -124,12 +125,7 @@ func main() {
 		if err != nil {
 			return err
 		}
-		teamIdInt := int(claims["team_id"].(float64))
-
-		token, err := tokenFromTeamId(teamIdInt)
-		if err != nil {
-			return err
-		}
+		token := fmt.Sprint(claims["api_token"])
 
 		var hash *expirable.LRU[string, string]
 		var ok bool
@@ -175,23 +171,11 @@ func main() {
 				return err
 			}
 			teamId = strconv.Itoa(int(claims["team_id"].(float64)))
+			token = fmt.Sprint(claims["api_token"])
 
 			log.Printf("~~~~ team found %s", teamId)
 			if teamId == "" {
 				return errors.New("teamId is required unless geo=true")
-			}
-		}
-
-		if teamId != "" {
-			teamIdInt64, err := strconv.ParseInt(teamId, 10, 0)
-			if err != nil {
-				return err
-			}
-
-			teamIdInt := int(teamIdInt64)
-			token, err = tokenFromTeamId(teamIdInt)
-			if err != nil {
-				return err
 			}
 		}
 

@@ -2767,5 +2767,5 @@
             ]
         }
     ],
-    "stripe_portal_url": "https://billing.stripe.com/p/session/XYZ"
+    "stripe_portal_url": "http://localhost:8000/api/billing/portal"
 }

@@ -1,5 +1,5 @@
 import { ChartType, defaults, LegendOptions } from 'chart.js'
-import { _DeepPartialObject } from 'chart.js/types/utils'
+import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
 import { Chart } from 'lib/Chart'
 import { DateDisplay } from 'lib/components/DateDisplay'
@@ -26,7 +26,6 @@ export function ActionsLineGraph({
         labelGroupType,
         incompletenessOffsetFromEnd,
         formula,
-        compareFilter,
         display,
         interval,
         showValuesOnSeries,
@@ -39,6 +38,7 @@ export function ActionsLineGraph({
         showLegend,
         hiddenLegendIndexes,
         querySource,
+        yAxisScaleType,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -51,7 +51,7 @@ export function ActionsLineGraph({
     const shortenLifecycleLabels = (s: string | undefined): string =>
         capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
 
-    const legend: _DeepPartialObject<LegendOptions<ChartType>> = {
+    const legend: DeepPartial<LegendOptions<ChartType>> = {
         display: false,
     }
     if (isLifecycle && !!showLegend) {
@@ -88,6 +88,7 @@ export function ActionsLineGraph({
             showValuesOnSeries={showValuesOnSeries}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
+            yAxisScaleType={yAxisScaleType}
             tooltip={
                 isLifecycle
                     ? {
@@ -101,7 +102,6 @@ export function ActionsLineGraph({
                       }
                     : undefined
             }
-            compare={!!compareFilter?.compare}
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}

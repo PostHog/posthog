@@ -1,7 +1,7 @@
 import json
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from unittest.mock import ANY, patch, MagicMock, call
 from urllib.parse import urlencode
 
@@ -167,7 +167,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results_[0]["distinct_id"] == "user2"
         assert results_[1]["distinct_id"] in twelve_distinct_ids
 
-    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromReplaySummary")
+    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
         mock_summary_lister.return_value.run.return_value = ([], False)
 
@@ -395,7 +395,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "distinct_id": "d1",
             "viewed": False,
             "recording_duration": 30,
-            "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "click_count": 0,
             "keypress_count": 0,

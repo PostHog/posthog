@@ -21,7 +21,7 @@ def conversion_to_query_based(insight: "Insight") -> Iterator[None]:
         except Exception as e:
             set_tag("filter_to_query_todo", True)
             capture_exception(e)
-            raise e
+            raise
 
         try:
             yield

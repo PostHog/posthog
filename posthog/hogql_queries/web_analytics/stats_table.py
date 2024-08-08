@@ -24,6 +24,8 @@ from posthog.schema import (
     PersonPropertyFilter,
 )
 
+BREAKDOWN_NULL_DISPLAY = "(none)"
+
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
@@ -56,7 +58,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
     SELECT
@@ -95,7 +97,7 @@ ORDER BY "context.columns.visitors" DESC,
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
     SELECT
@@ -137,7 +139,7 @@ ORDER BY "context.columns.visitors" DESC,
                 """
 SELECT
     breakdown_value AS "context.columns.breakdown_value",
-    count(person_id) AS "context.columns.visitors",
+    uniq(person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views",
     avg(is_bounce) AS "context.columns.bounce_rate"
 FROM (
@@ -192,7 +194,7 @@ SELECT
 FROM (
     SELECT
         breakdown_value,
-        count(person_id) AS visitors,
+        uniq(person_id) AS visitors,
         sum(filtered_pageview_count) AS views
     FROM (
         SELECT
@@ -299,7 +301,7 @@ SELECT
 FROM (
     SELECT
         breakdown_value,
-        count(person_id) AS visitors,
+        uniq(person_id) AS visitors,
         sum(filtered_pageview_count) AS views
     FROM (
         SELECT
@@ -396,6 +398,7 @@ ORDER BY "context.columns.visitors" DESC,
             WebStatsBreakdown.INITIAL_UTM_CONTENT,
             WebStatsBreakdown.INITIAL_PAGE,
             WebStatsBreakdown.EXIT_PAGE,
+            WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN,
         }
 
     def _session_properties(self) -> ast.Expr:
@@ -466,6 +469,19 @@ ORDER BY "context.columns.visitors" DESC,
                 return ast.Field(chain=["session", "$entry_utm_content"])
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return ast.Field(chain=["session", "$channel_type"])
+            case WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN:
+                return ast.Call(
+                    name="concatWithSeparator",
+                    args=[
+                        ast.Constant(value=" / "),
+                        coalesce_with_null_display(
+                            ast.Field(chain=["session", "$entry_utm_source"]),
+                            ast.Field(chain=["session", "$entry_referring_domain"]),
+                        ),
+                        coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_medium"])),
+                        coalesce_with_null_display(ast.Field(chain=["session", "$entry_utm_campaign"])),
+                    ],
+                )
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
@@ -489,8 +505,6 @@ ORDER BY "context.columns.visitors" DESC,
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
             case WebStatsBreakdown.CITY:
                 return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
-            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
-                return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_SOURCE:
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_CAMPAIGN:
@@ -501,6 +515,10 @@ ORDER BY "context.columns.visitors" DESC,
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+                return parse_expr(
+                    "breakdown_value IS NOT NULL AND breakdown_value != ''"
+                )  # we need to check for empty strings as well due to how the left join works
             case _:
                 return parse_expr("breakdown_value IS NOT NULL")
 
@@ -525,3 +543,7 @@ ORDER BY "context.columns.visitors" DESC,
             )
 
         return path_expr
+
+
+def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:
+    return ast.Call(name="coalesce", args=[*exprs, ast.Constant(value=BREAKDOWN_NULL_DISPLAY)])

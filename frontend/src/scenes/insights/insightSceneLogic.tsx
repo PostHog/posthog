@@ -16,7 +16,6 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { examples } from '~/queries/examples'
 import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -28,7 +27,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev']],
+        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['disableNavigationHooks']],
     })),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -188,20 +187,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
-        '/data-warehouse': (_, __, { q }) => {
-            actions.setSceneState(String('new') as InsightShortId, ItemMode.Edit, undefined)
-            values.insightDataLogicRef?.logic.actions.setQuery(examples.DataVisualization)
-            values.insightLogicRef?.logic.actions.setInsight(
-                {
-                    ...createEmptyInsight('new', false),
-                    ...(q ? { query: JSON.parse(q) } : {}),
-                },
-                {
-                    fromPersistentApi: false,
-                    overrideFilter: false,
-                }
-            )
-        },
         '/insights/:shortId(/:mode)(/:subscriptionId)': (
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
@@ -314,13 +299,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
-            if (values.isDev) {
-                // TRICKY: We disable beforeUnload handling in dev, but ONLY for insights
+            if (values.disableNavigationHooks) {
                 return false
             }
 
-            // If just the hash changes, don't show the prompt
-            if (router.values.currentLocation.pathname === newLocation?.pathname) {
+            // If just the hash or project part changes, don't show the prompt
+            const currentPathname = router.values.currentLocation.pathname.replace(/\/project\/\d+/, '')
+            const newPathname = newLocation?.pathname.replace(/\/project\/\d+/, '')
+            if (currentPathname === newPathname) {
                 return false
             }
 

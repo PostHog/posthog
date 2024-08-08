@@ -18,7 +18,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadPreflight', // Gracefully handled if it fails
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
-    'loadResults', // Special error handling on insights
     'authenticate', // Special error handling on login
     'signup', // Special error handling on login
     'loadLatestVersion',
@@ -114,8 +113,8 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
         waitForPlugin,
     ]
 
-    // To enable logging, run localStorage.setItem("debug", true) in the console
-    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('debug'))) {
+    // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
+    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
         plugins.push(loggerPlugin)
     }
 

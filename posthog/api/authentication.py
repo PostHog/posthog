@@ -33,7 +33,7 @@ from two_factor.views.utils import (
     validate_remember_device_cookie,
 )
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
@@ -147,7 +147,7 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         # We still let them log in if is_email_verified is null so existing users don't get locked out
-        if is_email_available() and user.is_email_verified is not True:
+        if is_email_available() and user.is_email_verified is not True and not is_email_verification_disabled(user):
             EmailVerifier.create_token_and_send_email_verification(user)
             # If it's None, we want to let them log in still since they are an existing user
             # If it's False, we want to tell them to check their email
@@ -290,7 +290,7 @@ class PasswordResetSerializer(serializers.Serializer):
             user = None
 
         if user:
-            user.requested_password_reset_at = datetime.datetime.now(datetime.timezone.utc)
+            user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)
             send_password_reset(user.id, token)

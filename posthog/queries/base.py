@@ -240,9 +240,16 @@ def empty_or_null_with_value_q(
     else:
         parsed_value = None
         if operator in ("gt", "gte", "lt", "lte"):
+            if isinstance(value, list):
+                # If the value is a list for these operators,
+                # we should not return any results, as we can't compare a list to a single value
+                # TODO: should we try and parse each value in the list and return results based on that?
+                return Q(pk__isnull=True)
+
+            # At this point, we know that the value is not a list, so we can safely parse it
+            # There might still be exceptions, but we're catching them below
             try:
-                # try to parse even if arrays can't be parsed, the catch will handle it
-                parsed_value = float(value)  # type: ignore
+                parsed_value = float(value)
             except Exception:
                 pass
 
@@ -290,13 +297,17 @@ def property_to_Q(
         if cohorts_cache is not None:
             if cohorts_cache.get(cohort_id) is None:
                 queried_cohort = (
-                    Cohort.objects.using(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+                    Cohort.objects.db_manager(using_database)
+                    .filter(pk=cohort_id, team_id=team_id, deleted=False)
+                    .first()
                 )
                 cohorts_cache[cohort_id] = queried_cohort or ""
 
             cohort = cohorts_cache[cohort_id]
         else:
-            cohort = Cohort.objects.using(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+            cohort = (
+                Cohort.objects.db_manager(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+            )
 
         if not cohort:
             # Don't match anything if cohort doesn't exist
@@ -305,7 +316,7 @@ def property_to_Q(
         if cohort.is_static:
             return Q(
                 Exists(
-                    CohortPeople.objects.using(using_database)
+                    CohortPeople.objects.db_manager(using_database)
                     .filter(
                         cohort_id=cohort_id,
                         person_id=OuterRef("id"),

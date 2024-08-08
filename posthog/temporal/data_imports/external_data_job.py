@@ -32,6 +32,14 @@ from posthog.warehouse.models import (
     ExternalDataSource,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.warehouse.models.external_data_schema import aupdate_should_sync
+
+
+Non_Retryable_Schema_Errors = [
+    "NoSuchTableError",
+    "401 Client Error: Unauthorized for url: https://api.stripe.com",
+    "403 Client Error: Forbidden for url: https://api.stripe.com",
+]
 
 
 @dataclasses.dataclass
@@ -39,12 +47,26 @@ class UpdateExternalDataJobStatusInputs:
     id: str
     team_id: int
     run_id: str
+    schema_id: str
     status: str
+    internal_error: str | None
     latest_error: str | None
 
 
 @activity.defn
 async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
+    if inputs.internal_error:
+        logger.exception(
+            f"External data job failed for external data schema {inputs.schema_id} with error: {inputs.internal_error}"
+        )
+
+        has_non_retryable_error = any(error in inputs.internal_error for error in Non_Retryable_Schema_Errors)
+        if has_non_retryable_error:
+            logger.info("Schema has a non-retryable error - turning off syncing")
+            await aupdate_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
+
     await sync_to_async(update_external_job_status)(
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
@@ -52,7 +74,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         team_id=inputs.team_id,
     )
 
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
         f"Updated external data job with for external data source {inputs.run_id} to status {inputs.status}",
     )
@@ -105,8 +126,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ExternalDataWorkflowInputs):
-        logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-
         should_exit = await workflow.execute_activity(
             check_schedule_activity,
             inputs,
@@ -131,31 +150,27 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             source_id=inputs.external_data_source_id,
         )
 
-        try:
-            # TODO: split out the creation of the external data job model from schema getting to seperate out exception handling
-            run_id, incremental = await workflow.execute_activity(
-                create_external_data_job_model_activity,
-                create_external_data_job_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
-                ),
-            )
-        except Exception as e:
-            logger.error(
-                f"External data job failed on create_external_data_job_model_activity for {inputs.external_data_source_id} with error: {e}"
-            )
-            raise e
+        # TODO: split out the creation of the external data job model from schema getting to seperate out exception handling
+        run_id, incremental = await workflow.execute_activity(
+            create_external_data_job_model_activity,
+            create_external_data_job_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=3,
+                non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
+            ),
+        )
 
         update_inputs = UpdateExternalDataJobStatusInputs(
             id=run_id,
             run_id=run_id,
             status=ExternalDataJob.Status.COMPLETED,
             latest_error=None,
+            internal_error=None,
             team_id=inputs.team_id,
+            schema_id=str(inputs.external_data_schema_id),
         )
 
         try:
@@ -172,10 +187,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 else {"start_to_close_timeout": dt.timedelta(hours=5), "retry_policy": RetryPolicy(maximum_attempts=3)}
             )
 
-            table_schemas, table_row_counts = await workflow.execute_activity(
+            await workflow.execute_activity(
                 import_data_activity,
                 job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=1),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
 
@@ -192,16 +207,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.CANCELLED
             else:
                 update_inputs.status = ExternalDataJob.Status.FAILED
-            logger.error(
-                f"External data job failed for external data source {inputs.external_data_source_id} with error: {e.cause}"
-            )
+
+            update_inputs.internal_error = str(e.cause)
             update_inputs.latest_error = str(e.cause)
             raise
         except Exception as e:
-            logger.error(
-                f"External data job failed for external data source {inputs.external_data_source_id} with error: {e}"
-            )
             # Catch all
+            update_inputs.internal_error = str(e)
             update_inputs.latest_error = "An unexpected error has ocurred"
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise

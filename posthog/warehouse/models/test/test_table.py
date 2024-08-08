@@ -143,10 +143,10 @@ class TestTable(BaseTest):
         self.assertEqual(
             list(table.hogql_definition().fields.values()),
             [
-                StringDatabaseField(name="id"),
-                DateTimeDatabaseField(name="timestamp"),
-                IntegerDatabaseField(name="mrr"),
-                IntegerDatabaseField(name="offset"),
+                StringDatabaseField(name="id", nullable=False),
+                DateTimeDatabaseField(name="timestamp", nullable=False),
+                IntegerDatabaseField(name="mrr", nullable=True),
+                IntegerDatabaseField(name="offset", nullable=False),
             ],
         )
 
@@ -173,10 +173,10 @@ class TestTable(BaseTest):
         self.assertEqual(
             list(table.hogql_definition().fields.values()),
             [
-                StringDatabaseField(name="id"),
-                DateTimeDatabaseField(name="timestamp"),
-                IntegerDatabaseField(name="mrr"),
-                IntegerDatabaseField(name="offset"),
+                StringDatabaseField(name="id", nullable=False),
+                DateTimeDatabaseField(name="timestamp", nullable=False),
+                IntegerDatabaseField(name="mrr", nullable=True),
+                IntegerDatabaseField(name="offset", nullable=False),
             ],
         )
 
@@ -220,5 +220,36 @@ class TestTable(BaseTest):
         )
         self.assertEqual(
             table.hogql_definition().structure,
-            "`id` String, `timestamp` DateTime64(3, 'UTC'), `mrr` Int64, `complex_field` Array(Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String)))), `tuple_field` Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), `offset` UInt32",
+            "`id` String, `timestamp` DateTime64(3, 'UTC'), `mrr` Nullable(Int64), `complex_field` Array(Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String)))), `tuple_field` Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), `offset` UInt32",
+        )
+
+    def test_hogql_definition_nullable(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "mrr": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+            },
+            credential=credential,
+        )
+        self.assertEqual(
+            list(table.hogql_definition().fields.keys()),
+            ["id", "mrr"],
+        )
+
+        self.assertEqual(
+            list(table.hogql_definition().fields.values()),
+            [
+                StringDatabaseField(name="id", nullable=False),
+                IntegerDatabaseField(name="mrr", nullable=True),
+            ],
+        )
+
+        self.assertEqual(
+            table.hogql_definition().structure,
+            "`id` String, `mrr` Nullable(Int64)",
         )

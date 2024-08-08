@@ -5,7 +5,7 @@ import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
-import { pipelineHogFunctionConfigurationLogic } from '../pipelineHogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 
 export type HogFunctionInputIntegrationFieldProps = {
     schema: HogFunctionInputSchemaType
@@ -18,7 +18,7 @@ export function HogFunctionInputIntegrationField({
     value,
     onChange,
 }: HogFunctionInputIntegrationFieldProps): JSX.Element {
-    const { configuration } = useValues(pipelineHogFunctionConfigurationLogic)
+    const { configuration } = useValues(hogFunctionConfigurationLogic)
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
 
     if (integrationsLoading) {

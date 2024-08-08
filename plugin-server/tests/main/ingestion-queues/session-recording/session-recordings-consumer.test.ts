@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
+import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
@@ -9,6 +9,7 @@ import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { deleteKeysWithPrefix } from '../../../helpers/redis'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
@@ -27,23 +28,14 @@ const config: PluginsServerConfig = {
 
 const noop = () => undefined
 
-async function deleteKeysWithPrefix(hub: Hub) {
-    const redisClient = await hub.redisPool.acquire()
-    const keys = await redisClient.keys(`${SESSION_RECORDING_REDIS_PREFIX}*`)
-    const pipeline = redisClient.pipeline()
-    keys.forEach(function (key) {
-        pipeline.del(key)
-    })
-    await pipeline.exec()
-    await hub.redisPool.release(redisClient)
+async function deleteKeys(hub: Hub) {
+    await deleteKeysWithPrefix(hub.redisPool, SESSION_RECORDING_REDIS_PREFIX)
 }
 
 const mockConsumer = {
     on: jest.fn(),
-    commitSync: jest.fn(),
-    commit: jest.fn(),
+    offsetsStore: jest.fn(),
     queryWatermarkOffsets: jest.fn(),
-    committed: jest.fn(),
     assignments: jest.fn(),
     isConnected: jest.fn(() => true),
     getMetadata: jest.fn(),
@@ -88,7 +80,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         // The below mocks simulate committing to kafka and querying the offsets
         mockCommittedOffsets = {}
         mockOffsets = {}
-        mockConsumer.commit.mockImplementation(
+        mockConsumer.offsetsStore.mockImplementation(
             (tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset)
         )
         mockConsumer.queryWatermarkOffsets.mockImplementation((_topic, partition, _timeout, cb) => {
@@ -100,23 +92,12 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 topics: [{ name: options.topic, partitions: [{ id: 0 }, { id: 1 }, { id: 2 }] }],
             })
         })
-
-        mockConsumer.committed.mockImplementation((topicPartitions: TopicPartition[], _timeout, cb) => {
-            const tpos: TopicPartitionOffset[] = topicPartitions.map((tp) => ({
-                topic: tp.topic,
-                partition: tp.partition,
-                offset: mockCommittedOffsets[tp.partition] ?? 1,
-            }))
-
-            cb(null, tpos)
-        })
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
         teamToken = team.api_token
         redisConn = await hub.redisPool.acquire(0)
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
-
-        await deleteKeysWithPrefix(hub)
+        await deleteKeys(hub)
 
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
         await ingester.start()
@@ -128,7 +109,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         jest.setTimeout(10000)
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await hub.redisPool.release(redisConn)
-        await deleteKeysWithPrefix(hub)
+        await deleteKeys(hub)
         await closeHub()
     })
 
@@ -166,9 +147,17 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         afterEach(async () => {
             await ingester.stop()
         })
-        it('can parse debug partition config', () => {
+
+        it.each([
+            ['103', 103, true],
+            ['103', 102, false],
+            ['*', 101, true],
+            ['', 99, false],
+            ['102, 103, 104', 102, true],
+            ['102, 103, 104', 101, false],
+        ])('can parse debug partition config', (partition_config, partition, expected) => {
             const config = {
-                SESSION_RECORDING_DEBUG_PARTITION: '103',
+                SESSION_RECORDING_DEBUG_PARTITION: partition_config,
                 KAFKA_HOSTS: 'localhost:9092',
             } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
@@ -179,7 +168,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 consumeOverflow,
                 undefined
             )
-            expect(ingester['debugPartition']).toEqual(103)
+            expect(ingester['isDebugLoggingEnabled'](partition)).toEqual(expected)
         })
 
         it('can parse absence of debug partition config', () => {
@@ -260,18 +249,18 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
                 await commitAllOffsets()
                 // Doesn't flush if we have a blocking session
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(0)
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(0)
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
                 await commitAllOffsets()
 
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
-                expect(mockConsumer.commit).toHaveBeenLastCalledWith(
-                    expect.objectContaining({
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
+                expect(mockConsumer.offsetsStore).toHaveBeenLastCalledWith([
+                    {
                         topic: consumedTopic,
                         offset: 2 + 1,
                         partition: 1,
-                    })
-                )
+                    },
+                ])
             })
 
             it.skip('should commit higher values but not lower', async () => {
@@ -280,31 +269,31 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 expect(ingester.partitionMetrics[1].lastMessageOffset).toBe(1)
                 await commitAllOffsets()
 
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
-                expect(mockConsumer.commit).toHaveBeenLastCalledWith(
-                    expect.objectContaining({
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
+                expect(mockConsumer.offsetsStore).toHaveBeenLastCalledWith([
+                    {
                         topic: consumedTopic,
                         partition: 1,
                         offset: 2,
-                    })
-                )
+                    },
+                ])
 
                 // Repeat commit doesn't do anything
                 await commitAllOffsets()
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
 
                 await ingester.handleEachBatch([createMessage('sid1')], noop)
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
                 await commitAllOffsets()
 
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(2)
-                expect(mockConsumer.commit).toHaveBeenLastCalledWith(
-                    expect.objectContaining({
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(2)
+                expect(mockConsumer.offsetsStore).toHaveBeenLastCalledWith([
+                    {
                         topic: consumedTopic,
                         partition: 1,
                         offset: 2 + 1,
-                    })
-                )
+                    },
+                ])
             })
 
             it('should commit the lowest known offset if there is a blocking session', async () => {
@@ -320,18 +309,18 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 })
 
                 // No offsets are below the blocking one
-                expect(mockConsumer.commit).not.toHaveBeenCalled()
+                expect(mockConsumer.offsetsStore).not.toHaveBeenCalled()
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
 
                 // Subsequent commit will commit the last known offset
                 await commitAllOffsets()
-                expect(mockConsumer.commit).toHaveBeenLastCalledWith(
-                    expect.objectContaining({
+                expect(mockConsumer.offsetsStore).toHaveBeenLastCalledWith([
+                    {
                         topic: consumedTopic,
                         partition: 1,
                         offset: 4 + 1,
-                    })
-                )
+                    },
+                ])
             })
 
             it('should commit one lower than the blocking session if that is the highest', async () => {
@@ -344,7 +333,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await commitAllOffsets()
 
                 // No offsets are below the blocking one
-                expect(mockConsumer.commit).not.toHaveBeenCalled()
+                expect(mockConsumer.offsetsStore).not.toHaveBeenCalled()
 
                 // Add a new message and session and flush the old one
                 await ingester.handleEachBatch([createMessage('sid2')], noop)
@@ -352,13 +341,13 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await commitAllOffsets()
 
                 // We should commit the offset of the blocking session
-                expect(mockConsumer.commit).toHaveBeenLastCalledWith(
-                    expect.objectContaining({
+                expect(mockConsumer.offsetsStore).toHaveBeenLastCalledWith([
+                    {
                         topic: consumedTopic,
                         partition: 1,
                         offset: ingester.sessions[`${team.id}-sid2`].getLowestOffset(),
-                    })
-                )
+                    },
+                ])
             })
 
             it.skip('should not be affected by other partitions ', async () => {
@@ -372,28 +361,28 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
                 // We should now have a blocking session on partition 1 and 2 with partition 1 being committable
                 await commitAllOffsets()
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
-                expect(mockConsumer.commit).toHaveBeenLastCalledWith(
-                    expect.objectContaining({
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
+                expect(mockConsumer.offsetsStore).toHaveBeenLastCalledWith([
+                    {
                         topic: consumedTopic,
                         partition: 1,
                         offset: 2,
-                    })
-                )
+                    },
+                ])
 
-                mockConsumer.commit.mockReset()
+                mockConsumer.offsetsStore.mockReset()
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
                 await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
                 await commitAllOffsets()
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(2)
-                expect(mockConsumer.commit).toHaveBeenCalledWith(
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(2)
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledWith(
                     expect.objectContaining({
                         topic: consumedTopic,
                         partition: 1,
                         offset: 3,
                     })
                 )
-                expect(mockConsumer.commit).toHaveBeenCalledWith(
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledWith(
                     expect.objectContaining({
                         partition: 2,
                         offset: 3,
@@ -429,7 +418,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 )
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
                 await commitAllOffsets()
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
 
                 // all replay events should be watermarked up until the 3rd message as they HAVE been processed
                 // whereas the commited kafka offset should be the 1st message as the 2nd message HAS not been processed
@@ -455,7 +444,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await ingester.handleEachBatch([events[0], events[1]], noop)
                 await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
                 await commitAllOffsets()
-                expect(mockConsumer.commit).not.toHaveBeenCalled()
+                expect(mockConsumer.offsetsStore).not.toHaveBeenCalled()
                 await expect(getPersistentWaterMarks()).resolves.toEqual({
                     session_replay_console_logs_events_ingester: 2,
                     session_replay_events_ingester: 2,
@@ -472,7 +461,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
         })
 
-        describe('simulated rebalancing', () => {
+        describe('simulated rebalanng', () => {
             let otherIngester: SessionRecordingIngester
             jest.setTimeout(5000) // Increased to cover lock delay
 
@@ -565,14 +554,14 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                     expect.stringContaining(`${team.id}.sid3.`), // json
                 ])
 
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
-                expect(mockConsumer.commit).toHaveBeenLastCalledWith(
-                    expect.objectContaining({
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
+                expect(mockConsumer.offsetsStore).toHaveBeenLastCalledWith([
+                    {
                         topic: consumedTopic,
                         offset: 2 + 1,
                         partition: 1,
-                    })
-                )
+                    },
+                ])
             })
         })
 
@@ -586,12 +575,14 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                     ],
                     noop
                 )
-                expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
-                expect(mockConsumer.commit).toHaveBeenCalledWith({
-                    topic: consumedTopic,
-                    offset: 14,
-                    partition: 1,
-                })
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
+                expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([
+                    {
+                        topic: consumedTopic,
+                        offset: 14,
+                        partition: 1,
+                    },
+                ])
             })
         })
 
@@ -691,7 +682,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await ingester.handleEachBatch(partitionMsgs1, heartbeat)
 
                 // NOTE: the number here can change as we change the code. Important is that it is called a number of times
-                expect(heartbeat).toBeCalledTimes(7)
+                expect(heartbeat).toBeCalledTimes(6)
             })
         })
     })

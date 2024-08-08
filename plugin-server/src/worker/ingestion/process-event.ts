@@ -5,7 +5,6 @@ import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
 import {
-    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
@@ -198,11 +197,11 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(
+    createEvent(
         preIngestionEvent: PreIngestionEvent,
         person: Person,
         processPerson: boolean
-    ): Promise<[RawClickHouseEvent, Promise<void>]> {
+    ): [RawClickHouseEvent, Promise<void>] {
         const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
@@ -218,11 +217,8 @@ export class EventsProcessor {
             })
         }
 
-        let groupsColumns: Record<string, string | ClickHouseTimestamp> = {}
         let eventPersonProperties = '{}'
         if (processPerson) {
-            const groupIdentifiers = this.getGroupIdentifiers(properties)
-            groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
             eventPersonProperties = JSON.stringify({
                 ...person.properties,
                 // For consistency, we'd like events to contain the properties that they set, even if those were changed
@@ -237,8 +233,6 @@ export class EventsProcessor {
                 delete properties[key]
             }
         }
-
-        // TODO: Remove Redis caching for person that's not used anymore
 
         let personMode: PersonMode = 'full'
         if (person.force_upgrade) {
@@ -260,7 +254,6 @@ export class EventsProcessor {
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             person_mode: personMode,
-            ...groupsColumns,
         }
 
         const ack = this.kafkaProducer

@@ -51,5 +51,5 @@ def pushed_metrics_registry(job_name: str):
         if settings.PROM_PUSHGATEWAY_ADDRESS:
             _push(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
     except Exception as err:
-        logger.error("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
+        logger.exception("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
         capture_exception(err)

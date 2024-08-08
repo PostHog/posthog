@@ -1,7 +1,7 @@
 import datetime
 import os
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -38,15 +38,11 @@ except ImportError:
     pass
 
 
-def raise_if_plugin_installed(url: str, organization_id: str):
+def raise_if_plugin_installed(url: str):
     url_without_private_key = url.split("?")[0]
-    if (
-        Plugin.objects.filter(
-            models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
-        )
-        .filter(organization_id=organization_id)
-        .exists()
-    ):
+    if Plugin.objects.filter(
+        models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
+    ).exists():
         raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
@@ -125,7 +121,7 @@ class PluginManager(models.Manager):
         plugin_json: Optional[dict[str, Any]] = None
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             plugin_json = update_validated_data_from_url(kwargs, kwargs["url"])
-            raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
+            raise_if_plugin_installed(kwargs["url"])
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
@@ -149,12 +145,18 @@ class Plugin(models.Model):
             "source",
             "source",
         )  # coded inside the browser (versioned via plugin_source_version)
+        INLINE = (
+            "inline",
+            "inline",
+        )  # Code checked into plugin_server, url starts with "inline:"
 
+    # DEPRECATED: plugin-server will own all plugin code, org relations don't make sense
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="plugins",
         related_query_name="plugin",
+        null=True,
     )
     plugin_type: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
@@ -167,7 +169,7 @@ class Plugin(models.Model):
 
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
-    url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    url: models.CharField = models.CharField(max_length=800, null=True, blank=True, unique=True)
     icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
@@ -200,6 +202,13 @@ class Plugin(models.Model):
 
     objects: PluginManager = PluginManager()
 
+    __repr__ = sane_repr("id", "name", "organization_id", "is_global")
+
+    def __str__(self) -> str:
+        if not self.name:
+            return f"ID {self.id}"
+        return self.name
+
     def get_default_config(self) -> dict[str, Any]:
         config: dict[str, Any] = {}
         config_schema = self.config_schema
@@ -215,21 +224,8 @@ class Plugin(models.Model):
                     config[config_entry["key"]] = default
         return config
 
-    def __str__(self) -> str:
-        if not self.name:
-            return f"ID {self.id}"
-        return self.name
-
-    __repr__ = sane_repr("id", "name", "organization_id", "is_global")
-
 
 class PluginConfig(models.Model):
-    class Meta:
-        indexes = [
-            models.Index(fields=["web_token"]),
-            models.Index(fields=["enabled"]),
-        ]
-
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
@@ -263,6 +259,12 @@ class PluginConfig(models.Model):
         null=True,
     )
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["web_token"]),
+            models.Index(fields=["enabled"]),
+        ]
+
 
 class PluginAttachment(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
@@ -288,13 +290,13 @@ class PluginStorage(models.Model):
     value: models.TextField = models.TextField(blank=True, null=True)
 
 
-class PluginLogEntrySource(str, Enum):
+class PluginLogEntrySource(StrEnum):
     SYSTEM = "SYSTEM"
     PLUGIN = "PLUGIN"
     CONSOLE = "CONSOLE"
 
 
-class PluginLogEntryType(str, Enum):
+class PluginLogEntryType(StrEnum):
     DEBUG = "DEBUG"
     LOG = "LOG"
     INFO = "INFO"

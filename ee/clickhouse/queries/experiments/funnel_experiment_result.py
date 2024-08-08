@@ -111,9 +111,9 @@ class ClickhouseFunnelExperimentResult:
             }
 
             significance_code, loss = self.are_results_significant(control_variant, test_variants, probabilities)
-        except ValidationError as err:
+        except ValidationError:
             if validate:
-                raise err
+                raise
             else:
                 return basic_result_props
 

@@ -1,4 +1,6 @@
+import base64
 from datetime import datetime
+import json
 from unittest.mock import call, patch
 from zoneinfo import ZoneInfo
 
@@ -11,13 +13,14 @@ from freezegun import freeze_time
 from rest_framework.request import Request
 
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
-from posthog.exceptions import RequestParsingError
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import EventDefinition
 from posthog.settings.utils import get_from_env
 from posthog.test.base import BaseTest
 from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,
+    base64_decode,
     flatten,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
@@ -311,7 +314,7 @@ class TestLoadDataFromRequest(TestCase):
 
         post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(RequestParsingError):
+        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
@@ -332,7 +335,7 @@ class TestLoadDataFromRequest(TestCase):
 
         post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(RequestParsingError):
+        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
@@ -351,7 +354,7 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         post_request = rf.post("/s/", "content", "text/plain")
 
-        with self.assertRaises(RequestParsingError):
+        with self.assertRaises(UnspecifiedCompressionFallbackParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
@@ -373,7 +376,7 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         post_request = rf.post("/s/", "undefined", "text/plain")
 
-        with self.assertRaises(RequestParsingError) as ctx:
+        with self.assertRaises(UnspecifiedCompressionFallbackParsingError) as ctx:
             load_data_from_request(post_request)
 
         self.assertEqual(
@@ -457,6 +460,43 @@ class TestShouldRefresh(TestCase):
             date_to_delta_mapping=None,
             interval="day",
         ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 23, 59, 59, 999999))
+
+
+class TestUtilities(TestCase):
+    def test_base64_decode(self):
+        # Test with a simple string
+        simple_string = "Hello, World!"
+        encoded = base64.b64encode(simple_string.encode("utf-8")).decode("ascii")
+        self.assertEqual(base64_decode(encoded), simple_string)
+
+        # Test with bytes input
+        bytes_input = b"SGVsbG8sIFdvcmxkIQ=="
+        self.assertEqual(base64_decode(bytes_input), simple_string)
+
+        # Test with Unicode characters
+        unicode_string = "こんにちは、世界！"
+        unicode_encoded = base64.b64encode(unicode_string.encode("utf-8")).decode("ascii")
+        self.assertEqual(base64_decode(unicode_encoded), unicode_string)
+
+        # Test with emojis
+        emoji_string = "Hello 👋 World 🌍!"
+        emoji_encoded = base64.b64encode(emoji_string.encode("utf-8")).decode("ascii")
+        self.assertEqual(base64_decode(emoji_encoded), emoji_string)
+
+        # Test with padding characters removed
+        no_padding = "SGVsbG8sIFdvcmxkIQ"
+        self.assertEqual(base64_decode(no_padding), simple_string)
+
+        # Test with real URL encoded data
+        # from: https://posthog.sentry.io/issues/5680826999/
+        encoded_data = b"data=eyJ0b2tlbiI6InBoY191eEl4QmhLQ2NVZll0d1NoTmhlRVMyNTJBak45b0pYNzZmcElybTV3cWpmIiwiZGlzdGluY3RfaWQiOiIwMTkxMjliNi1kNTQwLTczZjUtYjY3YS1kODI3MTEzOWFmYTYiLCJncm91cHMiOnt9fQ%3D%3D"
+
+        decoded = base64_decode(encoded_data)
+        decoded_json = json.loads(decoded)
+
+        self.assertEqual(decoded_json["token"], "phc_uxIxBhKCcUfYtwShNheES252AjN9oJX76fpIrm5wqjf")
+        self.assertEqual(decoded_json["distinct_id"], "019129b6-d540-73f5-b67a-d8271139afa6")
+        self.assertEqual(decoded_json["groups"], {})
 
 
 class TestFlatten(TestCase):

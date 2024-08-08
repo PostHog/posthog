@@ -99,7 +99,7 @@ class ObjectStorage(ObjectStorageClient):
                 HttpMethod="GET",
             )
         except Exception as e:
-            logger.error("object_storage.get_presigned_url_failed", file_name=file_key, error=e)
+            logger.exception("object_storage.get_presigned_url_failed", file_name=file_key, error=e)
             capture_exception(e)
             return None
 
@@ -111,7 +111,7 @@ class ObjectStorage(ObjectStorageClient):
             else:
                 return None
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "object_storage.list_objects_failed",
                 bucket=bucket,
                 prefix=prefix,
@@ -133,7 +133,7 @@ class ObjectStorage(ObjectStorageClient):
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
             return s3_response["Body"].read()
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "object_storage.read_failed",
                 bucket=bucket,
                 file_name=key,
@@ -151,7 +151,7 @@ class ObjectStorage(ObjectStorageClient):
                 Tagging={"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]},
             )
         except Exception as e:
-            logger.error("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
+            logger.exception("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
             capture_exception(e)
             raise ObjectStorageError("tag failed") from e
 
@@ -160,7 +160,7 @@ class ObjectStorage(ObjectStorageClient):
         try:
             s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "object_storage.write_failed",
                 bucket=bucket,
                 file_name=key,
@@ -181,7 +181,7 @@ class ObjectStorage(ObjectStorageClient):
 
             return len(source_objects)
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "object_storage.copy_objects_failed",
                 source_prefix=source_prefix,
                 target_prefix=target_prefix,
@@ -218,9 +218,9 @@ def object_storage_client() -> ObjectStorageClient:
     return _client
 
 
-def write(file_name: str, content: Union[str, bytes], extras: dict | None = None) -> None:
+def write(file_name: str, content: Union[str, bytes], extras: dict | None = None, bucket: str | None = None) -> None:
     return object_storage_client().write(
-        bucket=settings.OBJECT_STORAGE_BUCKET,
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
         key=file_name,
         content=content,
         extras=extras,
@@ -231,8 +231,8 @@ def tag(file_name: str, tags: dict[str, str]) -> None:
     return object_storage_client().tag(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, tags=tags)
 
 
-def read(file_name: str) -> Optional[str]:
-    return object_storage_client().read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+def read(file_name: str, bucket: str | None = None) -> Optional[str]:
+    return object_storage_client().read(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
 def read_bytes(file_name: str) -> Optional[bytes]:

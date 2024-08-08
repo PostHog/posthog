@@ -37,6 +37,11 @@ def reload_hog_functions_on_workers(team_id: int, hog_function_ids: list[str]):
     publish_message("reload-hog-functions", {"teamId": team_id, "hogFunctionIds": hog_function_ids})
 
 
+def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
+    logger.info(f"Reloading integrations {integration_ids} on workers")
+    publish_message("reload-integrations", {"teamId": team_id, "integrationIds": integration_ids})
+
+
 def reset_available_product_features_cache_on_workers(organization_id: str):
     logger.info(f"Resetting available product features cache for organization {organization_id} on workers")
     publish_message(
@@ -53,7 +58,7 @@ def populate_plugin_capabilities_on_workers(plugin_id: str):
 def create_hog_invocation_test(
     team_id: int,
     hog_function_id: str,
-    event: dict,
+    globals: dict,
     configuration: dict,
     mock_async_functions: bool,
 ) -> requests.Response:
@@ -61,8 +66,21 @@ def create_hog_invocation_test(
     return requests.post(
         CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
         json={
-            "event": event,
+            "globals": globals,
             "configuration": configuration,
             "mock_async_functions": mock_async_functions,
         },
+    )
+
+
+def get_hog_function_status(team_id: int, hog_function_id: str) -> requests.Response:
+    return requests.get(
+        CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status"
+    )
+
+
+def patch_hog_function_status(team_id: int, hog_function_id: str, state: int) -> requests.Response:
+    return requests.patch(
+        CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
+        json={"state": state},
     )

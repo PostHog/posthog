@@ -14,7 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
@@ -29,7 +29,7 @@ import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode, NotebookNodeType } from '~/types'
+import { ExporterFormat, InsightLogicProps, ItemMode, NotebookNodeType } from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -41,19 +41,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightProps,
         canEditInsight,
         queryBasedInsight: insight,
-        legacyInsight,
+        queryBasedInsightSaving,
         insightChanged,
         insightSaving,
         hasDashboardItemId,
     } = useValues(insightLogic(insightLogicProps))
-    const { setInsightMetadata } = useActions(insightLogic(insightLogicProps))
+    const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
     const { queryChanged, showQueryEditor, hogQL, exportContext } = useValues(insightDataLogic(insightProps))
-    const { saveInsight, saveAs, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const { toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -69,14 +69,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        closeModal={() => push(urls.insightView(insight.short_id))}
                         insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
                         title="Insight sharing"
                         isOpen={insightMode === ItemMode.Sharing}
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        closeModal={() => push(urls.insightView(insight.short_id))}
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
@@ -88,9 +88,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         canEditInsight={canEditInsight}
                     />
                     <AlertsModal
+                        closeModal={() => push(urls.insightView(insight.short_id))}
                         isOpen={insightMode === ItemMode.Alerts}
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        insightShortId={insight.short_id as InsightShortId}
+                        insightLogicProps={insightLogicProps}
+                        insightShortId={insight.short_id}
                         alertId={subscriptionId}
                     />
                     <NewDashboardModal />
@@ -105,7 +106,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(legacyInsight as InsightModel, true)}
+                                                onClick={() => duplicateInsight(insight, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -216,12 +217,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
-                                                    void deleteWithUndo({
-                                                        object: legacyInsight,
+                                                    void deleteInsightWithUndo({
+                                                        object: insight,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()
                                                             push(urls.savedInsights())
+                                                        },
+                                                        options: {
+                                                            writeAsQuery: queryBasedInsightSaving,
+                                                            readAsQuery: true,
                                                         },
                                                     })
                                                 }
@@ -237,7 +242,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         <LemonDivider vertical />
 
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
-                            <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => setInsightMode(ItemMode.View, null)}
+                                data-attr="insight-cancel-edit-button"
+                            >
                                 Cancel
                             </LemonButton>
                         )}
