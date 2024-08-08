@@ -9,6 +9,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
@@ -137,11 +138,12 @@ function DebugCHQueries(): JSX.Element {
                                         {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
                                     </div>
                                     <div>
-                                        Took{' '}
                                         {item.status === 1 ? (
                                             'In progress…'
                                         ) : (
-                                            <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
+                                            <>
+                                                Took {Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms
+                                            </>
                                         )}
                                     </div>
                                 </>
@@ -160,52 +162,52 @@ function DebugCHQueries(): JSX.Element {
                                             <span className="font-mono">{item.query_id}</span>
                                         </LemonTag>{' '}
                                         {item.logComment.cache_key ? (
-                                            <LemonButton
-                                                to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+cache_key%3A${item.logComment.cache_key}&referrer=issue-list&statsPeriod=7d`}
-                                                className="inline-block"
-                                                type="secondary"
-                                                size="xsmall"
-                                                targetBlank
-                                            >
+                                            <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Cache key:</span>{' '}
-                                                <span className="font-mono">{item.logComment.cache_key}</span>
-                                            </LemonButton>
+                                                <span className="font-mono">{item.logComment.cache_key}</span>{' '}
+                                                <Link
+                                                    to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+cache_key%3A${item.logComment.cache_key}&referrer=issue-list&statsPeriod=7d`}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
                                         ) : null}{' '}
                                         {item.logComment.insight_id ? (
-                                            <LemonButton
-                                                to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+insight_id%3A${item.logComment.insight_id}&referrer=issue-list&statsPeriod=7d`}
-                                                className="inline-block"
-                                                type="secondary"
-                                                size="xsmall"
-                                                targetBlank
-                                            >
+                                            <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Insight ID:</span>{' '}
-                                                <span className="font-mono">{item.logComment.insight_id}</span>
-                                            </LemonButton>
+                                                <span className="font-mono">{item.logComment.insight_id}</span>{' '}
+                                                <Link
+                                                    to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+insight_id%3A${item.logComment.insight_id}&referrer=issue-list&statsPeriod=7d`}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
                                         ) : null}{' '}
                                         {item.logComment.dashboard_id ? (
-                                            <LemonButton
-                                                to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+dashboard_id%3A${item.logComment.dashboard_id}&referrer=issue-list&statsPeriod=7d`}
-                                                className="inline-block"
-                                                type="secondary"
-                                                size="xsmall"
-                                                targetBlank
-                                            >
+                                            <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Dashboard ID:</span>{' '}
-                                                <span className="font-mono">{item.logComment.dashboard_id}</span>
-                                            </LemonButton>
+                                                <span className="font-mono">{item.logComment.dashboard_id}</span>{' '}
+                                                <Link
+                                                    to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+dashboard_id%3A${item.logComment.dashboard_id}&referrer=issue-list&statsPeriod=7d`}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
                                         ) : null}{' '}
                                         {item.logComment.user_id ? (
-                                            <LemonButton
-                                                to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+user%3A%22id%3A${item.logComment.user_id}%22&referrer=issue-list&statsPeriod=7d`}
-                                                className="inline-block"
-                                                type="secondary"
-                                                size="xsmall"
-                                                targetBlank
-                                            >
+                                            <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">User ID:</span>{' '}
-                                                <span className="font-mono">{item.logComment.user_id}</span>
-                                            </LemonButton>
+                                                <span className="font-mono">{item.logComment.user_id}</span>{' '}
+                                                <Link
+                                                    to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+user%3A%22id%3A${item.logComment.user_id}%22&referrer=issue-list&statsPeriod=7d`}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
                                         ) : null}
                                     </div>
                                     {item.exception && (
@@ -344,7 +346,6 @@ function DebugCHQueries(): JSX.Element {
                 loading={queriesLoading}
                 loadingSkeletonRows={5}
                 pagination={undefined}
-                // vertical align top
                 rowClassName="align-top"
             />
         </>
