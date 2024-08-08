@@ -1,6 +1,7 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -15,13 +16,16 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Node } from '~/queries/schema'
+import { isInsightVizNode } from '~/queries/utils'
 import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { getDefaultQuery, insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { summarizeInsight } from './summarizeInsight'
+import { compareFilters } from './utils/compareFilters'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -54,6 +58,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             logic,
             unmount,
         }),
+        setOpenedWithQuery: (query: Node | null) => ({ query }),
     }),
     reducers({
         insightId: [
@@ -97,6 +102,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setInsightDataLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
+        openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
     }),
     selectors(() => ({
         legacyInsightSelector: [
@@ -273,6 +279,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         }
                     )
 
+                    actions.setOpenedWithQuery(query || null)
+
                     eventUsageLogic.actions.reportInsightCreated(query)
                 }
             }
@@ -298,7 +306,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightMode: actionToUrl,
         }
     }),
-    beforeUnload(({ values }) => ({
+    beforeUnload(({ values, props }) => ({
         enabled: (newLocation?: CombinedLocation) => {
             // safeguard against running this check on other scenes
             if (values.activeScene !== Scene.Insight) {
@@ -316,10 +324,44 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
+            let newInsightEdited = false
+            if (props.dashboardItemId === 'new') {
+                const startingQuery =
+                    values.openedWithQuery || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
+                const currentQuery = values.insightDataLogicRef?.logic.values.query
+
+                if (isInsightVizNode(startingQuery) && isInsightVizNode(currentQuery)) {
+                    // TODO: This shouldn't be necessary after we have removed the `cleanFilters` function.
+                    // Currently this causes "default" properties to be set on the query.
+                    const startingFilters = queryNodeToFilter(startingQuery.source)
+                    const currentFilters = queryNodeToFilter(currentQuery.source)
+
+                    if (
+                        currentFilters.filter_test_accounts === false &&
+                        currentFilters.filter_test_accounts === values.filterTestAccountsDefault
+                    ) {
+                        delete currentFilters.filter_test_accounts
+                    }
+
+                    newInsightEdited = !compareFilters(
+                        startingFilters,
+                        currentFilters,
+                        values.filterTestAccountsDefault
+                    )
+                } else if (!isInsightVizNode(startingQuery) && !isInsightVizNode(currentQuery)) {
+                    newInsightEdited = !objectsEqual(startingQuery, currentQuery)
+                } else {
+                    newInsightEdited = true
+                }
+            }
+
+            const insightMetadataEdited = !!values.insightLogicRef?.logic.values.insightChanged
+            const savedInsightEdited =
+                props.dashboardItemId !== 'new' && !!values.insightDataLogicRef?.logic.values.queryChanged
+
             return (
                 values.insightMode === ItemMode.Edit &&
-                (!!values.insightLogicRef?.logic.values.insightChanged ||
-                    !!values.insightDataLogicRef?.logic.values.queryChanged)
+                (insightMetadataEdited || savedInsightEdited || newInsightEdited)
             )
         },
         message: 'Leave insight?\nChanges you made will be discarded.',
