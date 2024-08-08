@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from numpy.random import default_rng
 from rest_framework.exceptions import ValidationError
 import scipy.stats as stats
+from sentry_sdk import capture_exception
 
 from ee.clickhouse.queries.experiments import (
     CONTROL_VARIANT_KEY,
@@ -334,10 +335,15 @@ def calculate_credible_intervals(variants, lower_bound=0.025, upper_bound=0.975)
     for variant in variants:
         try:
             if variant.success_count < 0 or variant.failure_count < 0:
-                raise ValidationError(
-                    f"Success and failure counts must be non-negative for variant {variant.key}.",
-                    code="invalid_data",
+                capture_exception(
+                    Exception("Invalid variant success/failure count"),
+                    {
+                        "variant": variant.key,
+                        "success_count": variant.success_count,
+                        "failure_count": variant.failure_count,
+                    },
                 )
+                return {}
 
             # Calculate the credible interval
             # Laplace smoothing: we add 1 to alpha and beta to avoid division errors if either is zero
@@ -347,10 +353,11 @@ def calculate_credible_intervals(variants, lower_bound=0.025, upper_bound=0.975)
 
             intervals[variant.key] = (credible_interval[0], credible_interval[1])
         except Exception as e:
-            raise ValidationError(
-                f"Error calculating credible interval for variant {variant.key}: {str(e)}",
-                code="calculation_error",
+            capture_exception(
+                Exception(f"Error calculating credible interval for variant {variant.key}"),
+                {"error": str(e)},
             )
+            return {}
 
     return intervals
 
