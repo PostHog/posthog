@@ -1230,8 +1230,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 shouldFilterTestAccounts
             ): RecordingUniversalFilters => {
                 return {
+                    filter_test_accounts: shouldFilterTestAccounts,
+
                     date_from: dateFilter.dateFrom,
                     date_to: dateFilter.dateTo,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [...(webAnalyticsFilters || [])],
+                            },
+                        ],
+                    },
                     duration: [
                         {
                             type: PropertyFilterType.Recording,
@@ -1240,11 +1251,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             value: 1,
                         },
                     ],
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: webAnalyticsFilters,
-                    },
-                    filter_test_accounts: shouldFilterTestAccounts,
                 }
             },
         ],
