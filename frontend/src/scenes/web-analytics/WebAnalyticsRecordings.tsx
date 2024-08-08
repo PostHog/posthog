@@ -1,7 +1,7 @@
+import { IconRewindPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { RecordingRow } from 'scenes/project-homepage/RecentRecordings'
@@ -73,7 +73,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                     )}
                 </div>
                 <div className="flex flex-row-reverse my-2">
-                    <LemonButton to={to} icon={<IconOpenInNew />} size="small" type="secondary">
+                    <LemonButton to={to} icon={<IconRewindPlay />} size="small" type="secondary">
                         View all
                     </LemonButton>
                 </div>
