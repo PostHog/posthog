@@ -71,7 +71,7 @@ const Tiles = (): JSX.Element => {
                 } else if (tile.kind === 'tabs') {
                     return <TabsTileItem key={i} tile={tile} />
                 } else if (tile.kind === 'replay') {
-                    return <WebAnalyticsRecordingsTile key={i} />
+                    return <WebAnalyticsRecordingsTile key={i} tile={tile} />
                 }
                 return null
             })}
