@@ -75,6 +75,7 @@ export function InsightTooltip({
     date,
     timezone = 'UTC',
     seriesData = [],
+    title: _title,
     altTitle,
     altRightTitle,
     renderSeries,
@@ -99,13 +100,9 @@ export function InsightTooltip({
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const title: ReactNode | null =
+    const title: ReactNode =
         getTooltipTitle(seriesData, altTitle, date) ||
-        (date
-            ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
-                  timezone ? shortTimeZone(timezone) : 'UTC'
-              })`
-            : null)
+        `${getFormattedDate(_title)} ${timezone ? shortTimeZone(timezone) : 'UTC'}`
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
 
     if (itemizeEntitiesAsColumns) {
