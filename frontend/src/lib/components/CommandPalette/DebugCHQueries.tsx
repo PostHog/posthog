@@ -27,6 +27,14 @@ export function openCHQueriesDebugModal(): void {
     })
 }
 
+export interface Stats {
+    total_queries: number
+    total_exceptions: number
+    average_query_duration_ms: number
+    max_query_duration_ms: number
+    exception_percentage: number
+}
+
 export interface Query {
     /** @example '2023-07-27T10:06:11' */
     timestamp: string
@@ -46,6 +54,11 @@ export interface Query {
     }
 }
 
+export interface DebugResponse {
+    queries: Query[]
+    stats: Stats
+}
+
 const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
     path(['lib', 'components', 'CommandPalette', 'DebugCHQueries']),
     actions({
@@ -59,23 +72,27 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
     }),
-    loaders({
-        queries: [
-            [] as Query[],
+    loaders(({ props }) => ({
+        debugResponse: [
+            {} as DebugResponse,
             {
-                loadQueries: async () => {
-                    return (await api.get('api/debug_ch_queries/')).queries
+                loadDebugResponse: async () => {
+                    const params = new URLSearchParams()
+                    if (props.insightId) {
+                        params.append('insight_id', props.insightId)
+                    }
+                    return await api.get(`api/debug_ch_queries/?${params.toString()}`)
                 },
             },
         ],
-    }),
+    })),
     selectors({
         paths: [
-            (s) => [s.queries],
-            (queries: Query[]): [string, number][] | null => {
-                return queries
+            (s) => [s.debugResponse],
+            (debugResponse: DebugResponse): [string, number][] | null => {
+                return debugResponse.queries
                     ? Object.entries(
-                          queries
+                          debugResponse.queries
                               .map((result) => result.path)
                               .reduce((acc: { [path: string]: number }, val: string) => {
                                   acc[val] = acc[val] === undefined ? 1 : (acc[val] += 1)
@@ -86,40 +103,79 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
         filteredQueries: [
-            (s) => [s.queries, s.pathFilter],
-            (queries: Query[], pathFilter: string | null) => {
-                return pathFilter && queries ? queries.filter((item) => item.path === pathFilter) : queries
+            (s) => [s.debugResponse, s.pathFilter],
+            (debugReponse: DebugResponse, pathFilter: string | null) => {
+                return pathFilter && debugReponse?.queries
+                    ? debugReponse.queries.filter((item) => item.path === pathFilter)
+                    : debugReponse.queries
             },
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadQueries()
+        actions.loadDebugResponse()
     }),
 ])
 
-function DebugCHQueries(): JSX.Element {
-    const { queriesLoading, filteredQueries, pathFilter, paths } = useValues(debugCHQueriesLogic)
-    const { setPathFilter, loadQueries } = useActions(debugCHQueriesLogic)
+interface DebugCHQueriesProps {
+    insightId?: number | null
+}
+
+export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element {
+    const logic = debugCHQueriesLogic({ insightId })
+    const { debugResponseLoading, filteredQueries, pathFilter, paths, debugResponse } = useValues(logic)
+    const { setPathFilter, loadDebugResponse } = useActions(logic)
 
     return (
         <>
-            <div className="flex gap-4 items-end justify-between mb-4">
+            <div className="flex gap-4 items-start justify-between mb-4">
                 <div className="flex flex-wrap gap-2">
-                    {paths?.map(([path, count]) => (
-                        <LemonButton
-                            key={path}
-                            type={pathFilter === path ? 'primary' : 'tertiary'}
-                            size="small"
-                            onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
-                        >
-                            {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
-                        </LemonButton>
-                    ))}
+                    {!debugResponse.stats
+                        ? paths?.map(([path, count]) => (
+                              <LemonButton
+                                  key={path}
+                                  type={pathFilter === path ? 'primary' : 'tertiary'}
+                                  size="small"
+                                  onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
+                              >
+                                  {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
+                              </LemonButton>
+                          ))
+                        : null}
+                    {!debugResponseLoading && !!debugResponse.stats ? (
+                        <div className="flex flex-row space-x-4 p-4">
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">{debugResponse.stats.total_queries}</span>
+                                <span className="text-sm text-gray-600">Total Queries</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">{debugResponse.stats.total_exceptions}</span>
+                                <span className="text-sm text-gray-600">Total Exceptions</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">
+                                    {debugResponse.stats.average_query_duration_ms.toFixed(2)} ms
+                                </span>
+                                <span className="text-sm text-gray-600">Avg Query Duration</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">
+                                    {debugResponse.stats.max_query_duration_ms} ms
+                                </span>
+                                <span className="text-sm text-gray-600">Max Query Duration</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">
+                                    {debugResponse.stats.exception_percentage.toFixed(2)}%
+                                </span>
+                                <span className="text-sm text-gray-600">Exception %</span>
+                            </div>
+                        </div>
+                    ) : null}
                 </div>
                 <LemonButton
                     icon={<IconRefresh />}
-                    disabledReason={queriesLoading ? 'Loading…' : null}
-                    onClick={() => loadQueries()}
+                    disabledReason={debugResponseLoading ? 'Loading…' : null}
+                    onClick={() => loadDebugResponse()}
                     size="small"
                     type="secondary"
                 >
@@ -352,7 +408,7 @@ function DebugCHQueries(): JSX.Element {
                     },
                 ]}
                 dataSource={filteredQueries}
-                loading={queriesLoading}
+                loading={debugResponseLoading}
                 loadingSkeletonRows={5}
                 pagination={undefined}
                 rowClassName="align-top"
