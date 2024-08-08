@@ -3,6 +3,7 @@ import { IconPerson } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { base64Encode } from 'lib/utils'
@@ -49,6 +50,7 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+            <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
             {selectedRowIndexes.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
