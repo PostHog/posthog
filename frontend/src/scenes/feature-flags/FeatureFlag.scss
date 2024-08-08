@@ -5,19 +5,8 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
 
-    .ant-form-item {
-        min-height: 32px;
-    }
-
     .label-row {
         font-weight: bold;
-
-        .ant-col {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            min-height: 32px;
-        }
     }
 
     .VariantFormList__row {
