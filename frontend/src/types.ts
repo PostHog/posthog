@@ -3182,6 +3182,7 @@ export interface _FunnelExperimentResults extends BaseExperimentResults {
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface TrendsExperimentResults {

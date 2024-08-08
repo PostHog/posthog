@@ -250,7 +250,10 @@ export function SecondaryMetricsTable({
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
                             const conversionRate = conversionRateForVariant(targetResults || null, variant)
-                            return <div>{conversionRate === '--' ? conversionRate : `${conversionRate}%`}</div>
+                            if (!conversionRate) {
+                                return <>--</>
+                            }
+                            return <div>{`${conversionRate.toFixed(2)}%`}</div>
                         },
                     },
                     {
