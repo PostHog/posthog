@@ -24,6 +24,7 @@ import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
+import { HogMasker } from './hog-masker'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
 import {
     CdpOverflowMessage,
@@ -83,6 +84,7 @@ abstract class CdpConsumerBase {
     asyncFunctionExecutor: AsyncFunctionExecutor
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
+    hogMasker: HogMasker
     groupsManager: GroupsManager
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
@@ -96,6 +98,7 @@ abstract class CdpConsumerBase {
 
     constructor(protected hub: Hub) {
         this.hogWatcher = new HogWatcher(hub)
+        this.hogMasker = new HogMasker(hub)
         this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
@@ -370,8 +373,20 @@ abstract class CdpConsumerBase {
                     })
                 })
 
+                const { masked, notMasked: validInvocations } = await this.hogMasker.filterByMasking(invocations)
+
+                masked.forEach((item) => {
+                    this.produceAppMetric({
+                        team_id: item.globals.project.id,
+                        app_source_id: item.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'masked',
+                        count: 1,
+                    })
+                })
+
                 const results = (
-                    await this.runManyWithHeartbeat(invocations, (item) =>
+                    await this.runManyWithHeartbeat(validInvocations, (item) =>
                         this.hogExecutor.executeFunction(item.globals, item.hogFunction)
                     )
                 ).filter((x) => !!x) as HogFunctionInvocationResult[]

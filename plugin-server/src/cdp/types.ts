@@ -32,13 +32,18 @@ export interface HogFunctionFilterAction extends HogFunctionFilterBase {
 
 export type HogFunctionFilter = HogFunctionFilterEvent | HogFunctionFilterAction
 
+export type HogFunctionFiltersMasking = {
+    ttl?: number | null
+    value: string
+    bytecode: HogBytecode
+}
+
 export interface HogFunctionFilters {
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     filter_test_accounts?: boolean
-    // Loaded at run time from Team model
-    filter_test_accounts_bytecode?: boolean
     bytecode?: HogBytecode
+    masking?: HogFunctionFiltersMasking
 }
 
 // We have a "parsed" clickhous event type to make it easier to work with calls from kafka as well as those from the frontend
