@@ -33,9 +33,9 @@ export function openCHQueriesDebugModal(): void {
 export interface Stats {
     total_queries: number
     total_exceptions: number
-    average_query_duration_ms: number
+    average_query_duration_ms: number | null
     max_query_duration_ms: number
-    exception_percentage: number
+    exception_percentage: number | null
 }
 
 interface DataPoint {
@@ -268,7 +268,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                             </div>
                             <div className="flex flex-col items-center">
                                 <span className="text-xl font-bold">
-                                    {debugResponse.stats.average_query_duration_ms.toFixed(2)} ms
+                                    {debugResponse.stats.average_query_duration_ms?.toFixed(2)} ms
                                 </span>
                                 <span className="text-sm text-gray-600">Avg query duration</span>
                             </div>
@@ -280,7 +280,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                             </div>
                             <div className="flex flex-col items-center">
                                 <span className="text-xl font-bold">
-                                    {debugResponse.stats.exception_percentage.toFixed(2)}%
+                                    {debugResponse.stats.exception_percentage?.toFixed(2)}%
                                 </span>
                                 <span className="text-sm text-gray-600">Exception %</span>
                             </div>
