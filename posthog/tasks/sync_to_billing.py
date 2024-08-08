@@ -5,7 +5,7 @@ from sentry_sdk import capture_message
 
 
 @shared_task(ignore_result=True)
-def sync_to_billing(organization_id: str):
+def sync_to_billing(organization_id: str) -> None:
     organization = Organization.objects.get(id=organization_id)
 
     first_owner = organization.members.filter(
