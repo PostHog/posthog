@@ -543,7 +543,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 }
                                             >
                                                 {({ value, onChange }) => (
-                                                    <div className="flex mb-2">
+                                                    <div className="flex">
                                                         <FlagSelector value={value} onChange={onChange} />
                                                         {value && (
                                                             <LemonButton
@@ -566,7 +566,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             error={urlMatchTypeValidationError}
                                                             info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
                                                         >
-                                                            <div className="flex flex-row gap-2 items-center mb-2">
+                                                            <div className="flex flex-row gap-2 items-center">
                                                                 URL
                                                                 <LemonSelect
                                                                     value={
@@ -608,7 +608,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Survey wait period"
-                                                            info="Note that this condition will only apply to one browser for a given non-anonymous user.  If the user switches browsers or uses an incognito session, they could see this survey again."
+                                                            info="Note that this condition will only apply reliably for identified users within a single browser session. Anonymous users or users who switch browsers, use incognito sessions, or log out and log back in may see the survey again. Additionally, responses submitted while a user is anonymous may be associated with their account if they log in during the same session."
                                                             className="mt-2"
                                                         >
                                                             <div className="flex flex-row gap-2 items-center">
