@@ -24,7 +24,7 @@ from typing import (
     cast,
 )
 from collections.abc import Generator, Mapping
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import lzstring
@@ -601,12 +601,22 @@ def base64_decode(data):
     """
     Decodes base64 bytes into string taking into account necessary transformations to match client libraries.
     """
-    if not isinstance(data, str):
-        data = data.decode()
+    if isinstance(data, str):
+        data = data.encode("ascii")
 
-    data = base64.b64decode(data.replace(" ", "+") + "===")
+    # Check if the data is URL-encoded
+    if data.startswith(b"data="):
+        data = unquote(data.decode("ascii")).split("=", 1)[1]
+        data = data.encode("ascii")
 
-    return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
+    # Remove any whitespace and add padding if necessary
+    data = data.replace(b" ", b"")
+    missing_padding = len(data) % 4
+    if missing_padding:
+        data += b"=" * (4 - missing_padding)
+
+    decoded = base64.b64decode(data)
+    return decoded.decode("utf-8", "surrogatepass")
 
 
 def decompress(data: Any, compression: str):

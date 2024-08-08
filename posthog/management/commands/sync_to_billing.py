@@ -18,7 +18,7 @@ class Command(BaseCommand):
         action = options["action"]
         organization_ids = options["organization_ids"]
 
-        if action not in ["distinct_ids", "admin_emails", "customer_email"]:
+        if action not in ["organization_users"]:
             print("Invalid action, please select 'distinct_ids', 'admin_emails' or 'customer_email'")  # noqa T201
             return
 
@@ -36,12 +36,8 @@ class Command(BaseCommand):
             if not first_owner:
                 print(f"Organization {organization.id} has no owner")  # noqa T201
 
-            if action == "distinct_ids":
-                first_owner.update_billing_distinct_ids(organization)
-            elif action == "admin_emails":
-                first_owner.update_billing_admin_emails(organization)
-            elif action == "customer_email":
-                first_owner.update_billing_customer_email(organization)
+            if action == "organization_users":
+                first_owner.update_billing_organization_users(organization)
 
             if index % 50 == 0:
                 print(f"Processed {index} organizations out of {len(organizations)}")  # noqa T201
