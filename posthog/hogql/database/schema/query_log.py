@@ -15,6 +15,7 @@ QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
     "query_start_time": DateTimeDatabaseField(name="query_start_time"),
     "query": StringDatabaseField(name="query"),
     "log_comment": StringDatabaseField(name="log_comment"),
+    "user_id": IntegerDatabaseField(name="user_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),
     "exception": StringDatabaseField(name="exception"),
@@ -25,7 +26,7 @@ QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
 }
 
 STRING_FIELDS = {"cache_key", "query_type"}
-INT_FIELDS = {"team_id"}
+INT_FIELDS = {"team_id", "user_id"}
 
 
 class QueryLogTable(LazyTable):
