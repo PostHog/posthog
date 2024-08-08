@@ -166,7 +166,7 @@ function DebugCHQueries(): JSX.Element {
                                                 <span className="font-bold tracking-wide">Cache key:</span>{' '}
                                                 <span className="font-mono">{item.logComment.cache_key}</span>{' '}
                                                 <Link
-                                                    to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+cache_key%3A${item.logComment.cache_key}&referrer=issue-list&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+cache_key%3A${item.logComment.cache_key}&referrer=issue-list&statsPeriod=7d`}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -178,7 +178,7 @@ function DebugCHQueries(): JSX.Element {
                                                 <span className="font-bold tracking-wide">Insight ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.insight_id}</span>{' '}
                                                 <Link
-                                                    to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+insight_id%3A${item.logComment.insight_id}&referrer=issue-list&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+insight_id%3A${item.logComment.insight_id}&referrer=issue-list&statsPeriod=7d`}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -190,7 +190,7 @@ function DebugCHQueries(): JSX.Element {
                                                 <span className="font-bold tracking-wide">Dashboard ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.dashboard_id}</span>{' '}
                                                 <Link
-                                                    to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+dashboard_id%3A${item.logComment.dashboard_id}&referrer=issue-list&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+dashboard_id%3A${item.logComment.dashboard_id}&referrer=issue-list&statsPeriod=7d`}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -202,7 +202,7 @@ function DebugCHQueries(): JSX.Element {
                                                 <span className="font-bold tracking-wide">User ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.user_id}</span>{' '}
                                                 <Link
-                                                    to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+user%3A%22id%3A${item.logComment.user_id}%22&referrer=issue-list&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+user%3A%22id%3A${item.logComment.user_id}%22&referrer=issue-list&statsPeriod=7d`}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -216,7 +216,7 @@ function DebugCHQueries(): JSX.Element {
                                             <LemonButton
                                                 type="secondary"
                                                 size="xsmall"
-                                                to={`https://posthog.sentry.io/issues/?project=1899813&query=is%3Aunresolved+issue.priority%3A%5Bhigh%2C+medium%5D+trace%3A${item.logComment.sentry_trace}&statsPeriod=1d`}
+                                                to={`https://sentry.io/issues/?query=is%3Aunresolved+issue.priority%3A%5Bhigh%2C+medium%5D+trace%3A${item.logComment.sentry_trace}&statsPeriod=1d`}
                                                 targetBlank
                                                 className="mt-4 mb-1"
                                             >
