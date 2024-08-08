@@ -114,7 +114,7 @@ class Database(BaseModel):
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
-    lazy_query_log: QueryLogTable = QueryLogTable()
+    query_log: QueryLogTable = QueryLogTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -140,7 +140,7 @@ class Database(BaseModel):
         "log_entries",
         "sessions",
         "heatmaps",
-        "lazy_query_log",
+        "query_log",
     ]
 
     _warehouse_table_names: list[str] = []

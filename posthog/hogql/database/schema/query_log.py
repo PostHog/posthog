@@ -33,10 +33,10 @@ class QueryLogTable(LazyTable):
     fields: dict[str, FieldOrTable] = QUERY_LOG_FIELDS
 
     def to_printed_clickhouse(self, context):
-        return "lazy_query_log"
+        return "query_log"
 
     def to_printed_hogql(self):
-        return "lazy_query_log"
+        return "query_log"
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         requested_fields = table_to_add.fields_accessed
@@ -54,15 +54,7 @@ class QueryLogTable(LazyTable):
 
         return ast.SelectQuery(
             select=fields,
-            # distinct=True,
             select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-            # where=(
-            #     ast.CompareOperation(
-            #         op=ast.CompareOperationOp.In,
-            #         left=ast.Tuple(exprs=[ast.Field(chain=[table_name, "team_id"])]),
-            #         right=ast.Constant(value=""),
-            #     )
-            # ),
         )
 
 
