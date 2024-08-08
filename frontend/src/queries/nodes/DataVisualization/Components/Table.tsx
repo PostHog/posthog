@@ -42,6 +42,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     />
                 }
                 footer={<LoadNext query={props.query} />}
+                rowClassName="DataVizRow"
             />
         </div>
     )
