@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { SessionRecordingType } from '~/types'
+import { ReplayTabs, SessionRecordingType } from '~/types'
 
 export function WebAnalyticsRecordingsTile(): JSX.Element {
     const { replayFilters, webAnalyticsFilters } = useValues(webAnalyticsLogic)
@@ -22,7 +22,9 @@ export function WebAnalyticsRecordingsTile(): JSX.Element {
             <SessionPlayerModal />
             <CompactList
                 title="Recent recordings"
-                viewAllURL={urls.replay()}
+                viewAllURL={
+                    sessionRecordings.length > 0 ? urls.replay() : urls.replay(ReplayTabs.Recent, replayFilters)
+                }
                 loading={sessionRecordingsResponseLoading}
                 emptyMessage={
                     !currentTeam?.session_recording_opt_in
