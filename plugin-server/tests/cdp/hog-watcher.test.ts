@@ -50,6 +50,7 @@ describe('HogWatcher', () => {
 
             now = 1720000000000
             mockNow.mockReturnValue(now)
+            mockStateChangeCallback = jest.fn()
 
             await deleteKeysWithPrefix(hub.redisPool, BASE_REDIS_KEY)
 
