@@ -509,7 +509,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 event: '$pageview',
                                                 kind: NodeKind.EventsNode,
                                                 math: BaseMathType.UniqueUsers,
-                                                name: '$pageview',
+                                                name: 'Pageview',
                                                 custom_name: 'Unique visitors',
                                             },
                                         ],
@@ -900,6 +900,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         series: [
                                             {
                                                 event: '$pageview',
+                                                name: 'Pageview',
                                                 kind: NodeKind.EventsNode,
                                                 math: BaseMathType.UniqueUsers,
                                             },
@@ -993,6 +994,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               series: [
                                                   {
                                                       event: '$pageview',
+                                                      name: 'Pageview',
                                                       kind: NodeKind.EventsNode,
                                                       math: BaseMathType.UniqueUsers,
                                                   },
