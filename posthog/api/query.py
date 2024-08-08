@@ -1,7 +1,9 @@
+import json
 import re
+from time import sleep
 import uuid
 
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
@@ -32,11 +34,20 @@ from posthog.rate_limit import (
     TeamRateThrottle,
 )
 from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
+from rest_framework.renderers import BaseRenderer
 
 
 class QueryThrottle(TeamRateThrottle):
     scope = "query"
     rate = "120/hour"
+
+
+class ServerSentEventRenderer(BaseRenderer):
+    media_type = "text/event-stream"
+    format = "txt"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -48,7 +59,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     sharing_enabled_actions = ["retrieve"]
 
     def get_throttles(self):
-        if self.action == "draft_sql":
+        if self.action in ("draft_sql", "chat"):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         else:
             return [QueryThrottle()]
@@ -143,6 +154,24 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})
+
+    @action(detail=False, renderer_classes=[ServerSentEventRenderer])
+    def chat(self, request: Request, *args, **kwargs):
+        assert request.user is not None
+        prompt = request.data.get("prompt")
+
+        # if not prompt:
+        #     raise ValidationError({"prompt": ["This field is required."]}, code="required")
+        # if len(prompt) > 400:
+        #     raise ValidationError({"prompt": ["This field is too long."]}, code="too_long")
+        def event_stream():
+            for chunk in [{"role": "assistant"}, {"text": f"echo: {prompt}"}, {}]:
+                data = json.dumps(dict(chunk))
+                yield f"data: {data}\n\n"
+                sleep(2)
+
+        response = StreamingHttpResponse(event_stream(), content_type=ServerSentEventRenderer.media_type)
+        return response
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
