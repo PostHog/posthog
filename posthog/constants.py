@@ -317,3 +317,8 @@ GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+EU_INSTANCE_TEAM_ID = 1
+US_INSTANCE_TEAM_ID = 2
+
+POSTHOG_INTERNAL_TEAM_IDS = (EU_INSTANCE_TEAM_ID, US_INSTANCE_TEAM_ID)
