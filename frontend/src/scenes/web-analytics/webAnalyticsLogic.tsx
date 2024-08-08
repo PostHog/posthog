@@ -1239,7 +1239,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         values: [
                             {
                                 type: FilterLogicalOperator.And,
-                                values: [...(webAnalyticsFilters || [])],
+                                values: webAnalyticsFilters || [],
                             },
                         ],
                     },
@@ -1247,7 +1247,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         {
                             type: PropertyFilterType.Recording,
                             key: 'active_seconds',
-                            operator: PropertyOperator.GreaterThanOrEqual,
+                            operator: PropertyOperator.GreaterThan,
                             value: 1,
                         },
                     ],
