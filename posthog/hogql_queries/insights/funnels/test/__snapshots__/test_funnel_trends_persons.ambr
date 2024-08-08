@@ -9,7 +9,7 @@
             step_1_matching_events AS matching_events
      FROM
        (SELECT aggregation_target AS aggregation_target,
-               toStartOfDay(timestamp) AS entrance_period_start,
+               toStartOfDay(timestamp, 'UTC') AS entrance_period_start,
                max(steps) AS steps_completed,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
@@ -148,7 +148,7 @@
                                                 FROM
                                                   (SELECT aggregation_target AS actor_id, step_1_matching_events AS matching_events
                                                    FROM
-                                                     (SELECT aggregation_target AS aggregation_target, toStartOfDay(timestamp) AS entrance_period_start, max(steps) AS steps_completed, groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(step_2_matching_event) AS step_2_matching_events, groupArray(10)(final_matching_event) AS final_matching_events
+                                                     (SELECT aggregation_target AS aggregation_target, toStartOfDay(timestamp, 'UTC') AS entrance_period_start, max(steps) AS steps_completed, groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(step_2_matching_event) AS step_2_matching_events, groupArray(10)(final_matching_event) AS final_matching_events
                                                       FROM
                                                         (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, step_2 AS step_2, latest_2 AS latest_2, uuid_2 AS uuid_2, `$session_id_2` AS `$session_id_2`, `$window_id_2` AS `$window_id_2`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
                                                          FROM
@@ -224,7 +224,7 @@
             final_matching_events AS matching_events
      FROM
        (SELECT aggregation_target AS aggregation_target,
-               toStartOfDay(timestamp) AS entrance_period_start,
+               toStartOfDay(timestamp, 'UTC') AS entrance_period_start,
                max(steps) AS steps_completed,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
@@ -363,7 +363,7 @@
                                                 FROM
                                                   (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events
                                                    FROM
-                                                     (SELECT aggregation_target AS aggregation_target, toStartOfDay(timestamp) AS entrance_period_start, max(steps) AS steps_completed, groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(step_2_matching_event) AS step_2_matching_events, groupArray(10)(final_matching_event) AS final_matching_events
+                                                     (SELECT aggregation_target AS aggregation_target, toStartOfDay(timestamp, 'UTC') AS entrance_period_start, max(steps) AS steps_completed, groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(step_2_matching_event) AS step_2_matching_events, groupArray(10)(final_matching_event) AS final_matching_events
                                                       FROM
                                                         (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, step_2 AS step_2, latest_2 AS latest_2, uuid_2 AS uuid_2, `$session_id_2` AS `$session_id_2`, `$window_id_2` AS `$window_id_2`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
                                                          FROM
@@ -439,7 +439,7 @@
             final_matching_events AS matching_events
      FROM
        (SELECT aggregation_target AS aggregation_target,
-               toStartOfDay(timestamp) AS entrance_period_start,
+               toStartOfDay(timestamp, 'UTC') AS entrance_period_start,
                max(steps) AS steps_completed,
                groupArray(10)(step_0_matching_event) AS step_0_matching_events,
                groupArray(10)(step_1_matching_event) AS step_1_matching_events,
@@ -578,7 +578,7 @@
                                                 FROM
                                                   (SELECT aggregation_target AS actor_id, final_matching_events AS matching_events
                                                    FROM
-                                                     (SELECT aggregation_target AS aggregation_target, toStartOfDay(timestamp) AS entrance_period_start, max(steps) AS steps_completed, groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(step_2_matching_event) AS step_2_matching_events, groupArray(10)(final_matching_event) AS final_matching_events
+                                                     (SELECT aggregation_target AS aggregation_target, toStartOfDay(timestamp, 'UTC') AS entrance_period_start, max(steps) AS steps_completed, groupArray(10)(step_0_matching_event) AS step_0_matching_events, groupArray(10)(step_1_matching_event) AS step_1_matching_events, groupArray(10)(step_2_matching_event) AS step_2_matching_events, groupArray(10)(final_matching_event) AS final_matching_events
                                                       FROM
                                                         (SELECT aggregation_target AS aggregation_target, timestamp AS timestamp, step_0 AS step_0, latest_0 AS latest_0, uuid_0 AS uuid_0, `$session_id_0` AS `$session_id_0`, `$window_id_0` AS `$window_id_0`, step_1 AS step_1, latest_1 AS latest_1, uuid_1 AS uuid_1, `$session_id_1` AS `$session_id_1`, `$window_id_1` AS `$window_id_1`, step_2 AS step_2, latest_2 AS latest_2, uuid_2 AS uuid_2, `$session_id_2` AS `$session_id_2`, `$window_id_2` AS `$window_id_2`, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps, if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time, if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time, tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event, tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event, tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event, if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
                                                          FROM
