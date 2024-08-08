@@ -9,6 +9,7 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     FloatDatabaseField,
 )
+from posthog.hogql.parser import parse_expr
 
 QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
     "query_start_time": DateTimeDatabaseField(name="query_start_time"),
@@ -17,6 +18,7 @@ QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),
     "exception": StringDatabaseField(name="exception"),
+    "event_time": DateTimeDatabaseField(name="event_time"),
     "type": StringDatabaseField(name="type"),
 }
 
@@ -33,22 +35,14 @@ class QueryLogTable(LazyTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         requested_fields = table_to_add.fields_accessed
 
-        # table_name = "clusterAllReplicas(posthog, system.query_log)"
         table_name = "raw_query_log"
 
-        # requested_fields = {**requested_fields, "team_id": ["JSONExtractRaw(log_comment, 'team_id')"]}
+        def get_alias(name, chain):
+            if name == "team_id":
+                return ast.Alias(alias=name, expr=parse_expr("JSONExtractRaw(log_comment, 'team_id')"))
+            return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain]))
 
-        fields: list[ast.Expr] = [
-            ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain]))
-            for name, chain in requested_fields.items()
-        ]
-
-        fields.append(
-            ast.Alias(
-                alias="team_id",
-                expr=ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=[table_name, "log_comment"]), "team_id"]),
-            )
-        )
+        fields: list[ast.Expr] = [get_alias(name, chain) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(
             select=fields,
