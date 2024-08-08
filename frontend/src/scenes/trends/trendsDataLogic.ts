@@ -163,13 +163,15 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 const uniqSeries = Array.from(
                     // :TRICKY: Stickiness insights don't have an `action` object, despite
                     // types here not reflecting that.
-                    new Set(indexedResults.map((item) => `${item.label}_${item.action?.order}`))
+                    new Set(
+                        indexedResults.map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
+                    )
                 )
 
                 // Give current and previous versions of the same dataset the same colorIndex
                 return indexedResults.map((item, index) => {
                     const colorIndex = uniqSeries.findIndex(
-                        (identifier) => identifier === `${item.label}_${item.action?.order}`
+                        (identifier) => identifier === `${item.label}_${item.action?.order}_${item?.breakdown_value}`
                     )
                     return { ...item, colorIndex: colorIndex, id: index }
                 })
