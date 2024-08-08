@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                 migrations.RunSQL(
                     """
                     ALTER TABLE "posthog_organization" ADD COLUMN "logo_media_id" uuid NULL CONSTRAINT "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" REFERENCES "posthog_uploadedmedia"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
-                    SET CONSTRAINTS "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" IMMEDIATE;
+                    SET CONSTRAINTS "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" IMMEDIATE; -- existing-table-constraint-ignore
                     """,
                     reverse_sql="""
                         ALTER TABLE "posthog_organization" DROP COLUMN IF EXISTS "logo_media_id";
