@@ -28,7 +28,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
         <LemonButton
             type="secondary"
             icon={<IconTableChart />}
-            to={urls.insightNew(undefined, undefined, tableInsightQuery!)}
+            to={urls.insightNew(undefined, undefined, query)}
             sideAction={
                 response?.hogql
                     ? {
@@ -38,7 +38,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
                                       items={[
                                           {
                                               label: 'Open as direct SQL insight',
-                                              to: urls.insightNew(undefined, undefined, query),
+                                              to: urls.insightNew(undefined, undefined, tableInsightQuery!),
                                               'data-attr': 'open-sql-editor-button',
                                           },
                                       ]}
