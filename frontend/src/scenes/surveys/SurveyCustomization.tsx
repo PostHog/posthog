@@ -35,7 +35,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     return (
         <>
-            <div className="flex flex-col">
+            <div className="flex flex-col font-semibold">
                 {!surveysStylingAvailable && (
                     <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
                         <></>

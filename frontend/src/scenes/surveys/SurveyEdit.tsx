@@ -533,6 +533,7 @@ export default function SurveyEdit(): JSX.Element {
                                         <>
                                             <LemonField
                                                 name="linked_flag_id"
+                                                className="mt-2"
                                                 label="Link feature flag (optional)"
                                                 info={
                                                     <>
@@ -542,7 +543,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 }
                                             >
                                                 {({ value, onChange }) => (
-                                                    <div className="flex">
+                                                    <div className="flex mb-2">
                                                         <FlagSelector value={value} onChange={onChange} />
                                                         {value && (
                                                             <LemonButton
@@ -561,10 +562,11 @@ export default function SurveyEdit(): JSX.Element {
                                                     <>
                                                         <LemonField.Pure
                                                             label="URL targeting"
+                                                            className="mt-2"
                                                             error={urlMatchTypeValidationError}
                                                             info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
                                                         >
-                                                            <div className="flex flex-row gap-2 items-center">
+                                                            <div className="flex flex-row gap-2 items-center mb-2">
                                                                 URL
                                                                 <LemonSelect
                                                                     value={
@@ -595,7 +597,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 />
                                                             </div>
                                                         </LemonField.Pure>
-                                                        <LemonField.Pure label="CSS selector matches:">
+                                                        <LemonField.Pure label="CSS selector matches:" className="mt-2">
                                                             <LemonInput
                                                                 value={value?.selector}
                                                                 onChange={(selectorVal) =>
@@ -607,6 +609,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         <LemonField.Pure
                                                             label="Survey wait period"
                                                             info="Note that this condition will only apply to one browser for a given non-anonymous user.  If the user switches browsers or uses an incognito session, they could see this survey again."
+                                                            className="mt-2"
                                                         >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 <LemonCheckbox
@@ -658,7 +661,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     </>
                                                 )}
                                             </LemonField>
-                                            <LemonField.Pure label="User properties">
+                                            <LemonField.Pure label="User properties" className="mt-2">
                                                 <BindLogic
                                                     logic={featureFlagLogic}
                                                     props={{ id: survey.targeting_flag?.id || 'new' }}
@@ -721,6 +724,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 <LemonField.Pure
                                                     label="User sends events"
                                                     info="Note that these events are only observed, and activate this survey, in the current user session."
+                                                    className="mt-2"
                                                 >
                                                     <>
                                                         <EventSelect
