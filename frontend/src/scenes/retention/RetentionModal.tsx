@@ -112,15 +112,13 @@ export function RetentionModal(): JSX.Element | null {
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
                                     {row.values?.map((data: any, index: number) => {
-                                        // Calculate the cumulative count
                                         let cumulativeCount = data.count
                                         if (retentionFilter?.cumulative) {
                                             for (let i = index + 1; i < row.values.length; i++) {
                                                 cumulativeCount += row.values[i].count
                                             }
-                                            cumulativeCount = Math.min(cumulativeCount, row.values[0].count) // Ensure cumulative count doesn't exceed total count
+                                            cumulativeCount = Math.min(cumulativeCount, row.values[0].count)
                                         }
-                                        // Calculate the percentage based on the cumulative count
                                         const percentageValue =
                                             row.values[0].count > 0 ? cumulativeCount / row.values[0].count : 0
 

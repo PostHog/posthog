@@ -107,7 +107,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                             for (let i = valueIndex + 1; i < currentResult.values.length; i++) {
                                 count += currentResult.values[i]['count']
                             }
-                            count = Math.min(count, totalCount) // Ensure cumulative count doesn't exceed total count
+                            count = Math.min(count, totalCount)
                         }
 
                         const percentage = totalCount > 0 ? (count / totalCount) * 100 : 0
