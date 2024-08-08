@@ -13,7 +13,6 @@ chrono = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-futures = { workspace = true }
 envconfig = { workspace = true }
 axum = { workspace = true }
 eyre = { workspace = true }
