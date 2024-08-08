@@ -246,11 +246,7 @@ class User(AbstractUser, UUIDClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
-        if level == OrganizationMembership.Level.OWNER and not self.current_organization.customer_id:
-            self.update_billing_customer_email(organization)
-        if level >= OrganizationMembership.Level.ADMIN:
-            self.update_billing_admin_emails(organization)
-        self.update_billing_distinct_ids(organization)
+        self.update_billing_organization_users(organization)
         return membership
 
     @property
@@ -273,26 +269,13 @@ class User(AbstractUser, UUIDClassicModel):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
-        self.update_billing_admin_emails(organization)
-        self.update_billing_distinct_ids(organization)
+        self.update_billing_organization_users(organization)
 
-    def update_billing_distinct_ids(self, organization: Organization) -> None:
+    def update_billing_organization_users(self, organization: Organization) -> None:
         from ee.billing.billing_manager import BillingManager  # avoid circular import
 
         if is_cloud() and get_cached_instance_license() is not None:
-            BillingManager(get_cached_instance_license()).update_billing_distinct_ids(organization)
-
-    def update_billing_customer_email(self, organization: Organization) -> None:
-        from ee.billing.billing_manager import BillingManager  # avoid circular import
-
-        if is_cloud() and get_cached_instance_license() is not None:
-            BillingManager(get_cached_instance_license()).update_billing_customer_email(organization)
-
-    def update_billing_admin_emails(self, organization: Organization) -> None:
-        from ee.billing.billing_manager import BillingManager
-
-        if is_cloud() and get_cached_instance_license() is not None:
-            BillingManager(get_cached_instance_license()).update_billing_admin_emails(organization)
+            BillingManager(get_cached_instance_license()).update_billing_organization_users(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (
