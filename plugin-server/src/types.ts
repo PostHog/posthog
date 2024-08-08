@@ -106,7 +106,6 @@ export type CdpConfig = {
     CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
-    CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT_TTL: number // How long the count of temporary disables is kept - once this expires the count is effectively reset
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
 }
 
