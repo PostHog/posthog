@@ -3097,6 +3097,7 @@ class RetentionFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None

@@ -1,4 +1,4 @@
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -16,7 +16,7 @@ export function RetentionMeanCheckbox(): JSX.Element | null {
     }
 
     return (
-        <LemonCheckbox
+        <LemonSwitch
             onChange={(showMean: boolean) => {
                 updateInsightFilter({ showMean })
             }}

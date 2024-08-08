@@ -1,4 +1,4 @@
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -16,12 +16,12 @@ export function RetentionCumulativeCheckbox(): JSX.Element | null {
     }
 
     return (
-        <LemonCheckbox
+        <LemonSwitch
             onChange={(cumulative: boolean) => {
                 updateInsightFilter({ cumulative })
             }}
             checked={cumulativeRetention}
-            label={<span className="font-normal">Cumulative retention</span>}
+            label={<span className="font-normal">Rolling retention</span>}
             bordered
             size="small"
         />
