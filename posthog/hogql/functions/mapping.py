@@ -397,7 +397,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         max_args=2,
         signatures=[
             ((IntegerType(),), DateType()),
-            ((IntegerType(), StringType()), DateType()),
+            ((IntegerType(), StringType(is_timezone_type=True)), DateType()),
         ],
         overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
         tz_aware=True,
@@ -411,7 +411,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[
             ((StringType(),), DateTimeType(nullable=True)),
             ((StringType(), IntegerType()), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
+            ((StringType(), IntegerType(), StringType(is_timezone_type=True)), DateTimeType(nullable=True)),
         ],
     ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
