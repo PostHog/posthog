@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0451_datawarehousetable_updated_at_and_more"),
+        ("posthog", "0452_organization_logo"),
     ]
 
     operations = [

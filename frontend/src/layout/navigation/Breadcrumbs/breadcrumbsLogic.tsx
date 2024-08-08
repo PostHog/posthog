@@ -1,7 +1,7 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -83,25 +83,16 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     } else if (activeScene) {
                         const sceneConfig = s.sceneConfig(state, props)
                         return [{ name: sceneConfig?.name ?? identifierToHuman(activeScene), key: activeScene }]
-                    } else {
-                        return []
                     }
+                    return []
                 },
             ],
             (crumbs): Breadcrumb[] => crumbs,
             { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
-            (s) => [
-                s.preflight,
-                s.sceneConfig,
-                s.activeScene,
-                s.user,
-                s.currentOrganization,
-                s.currentTeam,
-                s.otherOrganizations,
-            ],
-            (preflight, sceneConfig, activeScene, user, currentOrganization, currentTeam, otherOrganizations) => {
+            (s) => [s.preflight, s.sceneConfig, s.activeScene, s.user, s.currentOrganization, s.currentTeam],
+            (preflight, sceneConfig, activeScene, user, currentOrganization, currentTeam) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene || !sceneConfig) {
                     return breadcrumbs
@@ -114,7 +105,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         key: 'me',
                         name: user.first_name,
-                        symbol: <ProfilePicture user={user} size="md" />,
                     })
                 }
                 // Instance
@@ -125,7 +115,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         key: 'instance',
                         name: stripHTTP(preflight.site_url),
-                        symbol: <Lettermark name="@" />,
                     })
                 }
                 // Organization
@@ -135,14 +124,19 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     }
                     breadcrumbs.push({
                         key: 'organization',
-                        name: currentOrganization.name,
-                        symbol: <Lettermark name={currentOrganization.name} />,
-                        popover:
-                            otherOrganizations?.length || preflight?.can_create_org
-                                ? {
-                                      overlay: <OrganizationSwitcherOverlay />,
-                                  }
-                                : undefined,
+                        symbol: (
+                            <Tooltip title={currentOrganization.name} placement="left">
+                                <UploadedLogo
+                                    name={currentOrganization.name}
+                                    entityId={currentOrganization.id}
+                                    mediaId={currentOrganization.logo_media_id}
+                                    size="xsmall"
+                                />
+                            </Tooltip>
+                        ),
+                        popover: {
+                            overlay: <OrganizationSwitcherOverlay />,
+                        },
                     })
                 }
                 // Project

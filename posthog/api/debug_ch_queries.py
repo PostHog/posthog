@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Optional
 
@@ -33,17 +34,16 @@ class DebugCHQueries(viewsets.ViewSet):
             SELECT
                 query_id,
                 argMax(query, type) AS query,
-                argMax(query_json, type) AS query_json,
                 argMax(query_start_time, type) AS query_start_time,
                 argMax(exception, type) AS exception,
                 argMax(query_duration_ms, type) AS query_duration_ms,
                 argMax(ProfileEvents, type) as profile_events,
+                argMax(log_comment, type) AS log_comment,
                 max(type) AS status
             FROM (
                 SELECT
                     query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type,
-                    JSONExtractRaw(log_comment, 'query') as query_json,
-                    ProfileEvents
+                    ProfileEvents, log_comment
                 FROM clusterAllReplicas(%(cluster)s, system, query_log)
                 WHERE
                     query LIKE %(query)s AND
@@ -63,18 +63,20 @@ class DebugCHQueries(viewsets.ViewSet):
             },
         )
         return Response(
-            [
-                {
-                    "query_id": resp[0],
-                    "query": resp[1],
-                    "queryJson": resp[2],
-                    "timestamp": resp[3],
-                    "exception": resp[4],
-                    "execution_time": resp[5],
-                    "profile_events": resp[6],
-                    "status": resp[7],
-                    "path": self._get_path(resp[1]),
-                }
-                for resp in response
-            ]
+            {
+                "queries": [
+                    {
+                        "query_id": resp[0],
+                        "query": resp[1],
+                        "timestamp": resp[2],
+                        "exception": resp[3],
+                        "execution_time": resp[4],
+                        "profile_events": resp[5],
+                        "logComment": json.loads(resp[6]),
+                        "status": resp[7],
+                        "path": self._get_path(resp[1]),
+                    }
+                    for resp in response
+                ]
+            }
         )
