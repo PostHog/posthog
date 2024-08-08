@@ -36,12 +36,19 @@ class QueryLogTable(LazyTable):
         # table_name = "clusterAllReplicas(posthog, system.query_log)"
         table_name = "raw_query_log"
 
-        requested_fields = {**requested_fields, "team_id": ["JSONExtractRaw(log_comment, 'team_id') as team_id"]}
+        # requested_fields = {**requested_fields, "team_id": ["JSONExtractRaw(log_comment, 'team_id')"]}
 
         fields: list[ast.Expr] = [
             ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain]))
             for name, chain in requested_fields.items()
         ]
+
+        fields.append(
+            ast.Alias(
+                alias="team_id",
+                expr=ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=[table_name, "log_comment"]), "team_id"]),
+            )
+        )
 
         return ast.SelectQuery(
             select=fields,

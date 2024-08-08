@@ -20,6 +20,8 @@ from posthog.hogql.functions import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
+from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
+
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
@@ -412,6 +414,8 @@ class _Printer(Visitor):
                 self.dialect == "clickhouse"
                 and not isinstance(table_type.table, FunctionCallTable)
                 and not isinstance(table_type.table, SavedQuery)
+                and not isinstance(table_type.table, QueryLogTable)
+                and not isinstance(table_type.table, RawQueryLogTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
