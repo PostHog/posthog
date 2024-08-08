@@ -7,7 +7,6 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { examples } from '~/queries/examples'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema'
 import { Breadcrumb, InsightShortId, ItemMode } from '~/types'
 
@@ -103,12 +102,6 @@ export const dataWarehouseExternalSceneLogic = kea<dataWarehouseExternalSceneLog
                 ItemMode.Edit,
                 undefined
             )
-            insightDataLogic
-                .findMounted({
-                    dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
-                    cachedInsight: null,
-                })
-                ?.actions.setQuery(examples.DataWarehouse)
         },
         '/data-warehouse/view/:id': ({ id }) => {
             insightSceneLogic.actions.setSceneState(

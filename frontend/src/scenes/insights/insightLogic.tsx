@@ -89,11 +89,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             options,
         }),
-        saveAs: (redirectToViewMode?: boolean) => ({ redirectToViewMode }),
-        saveAsConfirmation: (name: string, redirectToViewMode?: boolean) => ({
+        saveAs: (redirectToViewMode?: boolean, persist?: boolean) => ({ redirectToViewMode, persist }),
+        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true) => ({
             name,
-
             redirectToViewMode,
+            persist,
         }),
         cancelChanges: true,
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
@@ -426,7 +426,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAs: async ({ redirectToViewMode }) => {
+        saveAs: async ({ redirectToViewMode, persist }) => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
@@ -443,10 +443,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 errors: {
                     name: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode),
+                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode, persist),
             })
         },
-        saveAsConfirmation: async ({ name, redirectToViewMode }) => {
+        saveAsConfirmation: async ({ name, redirectToViewMode, persist }) => {
             const insight = await insightsApi.create(
                 {
                     name,
@@ -463,7 +463,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     values.queryBasedInsight.name || values.queryBasedInsight.derived_name || name
                 }`
             )
-            actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
+            persist && actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
 
             if (redirectToViewMode) {

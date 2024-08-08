@@ -60,7 +60,8 @@ FORMAT ArrowStream
 SETTINGS max_bytes_before_external_group_by=50000000000
 """
 
-SELECT_FROM_EVENTS_VIEW = Template("""
+SELECT_FROM_EVENTS_VIEW = Template(
+    """
 SELECT
     $fields
 FROM
@@ -73,9 +74,11 @@ FROM
         exclude_events={exclude_events}::Array(String)
     ) AS events
 FORMAT ArrowStream
-""")
+"""
+)
 
-SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template("""
+SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template(
+    """
 SELECT
     $fields
 FROM
@@ -88,9 +91,11 @@ FROM
         exclude_events={exclude_events}::Array(String)
     ) AS events
 FORMAT ArrowStream
-""")
+"""
+)
 
-SELECT_FROM_EVENTS_VIEW_BACKFILL = Template("""
+SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
+    """
 SELECT
     $fields
 FROM
@@ -102,7 +107,8 @@ FROM
         exclude_events={exclude_events}::Array(String)
     ) AS events
 FORMAT ArrowStream
-""")
+"""
+)
 
 
 def default_fields() -> list[BatchExportField]:
