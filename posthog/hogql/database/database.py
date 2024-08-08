@@ -38,6 +38,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
 )
+from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -113,6 +114,7 @@ class Database(BaseModel):
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
+    lazy_query_log: QueryLogTable = QueryLogTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -121,6 +123,7 @@ class Database(BaseModel):
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
+    raw_query_log: RawQueryLogTable = RawQueryLogTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -137,6 +140,7 @@ class Database(BaseModel):
         "log_entries",
         "sessions",
         "heatmaps",
+        "lazy_query_log",
     ]
 
     _warehouse_table_names: list[str] = []

@@ -1,0 +1,67 @@
+from posthog.hogql import ast
+from posthog.hogql.database.models import (
+    Table,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    DateTimeDatabaseField,
+    LazyTable,
+    FieldOrTable,
+    LazyTableToAdd,
+    FloatDatabaseField,
+)
+
+QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
+    "query_start_time": DateTimeDatabaseField(name="query_start_time"),
+    "query": StringDatabaseField(name="query"),
+    "log_comment": StringDatabaseField(name="log_comment"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),
+    "exception": StringDatabaseField(name="exception"),
+    "type": StringDatabaseField(name="type"),
+}
+
+
+class QueryLogTable(LazyTable):
+    fields: dict[str, FieldOrTable] = QUERY_LOG_FIELDS
+
+    def to_printed_clickhouse(self, context):
+        return "lazy_query_log"
+
+    def to_printed_hogql(self):
+        return "lazy_query_log"
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        requested_fields = table_to_add.fields_accessed
+
+        # table_name = "clusterAllReplicas(posthog, system.query_log)"
+        table_name = "raw_query_log"
+
+        requested_fields = {**requested_fields, "team_id": ["JSONExtractRaw(log_comment, 'team_id') as team_id"]}
+
+        fields: list[ast.Expr] = [
+            ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain]))
+            for name, chain in requested_fields.items()
+        ]
+
+        return ast.SelectQuery(
+            select=fields,
+            # distinct=True,
+            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+            # where=(
+            #     ast.CompareOperation(
+            #         op=ast.CompareOperationOp.In,
+            #         left=ast.Tuple(exprs=[ast.Field(chain=[table_name, "team_id"])]),
+            #         right=ast.Constant(value=""),
+            #     )
+            # ),
+        )
+
+
+class RawQueryLogTable(Table):
+    fields: dict[str, FieldOrTable] = QUERY_LOG_FIELDS
+
+    def to_printed_clickhouse(self, context):
+        return "system.query_log"
+
+    def to_printed_hogql(self):
+        return "system.query_log"
