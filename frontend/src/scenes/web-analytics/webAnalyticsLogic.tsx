@@ -1246,7 +1246,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     duration: [
                         {
                             type: PropertyFilterType.Recording,
-                            key: 'duration',
+                            key: 'active_seconds',
                             operator: PropertyOperator.GreaterThanOrEqual,
                             value: 1,
                         },
