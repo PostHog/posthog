@@ -71,7 +71,7 @@ export function Experiments(): JSX.Element {
             render: function Render(_, experiment: Experiment) {
                 const duration = getExperimentDuration(experiment)
 
-                return <div>{duration !== undefined ? `${duration} day${duration !== 1 ? 's' : ''}` : '--'}</div>
+                return <div>{duration !== undefined ? `${duration} day${duration !== 1 ? 's' : ''}` : '—'}</div>
             },
             sorter: (a, b) => {
                 const durationA = getExperimentDuration(a) ?? -1
