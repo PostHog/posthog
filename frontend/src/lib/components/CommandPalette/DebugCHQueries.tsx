@@ -1,7 +1,10 @@
 import { IconCodeInsert, IconCopy } from '@posthog/icons'
+import ChartDataLabels from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import { actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { Chart, ChartItem } from 'lib/Chart'
 import { dayjs } from 'lib/dayjs'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -12,7 +15,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { CodeSnippet, Language } from '../CodeSnippet'
@@ -33,6 +36,13 @@ export interface Stats {
     average_query_duration_ms: number
     max_query_duration_ms: number
     exception_percentage: number
+}
+
+interface DataPoint {
+    hour: string
+    successful_queries: number
+    exceptions: number
+    avg_response_time_ms: number
 }
 
 export interface Query {
@@ -57,6 +67,7 @@ export interface Query {
 export interface DebugResponse {
     queries: Query[]
     stats: Stats
+    hourly_stats: DataPoint[]
 }
 
 const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
@@ -116,6 +127,102 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
     }),
 ])
 
+const generateHourlyLabels = (days: number): string[] => {
+    const labels = []
+    const now = dayjs().startOf('hour') // current hour
+    for (let i = 0; i < days * 24; i++) {
+        labels.push(now.subtract(i, 'hour').format('YYYY-MM-DDTHH:00:00'))
+    }
+    return labels.reverse()
+}
+
+const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const labels = generateHourlyLabels(14)
+
+    useEffect(() => {
+        if (canvasRef.current) {
+            Chart.register(ChartjsPluginStacked100, ChartDataLabels)
+
+            const dataMap = new Map(data.map((d) => [d.hour, d]))
+
+            const successfulQueries = labels.map((label) => dataMap.get(label)?.successful_queries || 0)
+            const exceptions = labels.map((label) => dataMap.get(label)?.exceptions || 0)
+            const avgResponseTime = labels.map((label) => dataMap.get(label)?.avg_response_time_ms || 0)
+
+            const datasets = [
+                {
+                    label: 'Successful Queries',
+                    data: successfulQueries,
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    stack: 'Stack 0',
+                },
+                {
+                    label: 'Exceptions',
+                    data: exceptions,
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1,
+                    stack: 'Stack 0',
+                },
+                {
+                    label: 'Avg Response Time (ms)',
+                    data: avgResponseTime,
+                    type: 'line',
+                    fill: false,
+                    borderColor: 'rgba(153, 102, 255, 0.5)',
+                    tension: 0.1,
+                    yAxisID: 'y-axis-2',
+                },
+            ]
+
+            const maxQueryCount = Math.max(...successfulQueries, ...exceptions)
+            const maxResponseTime = Math.max(...avgResponseTime)
+            const options = {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        display: false,
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        max: maxQueryCount * 1.1,
+                    },
+                    'y-axis-2': {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        max: maxResponseTime * 2, // Double to have more room for the other bars
+                    },
+                },
+                plugins: {
+                    datalabels: { display: false },
+                },
+            }
+
+            const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
+                type: 'bar',
+                data: { labels, datasets },
+                options,
+                plugins: [ChartDataLabels],
+            })
+
+            return () => newChart.destroy()
+        }
+    }, [data])
+
+    // eslint-disable-next-line react/forbid-dom-props
+    return <canvas ref={canvasRef} style={{ height: '300px', width: '100%' }} />
+}
+
 interface DebugCHQueriesProps {
     insightId?: number | null
 }
@@ -127,6 +234,11 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
 
     return (
         <>
+            {!debugResponseLoading && !!debugResponse.hourly_stats ? (
+                <div>
+                    <BarChartWithLine data={debugResponse.hourly_stats} />
+                </div>
+            ) : null}
             <div className="flex gap-4 items-start justify-between mb-4">
                 <div className="flex flex-wrap gap-2">
                     {!debugResponse.stats

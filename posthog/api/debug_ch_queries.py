@@ -27,6 +27,57 @@ class DebugCHQueries(viewsets.ViewSet):
         except:
             return None
 
+    def hourly_stats(self, insight_id: str):
+        params = {
+            "insight_id": insight_id,
+            "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
+            "not_query": "%request:_api_debug_ch_queries_%",
+            "cluster": CLICKHOUSE_CLUSTER,
+        }
+
+        sql_query = """
+            SELECT
+                hour,
+                sum(successful_queries) AS successful_queries,
+                sum(exceptions) AS exceptions,
+                avg(avg_response_time_ms) AS avg_response_time_ms
+            FROM (
+                SELECT
+                    toStartOfHour(query_start_time) AS hour,
+                    countIf(exception = '') AS successful_queries,
+                    countIf(exception != '') AS exceptions,
+                    avg(query_duration_ms) AS avg_response_time_ms
+                FROM (
+                    SELECT
+                        query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type,
+                        ProfileEvents, log_comment
+                    FROM clusterAllReplicas(%(cluster)s, system, query_log)
+                    WHERE
+                        JSONExtractString(log_comment, 'insight_id') = %(insight_id)s AND
+                        event_time > %(start_time)s AND
+                        query NOT LIKE %(not_query)s AND
+                        is_initial_query
+                    ORDER BY query_start_time DESC
+                    LIMIT 100
+                )
+                GROUP BY hour
+                ORDER BY hour
+            )
+            GROUP BY hour
+            ORDER BY hour
+        """
+
+        response = sync_execute(sql_query, params)
+        return [
+            {
+                "hour": resp[0],
+                "successful_queries": resp[1],
+                "exceptions": resp[2],
+                "avg_response_time_ms": resp[3],
+            }
+            for resp in response
+        ]
+
     def stats(self, insight_id: str):
         params = {
             "insight_id": insight_id,
@@ -131,4 +182,5 @@ class DebugCHQueries(viewsets.ViewSet):
         response = {"queries": queries}
         if insight_id:
             response["stats"] = self.stats(insight_id)
+            response["hourly_stats"] = self.hourly_stats(insight_id)
         return Response(response)
