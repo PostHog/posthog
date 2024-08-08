@@ -1,0 +1,12 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "UPDATE cyclotron_jobs SET lock_id = NULL, last_heartbeat = NULL WHERE id = $1 AND lock_id = $2",
+    "describe": {
+        "columns": [],
+        "parameters": {
+            "Left": ["Uuid", "Uuid"]
+        },
+        "nullable": []
+    },
+    "hash": "884da9767d2992c7b279b4f8df5129b8c4d7020b7cb1999702aee1bfb1087efb"
+}

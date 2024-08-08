@@ -1,0 +1,12 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\nDELETE FROM cyclotron_jobs WHERE state = 'running' AND COALESCE(last_heartbeat, $1) <= $1 AND janitor_touch_count >= $2\n        ",
+    "describe": {
+        "columns": [],
+        "parameters": {
+            "Left": ["Timestamptz", "Int2"]
+        },
+        "nullable": []
+    },
+    "hash": "fdda5a80f5495f2d4b15ce1a0963f990986c8b8433f01e449fbd1eee70ce6aeb"
+}

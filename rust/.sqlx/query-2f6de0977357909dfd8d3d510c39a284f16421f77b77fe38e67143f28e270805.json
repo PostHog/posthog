@@ -1,0 +1,12 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "UPDATE cyclotron_jobs SET priority = $1 WHERE id = $2 AND lock_id = $3",
+    "describe": {
+        "columns": [],
+        "parameters": {
+            "Left": ["Int2", "Uuid", "Uuid"]
+        },
+        "nullable": []
+    },
+    "hash": "2f6de0977357909dfd8d3d510c39a284f16421f77b77fe38e67143f28e270805"
+}
