@@ -91,7 +91,10 @@ type HogWatcherRedisClient = Omit<Redis, 'pipeline'> &
     }
 
 export class HogWatcher {
-    constructor(private hub: Hub) {}
+    constructor(
+        private hub: Hub,
+        private onStateChange: (id: HogFunctionType['id'], state: HogWatcherFunctionState) => void
+    ) {}
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
         const nowSeconds = Math.round(now() / 1000)
@@ -278,16 +281,16 @@ export class HogWatcher {
                 return pipeline.exec()
             })
 
-            const functionsDisabled = disabledFunctionIds.filter((_, index) => (results ? results[index][1] : false))
+            const functionsTempDisabled = disabledFunctionIds.filter((_, index) => (results ? results[index][1] : false))
 
-            if (!functionsDisabled.length) {
+            if (!functionsTempDisabled.length) {
                 return
             }
 
             // We store the history as a zset - we can then use it to determine if we should disable indefinitely
             const historyResults = await this.runRedis(async (client) => {
                 const pipeline = client.pipeline()
-                functionsDisabled.forEach((id) => {
+                functionsTempDisabled.forEach((id) => {
                     const key = `${REDIS_KEY_DISABLED_HISTORY}/${id}`
                     pipeline.zadd(key, now(), new UUIDT().toString())
                     pipeline.zrange(key, 0, -1)
@@ -297,24 +300,33 @@ export class HogWatcher {
                 return await pipeline.exec()
             })
 
-            const functionsToDisablePermanently = functionsDisabled.filter((_, index) => {
+            const functionsToDisablePermanently = functionsTempDisabled.filter((_, index) => {
                 const history = historyResults ? historyResults[index * 3 + 1][1] : []
                 return history.length >= this.hub.CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT
             })
 
-            if (!functionsToDisablePermanently.length) {
-                return
+            if (functionsToDisablePermanently.length) {
+                await this.runRedis(async (client) => {
+                    const pipeline = client.pipeline()
+                    functionsToDisablePermanently.forEach((id) => {
+                        const key = `${REDIS_KEY_DISABLED}/${id}`
+                        pipeline.set(key, '1')
+                        pipeline.del(`${REDIS_KEY_DISABLED_HISTORY}/${id}`)
+                    })
+
+                    return await pipeline.exec()
+                })
             }
 
-            await this.runRedis(async (client) => {
-                const pipeline = client.pipeline()
-                functionsToDisablePermanently.forEach((id) => {
-                    const key = `${REDIS_KEY_DISABLED}/${id}`
-                    pipeline.set(key, '1')
-                    pipeline.del(`${REDIS_KEY_DISABLED_HISTORY}/${id}`)
-                })
+            // Finally track the results
+            functionsToDisablePermanently.forEach((id) => {
+                this.onStateChange(id, this.tokensToFunctionState(0, HogWatcherState.disabledForPeriod))
+            })
 
-                return await pipeline.exec()
+            functionsTempDisabled.forEach((id) => {
+                if (!functionsToDisablePermanently.includes(id)) {
+                    this.onStateChange(id, this.tokensToFunctionState(0, HogWatcherState.disabledIndefinitely))
+                }
             })
         }
     }
