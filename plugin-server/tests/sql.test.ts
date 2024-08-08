@@ -118,20 +118,19 @@ describe('sql', () => {
         })
 
         test('disablePlugin disables a plugin', async () => {
-            const redis = await hub.db.redisPool.acquire()
-            const rowsBefore = await getPluginConfigRows(hub)
-            expect(rowsBefore[0].plugin_id).toEqual(60)
-            expect(rowsBefore[0].enabled).toEqual(true)
+            await hub.db.redisPool.withClient('disablePlugin', 1000, async (client) => {
+                const rowsBefore = await getPluginConfigRows(hub)
+                expect(rowsBefore[0].plugin_id).toEqual(60)
+                expect(rowsBefore[0].enabled).toEqual(true)
 
-            const receivedMessage = redis.subscribe(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL)
-            await disablePlugin(hub, 39)
+                const receivedMessage = client.subscribe(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL)
+                await disablePlugin(hub, 39)
 
-            const rowsAfter = await getPluginConfigRows(hub)
+                const rowsAfter = await getPluginConfigRows(hub)
 
-            expect(rowsAfter).toEqual([])
-            await expect(receivedMessage).resolves.toEqual(1)
+                expect(rowsAfter).toEqual([])
+                await expect(receivedMessage).resolves.toEqual(1)
 
-            await hub.db.redisPool.release(redis)
         })
     })
 })

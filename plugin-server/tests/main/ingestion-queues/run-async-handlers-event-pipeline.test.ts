@@ -15,7 +15,6 @@
 //  2. the KafkaQueue consumer handler will let the error bubble up to the
 //     KafkaJS consumer runner, which we assume will handle retries.
 
-import Redis from 'ioredis'
 import LibrdKafkaError from 'node-rdkafka/lib/error'
 
 import { defaultConfig } from '../../../src/config/config'
@@ -50,19 +49,16 @@ describe('runAppsOnEventPipeline()', () => {
     // way to mock things in subprocesses to test this however.
 
     let hub: Hub
-    let redis: Redis.Redis
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
         // Use fake timers to ensure that we don't need to wait on e.g. retry logic.
         jest.useFakeTimers({ advanceTimers: true })
         ;[hub, closeHub] = await createHub()
-        redis = await hub.redisPool.acquire()
         await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, null, 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
     })
 
     afterEach(async () => {
-        await hub.redisPool.release(redis)
         await teardownPlugins(hub)
         await closeHub()
         jest.clearAllTimers()

@@ -283,7 +283,7 @@ export interface Hub extends PluginsServerConfig {
     // active connections to Postgres, Redis, ClickHouse, Kafka
     db: DB
     postgres: PostgresRouter
-    redisPool: GenericPool<Redis>
+    redisPool: RedisPool
     clickhouse: ClickHouse
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
@@ -1171,7 +1171,9 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     token?: string
 }
 
-export type RedisPool = GenericPool<Redis>
+export type RedisPool = Pick<GenericPool<Redis>, 'drain' | 'clear'> & {
+    withClient: <T>(name: string, timeout: number, callback: (client: Redis) => Promise<T>) => Promise<T>
+}
 
 export type RRWebEvent = Record<string, any> & {
     timestamp: number

@@ -1,7 +1,6 @@
 import { Redis } from 'ioredis'
 
 import { CdpConfig, RedisPool } from '../../types'
-import { timeoutGuard } from '../../utils/db/utils'
 import { now } from '../../utils/now'
 import { HogWatcherObservationPeriod, HogWatcherRatingPeriod, HogWatcherState, HogWatcherStatePeriod } from './types'
 
@@ -106,18 +105,9 @@ export async function runRedis<T>(
     description: string,
     fn: (client: Redis) => Promise<T>
 ): Promise<T> {
-    const client = await redisPool.acquire()
-    const timeout = timeoutGuard(
-        `${description} delayed. Waiting over ${REDIS_TIMEOUT_SECONDS} seconds.`,
-        undefined,
-        REDIS_TIMEOUT_SECONDS * 1000
-    )
-    try {
+    return await redisPool.withClient(description, REDIS_TIMEOUT_SECONDS * 1000, async (client) => {
         return await fn(client)
-    } finally {
-        clearTimeout(timeout)
-        await redisPool.release(client)
-    }
+    })
 }
 
 export function last<T>(array?: T[]): T | undefined {
