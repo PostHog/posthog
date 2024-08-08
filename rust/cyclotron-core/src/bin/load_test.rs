@@ -18,6 +18,7 @@ use uuid::Uuid;
 // - The workers will process jobs as fast as they can, in batches of 1000.
 // - The manager and both workers track how long each insert and dequeue takes, in ms/job.
 // - The manager never inserts more than 10,000 more jobs than the workers have processed.
+const INSERT_BATCH_SIZE: usize = 1000;
 
 struct SharedContext {
     jobs_inserted: AtomicUsize,
@@ -28,58 +29,62 @@ async fn producer_loop(manager: QueueManager, shared_context: Arc<SharedContext>
     let mut time_spent_inserting = Duration::zero();
     let now = Utc::now() - Duration::minutes(1);
     loop {
-        let waiting_on = if rand::random() {
-            WaitingOn::Fetch
-        } else {
-            WaitingOn::Hog
-        };
+        let mut to_insert = Vec::with_capacity(1000);
+        for _ in 0..INSERT_BATCH_SIZE {
+            let waiting_on = if rand::random() {
+                WaitingOn::Fetch
+            } else {
+                WaitingOn::Hog
+            };
 
-        let priority = (rand::random::<u16>() % 3) as i16;
+            let priority = (rand::random::<u16>() % 3) as i16;
 
-        let test_job = JobInit {
-            team_id: 1,
-            waiting_on,
-            queue_name: "default".to_string(),
-            priority,
-            scheduled: now,
-            function_id: Some(Uuid::now_v7()),
-            vm_state: None,
-            parameters: None,
-            metadata: None,
-        };
+            let test_job = JobInit {
+                team_id: 1,
+                waiting_on,
+                queue_name: "default".to_string(),
+                priority,
+                scheduled: now,
+                function_id: Some(Uuid::now_v7()),
+                vm_state: None,
+                parameters: None,
+                metadata: None,
+            };
+
+            to_insert.push(test_job);
+        }
 
         let start = Instant::now();
-        manager.create_job(test_job).await.unwrap();
+        manager.bulk_create_jobs(to_insert).await.unwrap();
         let elapsed = start.elapsed();
         time_spent_inserting += Duration::from_std(elapsed).unwrap();
 
         let inserted = shared_context
             .jobs_inserted
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            .fetch_add(INSERT_BATCH_SIZE, std::sync::atomic::Ordering::Relaxed);
 
-        if inserted % 100 == 0 {
-            println!("Inserted: {} in {}, ", inserted, time_spent_inserting);
-            let mut dequeued = shared_context
+        println!("Inserted: {} in {}, ", inserted, time_spent_inserting);
+        let mut dequeued = shared_context
+            .jobs_dequeued
+            .load(std::sync::atomic::Ordering::Relaxed);
+        while inserted > dequeued + 10_000 {
+            println!(
+                "Waiting for workers to catch up, lagging by {}",
+                inserted - dequeued
+            );
+            tokio::time::sleep(Duration::milliseconds(100).to_std().unwrap()).await;
+            dequeued = shared_context
                 .jobs_dequeued
                 .load(std::sync::atomic::Ordering::Relaxed);
-            while inserted > dequeued + 10_000 {
-                println!(
-                    "Waiting for workers to catch up, lagging by {}",
-                    inserted - dequeued
-                );
-                tokio::time::sleep(Duration::milliseconds(100).to_std().unwrap()).await;
-                dequeued = shared_context
-                    .jobs_dequeued
-                    .load(std::sync::atomic::Ordering::Relaxed);
-            }
         }
     }
 }
 
 async fn worker_loop(worker: Worker, shared_context: Arc<SharedContext>, worker_type: WaitingOn) {
     let mut time_spent_dequeuing = Duration::zero();
+    let start = Utc::now();
     loop {
-        let start = Instant::now();
+        let loop_start = Instant::now();
         let jobs = worker
             .dequeue_jobs("default", worker_type, 1000)
             .await
@@ -104,7 +109,7 @@ async fn worker_loop(worker: Worker, shared_context: Arc<SharedContext>, worker_
             res.unwrap();
         }
 
-        time_spent_dequeuing += Duration::from_std(start.elapsed()).unwrap();
+        time_spent_dequeuing += Duration::from_std(loop_start.elapsed()).unwrap();
 
         let dequeued = shared_context
             .jobs_dequeued
@@ -114,8 +119,11 @@ async fn worker_loop(worker: Worker, shared_context: Arc<SharedContext>, worker_
         let dequeued = dequeued + jobs.len();
 
         println!(
-            "Dequeued, processed and completed {} jobs in {} for {:?}",
-            dequeued, time_spent_dequeuing, worker_type
+            "Dequeued, processed and completed {} jobs in {} for {:?}. Total time running: {}",
+            dequeued,
+            time_spent_dequeuing,
+            worker_type,
+            Utc::now() - start
         );
 
         if jobs.len() < 1000 {

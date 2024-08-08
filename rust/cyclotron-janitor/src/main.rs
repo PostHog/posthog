@@ -1,4 +1,4 @@
-use axum::{routing::get, Router};
+use axum::{extract::State, routing::get, Router};
 use common_metrics::setup_metrics_routes;
 use cyclotron_janitor::{config::Config, janitor::Janitor};
 use envconfig::Envconfig;
@@ -33,15 +33,20 @@ async fn listen(app: Router, bind: String) -> Result<()> {
     Ok(())
 }
 
-pub fn app(liveness: HealthRegistry) -> Router {
+// For axums state stuff
+#[derive(Clone)]
+struct JanitorId(pub String);
+
+pub fn app(liveness: HealthRegistry, janitor_id: String) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())))
+        .with_state(JanitorId(janitor_id))
 }
 
-pub async fn index() -> &'static str {
-    "rusty-hook janitor"
+async fn index(State(janitor_id): State<JanitorId>) -> String {
+    format!("cyclotron janitor {}", janitor_id.0)
 }
 
 #[tokio::main]
@@ -52,7 +57,9 @@ async fn main() {
 
     let janitor_config = config.get_janitor_config();
 
-    info!("Starting janitor with ID {:?}", janitor_config.settings.id);
+    let janitor_id = janitor_config.settings.id.clone();
+
+    info!("Starting janitor with ID {:?}", janitor_id);
 
     let janitor = Janitor::new(janitor_config)
         .await
@@ -71,7 +78,7 @@ async fn main() {
         config.cleanup_interval_secs,
     ));
 
-    let app = setup_metrics_routes(app(liveness));
+    let app = setup_metrics_routes(app(liveness, janitor_id));
     let bind = format!("{}:{}", config.host, config.port);
     let http_server = tokio::spawn(listen(app, bind));
 

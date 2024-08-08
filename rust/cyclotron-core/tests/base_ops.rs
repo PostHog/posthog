@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 use cyclotron_core::{
-    base_ops::{Job, JobInit, JobState, WaitingOn},
+    base_ops::{bulk_create_jobs, Job, JobInit, JobState, WaitingOn},
     manager::QueueManager,
     worker::Worker,
 };
@@ -257,4 +257,28 @@ async fn test_queue(db: PgPool) {
     assert_eq!(job.vm_state, Some("test".to_string()));
     assert_eq!(job.parameters, Some("test".to_string()));
     assert_eq!(job.metadata, Some("test".to_string()));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+pub async fn test_bulk_insert(db: PgPool) {
+    let worker = Worker::from_pool(db.clone());
+
+    let job_template = create_new_job();
+
+    let jobs = (0..1000)
+        .map(|_| {
+            let mut job = job_template.clone();
+            job.function_id = Some(Uuid::now_v7());
+            job
+        })
+        .collect::<Vec<_>>();
+
+    bulk_create_jobs(&db, jobs).await.unwrap();
+
+    let dequeue_jobs = worker
+        .dequeue_jobs(&job_template.queue_name, job_template.waiting_on, 1000)
+        .await
+        .expect("failed to dequeue job");
+
+    assert_eq!(dequeue_jobs.len(), 1000);
 }

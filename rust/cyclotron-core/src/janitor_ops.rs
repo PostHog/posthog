@@ -61,6 +61,11 @@ WHERE cyclotron_jobs.id = stalled.id
 // Poison pills are jobs whose lock is held and whose heartbeat is older than `timeout`, that have
 // been returned to the queue by the janitor more than `max_janitor_touched` times.
 // NOTE - this has the same performance caveat as reset_stalled_jobs
+// TODO - This shoud, instead, move the job row to a dead letter table, for later investigation. Of course,
+// rather than doing that, it could just put the job in a "dead letter" state, and no worker or janitor process
+// will touch it... maybe the table moving isn't needed? but either way, being able to debug jobs that cause workers
+// to stall would be good (and, thinking about it, moving it to a new table means we don't have to clear the lock,
+// so have a potential way to trace back to the last worker that died holding the job)
 pub async fn delete_poison_pills<'c, E>(
     executor: E,
     timeout: Duration,

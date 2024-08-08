@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use tokio::sync::RwLock;
 
 use crate::{
-    base_ops::{create_job, JobInit},
+    base_ops::{bulk_create_jobs, create_job, JobInit},
     error::QueueError,
     PoolConfig,
 };
@@ -54,5 +54,22 @@ impl QueueManager {
         let shard = &shards[next % shards.len()];
 
         create_job(shard, init).await
+    }
+
+    pub async fn bulk_create_jobs(&self, inits: Vec<JobInit>) -> Result<(), QueueError> {
+        let shards = self.shards.read().await;
+        let chunk_size = inits.len() / shards.len();
+        // TODO - at some point, we should dynamically re-acquire the lock each time, to allow
+        // for re-routing jobs away from a bad shard during a bulk insert, but right now, we
+        // don't even re-try inserts. Later work.
+        for chunk in inits.chunks(chunk_size) {
+            let next_shard = self
+                .next_shard
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let shard = &shards[next_shard % shards.len()];
+            bulk_create_jobs(shard, chunk.to_vec()).await?;
+        }
+
+        Ok(())
     }
 }
