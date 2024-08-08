@@ -1,4 +1,3 @@
-import Redis from 'ioredis'
 import { Pool } from 'pg'
 
 import { Hub } from '../../../src/types'
@@ -11,19 +10,16 @@ import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '..
 
 describe('workerTasks.runEventPipeline()', () => {
     let hub: Hub
-    let redis: Redis.Redis
     let closeHub: () => Promise<void>
     const OLD_ENV = process.env
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
-        redis = await hub.redisPool.acquire()
         await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, '') // Need to clear the DB to avoid unique constraint violations on ids
         process.env = { ...OLD_ENV } // Make a copy
     })
 
     afterAll(async () => {
-        await hub.redisPool.release(redis)
         await closeHub()
         process.env = OLD_ENV // Restore old environment
     })

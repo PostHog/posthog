@@ -95,7 +95,6 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
         teamToken = team.api_token
-        redisConn = await hub.redisPool.acquire(0)
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await deleteKeys(hub)
 
@@ -108,7 +107,6 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
     afterEach(async () => {
         jest.setTimeout(10000)
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
-        await hub.redisPool.release(redisConn)
         await deleteKeys(hub)
         await closeHub()
     })

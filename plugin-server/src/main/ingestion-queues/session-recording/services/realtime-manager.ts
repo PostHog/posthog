@@ -68,21 +68,18 @@ export class RealtimeManager extends EventEmitter {
     }
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
-        const client = await this.redisPool.acquire()
-        const timeout = timeoutGuard(`${description} delayed. Waiting over 30 seconds.`)
-        try {
-            return await fn(client)
-        } catch (error) {
-            if (error instanceof SyntaxError) {
-                // invalid JSON
-                return null
-            } else {
-                throw error
+        return await this.redisPool.withClient(description, 30000, async (client) => {
+            try {
+                return await fn(client)
+            } catch (error) {
+                if (error instanceof SyntaxError) {
+                    // invalid JSON
+                    return null
+                } else {
+                    throw error
+                }
             }
-        } finally {
-            clearTimeout(timeout)
-            await this.redisPool.release(client)
-        }
+        })
     }
 
     public async addMessagesFromBuffer(

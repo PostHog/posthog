@@ -3,7 +3,6 @@ import { Redis } from 'ioredis'
 import { TopicPartition } from 'node-rdkafka'
 
 import { RedisPool } from '../../../../types'
-import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
 export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
@@ -30,14 +29,9 @@ export class OffsetHighWaterMarker {
     constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
-        const client = await this.redisPool.acquire()
-        const timeout = timeoutGuard(`${description} delayed. Waiting over 30 seconds.`)
-        try {
+        return await this.redisPool.withClient(description, 30 * 1000, async (client) => {
             return await fn(client)
-        } finally {
-            clearTimeout(timeout)
-            await this.redisPool.release(client)
-        }
+        })
     }
 
     public async getWaterMarks(tp: TopicPartition): Promise<OffsetHighWaterMarks> {

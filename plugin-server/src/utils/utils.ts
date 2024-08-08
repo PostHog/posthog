@@ -18,6 +18,7 @@ import {
     TimestampFormat,
 } from '../types'
 import { Hub } from './../types'
+import { timeoutGuard } from './db/utils'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -369,7 +370,7 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
 }
 
 export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
-    return createPool<Redis.Redis>(
+    const pool = createPool<Redis.Redis>(
         {
             create: () => createRedis(serverConfig),
             destroy: async (client) => {
@@ -382,6 +383,22 @@ export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
             autostart: true,
         }
     )
+
+    return {
+        clear: () => pool.clear(),
+        drain: () => pool.drain(),
+        withClient: async (name, timeoutMs, callback) => {
+            const timeout = timeoutGuard(`Redis calll ${name} delayed. Waiting over 30 seconds.`, undefined, timeoutMs)
+            const client = await pool.acquire()
+
+            try {
+                return await callback(client)
+            } finally {
+                await pool.release(client)
+                clearTimeout(timeout)
+            }
+        },
+    }
 }
 
 export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {

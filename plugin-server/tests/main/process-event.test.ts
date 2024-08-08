@@ -7,7 +7,6 @@ unit tests to appropriate classes/functions.
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
@@ -91,7 +90,6 @@ let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
 let closeHub: () => Promise<void>
-let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
 
@@ -100,8 +98,6 @@ async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hu
         ...TEST_CONFIG,
         ...(additionalProps ?? {}),
     })
-
-    redis = await hub.redisPool.acquire()
 
     return [hub, closeHub]
 }
@@ -160,14 +156,15 @@ beforeEach(async () => {
 
     // clear the webhook redis cache
     const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-    await redis.del(hooksCacheKey)
+    await hub.redisPool.withClient('clearWebhookCache', 30 * 1000, async (client) => {
+        client.del(hooksCacheKey)
+    })
 
     // Always start with an anonymous state
     state = { currentDistinctId: 'anonymous_id' }
 })
 
 afterEach(async () => {
-    await hub.redisPool.release(redis)
     await closeHub?.()
 })
 
