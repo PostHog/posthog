@@ -20,6 +20,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         ZENDESK = "Zendesk", "Zendesk"
         SNOWFLAKE = "Snowflake", "Snowflake"
         MYSQL = "MySQL", "MySQL"
+        SALESFORCE = "Salesforce", "Salesforce"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
