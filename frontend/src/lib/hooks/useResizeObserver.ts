@@ -2,6 +2,8 @@ import { RefCallback, RefObject, useMemo, useState } from 'react'
 import ResizeObserver from 'resize-observer-polyfill'
 import useResizeObserverImport from 'use-resize-observer'
 
+const DISABLED = !!global.process?.env.STORYBOOK
+
 // Use polyfill only if needed
 if (!window.ResizeObserver) {
     window.ResizeObserver = ResizeObserver
@@ -31,6 +33,9 @@ export function useResizeBreakpoints<T extends string>(
     const { ref: refCb } = useResizeObserver<HTMLDivElement>({
         ref: options?.ref,
         onResize: ({ width = 1 }) => {
+            if (DISABLED) {
+                return
+            }
             let newSize = breakpoints[sortedKeys[0]]
 
             for (const key of sortedKeys) {
