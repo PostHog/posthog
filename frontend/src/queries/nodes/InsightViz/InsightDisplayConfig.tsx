@@ -17,7 +17,7 @@ import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
-import { CumulativeRetentionCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
+import { RetentionCumulativeCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
 import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
 import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -147,7 +147,7 @@ export function InsightDisplayConfig(): JSX.Element {
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
                         <RetentionMeanCheckbox />
-                        <CumulativeRetentionCheckbox />
+                        <RetentionCumulativeCheckbox />
                     </ConfigFilter>
                 )}
 
