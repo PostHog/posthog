@@ -1722,4 +1722,5 @@ class TestPrinter(BaseTest):
 
             zprint(query, 1)
             zprint(query, 2)
-            self.assertRaises(Exception, lambda: zprint(query, 3))
+            with self.assertRaises(Exception):
+                zprint(query, 3)
