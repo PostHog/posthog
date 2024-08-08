@@ -1,7 +1,5 @@
 import { captureException } from '@sentry/node'
-import { readFileSync } from 'fs'
 import { Pipeline, Redis } from 'ioredis'
-import path from 'path'
 
 import { Hub } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
@@ -16,7 +14,57 @@ const REDIS_KEY_DISABLED = `${BASE_REDIS_KEY}/disabled`
 const REDIS_KEY_DISABLED_HISTORY = `${BASE_REDIS_KEY}/disabled_history`
 const REDIS_TIMEOUT_SECONDS = 5
 
-const LUA_TOKEN_BUCKET = readFileSync(path.join(__dirname, 'lua', 'token-bucket.lua')).toString()
+// NOTE: We ideally would have this in a file but the current build step doesn't handle anything other than .ts files
+const LUA_TOKEN_BUCKET = `
+local key = KEYS[1]
+local now = ARGV[1]
+local cost = ARGV[2]
+local poolMax = ARGV[3]
+local fillRate = ARGV[4]
+local expiry = ARGV[5]
+local before = redis.call('hget', key, 'ts')
+
+-- If we don't have a timestamp then we set it to now and fill up the bucket
+if before == false then
+  local ret = poolMax - cost
+  redis.call('hset', key, 'ts', now)
+  redis.call('hset', key, 'pool', ret)
+  redis.call('expire', key, expiry)
+  return ret
+end
+
+-- We update the timestamp if it has changed
+local timeDiffSeconds = now - before
+
+if timeDiffSeconds > 0 then
+  redis.call('hset', key, 'ts', now)
+else
+  timeDiffSeconds = 0
+end
+
+-- Calculate how much should be refilled in the bucket and add it
+local owedTokens = timeDiffSeconds * fillRate
+local currentTokens = redis.call('hget', key, 'pool')
+
+if currentTokens == false then
+  currentTokens = poolMax
+end
+
+currentTokens = math.min(currentTokens + owedTokens, poolMax)
+
+-- Remove the cost and return the new number of tokens
+if currentTokens - cost >= 0 then
+  currentTokens = currentTokens - cost
+else
+  currentTokens = -1
+end
+
+redis.call('hset', key, 'pool', currentTokens)
+redis.call('expire', key, expiry)
+
+-- Finally return the value - if it's negative then we've hit the limit
+return currentTokens
+`
 
 export enum HogWatcherState {
     healthy = 1,
