@@ -1,5 +1,6 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
+import { base64Encode } from 'lib/utils'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,7 @@ const meta: Meta = {
             post: {
                 '/api/projects/:team_id/query': async (req, res, ctx) => {
                     const query = (await req.clone().json()).query
+                    console.log(query)
                     if (query.fingerprint) {
                         return res(ctx.json(errorTrackingGroupQueryResponse))
                     }
@@ -39,7 +41,9 @@ export function ListPage(): JSX.Element {
 
 export function GroupPage(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.errorTrackingGroup('TypeError'))
+        const stringifiedFingerprint = base64Encode(JSON.stringify(['TypeError']))
+        console.log(stringifiedFingerprint)
+        router.actions.push(urls.errorTrackingGroup(stringifiedFingerprint))
     }, [])
     return <App />
 }

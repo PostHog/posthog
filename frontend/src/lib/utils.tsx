@@ -1737,6 +1737,7 @@ export const base64Encode = (str: string): string => {
 }
 
 export const base64Decode = (encodedString: string): string => {
+    debugger
     const data = base64ToUint8Array(encodedString)
     return new TextDecoder().decode(data)
 }

@@ -137,7 +137,7 @@ export const urls = {
     /** @param id A UUID or 'new'. ':id' for routing. */
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     errorTracking: (): string => '/error_tracking',
-    errorTrackingGroup: (id: string): string => `/error_tracking/${id}`,
+    errorTrackingGroup: (base64Fingerprint: string): string => `/error_tracking/${encodeURIComponent(base64Fingerprint)}`,
     surveys: (): string => '/surveys',
     /** @param id A UUID or 'new'. ':id' for routing. */
     survey: (id: string): string => `/surveys/${id}`,

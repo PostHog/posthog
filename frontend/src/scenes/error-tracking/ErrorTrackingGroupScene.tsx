@@ -13,8 +13,8 @@ import { OverviewTab } from './groups/OverviewTab'
 export const scene: SceneExport = {
     component: ErrorTrackingGroupScene,
     logic: errorTrackingGroupSceneLogic,
-    paramsToProps: ({ params: { id: stringifiedFingerprint } }): (typeof errorTrackingGroupSceneLogic)['props'] => ({
-        fingerprint: JSON.parse(base64Decode(stringifiedFingerprint)),
+    paramsToProps: ({ params: { id } }): (typeof errorTrackingGroupSceneLogic)['props'] => ({
+        fingerprint: JSON.parse(base64Decode(decodeURIComponent(id))),
     }),
 }
 

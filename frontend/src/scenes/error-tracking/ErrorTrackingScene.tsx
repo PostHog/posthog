@@ -7,6 +7,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { base64Encode } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -112,6 +113,8 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
     const checked = selectedRowIndexes.includes(props.recordIndex)
 
+    const fingerprint = base64Encode(JSON.stringify(record.fingerprint))
+
     return (
         <div className="flex items-start space-x-1.5 group">
             <LemonCheckbox
@@ -136,7 +139,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 }
                 className="flex-1"
-                to={base64Encode(JSON.stringify(record.fingerprint))}
+                to={urls.errorTrackingGroup(fingerprint)}
             />
         </div>
     )
