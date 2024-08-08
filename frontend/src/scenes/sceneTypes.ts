@@ -48,6 +48,7 @@ export enum Scene {
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
+    Max = 'Max',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
     AsyncMigrations = 'AsyncMigrations',

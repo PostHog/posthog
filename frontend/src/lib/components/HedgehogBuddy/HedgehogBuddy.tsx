@@ -27,8 +27,8 @@ import {
     standardAnimations,
 } from './sprites/sprites'
 
-const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
-const FPS = 24
+export const X_FRAMES = SPRITE_SHEET_WIDTH / SPRITE_SIZE
+export const FPS = 24
 const GRAVITY_PIXELS = 10
 const MAX_JUMP_COUNT = 2
 
@@ -592,8 +592,8 @@ export class HedgehogActor {
                                 width: SPRITE_SIZE,
                                 height: SPRITE_SIZE,
                                 backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
-                                backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
-                                    Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
+                                backgroundPosition: `-${(this.animationFrame % X_FRAMES) * SPRITE_SIZE}px -${
+                                    Math.floor(this.animationFrame / X_FRAMES) * SPRITE_SIZE
                                 }px`,
                                 filter: imageFilter as any,
                             }}

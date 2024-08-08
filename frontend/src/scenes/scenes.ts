@@ -253,6 +253,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Homepage',
     },
+    [Scene.Max]: {
+        projectBased: true,
+        name: 'Max',
+    },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations redirect',
     },
@@ -513,6 +517,7 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.DataManagement,
     [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
+    [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,

@@ -15,6 +15,7 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
+    IconSparkles,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -352,6 +353,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               label: 'Home',
                               icon: <IconHome />,
                               to: urls.projectHomepage(),
+                          },
+                          {
+                              identifier: Scene.Max,
+                              label: 'Max',
+                              icon: <IconSparkles />,
+                              to: urls.max(),
                           },
                           {
                               identifier: Scene.Dashboards,
