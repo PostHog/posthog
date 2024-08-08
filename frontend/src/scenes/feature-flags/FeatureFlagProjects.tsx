@@ -140,7 +140,7 @@ function FeatureFlagCopySection(): JSX.Element {
     return hasMultipleProjects && featureFlag.can_edit ? (
         <>
             <h3 className="l3">Feature flag copy</h3>
-            <div className="ant-row">Copy your flag and its configuration to another project.</div>
+            <div>Copy your flag and its configuration to another project.</div>
             {hasStaticCohort && (
                 <LemonBanner type="info" className="mt-4">
                     The flag you are about to copy references a static cohort. If the cohort with identical name does

@@ -102,7 +102,6 @@ const config: Config = {
         '^lib/(.*)$': '<rootDir>/frontend/src/lib/$1',
         'monaco-editor': '<rootDir>/node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts',
         '^scenes/(.*)$': '<rootDir>/frontend/src/scenes/$1',
-        '^antd/es/(.*)$': 'antd/lib/$1',
         '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
         '^rrweb/es/rrweb': 'rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',

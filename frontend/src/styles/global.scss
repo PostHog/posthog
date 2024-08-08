@@ -55,10 +55,6 @@ input[type='radio'] {
     min-height: 2.5rem;
     margin: 1rem 0 0.25rem;
 
-    .ant-form-item {
-        margin-bottom: 0 !important;
-    }
-
     @include screen($md) {
         flex-wrap: nowrap;
     }
@@ -432,95 +428,6 @@ body {
         }
     }
 
-    // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
-    .ant-tabs-top,
-    .ant-tabs-bottom {
-        &,
-        & > div {
-            & > .ant-tabs-nav::before {
-                border-bottom-color: var(--border);
-            }
-        }
-    }
-
-    .ant-dropdown {
-        color: var(--text-3000);
-        border-radius: var(--radius);
-    }
-
-    .ant-dropdown-menu {
-        border-radius: var(--radius);
-    }
-
-    .ant-modal-content {
-        box-shadow: var(--shadow-elevation-3000);
-    }
-
-    .ant-modal-mask {
-        z-index: var(--z-ant-modal-mask);
-    }
-
-    .ant-modal-wrap {
-        z-index: var(--z-ant-modal-wrap);
-    }
-
-    .ant-message {
-        z-index: var(--z-ant-message);
-    }
-
-    .ant-select-dropdown {
-        z-index: var(--z-ant-select-dropdown);
-        background-color: var(--bg-3000);
-
-        .ant-select-item.ant-select-item-option {
-            background-color: var(--bg-3000);
-
-            &.ant-select-item-option-active {
-                background-color: var(--border-3000);
-            }
-        }
-    }
-
-    .ant-input-number:hover,
-    .ant-input-number-focused {
-        border-color: var(--border-bold);
-    }
-
-    .ant-input-number-group-addon {
-        background: var(--bg-3000);
-    }
-
-    .ant-picker-dropdown {
-        z-index: var(--z-ant-select-dropdown);
-    }
-
-    .ant-card-bordered {
-        border-color: var(--border);
-    }
-
-    .ant-card-body > :first-child {
-        margin-top: 0;
-    }
-
-    .ant-form-item-label {
-        > label {
-            font-weight: 600;
-
-            .ant-form-item-optional {
-                font-weight: 400;
-                color: var(--muted);
-            }
-        }
-    }
-
-    .ant-form-item {
-        margin-bottom: 1rem;
-
-        &:last-child {
-            margin-bottom: 0;
-        }
-    }
-
     @include common-variables;
 }
 
@@ -547,9 +454,13 @@ body {
     }
 
     // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar, * > ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
-    .LemonTabs__bar::after, // Active tab slider
-    .scrollable::after, // Scrollability indicators
+    ::-webkit-scrollbar,
+    *> ::-webkit-scrollbar,
+    // Scrollbar in WebKit/Blink browsers
+    .LemonTabs__bar::after,
+    // Active tab slider
+    .scrollable::after,
+    // Scrollability indicators
     .scrollable::before {
         display: none;
     }
@@ -563,11 +474,6 @@ body {
         // Fix for stories of fixed modals - otherwise body would be zero-sized
         position: static !important;
     }
-}
-
-.ant-radio-button-wrapper {
-    background: var(--secondary-3000);
-    border-color: transparent;
 }
 
 .ligatures-none {

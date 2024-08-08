@@ -119,7 +119,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             logic={featureFlagLogic}
             props={logicProps}
             formKey="featureFlag"
-            className="ant-form-vertical ant-form-hide-required-mark"
             enableFormOnSubmit // makes the HTML "submit" button work directly
         >
             <Field name="active">

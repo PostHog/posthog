@@ -54,7 +54,6 @@ declare module '@storybook/types' {
 
 const RETRY_TIMES = 2
 const LOADER_SELECTORS = [
-    '.ant-skeleton',
     '.Spinner',
     '.LemonSkeleton',
     '.LemonTableLoader',

@@ -18,7 +18,7 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
     return (
         <>
             <span>
-                <span className="hide-lte-md">grouped </span>by
+                <span className="hidden md:inline">grouped </span>by
             </span>
             <IntervalFilterStandalone
                 disabled={disabled}

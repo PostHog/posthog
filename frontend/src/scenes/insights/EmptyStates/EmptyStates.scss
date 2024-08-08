@@ -8,10 +8,6 @@
     font-size: 1.1em;
     color: var(--muted);
 
-    .ant-empty {
-        margin: 1rem 0;
-    }
-
     &.error {
         h2 {
             color: var(--danger);
@@ -29,10 +25,6 @@
         font-weight: 600;
         line-height: 1.6rem;
         color: var(--primary-alt);
-    }
-
-    button.ant-btn-lg {
-        height: 42px;
     }
 
     .empty-state-inner {

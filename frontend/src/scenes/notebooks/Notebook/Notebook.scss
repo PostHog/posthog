@@ -4,12 +4,6 @@
     flex-direction: column;
     width: 100%;
 
-    // overriding ::selection is necessary here because
-    // antd makes it invisible otherwise
-    span::selection {
-        color: var(--primary-3000);
-    }
-
     .NotebookEditor {
         position: relative;
         flex: 1;
