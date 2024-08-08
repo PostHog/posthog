@@ -7,11 +7,13 @@ import { Hub } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
 import { now } from '../utils/now'
 import { status } from '../utils/status'
+import { UUIDT } from '../utils/utils'
 import { HogFunctionInvocationResult, HogFunctionType } from './types'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
 const REDIS_KEY_DISABLED = `${BASE_REDIS_KEY}/disabled`
+const REDIS_KEY_DISABLED_HISTORY = `${BASE_REDIS_KEY}/disabled_history`
 const REDIS_TIMEOUT_SECONDS = 5
 
 const LUA_TOKEN_BUCKET = readFileSync(path.join(__dirname, 'lua', 'token-bucket.lua')).toString()
@@ -22,12 +24,6 @@ export enum HogWatcherState {
     disabledForPeriod = 3,
     disabledIndefinitely = 4,
 }
-
-// const hogStateChangeCounter = new Counter({
-//     name: 'cdp_hog_watcher_state_change',
-//     help: 'An function was moved to a different state',
-//     labelNames: ['state'],
-// })
 
 export type HogWatcherFunctionState = {
     state: HogWatcherState
@@ -161,7 +157,7 @@ export class HogWatcher {
             pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)
 
             if (state === HogWatcherState.disabledForPeriod) {
-                pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1', 'EX', this.hub.CDP_WATCHER_DISABLED_TTL)
+                pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1', 'EX', this.hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL)
             } else if (state === HogWatcherState.disabledIndefinitely) {
                 pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1')
             } else {
@@ -207,6 +203,10 @@ export class HogWatcher {
             return await pipeline.exec()
         })
 
+        // TRICKY: the above part is straight forward - below is more complex as we do multiple calls to ensure
+        // that we disable the function temporarily and eventually permanently. As this is only called when the function
+        // transitions to a disabled state, it is not a performance concern.
+
         const disabledFunctionIds = Object.entries(costs)
             .filter((_, index) => (res ? res[index][1] <= 0 : false))
             .map(([id]) => id)
@@ -218,16 +218,56 @@ export class HogWatcher {
                 const pipeline = client.pipeline()
 
                 disabledFunctionIds.forEach((id) => {
-                    pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1', 'EX', this.hub.CDP_WATCHER_DISABLED_TTL, 'NX')
+                    pipeline.set(
+                        `${REDIS_KEY_DISABLED}/${id}`,
+                        '1',
+                        'EX',
+                        this.hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL,
+                        'NX'
+                    )
                 })
 
                 return pipeline.exec()
             })
 
-            console.log(results)
-            // TODO: Detect if we did the disabling and fire an event for it
-            // TODO: If we did the disabling then also increment a counter of how many times we did it
-            // if the counter is above the threshold then we should remove the ttl and log that we are disabling indefinitely
+            const functionsDisabled = disabledFunctionIds.filter((_, index) => (results ? results[index][1] : false))
+
+            if (!functionsDisabled.length) {
+                return
+            }
+
+            // We store the history as a zset - we can then use it to determine if we should disable indefinitely
+            const historyResults = await this.runRedis(async (client) => {
+                const pipeline = client.pipeline()
+                functionsDisabled.forEach((id) => {
+                    const key = `${REDIS_KEY_DISABLED_HISTORY}/${id}`
+                    pipeline.zadd(key, now(), new UUIDT().toString())
+                    pipeline.zrange(key, 0, -1)
+                    pipeline.expire(key, this.hub.CDP_WATCHER_TTL)
+                })
+
+                return await pipeline.exec()
+            })
+
+            const functionsToDisablePermanently = functionsDisabled.filter((_, index) => {
+                const history = historyResults ? historyResults[index * 3 + 1][1] : []
+                return history.length >= this.hub.CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT
+            })
+
+            if (!functionsToDisablePermanently.length) {
+                return
+            }
+
+            await this.runRedis(async (client) => {
+                const pipeline = client.pipeline()
+                functionsToDisablePermanently.forEach((id) => {
+                    const key = `${REDIS_KEY_DISABLED}/${id}`
+                    pipeline.set(key, '1')
+                    pipeline.del(`${REDIS_KEY_DISABLED_HISTORY}/${id}`)
+                })
+
+                return await pipeline.exec()
+            })
         }
     }
 }

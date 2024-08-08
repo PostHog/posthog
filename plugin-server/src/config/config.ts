@@ -182,8 +182,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_COST_TIMING_UPPER_MS: 5000,
         CDP_WATCHER_THRESHOLD_DEGRADED: 0.8,
         CDP_WATCHER_BUCKET_SIZE: 10000,
-        CDP_WATCHER_DISABLED_TTL: 60 * 10,
-        CDP_WATCHER_TTL: 60 * 10,
+        CDP_WATCHER_DISABLED_TEMPORARY_TTL: 60 * 10, // 5 minutes
+        CDP_WATCHER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',

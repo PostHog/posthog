@@ -7,6 +7,7 @@ import { BASE_REDIS_KEY, HogWatcher, HogWatcherState } from '../../src/cdp/hog-w
 import { HogFunctionInvocationResult } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
+import { delay } from '../../src/utils/utils'
 import { deleteKeysWithPrefix } from '../helpers/redis'
 
 const mockNow: jest.Mock = require('../../src/utils/now').now as any
@@ -233,6 +234,34 @@ describe('HogWatcher', () => {
                       "tokens": 0,
                     }
                 `)
+            })
+        })
+
+        describe('disable logic', () => {
+            beforeEach(() => {
+                hub.CDP_WATCHER_BUCKET_SIZE = 100
+                hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL = 1 // Shorter ttl to help with testing
+                hub.CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT = 3
+            })
+
+            const reallyAdvanceTime = async (ms: number) => {
+                advanceTime(ms)
+                await delay(ms)
+            }
+
+            it('count the number of times it has been disabled', async () => {
+                // Trigger the temporary disabled state 3 times
+                for (let i = 0; i < 2; i++) {
+                    await watcher.observeResults([createResult({ id: 'id1', error: 'error!' })])
+                    expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledForPeriod)
+                    await reallyAdvanceTime(1000)
+                    expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
+                }
+
+                await watcher.observeResults([createResult({ id: 'id1', error: 'error!' })])
+                expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
+                await reallyAdvanceTime(1000)
+                expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
             })
         })
 
