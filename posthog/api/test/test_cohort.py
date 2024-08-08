@@ -33,7 +33,7 @@ from posthog.test.base import (
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     # select all queries for snapshots
     def capture_select_queries(self):
-        return self.capture_queries(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", "DELETE"))
+        return self.capture_queries_startswith(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", "DELETE"))
 
     def _get_cohort_activity(
         self,
@@ -101,7 +101,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             },
         )
 
-        with self.capture_queries("INSERT INTO cohortpeople") as insert_statements:
+        with self.capture_queries_startswith("INSERT INTO cohortpeople") as insert_statements:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
                 data={

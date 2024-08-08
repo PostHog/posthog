@@ -29,34 +29,59 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
 
     const logicProps = { insightProps, breakdown, breakdownType, isTrends }
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
+    const { isMultipleBreakdownsEnabled, isHistogramable, isNormalizeable, taxonomicBreakdownType } = useValues(
+        breakdownTagLogic(logicProps)
+    )
 
     return (
         <BindLogic logic={breakdownTagLogic} props={logicProps}>
-            <TaxonomicBreakdownPopover open={filterOpen} setOpen={setFilterOpen}>
-                <div>
-                    {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
-                     * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
-                    <PopoverReferenceContext.Provider value={null}>
+            <TaxonomicBreakdownPopover
+                open={filterOpen}
+                setOpen={setFilterOpen}
+                breakdownValue={breakdown}
+                breakdownType={breakdownType}
+                taxanomicType={taxonomicBreakdownType}
+            >
+                {!isMultipleBreakdownsEnabled || isHistogramable || isNormalizeable ? (
+                    <div>
+                        {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
+                         * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
+                        <PopoverReferenceContext.Provider value={null}>
+                            <BreakdownTag
+                                breakdown={breakdown}
+                                breakdownType={breakdownType}
+                                // display remove button only if we can edit and don't have a separate menu
+                                closable={false}
+                                onClose={removeBreakdown}
+                                onClick={() => {
+                                    setFilterOpen(!filterOpen)
+                                }}
+                                popover={{
+                                    overlay: <BreakdownTagMenu />,
+                                    closeOnClickInside: false,
+                                    onVisibilityChange: (visible) => {
+                                        setMenuOpen(visible)
+                                    },
+                                }}
+                                disablePropertyInfo={filterOpen || menuOpen}
+                            />
+                        </PopoverReferenceContext.Provider>
+                    </div>
+                ) : (
+                    <div>
+                        {/* If multiple breakdownsa are enabled and it's not a numeric or URL property, enable the delete button */}
                         <BreakdownTag
                             breakdown={breakdown}
                             breakdownType={breakdownType}
-                            // display remove button only if we can edit and don't have a separate menu
-                            closable={false}
+                            closable
                             onClose={removeBreakdown}
                             onClick={() => {
                                 setFilterOpen(!filterOpen)
                             }}
-                            popover={{
-                                overlay: <BreakdownTagMenu />,
-                                closeOnClickInside: false,
-                                onVisibilityChange: (visible) => {
-                                    setMenuOpen(visible)
-                                },
-                            }}
                             disablePropertyInfo={filterOpen || menuOpen}
                         />
-                    </PopoverReferenceContext.Provider>
-                </div>
+                    </div>
+                )}
             </TaxonomicBreakdownPopover>
         </BindLogic>
     )

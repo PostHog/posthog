@@ -5,7 +5,7 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -91,7 +91,8 @@ function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () 
         // project switch lands on something like insight/abc that won't exist.
         // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
         // and after switching is on a different page than before.
-        const route = removeProjectIdIfPresent(location.pathname)
+        let route = removeProjectIdIfPresent(location.pathname)
+        route = removeFlagIdIfPresent(route)
         return urls.project(team.id, route)
     }, [location.pathname])
 

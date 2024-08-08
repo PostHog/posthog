@@ -1,27 +1,15 @@
 import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { now } from 'lib/dayjs'
-import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
-import {
-    isDataTableNode,
-    isDataVisualizationNode,
-    isHogQLQuery,
-    isInsightVizNode,
-    isPersonsNode,
-    isTimeToSeeDataQuery,
-    isTimeToSeeDataSessionsNode,
-    isTimeToSeeDataSessionsQuery,
-} from './utils'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode, isPersonsNode } from './utils'
 
-const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 
 //get export context for a given query
@@ -34,36 +22,6 @@ export function queryExportContext<N extends DataNode>(
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
-    } else if (isTimeToSeeDataSessionsQuery(query)) {
-        return {
-            path: '/api/time_to_see_data/sessions',
-            method: 'POST',
-            body: {
-                team_id: query.teamId ?? getCurrentTeamId(),
-            },
-        }
-    } else if (isTimeToSeeDataQuery(query)) {
-        return {
-            path: '/api/time_to_see_data/session_events',
-            method: 'POST',
-            body: {
-                team_id: query.teamId ?? getCurrentTeamId(),
-                session_id: query.sessionId ?? currentSessionId(),
-                session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
-                session_end: query.sessionEnd ?? now().toISOString(),
-            },
-        }
-    } else if (isTimeToSeeDataSessionsNode(query)) {
-        return {
-            path: '/api/time_to_see_data/session_events',
-            method: 'POST',
-            body: {
-                team_id: query.source.teamId ?? getCurrentTeamId(),
-                session_id: query.source.sessionId ?? currentSessionId(),
-                session_start: query.source.sessionStart ?? now().subtract(1, 'day').toISOString(),
-                session_end: query.source.sessionEnd ?? now().toISOString(),
-            },
-        }
     }
     return { source: query }
 }
@@ -74,6 +32,7 @@ const SYNC_ONLY_QUERY_KINDS = [
     'EventsQuery',
     'HogQLAutocomplete',
     'DatabaseSchemaQuery',
+    'ErrorTrackingQuery',
 ] satisfies NodeKind[keyof NodeKind][]
 
 export async function pollForResults(
@@ -87,15 +46,20 @@ export async function pollForResults(
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await delay(currentDelay, methodOptions?.signal)
-        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+        currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
-        const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
+        try {
+            const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
 
-        if (statusResponse.complete || statusResponse.error) {
-            return statusResponse
-        }
-        if (callback) {
-            callback(statusResponse)
+            if (statusResponse.complete) {
+                return statusResponse
+            }
+            if (callback) {
+                callback(statusResponse)
+            }
+        } catch (e: any) {
+            e.detail = e.data?.query_status?.error_message
+            throw e
         }
     }
     throw new Error('Query timed out')
@@ -121,10 +85,10 @@ async function executeQuery<N extends DataNode>(
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
     if (!response.query_status?.query_async) {
-        // Executed query synchronously
+        // Executed query synchronously or from cache
         return response
     }
-    if (response.query_status?.complete || response.query_status?.error) {
+    if (response.query_status?.complete) {
         // Async query returned immediately
         return response.results
     }
@@ -141,10 +105,6 @@ export async function performQuery<N extends DataNode>(
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
-    if (isTimeToSeeDataSessionsNode(queryNode)) {
-        return performQuery(queryNode.source)
-    }
-
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
@@ -152,17 +112,6 @@ export async function performQuery<N extends DataNode>(
     try {
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
-        } else if (isTimeToSeeDataQuery(queryNode)) {
-            response = await api.query(
-                {
-                    ...queryNode,
-                    teamId: queryNode.teamId ?? getCurrentTeamId(),
-                    sessionId: queryNode.sessionId ?? currentSessionId(),
-                    sessionStart: queryNode.sessionStart ?? now().subtract(1, 'day').toISOString(),
-                    sessionEnd: queryNode.sessionEnd ?? now().toISOString(),
-                },
-                methodOptions
-            )
         } else {
             response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {

@@ -4,13 +4,13 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
-import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { BatchExportConfigurationForm } from './batch-exports/types'
+import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
 
@@ -99,7 +99,7 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                 team_id: {
                     name: 'team_id',
                     hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
-                    type: 'string',
+                    type: 'integer',
                     schema_valid: true,
                 },
                 set: {
@@ -155,7 +155,7 @@ const personsTable: DatabaseSchemaBatchExportTable = {
         team_id: {
             name: 'team_id',
             hogql_value: 'team_id',
-            type: 'string',
+            type: 'integer',
             schema_valid: true,
         },
         distinct_id: {
@@ -174,6 +174,18 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             name: 'properties',
             hogql_value: 'properties',
             type: 'json',
+            schema_valid: true,
+        },
+        person_version: {
+            name: 'person_version',
+            hogql_value: 'person_version',
+            type: 'integer',
+            schema_valid: true,
+        },
+        person_distinct_id_version: {
+            name: 'person_distinct_id_version',
+            hogql_value: 'person_distinct_id_version',
+            type: 'integer',
             schema_valid: true,
         },
     },
@@ -320,14 +332,14 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         ],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
         requiredFields: [
-            (s) => [s.service],
-            (service): string[] => {
+            (s) => [s.service, s.isNew],
+            (service, isNew): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (service === 'Postgres') {
                     return [
                         ...generalRequiredFields,
-                        'user',
-                        'password',
+                        ...(isNew ? ['user'] : []),
+                        ...(isNew ? ['password'] : []),
                         'host',
                         'port',
                         'database',
@@ -337,8 +349,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                 } else if (service === 'Redshift') {
                     return [
                         ...generalRequiredFields,
-                        'user',
-                        'password',
+                        ...(isNew ? ['user'] : []),
+                        ...(isNew ? ['password'] : []),
                         'host',
                         'port',
                         'database',
@@ -351,12 +363,12 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         'bucket_name',
                         'region',
                         'prefix',
-                        'aws_access_key_id',
-                        'aws_secret_access_key',
-                        'file_format',
+                        ...(isNew ? ['aws_access_key_id'] : []),
+                        ...(isNew ? ['aws_secret_access_key'] : []),
+                        ...(isNew ? ['file_format'] : []),
                     ]
                 } else if (service === 'BigQuery') {
-                    return [...generalRequiredFields, 'json_config_file', 'dataset_id', 'table_id']
+                    return [...generalRequiredFields, ...(isNew ? ['json_config_file'] : []), 'dataset_id', 'table_id']
                 } else if (service === 'HTTP') {
                     return [...generalRequiredFields, 'url', 'token']
                 } else if (service === 'Snowflake') {
@@ -365,8 +377,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         'account',
                         'database',
                         'warehouse',
-                        'user',
-                        'password',
+                        ...(isNew ? ['user'] : []),
+                        ...(isNew ? ['password'] : []),
                         'schema',
                         'table_name',
                     ]

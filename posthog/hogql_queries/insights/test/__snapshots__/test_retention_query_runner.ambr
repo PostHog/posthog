@@ -22,9 +22,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -68,9 +67,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -97,9 +95,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -126,9 +123,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -172,9 +168,8 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0
   '''
 # ---
@@ -201,9 +196,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -226,7 +220,7 @@
         FROM person_distinct_id2
         WHERE equals(person_distinct_id2.team_id, 2)
         GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
@@ -237,9 +231,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -271,7 +264,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 2)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
@@ -282,9 +275,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -307,7 +299,7 @@
         FROM person_distinct_id2
         WHERE equals(person_distinct_id2.team_id, 2)
         GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$some_event', 'sign up')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
@@ -318,9 +310,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -344,7 +335,7 @@
         FROM person_distinct_id2
         WHERE equals(person_distinct_id2.team_id, 2)
         GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
      LEFT JOIN
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -354,7 +345,7 @@
                                                           FROM person
                                                           WHERE equals(person.team_id, 2)
                                                           GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview', 'non_matching_event')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
@@ -365,9 +356,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -390,7 +380,7 @@
         FROM person_distinct_id2
         WHERE equals(person_distinct_id2.team_id, 2)
         GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
@@ -401,9 +391,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -426,7 +415,7 @@
         FROM person_distinct_id2
         WHERE equals(person_distinct_id2.team_id, 2)
         GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'US/Pacific'))), lessOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'US/Pacific'))), in(events.event, tuple('$pageview', '$pageview')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
@@ -437,9 +426,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -462,7 +450,7 @@
         FROM person_distinct_id2
         WHERE equals(person_distinct_id2.team_id, 2)
         GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
@@ -473,9 +461,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---
@@ -498,7 +485,7 @@
         FROM person_distinct_id2
         WHERE equals(person_distinct_id2.team_id, 2)
         GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
      WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-08 00:00:00.000000', 6, 'UTC'), 3)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
      GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
@@ -509,9 +496,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=23622320128
   '''
 # ---

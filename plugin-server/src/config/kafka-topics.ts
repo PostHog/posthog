@@ -2,7 +2,7 @@
 
 import { isTestEnv } from '../utils/env-utils'
 
-const suffix = isTestEnv() ? '_test' : ''
+export const suffix = isTestEnv() ? '_test' : ''
 export const prefix = process.env.KAFKA_PREFIX || ''
 
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
@@ -20,12 +20,12 @@ export const KAFKA_GROUPS = `${prefix}clickhouse_groups${suffix}`
 export const KAFKA_BUFFER = `${prefix}conversion_events_buffer${suffix}`
 export const KAFKA_INGESTION_WARNINGS = `${prefix}clickhouse_ingestion_warnings${suffix}`
 export const KAFKA_APP_METRICS = `${prefix}clickhouse_app_metrics${suffix}`
+export const KAFKA_APP_METRICS_2 = `${prefix}clickhouse_app_metrics2${suffix}`
 export const KAFKA_JOBS = `${prefix}jobs${suffix}`
 export const KAFKA_JOBS_DLQ = `${prefix}jobs_dlq${suffix}`
 export const KAFKA_SCHEDULED_TASKS = `${prefix}scheduled_tasks${suffix}`
 export const KAFKA_SCHEDULED_TASKS_DLQ = `${prefix}scheduled_tasks_dlq${suffix}`
 export const KAFKA_METRICS_TIME_TO_SEE_DATA = `${prefix}clickhouse_metrics_time_to_see_data${suffix}`
-export const KAFKA_PERSON_OVERRIDE = `${prefix}clickhouse_person_override${suffix}`
 
 // read session recording snapshot items
 export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS = `${prefix}session_recording_snapshot_item_events${suffix}`
@@ -44,3 +44,4 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
 // CDP topics
 export const KAFKA_CDP_FUNCTION_CALLBACKS = `${prefix}cdp_function_callbacks${suffix}`
+export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`

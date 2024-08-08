@@ -21,10 +21,8 @@ import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
 
-/**
- * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
- * Preferably create a dedicated file in utils/..
- */
+// WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+// Preferably create a dedicated file in utils/..
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
@@ -295,6 +293,10 @@ export function isObject(candidate: unknown): candidate is Record<string, unknow
 
 export function isEmptyObject(candidate: unknown): boolean {
     return isObject(candidate) && Object.keys(candidate).length === 0
+}
+
+export function isNonEmptyObject(candidate: unknown): candidate is Record<string, unknown> {
+    return isObject(candidate) && !isEmptyObject(candidate)
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
@@ -1758,4 +1760,15 @@ export function hasFormErrors(object: any): boolean {
         return Object.values(object).some(hasFormErrors)
     }
     return !!object
+}
+
+export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
+    func: F,
+    waitFor: number
+): (...args: Parameters<F>) => void {
+    let timeout: ReturnType<typeof setTimeout>
+    return (...args: Parameters<F>): void => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => func(...args), waitFor)
+    }
 }

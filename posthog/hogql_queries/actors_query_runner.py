@@ -1,14 +1,22 @@
 import itertools
 from typing import Optional
 from collections.abc import Sequence, Iterator
+
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+)
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -83,12 +91,21 @@ class ActorsQueryRunner(QueryRunner):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
+        # Funnel queries require the experimental analyzer to run correctly
+        # Can remove once clickhouse moves to version 24.3 or above
+        settings = None
+        if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
+            self.source_query_runner.source_runner, FunnelsQueryRunner
+        ):
+            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=settings,
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -230,21 +247,66 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            if self.query.source:
-                join_expr = self.source_table_join()
-            else:
+            if not self.query.source:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+            else:
+                assert self.source_query_runner is not None  # For type checking
+                source_query = self.source_query_runner.to_actors_query()
 
-            stmt = ast.SelectQuery(
-                select=columns,
-                select_from=join_expr,
-                where=where,
-                having=having,
-                group_by=group_by if has_any_aggregation else None,
-                order_by=order_by,
-            )
+                source_id_chain = self.source_id_column(source_query)
+                source_alias = "source"
 
-        return stmt
+                origin = self.strategy.origin
+
+                join_on: ast.Expr = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[origin, self.strategy.origin_id]),
+                    right=ast.Field(chain=[source_alias, *source_id_chain]),
+                )
+
+                # For some of our users, the persons table is large. If we're looking for person,
+                # help make the join smarter by limiting the people it has to look up
+                # The persons table inlines `in` conditions on the join (see `persons.py`)
+                # Funnels queries are very big. Don't do this for funnels as it blows up the query size.
+                if isinstance(self.strategy, PersonStrategy) and not (
+                    isinstance(self.source_query_runner, InsightActorsQueryRunner)
+                    and isinstance(self.source_query_runner.source_runner, FunnelsQueryRunner)
+                ):
+                    join_on = ast.And(
+                        exprs=[
+                            join_on,
+                            ast.CompareOperation(
+                                left=ast.Field(chain=[origin, "id"]),
+                                right=ast.SelectQuery(
+                                    select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
+                                    select_from=ast.JoinExpr(table=source_query, alias=source_alias),
+                                ),
+                                op=ast.CompareOperationOp.In,
+                            ),
+                        ]
+                    )
+
+                join_expr = ast.JoinExpr(
+                    table=source_query,
+                    alias=source_alias,
+                    next_join=ast.JoinExpr(
+                        table=ast.Field(chain=[origin]),
+                        join_type="INNER JOIN",
+                        constraint=ast.JoinConstraint(
+                            expr=join_on,
+                            constraint_type="ON",
+                        ),
+                    ),
+                )
+
+        return ast.SelectQuery(
+            select=columns,
+            select_from=join_expr,
+            where=where,
+            having=having,
+            group_by=group_by if has_any_aggregation else None,
+            order_by=order_by,
+        )
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()

@@ -10,9 +10,9 @@ import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
@@ -40,7 +40,7 @@ export function ProjectDisplayName(): JSX.Element {
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
             >
-                Rename Project
+                Rename project
             </LemonButton>
         </div>
     )
@@ -91,8 +91,9 @@ export function Bookmarklet(): JSX.Element {
 export function ProjectVariables(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { user } = useValues(userLogic)
+
     const region = preflight?.region
 
     const openDialog = (): void => {
@@ -115,7 +116,7 @@ export function ProjectVariables(): JSX.Element {
         <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1">
                 <h3 id="project-api-key" className="min-w-[25rem]">
-                    Project API Key
+                    Project API key
                 </h3>
                 <p>
                     You can use this write-only key in any one of{' '}
@@ -149,20 +150,20 @@ export function ProjectVariables(): JSX.Element {
             {region ? (
                 <div className="flex-1">
                     <h3 id="project-region" className="min-w-[25rem]">
-                        Project Region
+                        Project region
                     </h3>
                     <p>This is the region where your PostHog data is hosted.</p>
                     <CodeSnippet thing="project region">{`${region} Cloud`}</CodeSnippet>
                 </div>
             ) : null}
-            {region && user ? (
+            {region && currentOrganization && currentTeam ? (
                 <div className="flex-1 max-w-full">
                     <h3 id="debug-info" className="min-w-[25rem]">
                         Debug information
                     </h3>
-                    <p>Include this snippet when opening a Feature request or Bug report on GitHub.</p>
+                    <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
                     <CodeSnippet compact thing="debug info">
-                        {getPublicSupportSnippet(region, user)}
+                        {getPublicSupportSnippet(region, currentOrganization, currentTeam, false)}
                     </CodeSnippet>
                 </div>
             ) : null}

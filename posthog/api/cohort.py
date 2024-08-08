@@ -608,7 +608,7 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: dict[
         cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating"])
     except Exception as err:
         if settings.DEBUG:
-            raise err
+            raise
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.save(update_fields=["errors_calculating", "is_calculating"])
@@ -733,7 +733,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
     except Exception as err:
         if settings.DEBUG or settings.TEST:
-            raise err
+            raise
         capture_exception(err)
 
 

@@ -5,7 +5,7 @@ export function LemonTableLink({
     title,
     description,
     ...props
-}: Pick<LinkProps, 'to' | 'onClick' | 'target'> & {
+}: Pick<LinkProps, 'to' | 'onClick' | 'target' | 'className'> & {
     title: JSX.Element | string
     description?: JSX.Element | string
 }): JSX.Element {

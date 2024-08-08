@@ -16,9 +16,9 @@ import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
@@ -72,7 +72,7 @@ function AccountInfo(): JSX.Element {
                 <ProfilePicture user={user} size="xl" />
                 <div className="AccountInfo__identification AccountPopover__main-info font-sans font-normal">
                     <div className="font-semibold mb-1">{user?.first_name}</div>
-                    <div className="supplement" title={user?.email}>
+                    <div className="overflow-hidden text-muted-alt truncate text-[0.8125rem]" title={user?.email}>
                         {user?.email}
                     </div>
                 </div>
@@ -88,7 +88,13 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
         <Tooltip title="Organization settings" placement="left">
             <LemonButton
                 data-attr="top-menu-item-org-settings"
-                icon={<Lettermark name={organization.name} />}
+                icon={
+                    <UploadedLogo
+                        name={organization.name}
+                        entityId={organization.id}
+                        mediaId={organization.logo_media_id}
+                    />
+                }
                 sideIcon={<IconGear />}
                 fullWidth
                 to={urls.settings('organization')}

@@ -1,5 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 import { isEmptyObject } from 'lib/utils'
+import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import {
     breakdownFilterToQuery,
@@ -31,7 +33,7 @@ import {
     TrendsFilter,
     TrendsFilterLegacy,
 } from '~/queries/schema'
-import { FunnelExclusionLegacy, NotebookNodeType, NotebookType } from '~/types'
+import { FunnelExclusionLegacy, NotebookNodeType, NotebookType, RecordingFilters } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
 // It will bust the cache on the localContent in the notebookLogic
@@ -49,7 +51,39 @@ export function migrate(notebook: NotebookType): NotebookType {
     content = convertInsightToQueryNode(content)
     content = convertInsightQueryStringsToObjects(content)
     content = convertInsightQueriesToNewSchema(content)
+    content = convertPlaylistFiltersToUniversalFilters(content)
     return { ...notebook, content: { type: 'doc', content: content } }
+}
+
+function convertPlaylistFiltersToUniversalFilters(content: JSONContent[]): JSONContent[] {
+    return content.map((node) => {
+        if (node.type != NotebookNodeType.RecordingPlaylist) {
+            return node
+        }
+
+        // Legacy attrs on Notebook playlist nodes
+        const simpleFilters = node.attrs?.simpleFilters as RecordingFilters
+        const filters = node.attrs?.filters as RecordingFilters
+
+        const { universalFilters } = node.attrs as NotebookNodePlaylistAttributes
+
+        if (universalFilters) {
+            return node
+        }
+
+        const jsonFilters = typeof filters === 'string' ? JSON.parse(filters) : filters
+        const jsonSimpleFilters = typeof simpleFilters === 'string' ? JSON.parse(simpleFilters) : simpleFilters
+
+        const jsonUniversalFilters = convertLegacyFiltersToUniversalFilters(jsonSimpleFilters, jsonFilters)
+
+        return {
+            ...node,
+            attrs: {
+                ...node.attrs,
+                universalFilters: JSON.stringify(jsonUniversalFilters),
+            },
+        }
+    })
 }
 
 function convertInsightToQueryNode(content: JSONContent[]): JSONContent[] {

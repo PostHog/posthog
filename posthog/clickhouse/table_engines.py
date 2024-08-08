@@ -1,11 +1,11 @@
 import uuid
-from enum import Enum
+from enum import StrEnum
 from typing import Optional
 
 from django.conf import settings
 
 
-class ReplicationScheme(str, Enum):
+class ReplicationScheme(StrEnum):
     NOT_SHARDED = "NOT_SHARDED"
     SHARDED = "SHARDED"
     REPLICATED = "REPLICATED"
@@ -49,7 +49,7 @@ class MergeTreeEngine:
             shard_key, replica_key = "noshard", "{replica}-{shard}"
 
         # ZK is not automatically cleaned up after DROP TABLE. Avoid zk path conflicts in tests by generating unique paths.
-        if settings.TEST and self.zookeeper_path_key is None or self.force_unique_zk_path:
+        if (settings.TEST or settings.E2E_TESTING) and self.zookeeper_path_key is None or self.force_unique_zk_path:
             self.set_zookeeper_path_key(str(uuid.uuid4()))
 
         if self.zookeeper_path_key is not None:

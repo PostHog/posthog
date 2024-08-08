@@ -116,7 +116,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         clickmapsEnabled: [
-            true,
+            false,
             { persist: true },
             {
                 toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),

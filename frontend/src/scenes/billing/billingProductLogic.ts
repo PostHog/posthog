@@ -1,12 +1,11 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
+import { BillingPlanType, BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -52,9 +51,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
         toggleIsPlanComparisonModalOpen: (highlightedFeatureKey?: string) => ({ highlightedFeatureKey }),
-        setSurveyResponse: (surveyResponse: string, key: string) => ({ surveyResponse, key }),
+        setSurveyResponse: (key: string, value: string | string[]) => ({ key, value }),
+        toggleSurveyReason: (reason: string) => ({ reason }),
         reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
-        reportSurveySent: (surveyID: string, surveyResponse: Record<string, string>) => ({
+        reportSurveySent: (surveyID: string, surveyResponse: Record<string, string | string[]>) => ({
             surveyID,
             surveyResponse,
         }),
@@ -63,7 +63,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setBillingProductLoading: (productKey: string | null) => ({ productKey }),
         initiateProductUpgrade: (
             product: BillingProductV2Type | BillingProductV2AddonType,
-            plan: BillingV2PlanType,
+            plan: BillingPlanType,
             redirectPath?: string
         ) => ({
             plan,
@@ -111,10 +111,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         surveyResponse: [
-            {},
+            { $survey_response_2: [], $survey_response: '' } as {
+                $survey_response_2: string[]
+                $survey_response: string
+            },
             {
-                setSurveyResponse: (state, { surveyResponse, key }) => {
-                    return { ...state, [key]: surveyResponse }
+                setSurveyResponse: (state, { key, value }) => {
+                    return { ...state, [key]: value }
+                },
+                toggleSurveyReason: (state, { reason }) => {
+                    const reasons = state.$survey_response_2.includes(reason)
+                        ? state.$survey_response_2.filter((r) => r !== reason)
+                        : [...state.$survey_response_2, reason]
+                    return { ...state, $survey_response_2: reasons }
                 },
             },
         ],
@@ -147,16 +156,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
-                return (
-                    billing?.custom_limits_usd?.[product.type] ||
-                    (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : '')
-                )
+                const customLimit = billing?.custom_limits_usd?.[product.type]
+                if (customLimit === 0 || customLimit) {
+                    return customLimit
+                }
+                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
             },
         ],
         currentAndUpgradePlans: [
             (_s, p) => [p.product],
             (product) => {
-                const currentPlanIndex = product.plans.findIndex((plan: BillingV2PlanType) => plan.current_plan)
+                const currentPlanIndex = product.plans.findIndex((plan: BillingPlanType) => plan.current_plan)
                 const currentPlan = currentPlanIndex >= 0 ? product.plans?.[currentPlanIndex] : null
                 const upgradePlan =
                     // If in debug mode and with no license there will be
@@ -188,9 +198,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 const addonTiers = product.addons
                     ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
                     ?.map((addon: BillingProductV2AddonType) => addon.tiers)
-                const productAndAddonTiers: BillingV2TierType[][] = [product.tiers, ...addonTiers].filter(
+                const productAndAddonTiers: BillingTierType[][] = [product.tiers, ...addonTiers].filter(
                     Boolean
-                ) as BillingV2TierType[][]
+                ) as BillingTierType[][]
                 return product.tiers
                     ? isEditingBillingLimit
                         ? convertAmountToUsage(
@@ -198,7 +208,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               productAndAddonTiers,
                               billing?.discount_percent
                           )
-                        : convertAmountToUsage(customLimitUsd || '', productAndAddonTiers, billing?.discount_percent)
+                        : convertAmountToUsage(
+                              typeof customLimitUsd === 'number' ? `${customLimitUsd}` : customLimitUsd || '',
+                              productAndAddonTiers,
+                              billing?.discount_percent
+                          )
                     : 0
             },
         ],
@@ -252,8 +266,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLoaded: () => {
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
-                values.customLimitUsd
-                    ? parseInt(values.customLimitUsd)
+                values.customLimitUsd === 0 || values.customLimitUsd
+                    ? parseInt(
+                          typeof values.customLimitUsd === 'number'
+                              ? `${values.customLimitUsd}`
+                              : values.customLimitUsd || ''
+                      )
                     : props.product.tiers && parseInt(props.product.projected_amount_usd || '0')
                     ? parseInt(props.product.projected_amount_usd || '0') * 1.5
                     : DEFAULT_BILLING_LIMIT
@@ -266,6 +284,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.setSurveyID(surveyID)
         },
         reportSurveySent: ({ surveyID, surveyResponse }) => {
+            // @note(zach): this is submitting to https://us.posthog.com/project/2/surveys/018b6e13-590c-0000-decb-c727a2b3f462?edit=true
+            // $survey_response: open text response
+            // $survey_response_1: this is the product type
+            // $survey_response_2: list of reasons
+            // The order is due to the form being built before reasons we're supported. Please do not change the order.
             posthog.capture('survey sent', {
                 $survey_id: surveyID,
                 ...surveyResponse,
@@ -278,62 +301,28 @@ export const billingProductLogic = kea<billingProductLogicType>([
             })
             actions.setSurveyID('')
         },
-        deactivateProductSuccess: () => {
-            if (!values.unsubscribeError) {
-                const textAreaNotEmpty = values.surveyResponse['$survey_response']?.length > 0
-                textAreaNotEmpty
-                    ? actions.reportSurveySent(values.surveyID, values.surveyResponse)
-                    : actions.reportSurveyDismissed(values.surveyID)
+        deactivateProductSuccess: async (_, breakpoint) => {
+            if (!values.unsubscribeError && values.surveyID) {
+                actions.reportSurveySent(values.surveyID, values.surveyResponse)
             }
+            await breakpoint(200)
+            location.reload()
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
-                const { currentPlan } = values.currentAndUpgradePlans
-
-                if (currentPlan?.initial_billing_limit) {
-                    actions.setProductSpecificAlert({
-                        status: 'warning',
-                        title: 'Billing Limit Automatically Applied',
-                        pathName: '/organization/billing',
-                        dismissKey: `auto-apply-billing-limit-${props.product.type}`,
-                        message: `To protect your costs and ours, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${props.product.name}.`,
-                        action: {
-                            onClick: () => {
-                                actions.setIsEditingBillingLimit(true)
-                                setTimeout(() => {
-                                    if (props.billingLimitInputRef?.current) {
-                                        props.billingLimitInputRef?.current.focus()
-                                        props.billingLimitInputRef?.current.scrollIntoView({
-                                            behavior: 'smooth',
-                                            block: 'nearest',
-                                        })
-                                    }
-                                }, 0)
-                            },
-                            children: 'Update billing limit',
-                        },
-                    })
-                } else {
-                    setTimeout(() => {
-                        if (props.productRef?.current) {
-                            props.productRef?.current.scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'center',
-                            })
-                        }
-                    }, 0)
-                }
+                setTimeout(() => {
+                    if (props.productRef?.current) {
+                        props.productRef?.current.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center',
+                        })
+                    }
+                }, 0)
             }
         },
         initiateProductUpgrade: ({ plan, product, redirectPath }) => {
             actions.setBillingProductLoading(product.type)
-            let products = `${product.type}:${plan?.plan_key}`
-            if (
-                values.featureFlags[FEATURE_FLAGS.SUBSCRIBE_TO_ALL_PRODUCTS] === 'test' &&
-                values.billing?.subscription_level == 'free'
-            ) {
-                products += ',all_products:'
-            }
+            const products = `${product.type}:${plan?.plan_key}`
             actions.handleProductUpgrade(products, redirectPath)
         },
         handleProductUpgrade: ({ products, redirectPath }) => {
@@ -355,9 +344,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               ?.map((addon: BillingProductV2AddonType) => addon.tiers)
                         : []
 
-                const productAndAddonTiers: BillingV2TierType[][] = [props.product.tiers, ...addonTiers].filter(
+                const productAndAddonTiers: BillingTierType[][] = [props.product.tiers, ...addonTiers].filter(
                     Boolean
-                ) as BillingV2TierType[][]
+                ) as BillingTierType[][]
 
                 const newAmountAsUsage = props.product.tiers
                     ? convertAmountToUsage(`${input}`, productAndAddonTiers, values.billing?.discount_percent)

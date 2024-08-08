@@ -100,6 +100,9 @@ class Cohort(models.Model):
     # deprecated in favor of filters
     groups: models.JSONField = models.JSONField(default=list)
 
+    def __str__(self):
+        return self.name
+
     @property
     def properties(self) -> PropertyGroup:
         if self.filters:
@@ -297,7 +300,7 @@ class Cohort(models.Model):
             self.save()
         except Exception as err:
             if settings.DEBUG:
-                raise err
+                raise
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
@@ -339,14 +342,11 @@ class Cohort(models.Model):
             self.save()
         except Exception as err:
             if settings.DEBUG:
-                raise err
+                raise
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
             self.save()
             capture_exception(err)
-
-    def __str__(self):
-        return self.name
 
     def _clickhouse_persons_query(self, batch_size=10000, offset=0):
         from posthog.models.cohort.util import get_person_ids_by_cohort_id

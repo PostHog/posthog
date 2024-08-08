@@ -80,7 +80,11 @@ def stats(request):
 
 
 def robots_txt(request):
-    ROBOTS_TXT_CONTENT = "User-agent: *\nDisallow: /shared_dashboard/" if is_cloud() else "User-agent: *\nDisallow: /"
+    ROBOTS_TXT_CONTENT = (
+        "User-agent: *\nDisallow: /shared_dashboard/\nDisallow: /shared/"
+        if is_cloud()
+        else "User-agent: *\nDisallow: /"
+    )
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
@@ -129,6 +133,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
+
+    if settings.DEV_DISABLE_NAVIGATION_HOOKS:
+        response["dev_disable_navigation_hooks"] = True
 
     if request.user.is_authenticated:
         response = {

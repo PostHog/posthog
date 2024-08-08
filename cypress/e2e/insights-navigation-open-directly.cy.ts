@@ -1,4 +1,5 @@
 import { urls } from 'scenes/urls'
+
 import { insight } from '../productAnalytics'
 
 const hogQLQuery = `select event,

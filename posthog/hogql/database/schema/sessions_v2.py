@@ -18,6 +18,7 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
+from posthog.hogql.database.schema.sessions_v1 import null_if_empty
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
@@ -31,8 +32,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id"),
-    "session_id": StringDatabaseField(name="session_id"),
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
@@ -50,9 +49,10 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_referring_domain": DatabaseField(name="initial_referring_domain"),
     "initial_gclid": DatabaseField(name="initial_gclid"),
     "initial_gad_source": DatabaseField(name="initial_gad_source"),
-    "pageview_count": IntegerDatabaseField(name="pageview_count"),
-    "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
-    "screen_count": IntegerDatabaseField(name="screen_count"),
+    # do not expose the count fields, as we can't rely on them being accurate due to double-counting events
+    "pageview_uniq": DatabaseField(name="pageview_uniq"),
+    "autocapture_uniq": DatabaseField(name="autocapture_uniq"),
+    "screen_uniq": DatabaseField(name="screen_uniq"),
     "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
 }
 
@@ -79,6 +79,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
+    # we expose "count" fields here, though they are actually the aggregates of the uniq columns in the raw tables
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
     "$screen_count": IntegerDatabaseField(name="$screen_count"),
@@ -103,10 +104,9 @@ class RawSessionsTableV2(Table):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
-            # these are discouraged from being used in queries, use session_id_v7 instead
-            "id",
-            "session_id",
+            "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
             # our clickhouse driver can't return aggregate states
+            "distinct_id",
             "entry_url",
             "end_url",
             "initial_utm_source",
@@ -117,6 +117,10 @@ class RawSessionsTableV2(Table):
             "initial_referring_domain",
             "initial_gclid",
             "initial_gad_source",
+            "pageview_uniq",
+            "autocapture_uniq",
+            "screen_uniq",
+            "last_external_click_url",
         ]
 
 
@@ -185,20 +189,21 @@ def select_from_sessions_table_v2(
                 )
             ],
         ),
-        "$entry_current_url": arg_min_merge_field("entry_url"),
-        "$end_current_url": arg_max_merge_field("end_url"),
-        "$entry_utm_source": arg_min_merge_field("initial_utm_source"),
-        "$entry_utm_campaign": arg_min_merge_field("initial_utm_campaign"),
-        "$entry_utm_medium": arg_min_merge_field("initial_utm_medium"),
-        "$entry_utm_term": arg_min_merge_field("initial_utm_term"),
-        "$entry_utm_content": arg_min_merge_field("initial_utm_content"),
-        "$entry_referring_domain": arg_min_merge_field("initial_referring_domain"),
-        "$entry_gclid": arg_min_merge_field("initial_gclid"),
-        "$entry_gad_source": arg_min_merge_field("initial_gad_source"),
-        "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
-        "$screen_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "screen_count"])]),
-        "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-        "$last_external_click_url": arg_max_merge_field("last_external_click_url"),
+        "$entry_current_url": null_if_empty(arg_min_merge_field("entry_url")),
+        "$end_current_url": null_if_empty(arg_max_merge_field("end_url")),
+        "$entry_utm_source": null_if_empty(arg_min_merge_field("initial_utm_source")),
+        "$entry_utm_campaign": null_if_empty(arg_min_merge_field("initial_utm_campaign")),
+        "$entry_utm_medium": null_if_empty(arg_min_merge_field("initial_utm_medium")),
+        "$entry_utm_term": null_if_empty(arg_min_merge_field("initial_utm_term")),
+        "$entry_utm_content": null_if_empty(arg_min_merge_field("initial_utm_content")),
+        "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
+        "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
+        "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
+        # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
+        "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
+        "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
+        "$autocapture_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
+        "$last_external_click_url": null_if_empty(arg_max_merge_field("last_external_click_url")),
     }
     # Alias
     aggregate_fields["id"] = aggregate_fields["session_id"]
@@ -306,8 +311,9 @@ class SessionsTableV2(LazyTable):
 
     def avoid_asterisk_fields(self) -> list[str]:
         return [
-            # alias of $session_duration, deprecated but included for backwards compatibility
-            "duration",
+            "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
+            "id",  # prefer to use session_id
+            "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
         ]
 
 

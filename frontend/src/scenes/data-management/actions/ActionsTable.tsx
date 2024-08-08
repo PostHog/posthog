@@ -19,7 +19,15 @@ import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, AvailableFeature, ChartDisplayType, InsightType, ProductKey } from '~/types'
+import {
+    ActionType,
+    AvailableFeature,
+    ChartDisplayType,
+    FilterLogicalOperator,
+    InsightType,
+    ProductKey,
+    ReplayTabs,
+} from '~/types'
 
 import { NewActionButton } from '../../actions/NewActionButton'
 import { teamLogic } from '../../teamLogic'
@@ -30,8 +38,7 @@ export function ActionsTable(): JSX.Element {
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
 
-    const { filterType, searchTerm, actionsFiltered, shouldShowProductIntroduction, shouldShowEmptyState } =
-        useValues(actionsLogic)
+    const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -148,24 +155,28 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
-                                <LemonButton to={urls.copyAction(action)} fullWidth>
-                                    Copy
+                                <LemonButton to={urls.duplicateAction(action)} fullWidth>
+                                    Duplicate
                                 </LemonButton>
                                 <LemonButton
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                actions: [
-                                                    {
-                                                        id: action.id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.replay(ReplayTabs.Recent, {
+                                        filter_group: {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            id: action.id,
+                                                            type: 'actions',
+                                                            order: 0,
+                                                            name: action.name,
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"
@@ -218,21 +229,17 @@ export function ActionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                <ProductIntroduction
-                    productName="Actions"
-                    productKey={ProductKey.ACTIONS}
-                    thingName="action"
-                    isEmpty={shouldShowEmptyState}
-                    description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
-                    docsURL="https://posthog.com/docs/data/actions"
-                    actionElementOverride={
-                        <NewActionButton
-                            onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)}
-                        />
-                    }
-                />
-            )}
+            <ProductIntroduction
+                productName="Actions"
+                productKey={ProductKey.ACTIONS}
+                thingName="action"
+                isEmpty={shouldShowEmptyState}
+                description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
+                docsURL="https://posthog.com/docs/data/actions"
+                actionElementOverride={
+                    <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)} />
+                }
+            />
             {(shouldShowEmptyState && filterType === 'me') || !shouldShowEmptyState ? (
                 <div className="flex items-center justify-between gap-2 mb-4">
                     <LemonInput

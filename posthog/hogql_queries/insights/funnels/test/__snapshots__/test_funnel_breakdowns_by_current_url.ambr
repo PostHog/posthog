@@ -76,24 +76,24 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('terminate funnel', 'watched movie'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname
@@ -173,23 +173,23 @@
                           FROM person_distinct_id2
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('terminate funnel', 'watched movie'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
                  prop
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
-                     max_bytes_before_external_group_by=23622320128
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1
   '''
 # ---

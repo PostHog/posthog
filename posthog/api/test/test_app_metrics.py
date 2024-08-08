@@ -100,7 +100,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
         temporal = sync_connect()
 
-        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.UTC)
         with start_test_worker(temporal):
             response = create_batch_export_ok(
                 self.client,
@@ -191,7 +191,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         }
 
         temporal = sync_connect()
-        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2021, 12, 5, 13, 23, 0, tzinfo=dt.UTC)
 
         with start_test_worker(temporal):
             response = create_batch_export_ok(

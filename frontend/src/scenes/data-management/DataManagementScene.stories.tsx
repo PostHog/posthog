@@ -248,13 +248,6 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function Database(): JSX.Element {
-    setFeatureFlags([FEATURE_FLAGS.DATA_WAREHOUSE])
-    useEffect(() => {
-        router.actions.push(urls.database())
-    }, [])
-    return <App />
-}
 
 export function IngestionWarnings(): JSX.Element {
     setFeatureFlags([FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED])

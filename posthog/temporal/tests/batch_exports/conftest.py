@@ -1,9 +1,17 @@
 import asyncio
+import datetime as dt
+import uuid
 
 import psycopg
 import pytest
 import pytest_asyncio
 from psycopg import sql
+
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
+)
 
 
 @pytest.fixture
@@ -171,3 +179,102 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
             raise exc
 
     return
+
+
+@pytest.fixture
+def data_interval_start(data_interval_end, interval):
+    """Set a test interval start based on interval end and interval."""
+    if interval == "hour":
+        interval_time_delta = dt.timedelta(hours=1)
+    elif interval == "day":
+        interval_time_delta = dt.timedelta(days=1)
+    elif interval == "week":
+        interval_time_delta = dt.timedelta(weeks=1)
+    elif interval.startswith("every"):
+        _, value, unit = interval.split(" ")
+        kwargs = {unit: int(value)}
+        interval_time_delta = dt.timedelta(**kwargs)
+    else:
+        raise ValueError(f"Invalid interval: '{interval}'")
+
+    return data_interval_end - interval_time_delta
+
+
+@pytest.fixture
+def data_interval_end(interval):
+    """Set a test data interval end."""
+    return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
+
+
+@pytest_asyncio.fixture
+async def generate_test_data(ateam, clickhouse_client, exclude_events, data_interval_start, data_interval_end):
+    """Generate test data in ClickHouse."""
+    events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=1000,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    more_events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=5,
+        count_outside_range=0,
+        count_other_team=0,
+        properties=None,
+        person_properties=None,
+        event_name="test-no-prop-{i}",
+    )
+    events_to_export_created.extend(more_events_to_export_created)
+
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
+
+    persons, _ = await generate_test_persons_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_other_team=1,
+        properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    persons_exported = []
+    for person in persons:
+        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            person_id=uuid.UUID(person["id"]),
+            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
+            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
+        )
+        person_exported = {
+            "team_id": person["team_id"],
+            "person_id": person["id"],
+            "distinct_id": person_distinct_id["distinct_id"],
+            "version": person_distinct_id["version"],
+            "_timestamp": dt.datetime.fromisoformat(person["_timestamp"]),
+        }
+        persons_exported.append(person_exported)
+
+    return (events_to_export_created, persons_exported)

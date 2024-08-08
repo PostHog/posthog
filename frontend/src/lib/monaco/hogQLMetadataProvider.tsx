@@ -3,11 +3,10 @@ import { languages } from 'monaco-editor'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
 
-export const hogQLMetadataProvider: (logic: BuiltLogic<codeEditorLogicType>) => languages.CodeActionProvider = (
-    logic
-) => ({
+export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => ({
     provideCodeActions: (model, _range, context) => {
-        if (logic.isMounted()) {
+        const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
+        if (logic?.isMounted()) {
             // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
             const markersFromMonaco = context.markers
             // We have a list of _all_ markers returned from the HogQL metadata query

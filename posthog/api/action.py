@@ -3,13 +3,10 @@ from typing import Any, cast
 from rest_framework import serializers, viewsets
 from django.db.models import Count
 from rest_framework import request
-from rest_framework.decorators import action
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.api.plugin import PluginConfigSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import (
@@ -19,7 +16,6 @@ from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
-from posthog.models.plugin import PluginConfig
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -149,15 +145,3 @@ class ActionViewSet(
             actions, many=True, context={"request": request}
         ).data  # type: ignore
         return Response({"results": actions_list})
-
-    @action(methods=["GET"], detail=True)
-    def plugin_configs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        queryset = (
-            PluginConfig.objects.all()
-            .filter(team=self.team_id, enabled=True)
-            .filter(filters__contains={"actions": [{"id": str(self.get_object().id)}]})
-        )
-
-        page = self.paginate_queryset(queryset)
-        serializer = PluginConfigSerializer(page, many=True, context=self.get_serializer_context())
-        return self.get_paginated_response(serializer.data)

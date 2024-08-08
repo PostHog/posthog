@@ -64,7 +64,19 @@ class TestBytecode(BaseTest):
         )
         self.assertEqual(
             to_bytecode("ifNull(properties.email, false)"),
-            [_H, op.FALSE, op.STRING, "email", op.STRING, "properties", op.GET_GLOBAL, 2, op.CALL, "ifNull", 2],
+            [
+                _H,
+                op.STRING,
+                "email",
+                op.STRING,
+                "properties",
+                op.GET_GLOBAL,
+                2,
+                op.JUMP_IF_STACK_NOT_NULL,
+                2,
+                op.POP,
+                op.FALSE,
+            ],
         )
         self.assertEqual(to_bytecode("1 = 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
         self.assertEqual(to_bytecode("1 == 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])

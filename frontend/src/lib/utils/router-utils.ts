@@ -46,6 +46,13 @@ export function removeProjectIdIfPresent(path: string): string {
     return path
 }
 
+export function removeFlagIdIfPresent(path: string): string {
+    if (path.match(/^\/feature_flags\/\d+/)) {
+        return path.replace(/(feature_flags).*$/, '$1/')
+    }
+    return path
+}
+
 export function addProjectIdIfMissing(path: string, teamId?: TeamType['id']): string {
     return isPathWithoutProjectId(removeProjectIdIfPresent(path))
         ? removeProjectIdIfPresent(path)

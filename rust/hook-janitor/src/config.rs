@@ -1,8 +1,10 @@
 use envconfig::Envconfig;
 
+use hook_common::config::KafkaConfig;
+
 #[derive(Envconfig)]
 pub struct Config {
-    #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
+    #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
     #[envconfig(from = "BIND_PORT", default = "3302")]
@@ -20,34 +22,17 @@ pub struct Config {
     #[envconfig(default = "webhooks")]
     pub mode: String,
 
-    #[envconfig(nested = true)]
-    pub kafka: KafkaConfig,
-}
-
-#[derive(Envconfig, Clone)]
-pub struct KafkaConfig {
-    #[envconfig(default = "20")]
-    pub kafka_producer_linger_ms: u32, // Maximum time between producer batches during low traffic
-
-    #[envconfig(default = "400")]
-    pub kafka_producer_queue_mib: u32, // Size of the in-memory producer queue in mebibytes
-
-    #[envconfig(default = "20000")]
-    pub kafka_message_timeout_ms: u32, // Time before we stop retrying producing a message: 20 seconds
-
-    #[envconfig(default = "none")]
-    pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
-
     #[envconfig(default = "false")]
-    pub kafka_tls: bool,
+    pub hog_mode: bool,
 
     #[envconfig(default = "clickhouse_app_metrics")]
     pub app_metrics_topic: String,
 
-    #[envconfig(default = "plugin_log_entries")]
-    pub plugin_log_entries_topic: String,
+    #[envconfig(default = "clickhouse_app_metrics2")]
+    pub app_metrics2_topic: String,
 
-    pub kafka_hosts: String,
+    #[envconfig(nested = true)]
+    pub kafka: KafkaConfig,
 }
 
 impl Config {

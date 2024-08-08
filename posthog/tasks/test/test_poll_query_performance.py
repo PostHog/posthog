@@ -27,7 +27,7 @@ class TestPollQueryPerformance(SimpleTestCase):
         time_elapsed = 4.301284
         millisecond_cpu_time = 3321332424
         mock_sync_execute.return_value = [
-            ("None_None_tHrh4Ox9", 0, 0, 0, 0.002112, 0),
+            ("None_None_tHrh4Ox9", 0, 0, 0, 0.002112, 0, "query_id"),
             (
                 "12345_550e8400-e29b-41d4-a716-446655440000_eO290UUI",
                 rows_read,
@@ -35,6 +35,7 @@ class TestPollQueryPerformance(SimpleTestCase):
                 total_rows_approx,
                 time_elapsed,
                 millisecond_cpu_time,
+                "550e8400-e29b-41d4-a716-446655440001",
             ),
         ]
         mock_manager = mock_QueryStatusManager.return_value
@@ -43,15 +44,18 @@ class TestPollQueryPerformance(SimpleTestCase):
 
         mock_sync_execute.assert_called_once()
         mock_QueryStatusManager.assert_called_once_with("550e8400-e29b-41d4-a716-446655440000", 12345)
-        mock_manager.update_clickhouse_query_progress.assert_called_once_with(
-            "12345_550e8400-e29b-41d4-a716-446655440000_eO290UUI",
-            {
-                "bytes_read": bytes_read,
-                "rows_read": rows_read,
-                "estimated_rows_total": total_rows_approx,
-                "time_elapsed": int(time_elapsed),
-                "active_cpu_time": millisecond_cpu_time,
-            },
+        mock_manager.update_clickhouse_query_progresses.assert_called_once_with(
+            [
+                {
+                    "initial_query_id": "12345_550e8400-e29b-41d4-a716-446655440000_eO290UUI",
+                    "query_id": "550e8400-e29b-41d4-a716-446655440001",
+                    "bytes_read": bytes_read,
+                    "rows_read": rows_read,
+                    "estimated_rows_total": total_rows_approx,
+                    "time_elapsed": int(time_elapsed),
+                    "active_cpu_time": millisecond_cpu_time,
+                },
+            ]
         )
 
 

@@ -22,6 +22,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from dlt.sources.helpers.rest_client.client import RESTClient
+from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 
 
 BUCKET_NAME = "test-pipeline"
@@ -53,43 +54,7 @@ async def _run(
         external_data_schema_id=schema.id,
     )
 
-    def mock_paginate(
-        class_self,
-        path: str = "",
-        method: Any = "GET",
-        params: Optional[dict[str, Any]] = None,
-        json: Optional[dict[str, Any]] = None,
-        auth: Optional[Any] = None,
-        paginator: Optional[Any] = None,
-        data_selector: Optional[Any] = None,
-        hooks: Optional[Any] = None,
-    ):
-        return iter(mock_data_response)
-
-    with (
-        mock.patch.object(RESTClient, "paginate", mock_paginate),
-        override_settings(
-            BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-        ),
-    ):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow],
-                activities=ACTIVITIES,  # type: ignore
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(  # type: ignore
-                    ExternalDataJobWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+    await _execute_run(workflow_id, inputs, mock_data_response)
 
     run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
 
@@ -106,6 +71,60 @@ async def _run(
 
     await sync_to_async(source.refresh_from_db)()
     assert source.job_inputs.get("reset_pipeline", None) is None
+
+    return workflow_id, inputs
+
+
+async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, mock_data_response):
+    def mock_paginate(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+    ):
+        return iter(mock_data_response)
+
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        mock.patch.object(RESTClient, "paginate", mock_paginate),
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                workflows=[ExternalDataJobWorkflow],
+                activities=ACTIVITIES,  # type: ignore
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await activity_environment.client.execute_workflow(  # type: ignore
+                    ExternalDataJobWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -363,3 +382,43 @@ async def test_reset_pipeline(team, stripe_balance_transaction):
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
         mock_data_response=stripe_balance_transaction["data"],
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_make_sure_deletions_occur(team, stripe_balance_transaction):
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_balance_transaction["data"],
+    )
+
+    @sync_to_async
+    def get_jobs():
+        job_ids = (
+            ExternalDataJob.objects.filter(
+                team_id=team.pk,
+                pipeline_id=inputs.external_data_source_id,
+            )
+            .order_by("-created_at")
+            .values_list("id", flat=True)
+        )
+
+        return [str(job_id) for job_id in job_ids]
+
+    with mock.patch("posthog.warehouse.models.external_data_job.get_s3_client") as mock_s3_client:
+        s3_client_mock = mock.Mock()
+        mock_s3_client.return_value = s3_client_mock
+
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+        await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
+
+        job_ids = await get_jobs()
+        latest_job = job_ids[0]
+        assert s3_client_mock.exists.call_count == 3
+
+        for call in s3_client_mock.exists.call_args_list:
+            assert latest_job not in call[0][0]

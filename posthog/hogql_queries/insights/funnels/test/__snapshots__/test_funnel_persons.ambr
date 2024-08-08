@@ -145,13 +145,13 @@
                              FROM person_distinct_id2
                              WHERE equals(person_distinct_id2.team_id, 2)
                              GROUP BY person_distinct_id2.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                             HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                           WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
      ORDER BY aggregation_target ASC) AS source
   INNER JOIN
@@ -159,17 +159,17 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.1
@@ -181,9 +181,8 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -333,13 +332,13 @@
                              FROM person_distinct_id2
                              WHERE equals(person_distinct_id2.team_id, 2)
                              GROUP BY person_distinct_id2.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                             HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                           WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [2, 3]), 0)
      ORDER BY aggregation_target ASC) AS source
   INNER JOIN
@@ -347,17 +346,17 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.3
@@ -369,9 +368,8 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0
   '''
 # ---
@@ -521,13 +519,13 @@
                              FROM person_distinct_id2
                              WHERE equals(person_distinct_id2.team_id, 2)
                              GROUP BY person_distinct_id2.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                             HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                           WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
-        HAVING ifNull(equals(steps, max_steps), isNull(steps)
-                      and isNull(max_steps)))
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
      WHERE ifNull(equals(steps, 2), 0)
      ORDER BY aggregation_target ASC) AS source
   INNER JOIN
@@ -535,17 +533,17 @@
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(person.created_at, person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288,
-                    max_bytes_before_external_group_by=0
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelPersons.test_funnel_person_recordings.5
@@ -557,9 +555,8 @@
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0
   '''
 # ---

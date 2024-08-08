@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server', 'cypress'],
+    ignorePatterns: ['node_modules', 'plugin-server'],
     env,
     settings: {
         react: {
@@ -317,7 +317,27 @@ module.exports = {
                 // but it's helpful sometimes
                 'jest/no-export': 'off',
                 // also helpful sometimes, but not always
-                'jest/no-conditional-expect': 'warn'
+                'jest/no-conditional-expect': 'warn',
+            },
+        },
+        {
+            files: ['**/*.cy.ts'],
+            env: {
+                ...env,
+                node: true,
+                'jest/globals': true,
+            },
+            "plugins": ["jest"],
+            "extends": ["plugin:jest/recommended"],
+            globals: {
+                ...globals,
+                given: 'readonly',
+            },
+            rules: {
+                // don't complain about unknown expect statements
+                'jest/valid-expect': 'off',
+                // don't warn about missing expect
+                'jest/expect-expect': 'off'
             },
         },
         {

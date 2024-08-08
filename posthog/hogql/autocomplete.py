@@ -1,4 +1,5 @@
-from copy import copy, deepcopy
+import json
+from copy import deepcopy
 from typing import Optional, cast
 from collections.abc import Callable
 from posthog.hogql.context import HogQLContext
@@ -20,12 +21,13 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr, parse_string_template, parse_program
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -33,33 +35,53 @@ from posthog.schema import (
     HogQLAutocompleteResponse,
     AutocompleteCompletionItem,
     Kind,
+    HogLanguage,
 )
+from hogvm.python.stl import STL
+
+ALL_HOG_FUNCTIONS = list(STL.keys())
+MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
+PROPERTY_DEFINITION_LIMIT = 220
 
 
 class GetNodeAtPositionTraverser(TraversingVisitor):
     start: int
     end: int
-    selects: list[ast.SelectQuery] = []
+    selects: list[ast.SelectQuery]
     node: Optional[AST] = None
     parent_node: Optional[AST] = None
-    last_node: Optional[AST] = None
     nearest_select_query: Optional[ast.SelectQuery] = None
+    stack: list[AST]
 
-    def __init__(self, expr: ast.Expr, start: int, end: int):
+    def __init__(self, expr: ast.AST, start: int, end: int):
         super().__init__()
+        self.selects = []
+        self.stack = []
         self.start = start
         self.end = end
-        super().visit(expr)
+        self.visit(expr)
 
     def visit(self, node: AST | None):
         if node is not None and node.start is not None and node.end is not None:
+            parent_node = self.stack[-1] if len(self.stack) > 0 else None
             if self.start >= node.start and self.end <= node.end:
                 self.node = node
-                self.parent_node = self.last_node
-                self.nearest_select_query = self.selects[-1]
+                self.parent_node = parent_node
+                if len(self.selects) > 0:
+                    self.nearest_select_query = self.selects[-1]
+            elif isinstance(parent_node, ast.Program) or isinstance(parent_node, ast.Block):
+                if (
+                    self.node is None or isinstance(self.node, ast.Program) or isinstance(self.node, ast.Block)
+                ) and node.start >= self.start:
+                    self.node = node
+                    self.parent_node = parent_node
 
-        self.last_node = node
-        super().visit(node)
+        if node is not None:
+            self.stack.append(node)
+            super().visit(node)
+            self.stack.pop()
+        else:
+            super().visit(node)
 
     def visit_select_query(self, node):
         self.selects.append(node)
@@ -235,7 +257,7 @@ def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table
     return new_table
 
 
-def append_table_field_to_response(table: Table, suggestions: list[AutocompleteCompletionItem]) -> None:
+def append_table_field_to_response(table: Table, suggestions: list[AutocompleteCompletionItem], language: str) -> None:
     keys: list[str] = []
     details: list[str | None] = []
     table_fields = list(table.fields.items())
@@ -254,7 +276,10 @@ def append_table_field_to_response(table: Table, suggestions: list[AutocompleteC
         insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
     )
 
-    available_functions = ALL_EXPOSED_FUNCTION_NAMES
+    if language == HogLanguage.HOG_QL or language == HogLanguage.HOG_QL_EXPR:
+        available_functions = ALL_EXPOSED_FUNCTION_NAMES
+    else:
+        available_functions = ALL_HOG_FUNCTIONS
     extend_responses(
         available_functions,
         suggestions,
@@ -283,11 +308,54 @@ def extend_responses(
     )
 
 
-MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
-PROPERTY_DEFINITION_LIMIT = 220
+class VariableFinder(TraversingVisitor):
+    node: AST | None = None
+    stack: list[AST]
+    blocks: list[AST]
+    vars: list[set[str]]
+    node_vars: set[str]
+
+    def __init__(self, node: ast.AST):
+        super().__init__()
+        self.node = node
+        self.stack = []
+        self.blocks = []
+        self.vars = []
+        self.node_vars = set()
+
+    def visit(self, node: ast.AST | None):
+        if node is None:
+            return
+        if node == self.node:
+            for block_vars in self.vars:
+                self.node_vars.update(block_vars)
+            return
+
+        has_block = isinstance(node, ast.Block) or isinstance(node, ast.Program) or isinstance(node, ast.Function)
+        if has_block:
+            self.blocks.append(node)
+            self.vars.append(set())
+
+        self.stack.append(node)
+        super().visit(node)
+        self.stack.pop()
+
+        if has_block:
+            self.blocks.pop()
+            self.vars.pop()
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        if len(self.vars) > 0:
+            self.vars[-1].add(node.name)
+        super().visit_variable_declaration(node)
 
 
-# TODO: Support ast.SelectUnionQuery nodes
+def gather_hog_variables_in_scope(root_node, node) -> list[str]:
+    finder = VariableFinder(node)
+    finder.visit(root_node)
+    return list(finder.node_vars)
+
+
 def get_hogql_autocomplete(
     query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
 ) -> HogQLAutocompleteResponse:
@@ -300,41 +368,114 @@ def get_hogql_autocomplete(
         database = create_hogql_database(team_id=team.pk, team_arg=team)
 
     context = HogQLContext(team_id=team.pk, team=team, database=database)
-
-    original_query_select = copy(query.select)
-    original_end_position = copy(query.endPosition)
+    if query.sourceQuery is not None:
+        source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
+    else:
+        source_query = parse_select("select 1")
 
     for extra_characters, length_to_add in [
         ("", 0),
         (MATCH_ANY_CHARACTER, len(MATCH_ANY_CHARACTER)),
+        ("}", 0),
+        (MATCH_ANY_CHARACTER + "}", len(MATCH_ANY_CHARACTER)),
         (" FROM events", 0),
         (f"{MATCH_ANY_CHARACTER} FROM events", len(MATCH_ANY_CHARACTER)),
     ]:
         try:
-            query.select = (
-                original_query_select[:original_end_position]
-                + extra_characters
-                + original_query_select[original_end_position:]
-            )
-            query.endPosition = original_end_position + length_to_add
+            query_to_try = query.query[: query.endPosition] + extra_characters + query.query[query.endPosition :]
+            query_start = query.startPosition
+            query_end = query.endPosition + length_to_add
+            select_ast: Optional[ast.AST] = None
 
-            with timings.measure("parse_select"):
-                select_ast = parse_select(query.select)
-                if query.filters:
-                    try:
-                        select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
-                    except Exception:
-                        pass
+            if query.language == HogLanguage.HOG_QL:
+                with timings.measure("parse_select"):
+                    select_ast = parse_select(query_to_try, timings=timings)
+                    root_node: ast.AST = select_ast
+            elif query.language == HogLanguage.HOG_QL_EXPR:
+                with timings.measure("parse_expr"):
+                    root_node = parse_expr(query_to_try, timings=timings)
+                    select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
+                    select_ast.select = [root_node]
+            elif query.language == HogLanguage.HOG_TEMPLATE:
+                with timings.measure("parse_template"):
+                    root_node = parse_string_template(query_to_try, timings=timings)
+            elif query.language == HogLanguage.HOG:
+                with timings.measure("parse_program"):
+                    root_node = parse_program(query_to_try, timings=timings)
+            elif query.language == HogLanguage.HOG_JSON:
+                query_to_try, query_start, query_end = extract_json_row(query_to_try, query_start, query_end)
+                if query_to_try == "":
+                    break
+                root_node = parse_string_template(query_to_try, timings=timings)
+            else:
+                raise ValueError(f"Unsupported autocomplete language: {query.language}")
+
+            with timings.measure("find_node"):
+                # to account for the magic F' symbol we append to change antlr's mode
+                extra = 2 if query.language == HogLanguage.HOG_TEMPLATE else 0
+                find_node = GetNodeAtPositionTraverser(root_node, query_start + extra, query_end + extra)
+            node = find_node.node
+            parent_node = find_node.parent_node
+
+            if HogLanguage.HOG_TEMPLATE and isinstance(node, ast.Constant):
+                # Do not show suggestions if not inside the {} part in a template string
+                continue
+
+            if isinstance(query.globals, dict):
+                if isinstance(node, ast.Field):
+                    loop_globals: dict | None = query.globals
+                    for index, key in enumerate(node.chain):
+                        if MATCH_ANY_CHARACTER in str(key):
+                            break
+                        if loop_globals is not None and str(key) in loop_globals:
+                            loop_globals = loop_globals[str(key)]
+                        elif index == len(node.chain) - 1:
+                            break
+                        else:
+                            loop_globals = None
+                            break
+                    if loop_globals is not None:
+                        add_globals_to_suggestions(loop_globals, response)
+                        # looking at a nested global object, no need for other suggestions
+                        if loop_globals != query.globals:
+                            break
+
+            if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE):
+                # For Hog, first add all local variables in scope
+                hog_vars = gather_hog_variables_in_scope(root_node, node)
+                extend_responses(
+                    keys=hog_vars,
+                    suggestions=response.suggestions,
+                    kind=Kind.VARIABLE,
+                )
+                extend_responses(
+                    ALL_HOG_FUNCTIONS,
+                    response.suggestions,
+                    Kind.FUNCTION,
+                    insert_text=lambda key: f"{key}()",
+                )
+
+            if isinstance(query.globals, dict):
+                # Override globals if a local variable has the same name
+                existing_values = {item.label for item in response.suggestions}
+                filtered_globals = {key: value for key, value in query.globals.items() if key not in existing_values}
+                add_globals_to_suggestions(filtered_globals, response)
+
+            if select_ast is None:
+                break
+
+            if query.filters:
+                try:
+                    select_ast = cast(
+                        ast.SelectQuery, replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team)
+                    )
+                except Exception:
+                    pass
 
             if isinstance(select_ast, ast.SelectQuery):
                 ctes = select_ast.ctes
-            else:
+            elif isinstance(select_ast, ast.SelectUnionQuery):
                 ctes = select_ast.select_queries[0].ctes
-
-            with timings.measure("find_node"):
-                find_node = GetNodeAtPositionTraverser(select_ast, query.startPosition, query.endPosition)
-            node = find_node.node
-            parent_node = find_node.parent_node
             nearest_select = find_node.nearest_select_query or select_ast
 
             table_has_alias = (
@@ -377,7 +518,7 @@ def get_hogql_autocomplete(
                                 last_table = aliased_table
                                 continue
                             else:
-                                # Dont continue if the alias is not found in the query
+                                # Don't continue if the alias is not found in the query
                                 break
 
                         # Ignore last chain part, it's likely an incomplete word or added characters
@@ -388,14 +529,19 @@ def get_hogql_autocomplete(
 
                         if is_last_part:
                             if last_table.fields.get(str(chain_part)) is None:
-                                append_table_field_to_response(table=last_table, suggestions=response.suggestions)
+                                append_table_field_to_response(
+                                    table=last_table, suggestions=response.suggestions, language=query.language
+                                )
                                 break
 
                             field = last_table.fields[str(chain_part)]
 
                             if isinstance(field, StringJSONDatabaseField):
                                 if last_table.to_printed_hogql() == "events":
-                                    property_type = PropertyDefinition.Type.EVENT
+                                    if field.name == "person_properties":
+                                        property_type = PropertyDefinition.Type.PERSON
+                                    else:
+                                        property_type = PropertyDefinition.Type.EVENT
                                 elif last_table.to_printed_hogql() == "persons":
                                     property_type = PropertyDefinition.Type.PERSON
                                 elif last_table.to_printed_hogql() == "groups":
@@ -404,7 +550,7 @@ def get_hogql_autocomplete(
                                     property_type = None
 
                                 if property_type is not None:
-                                    match_term = query.select[query.startPosition : query.endPosition]
+                                    match_term = query_to_try[query_start:query_end]
                                     if match_term == MATCH_ANY_CHARACTER:
                                         match_term = ""
 
@@ -430,7 +576,7 @@ def get_hogql_autocomplete(
                                     )
                                     response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
                             elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
-                                fields = list(last_table.fields.items())
+                                fields = list(field.fields.items())
                                 extend_responses(
                                     keys=[key for key, field in fields],
                                     suggestions=response.suggestions,
@@ -470,3 +616,54 @@ def get_hogql_autocomplete(
 
     response.timings = timings.to_list()
     return response
+
+
+def extract_json_row(query_to_try, query_start, query_end):
+    query_row = ""
+    for row in query_to_try.split("\n"):
+        if query_start - len(row) <= 0:
+            query_row = row
+            break
+        query_start -= len(row) + 1
+        query_end -= len(row) + 1
+    query_to_try = query_row
+
+    count = query_to_try[:query_start].count('"')
+    if count % 2 == 0:  # not in a string
+        return "", 0, 0
+
+    start_pos = query_to_try.rfind('"', 0, query_start)
+    end_pos = query_to_try.find('"', query_start)
+    if end_pos == -1:
+        query_to_try = query_to_try[(start_pos + 1) :]
+    else:
+        query_to_try = query_to_try[(start_pos + 1) : end_pos]
+    query_start -= start_pos + 1
+    query_end -= start_pos + 1
+    return query_to_try, query_start, query_end
+
+
+def add_globals_to_suggestions(globalVars: dict, response: HogQLAutocompleteResponse):
+    if isinstance(globalVars, dict):
+        existing_values = {item.label for item in response.suggestions}
+        values: list[str | None] = []
+        for key, value in globalVars.items():
+            if key in existing_values:
+                continue
+            if isinstance(value, dict):
+                values.append("Object")
+            elif isinstance(value, list):
+                values.append("Array")
+            elif isinstance(value, tuple):
+                values.append("Tuple")
+            else:
+                value = json.dumps(value)
+                if len(value) > 20:
+                    value = value[:20] + "..."
+                values.append(value)
+        extend_responses(
+            keys=list(globalVars.keys()),
+            suggestions=response.suggestions,
+            kind=Kind.VARIABLE,
+            details=values,
+        )

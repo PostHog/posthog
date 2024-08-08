@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Optional, Literal, TypeAlias
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
@@ -47,7 +47,7 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 
-class LimitContext(str, Enum):
+class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
     EXPORT = "export"
@@ -101,7 +101,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_execution_time: Optional[int] = 60
     allow_experimental_object_type: Optional[bool] = True
     format_csv_allow_double_quotes: Optional[bool] = False
-    max_ast_elements: Optional[int] = 50000 * 20  # default value 50000
-    max_expanded_ast_elements: Optional[int] = 1000000
-    max_query_size: Optional[int] = 262144 * 2  # default value 262144 (= 256 KiB)
+    max_ast_elements: Optional[int] = 4_000_000  # default value 50000
+    max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
+    allow_experimental_analyzer: Optional[bool] = None

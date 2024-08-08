@@ -10,6 +10,7 @@ from sentry_sdk import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
+    FieldOrTable,
     FieldTraverser,
     SavedQuery,
     StringDatabaseField,
@@ -47,7 +48,11 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import (
+    PersonsTable,
+    RawPersonsTable,
+    join_with_persons_table,
+)
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -77,6 +82,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
+from posthog.utils import get_instance_region
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -209,6 +215,7 @@ def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
     from posthog.models import Team
+    from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.warehouse.models import (
         DataWarehouseTable,
@@ -242,7 +249,9 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    if modifiers.sessionTableVersion in [SessionTableVersion.V2]:
+    if modifiers.sessionTableVersion == SessionTableVersion.V2 or (
+        get_instance_region() == "EU" and modifiers.sessionTableVersion == SessionTableVersion.AUTO
+    ):
         raw_sessions = RawSessionsTableV2()
         database.raw_sessions = raw_sessions
         sessions = SessionsTableV2()
@@ -280,8 +289,29 @@ def create_hogql_database(
     warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
-    for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        warehouse_tables[table.name] = table.hogql_definition(modifiers)
+    for table in (
+        DataWarehouseTable.objects.filter(team_id=team.pk)
+        .exclude(deleted=True)
+        .select_related("credential", "external_data_source")
+    ):
+        s3_table = table.hogql_definition(modifiers)
+
+        # If the warehouse table has no _properties_ field, then set it as a virtual table
+        if s3_table.fields.get("properties") is None:
+
+            class WarehouseProperties(VirtualTable):
+                fields: dict[str, FieldOrTable] = s3_table.fields
+                parent_table: S3Table = s3_table
+
+                def to_printed_hogql(self):
+                    return self.parent_table.to_printed_hogql()
+
+                def to_printed_clickhouse(self, context):
+                    return self.parent_table.to_printed_clickhouse(context)
+
+            s3_table.fields["properties"] = WarehouseProperties()
+
+        warehouse_tables[table.name] = s3_table
 
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         views[saved_query.name] = saved_query.hogql_definition()
@@ -342,7 +372,9 @@ def create_hogql_database(
                     warehouse_tables,
                     lambda team, warehouse_modifier: DataWarehouseTable.objects.filter(
                         team_id=team.pk, name=warehouse_modifier.table_name
-                    ).latest("created_at"),
+                    )
+                    .select_related("credential", "external_data_source")
+                    .latest("created_at"),
                 )
 
     database.add_warehouse_tables(**warehouse_tables)
@@ -413,6 +445,14 @@ def create_hogql_database(
                             join_table=joining_table,
                             join_function=join.join_function(),
                         )
+                elif isinstance(person_field, ast.LazyJoin):
+                    person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
+                        from_field=from_field,
+                        to_field=to_field,
+                        join_table=joining_table,
+                        join_function=join.join_function(),
+                    )
+
         except Exception as e:
             capture_exception(e)
 
@@ -464,7 +504,7 @@ def serialize_database(
     warehouse_table_names = context.database.get_warehouse_tables()
     warehouse_tables = (
         list(
-            DataWarehouseTable.objects.prefetch_related("external_data_source")
+            DataWarehouseTable.objects.select_related("credential", "external_data_source")
             .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
             .all()
         )

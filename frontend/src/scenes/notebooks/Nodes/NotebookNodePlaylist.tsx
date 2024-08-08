@@ -1,9 +1,8 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingFilters, ReplayTabs } from '~/types'
+import { FilterType, NotebookNodeType, RecordingUniversalFilters, ReplayTabs } from '~/types'
 import {
-    DEFAULT_SIMPLE_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
-    getDefaultFilters,
+    convertLegacyFiltersToUniversalFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { BuiltLogic, useActions, useValues } from 'kea'
@@ -11,32 +10,27 @@ import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
+import { RecordingsUniversalFilters } from 'scenes/session-recordings/filters/RecordingsUniversalFilters'
 
 const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, simpleFilters, pinned, nodeId } = attributes
+    const { pinned, nodeId, universalFilters } = attributes
     const playerKey = `notebook-${nodeId}`
 
     const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
         () => ({
             logicKey: playerKey,
-            advancedFilters: filters,
-            simpleFilters,
+            filters: universalFilters,
             updateSearchParams: false,
             autoPlay: false,
-            onFiltersChange: (newFilters: RecordingFilters) => {
-                updateAttributes({
-                    filters: newFilters,
-                })
-            },
+            onFiltersChange: (newFilters) => updateAttributes({ universalFilters: newFilters }),
             pinnedRecordings: pinned,
             onPinnedChange(recording, isPinned) {
                 updateAttributes({
@@ -46,7 +40,7 @@ const Component = ({
                 })
             },
         }),
-        [playerKey, filters, pinned]
+        [playerKey, universalFilters, pinned]
     )
 
     const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
@@ -118,28 +112,21 @@ export const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, simpleFilters } = attributes
-    const defaultFilters = getDefaultFilters()
+    const { universalFilters: filters } = attributes
+
+    const setFilters = (newFilters: Partial<RecordingUniversalFilters>): void => {
+        updateAttributes({ universalFilters: { ...filters, ...newFilters } })
+    }
 
     return (
         <ErrorBoundary>
-            <SessionRecordingsFilters
-                advancedFilters={{ ...defaultFilters, ...filters }}
-                simpleFilters={simpleFilters ?? DEFAULT_SIMPLE_RECORDING_FILTERS}
-                setAdvancedFilters={(filters) => updateAttributes({ filters })}
-                setSimpleFilters={(simpleFilters) => updateAttributes({ simpleFilters })}
-                showPropertyFilters
-                onReset={() =>
-                    updateAttributes({ filters: defaultFilters, simpleFilters: DEFAULT_SIMPLE_RECORDING_FILTERS })
-                }
-            />
+            <RecordingsUniversalFilters filters={filters} setFilters={setFilters} />
         </ErrorBoundary>
     )
 }
 
-type NotebookNodePlaylistAttributes = {
-    filters: RecordingFilters
-    simpleFilters?: RecordingFilters
+export type NotebookNodePlaylistAttributes = {
+    universalFilters: RecordingUniversalFilters
     pinned?: string[]
 }
 
@@ -150,16 +137,13 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
     heightEstimate: 'calc(100vh - 20rem)',
     href: (attrs) => {
         // TODO: Fix parsing of attrs
-        return urls.replay(undefined, attrs.filters)
+        return urls.replay(undefined, attrs.universalFilters)
     },
     resizeable: true,
     expandable: false,
     attributes: {
-        filters: {
+        universalFilters: {
             default: undefined,
-        },
-        simpleFilters: {
-            default: {},
         },
         pinned: {
             default: undefined,
@@ -169,8 +153,10 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         find: urls.replay(ReplayTabs.Recent) + '(.*)',
         getAttributes: async (match) => {
             const url = new URL(match[0])
-            const filters = url.searchParams.get('filters')
-            return { filters: filters ? JSON.parse(filters) : {}, pinned: [] }
+            const stringifiedFilters = url.searchParams.get('filters')
+            const filters = stringifiedFilters ? JSON.parse(stringifiedFilters) : {}
+            const universalFilters = convertLegacyFiltersToUniversalFilters({}, filters)
+            return { filters, universalFilters, pinned: [] }
         },
     },
     Settings,

@@ -60,66 +60,66 @@ async def temporal_schedule(temporal_client, team):
     "start_at,end_at,step,expected",
     [
         (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
             dt.timedelta(days=1),
             [
                 (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
                 )
             ],
         ),
         (
-            dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.timezone.utc),
-            dt.datetime(2023, 1, 1, 12, 20, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 1, 12, 20, 0, tzinfo=dt.UTC),
             dt.timedelta(hours=1),
             [
                 (
-                    dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
                 ),
             ],
         ),
         (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
             dt.timedelta(hours=12),
             [
                 (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
                 ),
             ],
         ),
         (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-            dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
             dt.timedelta(days=1),
             [
                 (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
                 ),
                 (
-                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.timezone.utc),
-                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
                 ),
             ],
         ),
@@ -145,8 +145,8 @@ async def test_get_schedule_frequency(activity_environment, temporal_worker, tem
 @pytest.mark.django_db(transaction=True)
 async def test_backfill_schedule_activity(activity_environment, temporal_worker, temporal_client, temporal_schedule):
     """Test backfill_schedule activity schedules all backfill runs."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
     inputs = BackfillScheduleInputs(
@@ -199,8 +199,8 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
 @pytest.mark.django_db(transaction=True)
 async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule, temporal_client, team):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
 
@@ -275,9 +275,9 @@ async def test_backfill_batch_export_workflow_no_end_at(
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
 
     # Note the mocked time here, we should stop backfilling at 8 minutes and unpause the job.
-    mock_utcnow.return_value = dt.datetime(2023, 1, 1, 0, 8, 12, tzinfo=dt.timezone.utc)
+    mock_utcnow.return_value = dt.datetime(2023, 1, 1, 0, 8, 12, tzinfo=dt.UTC)
 
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
     end_at = None
 
     desc = await temporal_schedule.describe()
@@ -356,8 +356,8 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
     temporal_worker, temporal_schedule, temporal_client, team
 ):
     """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
 
@@ -398,8 +398,8 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     In this test, in contrats to the previous one, we wait until we have started running some
     backfill runs before cancelling.
     """
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
 
@@ -471,8 +471,8 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
     temporal_worker, failing_s3_batch_export, temporal_client, ateam, clickhouse_client
 ):
     """Test BackfillBatchExportWorkflow will be cancelled on repeated failures."""
-    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
-    end_at = dt.datetime(2023, 1, 1, 1, 0, 0, tzinfo=dt.timezone.utc)
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 1, 0, 0, tzinfo=dt.UTC)
 
     # We need some data otherwise the S3 batch export will not fail as it short-circuits.
     for d in date_range(start_at, end_at, dt.timedelta(minutes=5)):

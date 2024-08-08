@@ -2,7 +2,6 @@ import './ActionsPie.scss'
 
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
-import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,12 +16,7 @@ import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
-export function ActionsPie({
-    inSharedMode,
-    inCardView,
-    showPersonsModal = true,
-    context,
-}: ChartParams): JSX.Element | null {
+export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
 
@@ -140,7 +134,6 @@ export function ActionsPie({
                         </div>
                     )}
                 </div>
-                {inCardView && trendsFilter?.showLegend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

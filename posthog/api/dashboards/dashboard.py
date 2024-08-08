@@ -21,7 +21,6 @@ from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
@@ -399,7 +398,7 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "dashboard"
-    queryset = Dashboard.objects_including_soft_deleted.order_by("name")
+    queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
     permission_classes = [CanEditDashboard]
 
     def get_serializer_class(self) -> type[BaseSerializer]:
@@ -458,9 +457,8 @@ class DashboardsViewSet(
         dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
-        with task_chain_context():
-            serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
-            return Response(serializer.data)
+        serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
+        return Response(serializer.data)
 
     @action(methods=["PATCH"], detail=True)
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -502,9 +500,9 @@ class DashboardsViewSet(
                     "dashboard_id": dashboard.pk,
                 },
             )
-        except Exception as e:
+        except Exception:
             dashboard.delete()
-            raise e
+            raise
 
         return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
 

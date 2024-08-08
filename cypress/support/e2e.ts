@@ -1,8 +1,10 @@
 import 'givens/setup'
 import './commands'
 import 'cypress-axe'
-import { decideResponse } from '../fixtures/api/decide'
+
 import { urls } from 'scenes/urls'
+
+import { decideResponse } from '../fixtures/api/decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -19,6 +21,10 @@ Cypress.on('window:before:load', (win) => {
     cy.spy(win.console, 'warn')
 
     win._cypress_posthog_captures = []
+})
+
+before(() => {
+    cy.task('resetInsightCache') // Reset insight cache before each suite
 })
 
 beforeEach(() => {

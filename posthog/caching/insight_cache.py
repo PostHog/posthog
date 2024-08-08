@@ -119,7 +119,7 @@ def update_cache(caching_state_id: UUID):
         "last_refresh_queued_at": caching_state.last_refresh_queued_at,
     }
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk)
+    tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warming")
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 

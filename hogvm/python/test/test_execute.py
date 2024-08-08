@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+from hogvm.python.utils import UncaughtHogVMException
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
 
@@ -106,10 +107,10 @@ class TestBytecodeExecute:
         chain: list[str] = ["properties", "bla"]
         assert get_nested_value(my_dict, chain) == "hello"
 
-        chain = ["properties", "list", 1]
+        chain = ["properties", "list", 2]
         assert get_nested_value(my_dict, chain) == "item2"
 
-        chain = ["properties", "tuple", 2]
+        chain = ["properties", "tuple", 3]
         assert get_nested_value(my_dict, chain) == "item3"
 
     def test_errors(self):
@@ -131,6 +132,143 @@ class TestBytecodeExecute:
             execute_bytecode([_H, op.TRUE, op.TRUE, op.NOT], {})
         except Exception as e:
             assert str(e) == "Invalid bytecode. More than one value left on stack"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+    def test_memory_limits_1(self):
+        # let string := 'banana'
+        # for (let i := 0; i < 100; i := i + 1) {
+        #   string := string || string
+        # }
+        bytecode = [
+            "_h",
+            32,
+            "banana",
+            33,
+            0,
+            33,
+            100,
+            36,
+            1,
+            15,
+            40,
+            18,
+            36,
+            0,
+            36,
+            0,
+            2,
+            "concat",
+            2,
+            37,
+            0,
+            33,
+            1,
+            36,
+            1,
+            6,
+            37,
+            1,
+            39,
+            -25,
+            35,
+            35,
+        ]
+        try:
+            execute_bytecode(bytecode, {})
+        except Exception as e:
+            assert str(e) == "Memory limit of 67108864 bytes exceeded. Tried to allocate 75497504 bytes."
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+    def test_memory_limits_2(self):
+        # let string := 'banana'
+        # for (let i := 0; i < 100; i := i + 1) {
+        #   string := string || string
+        # }
+        bytecode = [
+            "_h",
+            32,
+            "key",
+            32,
+            "value",
+            32,
+            "key2",
+            32,
+            "value2",
+            42,
+            2,
+            32,
+            "na",
+            33,
+            0,
+            33,
+            10000,
+            36,
+            2,
+            15,
+            40,
+            52,
+            33,
+            16,
+            36,
+            2,
+            15,
+            40,
+            9,
+            36,
+            1,
+            36,
+            1,
+            2,
+            "concat",
+            2,
+            37,
+            1,
+            36,
+            0,
+            36,
+            2,
+            32,
+            "key_",
+            2,
+            "concat",
+            2,
+            32,
+            "wasted",
+            32,
+            " batman!",
+            36,
+            1,
+            32,
+            "memory: ",
+            2,
+            "concat",
+            3,
+            32,
+            "something",
+            36,
+            0,
+            42,
+            2,
+            46,
+            33,
+            1,
+            36,
+            2,
+            6,
+            37,
+            2,
+            39,
+            -59,
+            35,
+            35,
+            35,
+        ]
+        try:
+            execute_bytecode(bytecode, {})
+        except Exception as e:
+            assert str(e) == "Memory limit of 67108864 bytes exceeded. Tried to allocate 67155164 bytes."
         else:
             raise AssertionError("Expected Exception not raised")
 
@@ -497,11 +635,18 @@ class TestBytecodeExecute:
         assert self._run_program("return [1, [2, 3], 4];") == [1, [2, 3], 4]
         assert self._run_program("return [1, [2, [3, 4]], 5];") == [1, [2, [3, 4]], 5]
 
-        assert self._run_program("let a := [1, 2, 3]; return a[1];") == 2
-        assert self._run_program("return [1, 2, 3][1];") == 2
-        assert self._run_program("return [1, [2, [3, 4]], 5][1][1][1];") == 4
-        assert self._run_program("return [1, [2, [3, 4]], 5][1][1][1] + 1;") == 5
-        assert self._run_program("return [1, [2, [3, 4]], 5].1.1.1;") == 4
+        assert self._run_program("let a := [1, 2, 3]; return a[2];") == 2
+        assert self._run_program("return [1, 2, 3][2];") == 2
+        assert self._run_program("return [1, [2, [3, 4]], 5][2][2][2];") == 4
+        assert self._run_program("return [1, [2, [3, 4]], 5][2][2][2] + 1;") == 5
+        assert self._run_program("return [1, [2, [3, 4]], 5].2.2.2;") == 4
+
+        try:
+            self._run_program("return [1, 2, 3][0]")
+        except Exception as e:
+            assert str(e) == "Array access starts from 1"
+        else:
+            raise AssertionError("Expected Exception not raised")
 
     def test_bytecode_tuples(self):
         # assert self._run_program("return (,);"), ()
@@ -509,24 +654,24 @@ class TestBytecodeExecute:
         assert self._run_program("return (1, '2', 3);") == (1, "2", 3)
         assert self._run_program("return (1, (2, 3), 4);") == (1, (2, 3), 4)
         assert self._run_program("return (1, (2, (3, 4)), 5);") == (1, (2, (3, 4)), 5)
-        assert self._run_program("let a := (1, 2, 3); return a[1];") == 2
-        assert self._run_program("return (1, (2, (3, 4)), 5)[1][1][1];") == 4
-        assert self._run_program("return (1, (2, (3, 4)), 5).1.1.1;") == 4
-        assert self._run_program("return (1, (2, (3, 4)), 5)[1][1][1] + 1;") == 5
+        assert self._run_program("let a := (1, 2, 3); return a[2];") == 2
+        assert self._run_program("return (1, (2, (3, 4)), 5)[2][2][2];") == 4
+        assert self._run_program("return (1, (2, (3, 4)), 5).2.2.2;") == 4
+        assert self._run_program("return (1, (2, (3, 4)), 5)[2][2][2] + 1;") == 5
 
     def test_bytecode_nested(self):
-        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2.d.1;") == 3
-        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[2].d[2];") == 42
-        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.2['d'][3];") == 6
-        assert self._run_program("let r := {'d': (1, 3, 42, 6)}; return r.d.1;") == 3
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3.d.2;") == 3
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r[3].d[3];") == 42
+        assert self._run_program("let r := [1, 2, {'d': (1, 3, 42, 6)}]; return r.3['d'][4];") == 6
+        assert self._run_program("let r := {'d': (1, 3, 42, 6)}; return r.d.2;") == 3
 
     def test_bytecode_nested_modify(self):
         assert (
             self._run_program(
                 """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r.2.d.2 := 3;
-                return r.2.d.2;
+                r.3.d.3 := 3;
+                return r.3.d.3;
                 """
             )
             == 3
@@ -536,8 +681,8 @@ class TestBytecodeExecute:
             self._run_program(
                 """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r[2].d[2] := 3;
-                return r[2].d[2];
+                r[3].d[3] := 3;
+                return r[3].d[3];
                 """
             )
             == 3
@@ -546,16 +691,16 @@ class TestBytecodeExecute:
         assert self._run_program(
             """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r[2].c := [666];
-                return r[2];
+                r[3].c := [666];
+                return r[3];
                 """
         ) == {"d": [1, 3, 42, 3], "c": [666]}
 
         assert self._run_program(
             """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r[2].d[2] := 3;
-                return r[2].d;
+                r[3].d[3] := 3;
+                return r[3].d;
                 """
         ) == [1, 3, 3, 3]
 
@@ -563,8 +708,8 @@ class TestBytecodeExecute:
             self._run_program(
                 """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
-                r.2['d'] := ['a', 'b', 'c', 'd'];
-                return r[2].d[2];
+                r.3['d'] := ['a', 'b', 'c', 'd'];
+                return r[3].d[3];
                 """
             )
             == "c"
@@ -575,8 +720,8 @@ class TestBytecodeExecute:
                 """
                 let r := [1, 2, {'d': [1, 3, 42, 3]}];
                 let g := 'd';
-                r.2[g] := ['a', 'b', 'c', 'd'];
-                return r[2].d[2];
+                r.3[g] := ['a', 'b', 'c', 'd'];
+                return r[3].d[3];
                 """
             )
             == "c"
@@ -661,3 +806,172 @@ class TestBytecodeExecute:
         ) == {"event": "$autocapture", "properties": {"$browser": "Firefox"}}
         assert globals["globalEvent"]["event"] == "$pageview"
         assert globals["globalEvent"]["properties"]["$browser"] == "Chrome"
+
+    def test_bytecode_if_multiif_ternary(self):
+        values = []
+
+        def noisy_print(str):
+            nonlocal values
+            values.append(str)
+            return str
+
+        self._run_program(
+            """
+            if (true) {
+              noisy_print('true')
+            } else {
+              noisy_print('false')
+            }
+            """,
+            {"noisy_print": noisy_print},
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program("return true ? noisy_print('true') : noisy_print('false')", {"noisy_print": noisy_print})
+            == "true"
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return true ? true ? noisy_print('true1') : noisy_print('true') : noisy_print('false')",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return true ? false ? noisy_print('true1') : noisy_print('false1') : noisy_print('false2')",
+                {"noisy_print": noisy_print},
+            )
+            == "false1"
+        )
+        assert values == ["false1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return false ? false ? noisy_print('true1') : noisy_print('false1') : noisy_print('false2')",
+                {"noisy_print": noisy_print},
+            )
+            == "false2"
+        )
+        assert values == ["false2"]
+
+        values = []
+        assert (
+            self._run_program("return false ? noisy_print('true') : noisy_print('false')", {"noisy_print": noisy_print})
+            == "false"
+        )
+        assert values == ["false"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return if(false, noisy_print('true'), noisy_print('false'))", {"noisy_print": noisy_print}
+            )
+            == "false"
+        )
+        assert values == ["false"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(false, noisy_print('true'), false, noisy_print('true'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "false2"
+        )
+        assert values == ["false2"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(false, noisy_print('true'), true, noisy_print('true'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true"
+        )
+        assert values == ["true"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(true, noisy_print('true1'), false, noisy_print('true2'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return multiIf(true, noisy_print('true1'), true, noisy_print('true2'), noisy_print('false2'))",
+                {"noisy_print": noisy_print},
+            )
+            == "true1"
+        )
+        assert values == ["true1"]
+
+    def test_bytecode_ifnull(self):
+        values = []
+
+        def noisy_print(str):
+            nonlocal values
+            values.append(str)
+            return str
+
+        assert (
+            self._run_program(
+                "return null ?? noisy_print('no'); noisy_print('post')",
+                {"noisy_print": noisy_print},
+            )
+            == "no"
+        )
+        assert values == ["no"]
+
+        values = []
+        assert (
+            self._run_program(
+                "return noisy_print('yes') ?? noisy_print('no'); noisy_print('post')",
+                {"noisy_print": noisy_print},
+            )
+            == "yes"
+        )
+        assert values == ["yes"]
+
+    def test_bytecode_nullish(self):
+        assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).c") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).d") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.c") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.d") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['c']") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['d']") == 2
+
+    def test_bytecode_uncaught_errors(self):
+        try:
+            self._run_program("throw Error('Not a good day')")
+        except UncaughtHogVMException as e:
+            assert str(e) == "Error('Not a good day')"
+            assert e.type == "Error"
+            assert e.message == "Not a good day"
+            assert e.payload is None
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            self._run_program("throw RetryError('Not a good day', {'key': 'value'})")
+        except UncaughtHogVMException as e:
+            assert str(e) == "RetryError('Not a good day')"
+            assert e.type == "RetryError"
+            assert e.message == "Not a good day"
+            assert e.payload == {"key": "value"}
+        else:
+            raise AssertionError("Expected Exception not raised")

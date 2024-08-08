@@ -1,3 +1,5 @@
+from freezegun import freeze_time
+from posthog.models.project import Project
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
@@ -6,14 +8,15 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
-from posthog.warehouse.data_load.service import get_sync_schedule
 from django.test import override_settings
 from django.conf import settings
 from posthog.models import Team
 import psycopg
 from rest_framework import status
 
-import datetime
+
+from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -371,7 +374,8 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
+        with self.assertNumQueries(17):
+            response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
@@ -396,7 +400,6 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "last_run_at",
                 "schemas",
-                "sync_frequency",
             ],
         )
         self.assertEqual(
@@ -414,6 +417,7 @@ class TestExternalDataSource(APIBaseTest):
                     "status": schema.status,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
+                    "sync_frequency": sync_frequency_interval_to_sync_frequency(schema),
                 }
             ],
         )
@@ -492,27 +496,107 @@ class TestExternalDataSource(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_stripe_credentials(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "client_secret": "blah",
+                    "account_id": "blah",
+                },
+            )
+
+            assert response.status_code == 200
+
+    def test_database_schema_stripe_credentials_sad_path(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = False
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                    "client_secret": "blah",
+                    "account_id": "blah",
+                },
+            )
+
+            assert response.status_code == 400
+
+    def test_database_schema_zendesk_credentials(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Zendesk",
+                    "subdomain": "blah",
+                    "api_key": "blah",
+                    "email_address": "blah",
+                },
+            )
+
+            assert response.status_code == 200
+
+    def test_database_schema_zendesk_credentials_sad_path(self):
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_zendesk_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = False
+
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Zendesk",
+                    "subdomain": "blah",
+                    "api_key": "blah",
+                    "email_address": "blah",
+                },
+            )
+
+            assert response.status_code == 400
+
     def test_database_schema_non_postgres_source(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
-            data={
-                "source_type": "Stripe",
-            },
-        )
-        results = response.json()
+        with patch(
+            "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
+        ) as validate_credentials_mock:
+            validate_credentials_mock.return_value = True
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Stripe",
+                },
+            )
+            results = response.json()
 
-        self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 200)
 
-        table_names = [table["table"] for table in results]
-        for table in ENDPOINTS:
-            assert table in table_names
+            table_names = [table["table"] for table in results]
+            for table in ENDPOINTS:
+                assert table in table_names
 
-    @patch("posthog.warehouse.api.external_data_source.get_postgres_schemas")
-    def test_internal_postgres(self, patch_get_postgres_schemas):
-        patch_get_postgres_schemas.return_value = {"table_1": [("id", "integer")]}
+    @patch(
+        "posthog.warehouse.api.external_data_source.get_sql_schemas_for_source_type",
+        return_value={"table_1": [("id", "integer")]},
+    )
+    def test_internal_postgres(self, patch_get_sql_schemas_for_source_type):
+        # This test checks handling of project ID 2 in Cloud US and project ID 1 in Cloud EU,
+        # so let's make sure there are no projects with these IDs in the test DB
+        Project.objects.filter(id__in=[1, 2]).delete()
+        Team.objects.filter(id__in=[1, 2]).delete()
 
         with override_settings(CLOUD_DEPLOYMENT="US"):
-            team_2, _ = Team.objects.get_or_create(id=2, organization=self.team.organization)
+            team_2 = Team.objects.create(id=2, organization=self.team.organization)
             response = self.client.post(
                 f"/api/projects/{team_2.id}/external_data_sources/database_schema/",
                 data={
@@ -552,10 +636,10 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
+            self.assertEqual(response.json(), {"message": "Cannot use internal database"})
 
         with override_settings(CLOUD_DEPLOYMENT="EU"):
-            team_1, _ = Team.objects.get_or_create(id=1, organization=self.team.organization)
+            team_1 = Team.objects.create(id=1, organization=self.team.organization)
             response = self.client.post(
                 f"/api/projects/{team_1.id}/external_data_sources/database_schema/",
                 data={
@@ -596,37 +680,95 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
+            self.assertEqual(response.json(), {"message": "Cannot use internal database"})
 
-    @patch("posthog.warehouse.data_load.service.sync_external_data_job_workflow")
-    def test_update_source_sync_frequency(self, _patch_sync_external_data_job_workflow):
+    def test_source_jobs(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-
-        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.DAILY)
-        # test schedule
-        schedule = get_sync_schedule(schema)
-        self.assertEqual(
-            schedule.spec.intervals[0].every,
-            datetime.timedelta(days=1),
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=100,
+            workflow_run_id="test_run_id",
         )
 
-        # test api
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"sync_frequency": ExternalDataSource.SyncFrequency.WEEKLY},
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        source.refresh_from_db()
-        schema.refresh_from_db()
+        data = response.json()
 
-        self.assertEqual(source.sync_frequency, ExternalDataSource.SyncFrequency.WEEKLY)
-        self.assertEqual(_patch_sync_external_data_job_workflow.call_count, 1)
+        assert response.status_code, status.HTTP_200_OK
+        assert len(data) == 1
+        assert data[0]["id"] == str(job.pk)
+        assert data[0]["status"] == "Completed"
+        assert data[0]["rows_synced"] == 100
+        assert data[0]["schema"]["id"] == str(schema.pk)
+        assert data[0]["workflow_run_id"] is not None
 
-        # test schedule
-        schedule = get_sync_schedule(schema)
-        self.assertEqual(
-            schedule.spec.intervals[0].every,
-            datetime.timedelta(days=7),
-        )
+    def test_source_jobs_pagination(self):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        with freeze_time("2024-07-01T12:00:00.000Z"):
+            job1 = ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=100,
+                workflow_run_id="test_run_id",
+            )
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+            )
+
+            data = response.json()
+
+            assert response.status_code, status.HTTP_200_OK
+            assert len(data) == 1
+            assert data[0]["id"] == str(job1.pk)
+
+        # Query newer jobs
+        with freeze_time("2024-07-01T18:00:00.000Z"):
+            job2 = ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=100,
+                workflow_run_id="test_run_id",
+            )
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs?after=2024-07-01T12:00:00.000Z",
+            )
+
+            data = response.json()
+
+            assert response.status_code, status.HTTP_200_OK
+            assert len(data) == 1
+            assert data[0]["id"] == str(job2.pk)
+
+        # Query older jobs
+        with freeze_time("2024-07-01T09:00:00.000Z"):
+            job3 = ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=100,
+                workflow_run_id="test_run_id",
+            )
+
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/jobs?before=2024-07-01T12:00:00.000Z",
+            )
+
+            data = response.json()
+
+            assert response.status_code, status.HTTP_200_OK
+            assert len(data) == 1
+            assert data[0]["id"] == str(job3.pk)
