@@ -24,7 +24,7 @@ from typing import (
     cast,
 )
 from collections.abc import Generator, Mapping
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import lzstring
@@ -49,7 +49,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import RequestParsingError
+from posthog.exceptions import UnspecifiedCompressionFallbackParsingError, RequestParsingError
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -601,19 +601,29 @@ def base64_decode(data):
     """
     Decodes base64 bytes into string taking into account necessary transformations to match client libraries.
     """
-    if not isinstance(data, str):
-        data = data.decode()
+    if isinstance(data, str):
+        data = data.encode("ascii")
 
-    data = base64.b64decode(data.replace(" ", "+") + "===")
+    # Check if the data is URL-encoded
+    if data.startswith(b"data="):
+        data = unquote(data.decode("ascii")).split("=", 1)[1]
+        data = data.encode("ascii")
 
-    return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
+    # Remove any whitespace and add padding if necessary
+    data = data.replace(b" ", b"")
+    missing_padding = len(data) % 4
+    if missing_padding:
+        data += b"=" * (4 - missing_padding)
+
+    decoded = base64.b64decode(data)
+    return decoded.decode("utf-8", "surrogatepass")
 
 
 def decompress(data: Any, compression: str):
     if not data:
         return None
 
-    if compression == "gzip" or compression == "gzip-js":
+    if compression in ("gzip", "gzip-js"):
         if data == b"undefined":
             raise RequestParsingError(
                 "data being loaded from the request body for decompression is the literal string 'undefined'"
@@ -637,32 +647,32 @@ def decompress(data: Any, compression: str):
 
         data = data.encode("utf-16", "surrogatepass").decode("utf-16")
 
-    base64_decoded = None
+    # Attempt base64 decoding after decompression
     try:
         base64_decoded = base64_decode(data)
-        KLUDGES_COUNTER.labels(kludge="base64_after_decompression_" + compression).inc()
+        KLUDGES_COUNTER.labels(kludge=f"base64_after_decompression_{compression}").inc()
+        data = base64_decoded
     except Exception:
         pass
 
-    if base64_decoded:
-        data = base64_decoded
-
     try:
-        # parse_constant gets called in case of NaN, Infinity etc
-        # default behaviour is to put those into the DB directly
-        # but we just want it to return None
+        # Use custom parse_constant to handle NaN, Infinity, etc.
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
             try:
+                # Attempt gzip decompression as fallback for unspecified compression
                 fallback = decompress(data, "gzip")
                 KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
                 return fallback
-            except Exception as inner:
-                # re-trying with compression set didn't succeed, throw original error
-                raise RequestParsingError("Invalid JSON: {}".format(str(error_main))) from inner
+            except Exception:
+                # Increment a separate counter for JSON parsing failures after all decompression attempts
+                # We do this because we're no longer tracking these fallbacks in Sentry (since they're not actionable defects),
+                # but we still want to know how often they occur.
+                KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_unspecified_gzip_fallback").inc()
+                raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")
         else:
-            raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
+            raise RequestParsingError(f"Invalid JSON: {error_main}")
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data

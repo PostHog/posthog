@@ -363,6 +363,13 @@ export class HogWatcher {
 
             if (currentState !== newState) {
                 transitionToState(id, newState)
+                // Extra logging to help debugging:
+
+                status.info('👀', `[HogWatcher] Function ${id} changed state`, {
+                    oldState: currentState,
+                    newState: newState,
+                    ratings: newRatings,
+                })
             }
         })
 
@@ -390,9 +397,11 @@ export class HogWatcher {
             return
         }
 
-        status.info('👀', '[HogWatcher] Functions changed state', {
-            changes: stateChanges,
-        })
+        if (Object.keys(stateChanges.states).length) {
+            status.info('👀', '[HogWatcher] Functions changed state', {
+                changes: stateChanges,
+            })
+        }
 
         // Finally write the state summary
         const states: Record<HogFunctionType['id'], HogWatcherState> = Object.fromEntries(

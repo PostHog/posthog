@@ -257,35 +257,13 @@ abstract class CdpConsumerBase {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeAsyncResponses`,
             func: async () => {
-                this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
+                // NOTE: Disabled for now as it needs some rethinking
+                // this.hogWatcher.currentObservations.observeAsyncFunctionResponses(asyncResponses)
                 asyncResponses.forEach((x) => {
                     counterAsyncFunctionResponse.inc({
                         outcome: x.asyncFunctionResponse.error ? 'failed' : 'succeeded',
                     })
                 })
-
-                // Filter for blocked functions
-                const asyncResponsesToRun: HogFunctionInvocationAsyncResponse[] = []
-
-                for (const item of asyncResponses) {
-                    const functionState = this.hogWatcher.getFunctionState(item.hogFunctionId)
-
-                    if (functionState > HogWatcherState.disabledForPeriod) {
-                        this.produceAppMetric({
-                            team_id: item.teamId,
-                            app_source_id: item.hogFunctionId,
-                            metric_kind: 'failure',
-                            metric_name:
-                                functionState === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
-                            count: 1,
-                        })
-                        continue
-                    } else {
-                        asyncResponsesToRun.push(item)
-                    }
-                }
 
                 const invocationsWithResponses: [HogFunctionInvocation, HogFunctionAsyncFunctionResponse][] = []
 
