@@ -4,6 +4,7 @@ resolver = "2"
 members = [
   "capture",
   "common/health",
+  "common/metrics",
   "feature-flags",
   "hook-api",
   "hook-common",
@@ -11,6 +12,7 @@ members = [
   "hook-worker",
   "cyclotron-core",
   "cyclotron-node",
+  "cyclotron-janitor",
 ]
 
 [workspace.lints.rust]

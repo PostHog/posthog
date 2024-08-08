@@ -702,6 +702,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "tokio",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -824,7 +834,6 @@ dependencies = [
 name = "cyclotron-core"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "futures",
  "rand",
@@ -832,6 +841,24 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "cyclotron-janitor"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "common-metrics",
+ "cyclotron-core",
+ "envconfig",
+ "eyre",
+ "futures",
+ "health",
+ "metrics",
+ "sqlx",
  "tokio",
  "tracing",
  "uuid",
@@ -1500,6 +1527,7 @@ name = "hook-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
+ "common-metrics",
  "envconfig",
  "eyre",
  "hook-common",
@@ -1547,6 +1575,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum 0.7.5",
+ "common-metrics",
  "envconfig",
  "eyre",
  "futures",
@@ -1570,6 +1599,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-metrics",
  "envconfig",
  "futures",
  "health",

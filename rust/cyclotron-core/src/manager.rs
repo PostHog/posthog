@@ -53,6 +53,6 @@ impl QueueManager {
         let shards = self.shards.read().await;
         let shard = &shards[next % shards.len()];
 
-        Ok(create_job(shard, init).await?)
+        create_job(shard, init).await
     }
 }

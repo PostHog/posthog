@@ -2,6 +2,7 @@
 
 
 -- These are just a starting point, supporting overriding the state for a given team, function or queue
+-- For now these are entirely unused
 CREATE TABLE IF NOT EXISTS cyclotron_team_control (
     team_id INT PRIMARY KEY,
     state_override JobState, -- If this is not null, it overrides the state of all jobs for this team (allowing for e.g. pausing or force failing all of a teams jobs)

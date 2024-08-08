@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use crate::{
     base_ops::{
-        dequeue_jobs, dequeue_with_vm_state, flush_job, Job, JobState, JobUpdate, WaitingOn,
+        dequeue_jobs, dequeue_with_vm_state, flush_job, set_heartbeat, Job, JobState, JobUpdate,
+        WaitingOn,
     },
     error::QueueError,
     PoolConfig,
@@ -52,6 +53,9 @@ impl Worker {
         }
     }
 
+    /// Dequeues jobs from the queue, and returns them. Job sorting happens at the queue level,
+    /// workers can't provide any filtering or sorting criteria - queue managers decide which jobs are run,
+    /// workers just run them.
     pub async fn dequeue_jobs(
         &self,
         queue: &str,
@@ -62,15 +66,18 @@ impl Worker {
 
         let mut pending = self.pending.lock().unwrap();
         for job in &jobs {
-            // This lets us know that if we receive an update piece for a job, and that
-            // job isn't in our pending queue, that's due to some programming error, and
-            // we can return an error to the user
-            pending.insert(job.id, Default::default());
+            // We need to hang onto the locks for a job until we flush it, so we can send updates.
+            let update = JobUpdate::new(
+                job.lock_id
+                    .expect("Yell at oliver that the dequeuing code is broken. He's very sorry that your process just panicked"),
+            );
+            pending.insert(job.id, update);
         }
 
         Ok(jobs)
     }
 
+    /// This is the same as dequeue_jobs, but it also returns the vm_state of the job
     pub async fn dequeue_with_vm_state(
         &self,
         queue: &str,
@@ -81,12 +88,24 @@ impl Worker {
 
         let mut pending = self.pending.lock().unwrap();
         for job in &jobs {
-            pending.insert(job.id, Default::default());
+            // We need to hang onto the locks for a job until we flush it, so we can send updates.
+            let update = JobUpdate::new(
+                job.lock_id
+                    .expect("Yell at oliver that the dequeuing (with vm) code is broken. He's very sorry that your process just panicked"),
+            );
+            pending.insert(job.id, update);
         }
 
         Ok(jobs)
     }
 
+    /// NOTE - This function can only be called once, even though the underlying
+    /// basic operation can be performed as many times as the caller likes (so long as
+    /// the job state is never set to something other than running, as that clears the
+    /// job lock). We're more strict here (flushes can only happen once, you must
+    /// flush some non-running state) to try and enforce a good interaction
+    /// pattern with the queue. I might return to this and loosen this constraint in the
+    /// future, if there's a motivating case for needing to flush partial job updates.
     pub async fn flush_job(&self, job_id: Uuid) -> Result<(), QueueError> {
         // TODO - this drops the job from the known jobs before the flush succeeds,
         // which means that if the flush fails, we'll lose the job and can never
@@ -101,17 +120,37 @@ impl Worker {
             // It's a programming error to flush a job without setting a new state
             match update.state {
                 Some(JobState::Running) | None => {
-                    pending.insert(job_id, update); // Keep track of any /other/ updates that might have been stored, even in this case
+                    // Keep track of any /other/ updates that might have been stored, even in this case,
+                    // so a user can queue up the appropriate state transition and flush properly
+                    pending.insert(job_id, update);
                     return Err(QueueError::FlushWithoutNextState(job_id));
                 }
-                _ => {}
+                _ => update,
             }
-            update
         };
         let mut connection = self.pool.acquire().await?;
-        Ok(flush_job(connection.as_mut(), job_id, update).await?)
+        flush_job(connection.as_mut(), job_id, update).await
     }
 
+    /// Jobs are reaped after some seconds (the number is deployment specific, and may become
+    /// specific on job properties like queue name or waiting_on in the future, as we figure out
+    /// what /kinds/ of jobs are longer or shorter running). A job is considered "dead" if it's
+    /// in a running state, and it's last heartbeat was more than the reaping time ago. This,
+    /// like flush, returns an error if you try to set the heartbeat on a job whose lock you
+    /// don't have (which can happen if e.g. the job was reaped out from under you).
+    pub async fn heartbeat(&self, job_id: Uuid) -> Result<(), QueueError> {
+        let lock_id = {
+            let pending = self.pending.lock().unwrap();
+            pending
+                .get(&job_id)
+                .ok_or(QueueError::UnknownJobId(job_id))?
+                .lock_id
+        };
+        let mut connection = self.pool.acquire().await?;
+        set_heartbeat(connection.as_mut(), job_id, lock_id).await
+    }
+
+    /// This is how you "return" a job to the queue, by setting the state to "available"
     pub fn set_state(&self, job_id: Uuid, state: JobState) -> Result<(), QueueError> {
         let mut pending = self.pending.lock().unwrap();
         pending
@@ -139,6 +178,8 @@ impl Worker {
         Ok(())
     }
 
+    /// Jobs are dequeued lowest-priority-first, so this is how you change the "base" priority of a job
+    /// (control tables may apply further deltas if e.g. a given function is in a degraded state)
     pub fn set_priority(&self, job_id: Uuid, priority: i16) -> Result<(), QueueError> {
         let mut pending = self.pending.lock().unwrap();
         pending
@@ -148,6 +189,9 @@ impl Worker {
         Ok(())
     }
 
+    /// This is how you do e.g. retries after some time, by setting the scheduled time
+    /// to some time in the future. Sleeping, retry backoff, scheduling - it's all the same operation,
+    /// this one.
     pub fn set_scheduled_at(
         &self,
         job_id: Uuid,
@@ -161,6 +205,7 @@ impl Worker {
         Ok(())
     }
 
+    /// Passing None here will clear the vm_state
     pub fn set_vm_state(
         &self,
         job_id: Uuid,
@@ -174,6 +219,7 @@ impl Worker {
         Ok(())
     }
 
+    /// Passing None here will clear the metadata
     pub fn set_metadata(&self, job_id: Uuid, metadata: Option<String>) -> Result<(), QueueError> {
         let mut pending = self.pending.lock().unwrap();
         pending
@@ -183,6 +229,7 @@ impl Worker {
         Ok(())
     }
 
+    /// Passing None here will clear the parameters
     pub fn set_parameters(
         &self,
         job_id: Uuid,

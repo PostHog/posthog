@@ -1027,7 +1027,7 @@ mod tests {
             .unwrap()
             .as_array()
             .unwrap()
-            .get(0)
+            .first()
             .unwrap();
         first_timing
             .get("duration_ms")
@@ -1143,7 +1143,7 @@ mod tests {
             .unwrap()
             .as_array()
             .unwrap()
-            .get(0)
+            .first()
             .unwrap();
         first_timing
             .get("duration_ms")
@@ -1256,8 +1256,7 @@ mod tests {
 
         let err = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
             .await
-            .err()
-            .expect("request didn't fail when it should have failed");
+            .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {
@@ -1282,8 +1281,7 @@ mod tests {
 
         let err = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
             .await
-            .err()
-            .expect("request didn't fail when it should have failed");
+            .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {
@@ -1310,8 +1308,7 @@ mod tests {
 
         let err = send_webhook(filtering_client, &method, url, &headers, body.to_owned())
             .await
-            .err()
-            .expect("request didn't fail when it should have failed");
+            .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {

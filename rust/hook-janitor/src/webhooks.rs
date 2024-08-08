@@ -17,10 +17,10 @@ use tracing::{debug, error, info};
 
 use crate::cleanup::Cleaner;
 
+use common_metrics::get_current_timestamp_seconds;
 use hook_common::kafka_messages::app_metrics::{AppMetric, AppMetricCategory};
 use hook_common::kafka_messages::app_metrics2::{self, AppMetric2};
 use hook_common::kafka_producer::KafkaContext;
-use hook_common::metrics::get_current_timestamp_seconds;
 
 #[derive(Error, Debug)]
 pub enum WebhookCleanerError {
@@ -1080,7 +1080,7 @@ mod tests {
             let mut conn = db.acquire().await.unwrap();
             let count: i64 =
                 sqlx::query("SELECT count(*) FROM job_queue WHERE status = $1::job_status")
-                    .bind(&status)
+                    .bind(status)
                     .fetch_one(&mut *conn)
                     .await
                     .unwrap()
@@ -1105,7 +1105,7 @@ mod tests {
         {
             // The fixtures include an available job, so let's complete it while the txn is open.
             let mut batch: PgTransactionBatch<'_, WebhookJobParameters, WebhookJobMetadata> = queue
-                .dequeue_tx(&"worker_id", 1)
+                .dequeue_tx("worker_id", 1)
                 .await
                 .expect("failed to dequeue job")
                 .expect("didn't find a job to dequeue");
@@ -1130,10 +1130,10 @@ mod tests {
                 plugin_id: 2,
                 plugin_config_id: 3,
             };
-            let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
+            let new_job = NewJob::new(1, job_metadata, job_parameters, "target");
             queue.enqueue(new_job).await.expect("failed to enqueue job");
             let mut batch: PgTransactionBatch<'_, WebhookJobParameters, WebhookJobMetadata> = queue
-                .dequeue_tx(&"worker_id", 1)
+                .dequeue_tx("worker_id", 1)
                 .await
                 .expect("failed to dequeue job")
                 .expect("didn't find a job to dequeue");
@@ -1158,7 +1158,7 @@ mod tests {
                 plugin_id: 2,
                 plugin_config_id: 3,
             };
-            let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
+            let new_job = NewJob::new(1, job_metadata, job_parameters, "target");
             queue.enqueue(new_job).await.expect("failed to enqueue job");
         }
 

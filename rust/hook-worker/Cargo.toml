@@ -25,6 +25,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { version = "2.2" }
+common-metrics = { path = "../common/metrics" }
 
 [dev-dependencies]
 httpmock = { workspace = true }

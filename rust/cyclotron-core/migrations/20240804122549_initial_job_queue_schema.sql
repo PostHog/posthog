@@ -17,22 +17,37 @@ CREATE TYPE WaitingOn AS ENUM(
     'hog'
 );
 
--- TODO - add worker id and heartbeat
+-- The locking behaviour deserves some explanation. When a job is dequeued, it is locked by generating a UUID
+-- and returning it to the dequeuing worker. Any worker that can't provide the correct lock_id when updating
+-- will have their updates rejected. The reason this is important is because if, e.g., a worker holds a job
+-- in a running state without updating the heartbeat, the janitor will return the job to the queue eventually,
+-- and if the worker /then/ tries to update the job after another worker has picked it up, that's a race. We
+-- track transition count and times alongside lock_id's and heartbeats for reporting and debugging purposes,
+-- and we track the number of times the janitor has touched a job to spot poison pills.
+
 CREATE TABLE IF NOT EXISTS cyclotron_jobs (
+-- Job metadata - fixed
     id UUID PRIMARY KEY,
     team_id INT NOT NULL,
-    state JobState NOT NULL,
-    waiting_on WaitingOn NOT NULL,
-    queue_name TEXT NOT NULL,
-    priority SMALLINT NOT NULL,
     function_id UUID,
     created TIMESTAMPTZ NOT NULL,
-    last_transition TIMESTAMPTZ NOT NULL,
-    scheduled TIMESTAMPTZ NOT NULL,
+-- Queue bookkeeping - invisible to the worker
+    lock_id UUID, -- This is set when a job is in a running state, and is required to update the job.
+    last_heartbeat TIMESTAMPTZ, -- This is updated by the worker to indicate that the job is making forward progress even without transitions (and should not be reaped)
+    janitor_touch_count SMALLINT NOT NULL,
     transition_count SMALLINT NOT NULL,
+    last_transition TIMESTAMPTZ NOT NULL,
+-- "Virtual queue" components - roughly what determines which workers will consume this job
+    queue_name TEXT NOT NULL,
+    waiting_on WaitingOn NOT NULL,
+-- Job availability and priority (can this job be dequeued, and in what order?)
+    state JobState NOT NULL,
+    scheduled TIMESTAMPTZ NOT NULL,
+    priority SMALLINT NOT NULL,
+-- Job data
     vm_state TEXT,
-    metadata TEXT,
-    parameters TEXT
+    metadata TEXT, -- This is meant for workers "talking to themselves", e.g. tracking retries or something
+    parameters TEXT -- This is meant for "the next guy" - hog might fill it with a URL to fetch, for example
 );
 
 -- For a given worker, the set of "available" jobs depends on state, waiting_on, queue_name,

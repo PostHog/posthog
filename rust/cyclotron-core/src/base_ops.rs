@@ -6,7 +6,13 @@ use std::str::FromStr;
 
 use chrono::{self, DateTime, Utc};
 use serde::{self, Deserialize, Serialize};
+use sqlx::{
+    postgres::{PgArguments, PgQueryResult},
+    query::Query,
+};
 use uuid::Uuid;
+
+use crate::error::QueueError;
 
 #[derive(Debug, Deserialize, Serialize, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
@@ -33,7 +39,7 @@ impl FromStr for JobState {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::Type, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type, Copy, Clone, Eq, PartialEq, Hash)]
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "WaitingOn", rename_all = "lowercase")]
 pub enum WaitingOn {
@@ -76,23 +82,37 @@ pub struct JobInit {
 // it too much up front.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Job {
+    // Job metadata
     pub id: Uuid,
     pub team_id: i32,
-    pub state: JobState,
-    pub waiting_on: WaitingOn,
-    pub queue_name: String, // We can have multiple "virtual queues" workers pull from
-    pub priority: i16,      // For sorting "available" jobs. Lower is higher priority
     pub function_id: Option<Uuid>, // Some jobs might not come from hog, and it doesn't /kill/ use to support that
     pub created: DateTime<Utc>,
-    pub last_transition: DateTime<Utc>, // Last time the state of this job changed (since we transition to running on fetch)
-    pub scheduled: DateTime<Utc>, // The next time this job is available to be picked up by a worker (for e.g. sleeping or retry backoff)
-    pub transition_count: i16, // Number of times the state of this job has changed (so e.g. we can limit number of fetches a single function does, for example)
+
+    // Queue bookkeeping
+    // This will be set for any worker that ever has a job in the "running" state (so any worker that dequeues a job)
+    // but I don't want to do the work to encode that in the type system right now - later it should be
+    pub lock_id: Option<Uuid>,
+    pub last_heartbeat: Option<DateTime<Utc>>,
+    pub janitor_touch_count: i16,
+    pub transition_count: i16,
+    pub last_transition: DateTime<Utc>,
+
+    // Virtual queue components
+    pub queue_name: String, // We can have multiple "virtual queues" workers pull from
+    pub waiting_on: WaitingOn,
+
+    // Job availability
+    pub state: JobState,
+    pub priority: i16, // For sorting "available" jobs. Lower is higher priority
+    pub scheduled: DateTime<Utc>,
+
+    // Job data
     pub vm_state: Option<String>, // The state of the VM this job is running on (if it exists)
     pub metadata: Option<String>, // Additional fields a worker can tack onto a job, for e.g. tracking some state across retries (or number of retries in general by a given class of worker)
     pub parameters: Option<String>, // The actual parameters of the job (function args for a hog function, http request for a fetch function)
 }
 
-pub async fn create_job<'c, E>(executor: E, data: JobInit) -> Result<(), sqlx::Error>
+pub async fn create_job<'c, E>(executor: E, data: JobInit) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -100,22 +120,42 @@ where
     sqlx::query!(
         r#"
 INSERT INTO cyclotron_jobs
-    (id, team_id, state, waiting_on, queue_name, priority, function_id, created, last_transition, scheduled, transition_count, vm_state, metadata, parameters)
+    (
+        id,
+        team_id,
+        function_id,
+        created,
+        lock_id,
+        last_heartbeat,
+        janitor_touch_count,
+        transition_count,
+        last_transition,
+        queue_name,
+        waiting_on,
+        state,
+        scheduled,
+        priority,
+        vm_state,
+        metadata,
+        parameters
+    )
 VALUES
-    ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, 0, $9, $10, $11)
+    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10, $11)
     "#,
         id,
         data.team_id,
-        JobState::Available as _, // sqlx requires this for inserting custom types
-        data.waiting_on as _, // as above
-        data.queue_name,
-        data.priority,
         data.function_id,
+        data.queue_name,
+        data.waiting_on as _,
+        JobState::Available as _,
         data.scheduled,
+        data.priority,
         data.vm_state,
         data.metadata,
-        data.parameters,
-    ).execute(executor).await?;
+        data.parameters
+    )
+    .execute(executor)
+    .await?;
 
     Ok(())
 }
@@ -126,11 +166,17 @@ pub async fn dequeue_jobs<'c, E>(
     queue: &str,
     worker_type: WaitingOn,
     max: usize,
-) -> Result<Vec<Job>, sqlx::Error>
+) -> Result<Vec<Job>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query_as!(
+    // TODO - right now, locks are completely transient. We could instead have the lock_id act like a
+    // "worker_id", and be provided by the caller, which would let workers do less bookkeeping, and make
+    // some kinds of debugging easier, but I prefer locks being opaque to workers for now, to avoid any
+    // confusion or potential for accidental deadlocking (e.g. if someone persisted the worker_id across
+    // process restarts).
+    let lock_id = Uuid::now_v7();
+    Ok(sqlx::query_as!(
         Job,
         r#"
 WITH available AS (
@@ -152,6 +198,8 @@ WITH available AS (
 UPDATE cyclotron_jobs
 SET
     state = 'running'::JobState,
+    lock_id = $4,
+    last_heartbeat = NOW(),
     last_transition = NOW(),
     transition_count = transition_count + 1
 FROM available
@@ -171,14 +219,18 @@ RETURNING
     transition_count,
     NULL as vm_state,
     metadata,
-    parameters
+    parameters,
+    lock_id,
+    last_heartbeat,
+    janitor_touch_count
     "#,
         worker_type as _,
         queue,
         max as i64,
+        lock_id
     )
     .fetch_all(executor)
-    .await
+    .await?)
 }
 
 // Dequeue a batch of jobs, also returning their VM state. This is an optimisation - you could
@@ -189,11 +241,12 @@ pub async fn dequeue_with_vm_state<'c, E>(
     queue: &str,
     worker_type: WaitingOn,
     max: usize,
-) -> Result<Vec<Job>, sqlx::Error>
+) -> Result<Vec<Job>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query_as!(
+    let lock_id = Uuid::now_v7();
+    Ok(sqlx::query_as!(
         Job,
         r#"
 WITH available AS (
@@ -215,6 +268,8 @@ WITH available AS (
 UPDATE cyclotron_jobs
 SET
     state = 'running'::JobState,
+    lock_id = $4,
+    last_heartbeat = NOW(),
     last_transition = NOW(),
     transition_count = transition_count + 1
 FROM available
@@ -234,19 +289,28 @@ RETURNING
     transition_count,
     vm_state,
     metadata,
-    parameters
+    parameters,
+    lock_id,
+    last_heartbeat,
+    janitor_touch_count
     "#,
         worker_type as _,
         queue,
         max as i64,
+        lock_id
     )
     .fetch_all(executor)
-    .await
+    .await?)
 }
 
 // Grab a jobs VM state - for workers that might sometimes need a jobs vm state, but not always,
-// this lets them use dequeue_jobs, and then fetch the states they need
-pub async fn get_vm_state<'c, E>(executor: E, job_id: Uuid) -> Result<Option<String>, sqlx::Error>
+// this lets them use dequeue_jobs, and then fetch the states they need. VM state can only be retrieved
+// by workers holding a job lock
+pub async fn get_vm_state<'c, E>(
+    executor: E,
+    job_id: Uuid,
+    lock_id: Uuid,
+) -> Result<Option<String>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -257,8 +321,9 @@ where
     // We use fetch_on here because giving us an unknown ID is an error
     let res = sqlx::query_as!(
         VMState,
-        "SELECT vm_state FROM cyclotron_jobs WHERE id = $1",
-        job_id
+        "SELECT vm_state FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2",
+        job_id,
+        lock_id
     )
     .fetch_one(executor)
     .await?;
@@ -268,8 +333,9 @@ where
 
 // A struct representing a set of updates for a job. Outer none values mean "don't update this field",
 // with nested none values meaning "set this field to null" for nullable fields
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct JobUpdate {
+    pub lock_id: Uuid, // The ID of the lock acquired when this worker dequeued the job, required for any update to be valid
     pub state: Option<JobState>,
     pub waiting_on: Option<WaitingOn>,
     pub queue_name: Option<String>,
@@ -280,51 +346,88 @@ pub struct JobUpdate {
     pub parameters: Option<Option<String>>,
 }
 
+impl JobUpdate {
+    pub fn new(lock_id: Uuid) -> Self {
+        Self {
+            lock_id,
+            state: None,
+            waiting_on: None,
+            queue_name: None,
+            priority: None,
+            scheduled: None,
+            vm_state: None,
+            metadata: None,
+            parameters: None,
+        }
+    }
+}
+
 // TODO - I should think about a bulk-flush interface at /some/ point, although we expect jobs to be
 // high variance with respect to work time, so maybe that wouldn't be that useful in the end.
 // TODO - this isn't the cheapest way to update a row in a table... I could probably do better by instead
 // using a query builder, but I wanted sqlx's nice macro handling, at least while iterating on the schema.
 // If/when we start hitting perf issues, this is a good place to start.
+// NOTE - this function permits multiple flushes to the same job, without losing the lock on it, but
+// high level implementations are recommended to avoid this - ideally, for every de/requeue, there should be
+// exactly 2 database operations.
 pub async fn flush_job<'c, C>(
     connection: &mut C,
     job_id: Uuid,
     updates: JobUpdate,
-) -> Result<(), sqlx::Error>
+) -> Result<(), QueueError>
 where
     C: sqlx::Connection<Database = sqlx::Postgres>,
 {
     let mut txn = connection.begin().await?;
 
+    // Flushing any job state except "running" is a signal that the worker no longer holds this job
+    let job_returned = !matches!(updates.state, Some(JobState::Running));
+    let lock_id = updates.lock_id;
+
     if let Some(state) = updates.state {
-        set_state(&mut *txn, job_id, state).await?;
+        set_state(&mut *txn, job_id, updates.lock_id, state).await?;
     }
 
     if let Some(waiting_on) = updates.waiting_on {
-        set_waiting_on(&mut *txn, job_id, waiting_on).await?;
+        set_waiting_on(&mut *txn, job_id, waiting_on, lock_id).await?;
     }
 
     if let Some(queue_name) = updates.queue_name {
-        set_queue(&mut *txn, job_id, &queue_name).await?;
+        set_queue(&mut *txn, job_id, &queue_name, lock_id).await?;
     }
 
     if let Some(priority) = updates.priority {
-        set_priority(&mut *txn, job_id, priority).await?;
+        set_priority(&mut *txn, job_id, lock_id, priority).await?;
     }
 
     if let Some(scheduled) = updates.scheduled {
-        set_scheduled(&mut *txn, job_id, scheduled).await?;
+        set_scheduled(&mut *txn, job_id, scheduled, lock_id).await?;
     }
 
     if let Some(vm_state) = updates.vm_state {
-        set_vm_state(&mut *txn, job_id, vm_state).await?;
+        set_vm_state(&mut *txn, job_id, vm_state, lock_id).await?;
     }
 
     if let Some(metadata) = updates.metadata {
-        set_metadata(&mut *txn, job_id, metadata).await?;
+        set_metadata(&mut *txn, job_id, metadata, lock_id).await?;
     }
 
     if let Some(parameters) = updates.parameters {
-        set_parameters(&mut *txn, job_id, parameters).await?;
+        set_parameters(&mut *txn, job_id, parameters, lock_id).await?;
+    }
+
+    // Calling flush indicates forward progress, so we should touch the heartbeat
+    set_heartbeat(&mut *txn, job_id, lock_id).await?;
+
+    // We do this here, instead of in the set_state call, because otherwise the lock_id passed to other
+    // updates would be invalid
+    if job_returned {
+        let query = sqlx::query!(
+            "UPDATE cyclotron_jobs SET lock_id = NULL, last_heartbeat = NULL WHERE id = $1 AND lock_id = $2",
+            job_id,
+            lock_id
+        );
+        assert_does_update(&mut *txn, job_id, lock_id, query).await?;
     }
 
     txn.commit().await?;
@@ -332,151 +435,189 @@ where
     Ok(())
 }
 
-// Most of the rest of these functions are designed to be used as part of larger transactions, e.g.
-// "completing" a job means updating various rows and then marking it complete, and we can build that
-// by composing a set of individual queries together using a transaction.
-
-// Update the state of a job, also tracking the transition count and last transition time
-pub async fn set_state<'c, E>(executor: E, job_id: Uuid, state: JobState) -> Result<(), sqlx::Error>
+// Simple wrapper, that just executes a query and throws an error if no rows were affected
+async fn assert_does_update<'c, E>(
+    executor: E,
+    job_id: Uuid,
+    lock_id: Uuid,
+    query: Query<'_, sqlx::Postgres, PgArguments>,
+) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
-        "UPDATE cyclotron_jobs SET state = $1, last_transition = NOW(), transition_count = transition_count + 1 WHERE id = $2",
-        state as _,
-        job_id
-    )
-    .execute(executor)
-    .await?;
+    let res = query.execute(executor).await?;
+    throw_if_no_rows(res, job_id, lock_id)
+}
 
-    Ok(())
+// Most of the rest of these functions are designed to be used as part of larger transactions, e.g.
+// "completing" a job means updating various rows and then marking it complete, and we can build that
+// by composing a set of individual queries together using a transaction.
+// Update the state of a job, also tracking the transition count and last transition time
+pub async fn set_state<'c, E>(
+    executor: E,
+    job_id: Uuid,
+    lock_id: Uuid,
+    state: JobState,
+) -> Result<(), QueueError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET state = $1, last_transition = NOW(), transition_count = transition_count + 1 WHERE id = $2 AND lock_id = $3",
+        state as _,
+        job_id,
+        lock_id
+    );
+
+    assert_does_update(executor, job_id, lock_id, q).await
 }
 
 pub async fn set_waiting_on<'c, E>(
     executor: E,
     job_id: Uuid,
     waiting_on: WaitingOn,
-) -> Result<(), sqlx::Error>
+    lock_id: Uuid,
+) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
-        "UPDATE cyclotron_jobs SET waiting_on = $1 WHERE id = $2",
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET waiting_on = $1 WHERE id = $2 AND lock_id = $3",
         waiting_on as _,
-        job_id
-    )
-    .execute(executor)
-    .await?;
-
-    Ok(())
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
 }
 
-pub async fn set_queue<'c, E>(executor: E, job_id: Uuid, queue: &str) -> Result<(), sqlx::Error>
+pub async fn set_queue<'c, E>(
+    executor: E,
+    job_id: Uuid,
+    queue: &str,
+    lock_id: Uuid,
+) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
-        "UPDATE cyclotron_jobs SET queue_name = $1 WHERE id = $2",
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET queue_name = $1 WHERE id = $2 AND lock_id = $3",
         queue,
-        job_id
-    )
-    .execute(executor)
-    .await?;
-
-    Ok(())
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
 }
 
 pub async fn set_priority<'c, E>(
     executor: E,
     job_id: Uuid,
+    lock_id: Uuid,
     priority: i16,
-) -> Result<(), sqlx::Error>
+) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
-        "UPDATE cyclotron_jobs SET priority = $1 WHERE id = $2",
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET priority = $1 WHERE id = $2 AND lock_id = $3",
         priority,
-        job_id
-    )
-    .execute(executor)
-    .await?;
-
-    Ok(())
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
 }
 
 pub async fn set_scheduled<'c, E>(
     executor: E,
     job_id: Uuid,
     scheduled: DateTime<Utc>,
-) -> Result<(), sqlx::Error>
+    lock_id: Uuid,
+) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
-        "UPDATE cyclotron_jobs SET scheduled = $1 WHERE id = $2",
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET scheduled = $1 WHERE id = $2 AND lock_id = $3",
         scheduled,
-        job_id
-    )
-    .execute(executor)
-    .await?;
-
-    Ok(())
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
 }
 
 pub async fn set_vm_state<'c, E>(
     executor: E,
     job_id: Uuid,
     vm_state: Option<String>,
-) -> Result<(), sqlx::Error>
+    lock_id: Uuid,
+) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
-        "UPDATE cyclotron_jobs SET vm_state = $1 WHERE id = $2",
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET vm_state = $1 WHERE id = $2 AND lock_id = $3",
         vm_state,
-        job_id
-    )
-    .execute(executor)
-    .await?;
-
-    Ok(())
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
 }
 
 pub async fn set_metadata<'c, E>(
     executor: E,
     job_id: Uuid,
     metadata: Option<String>,
-) -> Result<(), sqlx::Error>
+    lock_id: Uuid,
+) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
-        "UPDATE cyclotron_jobs SET metadata = $1 WHERE id = $2",
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET metadata = $1 WHERE id = $2 AND lock_id = $3",
         metadata,
-        job_id
-    )
-    .execute(executor)
-    .await?;
-
-    Ok(())
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
 }
 
 pub async fn set_parameters<'c, E>(
     executor: E,
     job_id: Uuid,
     parameters: Option<String>,
-) -> Result<(), sqlx::Error>
+    lock_id: Uuid,
+) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
-        "UPDATE cyclotron_jobs SET parameters = $1 WHERE id = $2",
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET parameters = $1 WHERE id = $2 AND lock_id = $3",
         parameters,
-        job_id
-    )
-    .execute(executor)
-    .await?;
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
+}
 
-    Ok(())
+pub async fn set_heartbeat<'c, E>(
+    executor: E,
+    job_id: Uuid,
+    lock_id: Uuid,
+) -> Result<(), QueueError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    let q = sqlx::query!(
+        "UPDATE cyclotron_jobs SET last_heartbeat = NOW() WHERE id = $1 AND lock_id = $2",
+        job_id,
+        lock_id
+    );
+    assert_does_update(executor, job_id, lock_id, q).await
+}
+
+fn throw_if_no_rows(res: PgQueryResult, job: Uuid, lock: Uuid) -> Result<(), QueueError> {
+    if res.rows_affected() == 0 {
+        Err(QueueError::InvalidLock(lock, job))
+    } else {
+        Ok(())
+    }
 }

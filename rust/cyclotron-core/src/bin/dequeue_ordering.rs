@@ -13,11 +13,7 @@ use uuid::Uuid;
 #[tokio::main]
 async fn main() {
     let pool_config = PoolConfig {
-        host: "localhost".to_string(),
-        port: 5432,
-        user: "posthog".to_string(),
-        password: "posthog".to_string(),
-        db: "posthog".to_string(),
+        db_url: "postgresql://posthog:posthog@localhost:5432/cyclotron".to_string(),
         max_connections: None,
         min_connections: None,
         acquire_timeout_seconds: None,
