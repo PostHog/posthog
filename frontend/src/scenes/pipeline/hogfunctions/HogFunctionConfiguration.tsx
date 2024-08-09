@@ -328,55 +328,67 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                         label: 'Run every time',
                                                     },
                                                     {
-                                                        value: 'unique_persons',
+                                                        value: 'all',
                                                         label: 'Run once per interval',
                                                     },
                                                     {
-                                                        value: 'unique_persons',
+                                                        value: '{person.id}',
                                                         label: 'Run once per person per interval',
                                                     },
                                                 ]}
+                                                value={value?.hash ?? null}
+                                                onChange={(val) =>
+                                                    onChange({
+                                                        hash: val,
+                                                        ttl: value?.ttl ?? 60 * 30,
+                                                    })
+                                                }
                                             />
-                                            <LemonSelect
-                                                options={[
-                                                    {
-                                                        value: 5 * 60,
-                                                        label: '5 minutes',
-                                                    },
-                                                    {
-                                                        value: 15 * 60,
-                                                        label: '15 minutes',
-                                                    },
-                                                    {
-                                                        value: 30 * 60,
-                                                        label: '30 minutes',
-                                                    },
-                                                    {
-                                                        value: 60 * 60,
-                                                        label: '1 hour',
-                                                    },
-                                                    {
-                                                        value: 2 * 60 * 60,
-                                                        label: '2 hours',
-                                                    },
-                                                    {
-                                                        value: 4 * 60 * 60,
-                                                        label: '4 hours',
-                                                    },
-                                                    {
-                                                        value: 8 * 60 * 60,
-                                                        label: '8 hours',
-                                                    },
-                                                    {
-                                                        value: 12 * 60 * 60,
-                                                        label: '12 hours',
-                                                    },
-                                                    {
-                                                        value: 24 * 60 * 60,
-                                                        label: '24 hours',
-                                                    },
-                                                ]}
-                                            />
+
+                                            {value?.hash ? (
+                                                <LemonSelect
+                                                    value={value?.ttl}
+                                                    onChange={(val) => onChange({ ...value, ttl: val })}
+                                                    options={[
+                                                        {
+                                                            value: 5 * 60,
+                                                            label: '5 minutes',
+                                                        },
+                                                        {
+                                                            value: 15 * 60,
+                                                            label: '15 minutes',
+                                                        },
+                                                        {
+                                                            value: 30 * 60,
+                                                            label: '30 minutes',
+                                                        },
+                                                        {
+                                                            value: 60 * 60,
+                                                            label: '1 hour',
+                                                        },
+                                                        {
+                                                            value: 2 * 60 * 60,
+                                                            label: '2 hours',
+                                                        },
+                                                        {
+                                                            value: 4 * 60 * 60,
+                                                            label: '4 hours',
+                                                        },
+                                                        {
+                                                            value: 8 * 60 * 60,
+                                                            label: '8 hours',
+                                                        },
+                                                        {
+                                                            value: 12 * 60 * 60,
+                                                            label: '12 hours',
+                                                        },
+                                                        {
+                                                            value: 24 * 60 * 60,
+                                                            label: '24 hours',
+                                                        },
+                                                    ]}
+                                                />
+                                            ) : null}
                                         </>
                                     )}
                                 </LemonField>

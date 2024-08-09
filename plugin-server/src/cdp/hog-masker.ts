@@ -67,9 +67,9 @@ export class HogMasker {
 
         // We find all functions that have a mask and we load their masking from redis
         invocationsWithMasker.forEach((item) => {
-            if (item.hogFunction.filters?.masking) {
+            if (item.hogFunction.masking) {
                 // TODO: Catch errors
-                const value = exec(item.hogFunction.filters.masking.bytecode, {
+                const value = exec(item.hogFunction.masking.bytecode, {
                     globals: item.globals,
                     timeout: 50,
                     maxAsyncSteps: 0,
@@ -83,7 +83,7 @@ export class HogMasker {
                     increment: 0,
                     ttl: Math.max(
                         MASKER_MIN_TTL,
-                        Math.min(MASKER_MAX_TTL, item.hogFunction.filters.masking.ttl ?? MASKER_MAX_TTL)
+                        Math.min(MASKER_MAX_TTL, item.hogFunction.masking.ttl ?? MASKER_MAX_TTL)
                     ),
                     allowedExecutions: 0,
                 }
