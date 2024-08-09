@@ -61,7 +61,7 @@ export function Max(): JSX.Element {
                             )}
                         >
                             {message.role === 'user' ? (
-                                <>{message.text || <i>No text</i>}</>
+                                <>{message.content || <i>No text</i>}</>
                             ) : (
                                 <AssistantMessage message={message} />
                             )}
