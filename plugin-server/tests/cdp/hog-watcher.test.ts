@@ -268,7 +268,7 @@ describe('HogWatcher', () => {
                 }
 
                 expect(mockStateChangeCallback).toHaveBeenCalledTimes(2)
-                expect(mockStateChangeCallback.mock.calls[0]).toEqual(["id1", HogWatcherState.disabledForPeriod])
+                expect(mockStateChangeCallback.mock.calls[0]).toEqual(['id1', HogWatcherState.disabledForPeriod])
                 expect(mockStateChangeCallback.mock.calls[1]).toEqual(['id1', HogWatcherState.disabledForPeriod])
 
                 await watcher.observeResults([createResult({ id: 'id1', error: 'error!' })])
