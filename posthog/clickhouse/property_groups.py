@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 import dataclasses
 from collections.abc import Mapping
@@ -9,8 +9,12 @@ from posthog import settings
 @dataclass
 class PropertyGroupDefinition:
     key_filter_expression: str
+    key_filter_function: Callable[[str], bool]
     codec: str = "ZSTD(1)"
     is_materialized: bool = True
+
+    def contains(self, property_key: str) -> bool:
+        return self.key_filter_function(property_key)
 
 
 TableName = str
@@ -29,6 +33,12 @@ class PropertyGroupManager:
 
     def __get_map_column_name(self, column: ColumnName, group_name: PropertyGroupName) -> str:
         return f"{column}_group_{group_name}"
+
+    def get_property_group_columns(self, table: TableName, column: ColumnName, property_key: str) -> Iterable[str]:
+        if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(column)):
+            for group_name, group_definition in column_groups.items():
+                if group_definition.contains(property_key):
+                    yield self.__get_map_column_name(column, group_name)
 
     def __get_column_definition(self, table: TableName, column: ColumnName, group_name: PropertyGroupName) -> str:
         group_definition = self.__groups[table][column][group_name]
@@ -104,9 +114,13 @@ ignore_custom_properties = [
 event_property_group_definitions = {
     "properties": {
         "custom": PropertyGroupDefinition(
-            f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")"
+            f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")",
+            lambda key: not key.startswith("$") and key not in ignore_custom_properties,
         ),
-        "feature_flags": PropertyGroupDefinition("key like '$feature/%'"),
+        "feature_flags": PropertyGroupDefinition(
+            "key like '$feature/%'",
+            lambda key: key.startswith("$feature/"),
+        ),
     }
 }
 
