@@ -17,8 +17,8 @@ async fn cleanup_loop(janitor: Janitor, livenes: HealthHandle, interval_secs: u6
         interval.tick().await;
 
         if let Err(e) = janitor.run_once().await {
+            // don't bother reporting unhealthy - a few times around this loop will put us in a stalled state
             error!("janitor failed cleanup with: {}", e);
-            livenes.report_healthy().await;
         } else {
             livenes.report_healthy().await;
         }
@@ -52,14 +52,19 @@ async fn index(State(janitor_id): State<JanitorId>) -> String {
 #[tokio::main]
 async fn main() {
     let config = Config::init_from_env().expect("failed to load configuration from env");
+    tracing_subscriber::fmt::init();
 
     let liveness = HealthRegistry::new("liveness");
 
     let janitor_config = config.get_janitor_config();
 
     let janitor_id = janitor_config.settings.id.clone();
+    let bind = format!("{}:{}", config.host, config.port);
 
-    info!("Starting janitor with ID {:?}", janitor_id);
+    info!(
+        "Starting janitor with ID {:?}, listening at {}",
+        janitor_id, bind
+    );
 
     let janitor = Janitor::new(janitor_config)
         .await
@@ -79,7 +84,6 @@ async fn main() {
     ));
 
     let app = setup_metrics_routes(app(liveness, janitor_id));
-    let bind = format!("{}:{}", config.host, config.port);
     let http_server = tokio::spawn(listen(app, bind));
 
     tokio::select! {

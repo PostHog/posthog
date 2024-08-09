@@ -7,7 +7,7 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-
+tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }
