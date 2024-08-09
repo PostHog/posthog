@@ -36,6 +36,7 @@ export type HogFunctionFiltersMasking = {
     ttl: number | null
     hash: string
     bytecode: HogBytecode
+    threshold: number | null
 }
 
 export interface HogFunctionFilters {

@@ -89,6 +89,7 @@ export class HogMasker {
                 }
 
                 masks[hashKey]!.increment++
+                item.masker = masks[hashKey]
             }
         })
 
@@ -102,7 +103,8 @@ export class HogMasker {
 
             Object.values(masks).forEach(({ hash, increment, ttl }) => {
                 pipeline.incrby(`${REDIS_KEY_TOKENS}/${hash}`, increment)
-                pipeline.expire(`${REDIS_KEY_TOKENS}/${hash}`, ttl, 'NX') // TODO: Typing of this
+                // @ts-expect-error - NX is not typed in ioredis
+                pipeline.expire(`${REDIS_KEY_TOKENS}/${hash}`, ttl, 'NX')
             })
 
             return await pipeline.exec()
@@ -116,21 +118,7 @@ export class HogMasker {
             if (fromRedis === masker.increment) {
                 masker.allowedExecutions = 1
             }
-
-            // If the fromRedis minus the increment is passing the threshold then we should allow one invocation
-            // TODO
         })
-
-        // return invocationsWithMasker.filter((item) => {
-        //     if (item.masker) {
-        //         if (item.masker.allowedExecutions > 0) {
-        //             item.masker.allowedExecutions--
-        //             return true
-        //         }
-        //         return false
-        //     }
-        //     return true
-        // })
 
         return invocationsWithMasker.reduce(
             (acc, item) => {

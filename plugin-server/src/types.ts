@@ -107,6 +107,9 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
+    CDP_REDIS_HOST: string
+    CDP_REDIS_PORT: number
+    CDP_REDIS_PASSWORD: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {

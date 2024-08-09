@@ -353,9 +353,7 @@ abstract class CdpConsumerBase {
 
                 const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
 
-                const overflowGlobalsAndFunctions: Record<string, HogFunctionOverflowedGlobals> = {}
-
-                const invocations = possibleInvocations.filter((item) => {
+                const notDisabledInvocations = possibleInvocations.filter((item) => {
                     const state = states[item.hogFunction.id].state
                     if (state >= HogWatcherState.disabledForPeriod) {
                         this.produceAppMetric({
@@ -371,6 +369,29 @@ abstract class CdpConsumerBase {
                         return false
                     }
 
+                    return true
+                })
+
+                // Now we can filter by masking configs
+                const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(
+                    notDisabledInvocations
+                )
+
+                masked.forEach((item) => {
+                    this.produceAppMetric({
+                        team_id: item.globals.project.id,
+                        app_source_id: item.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'masked',
+                        count: 1,
+                    })
+                })
+
+                const overflowGlobalsAndFunctions: Record<string, HogFunctionOverflowedGlobals> = {}
+
+                const notOverflowedInvocations = notMaskedInvocations.filter((item) => {
+                    const state = states[item.hogFunction.id].state
+
                     if (state === HogWatcherState.degraded) {
                         const key = `${item.globals.project.id}-${item.globals.event.uuid}`
                         overflowGlobalsAndFunctions[key] = overflowGlobalsAndFunctions[key] || {
@@ -380,7 +401,6 @@ abstract class CdpConsumerBase {
 
                         overflowGlobalsAndFunctions[key].hogFunctionIds.push(item.hogFunction.id)
                         counterFunctionInvocation.inc({ outcome: 'overflowed' }, 1)
-
                         return false
                     }
 
@@ -398,20 +418,8 @@ abstract class CdpConsumerBase {
                     })
                 })
 
-                const { masked, notMasked: validInvocations } = await this.hogMasker.filterByMasking(invocations)
-
-                masked.forEach((item) => {
-                    this.produceAppMetric({
-                        team_id: item.globals.project.id,
-                        app_source_id: item.hogFunction.id,
-                        metric_kind: 'other',
-                        metric_name: 'masked',
-                        count: 1,
-                    })
-                })
-
                 const results = (
-                    await this.runManyWithHeartbeat(validInvocations, (item) =>
+                    await this.runManyWithHeartbeat(notOverflowedInvocations, (item) =>
                         this.hogExecutor.executeFunction(item.globals, item.hogFunction)
                     )
                 ).filter((x) => !!x) as HogFunctionInvocationResult[]
