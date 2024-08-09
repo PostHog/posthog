@@ -37,7 +37,10 @@ ul {
 }
 
 // This may look odd but sets up our utility classes
-* {
+*,
+::after,
+::before {
+    box-sizing: border-box;
     border-color: var(--border);
     border-style: solid;
     border-width: 0;
@@ -333,7 +336,6 @@ input::-ms-clear {
     }
 }
 
-// AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
     // Remove below once we're using Tailwind's base
     --tw-ring-offset-width: 0px;
@@ -348,8 +350,13 @@ body {
     --tw-scale-x: 1;
     --tw-scale-y: 1;
 
+    font-family: -apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    font-size: 14px;
+    line-height: 1.5715;
+    color: var(--text-3000);
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-    background: var(--bg-3000);
+    background: var(--bg-light);
 
     &[theme='light'] {
         @include light-mode-3000-variables;
@@ -384,6 +391,7 @@ body {
     h3,
     h4,
     h5 {
+        margin-top: 0;
         font-family: var(--font-title);
     }
 
@@ -413,6 +421,23 @@ body {
 
     a {
         color: var(--link);
+    }
+
+    p {
+        margin-top: 0;
+        margin-bottom: 1em;
+    }
+
+    button,
+    input,
+    optgroup,
+    select,
+    textarea {
+        margin: 0;
+        font-family: inherit;
+        font-size: inherit;
+        line-height: inherit;
+        color: inherit;
     }
 
     .LemonButton,
