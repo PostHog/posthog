@@ -6,6 +6,7 @@ import { Pipeline, Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
+import { status } from '../utils/status'
 import { createRedisClient } from '../utils/utils'
 
 type WithCheckRateLimit<T> = {
@@ -114,7 +115,7 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
 
     const useClient: CdpRedis['useClient'] = async (options, callback) => {
         const timeout = timeoutGuard(
-            `Redis calll ${options.name} delayed. Waiting over 30 seconds.`,
+            `Redis call ${options.name} delayed. Waiting over 30 seconds.`,
             undefined,
             options.timeout
         )
@@ -126,6 +127,7 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
             if (options.failOpen) {
                 // We log the error and return null
                 captureException(e)
+                status.error(`Redis call${options.name} failed`, e)
                 return null
             }
             throw e
@@ -139,7 +141,10 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
         return useClient(options, async (client) => {
             const pipeline = client.pipeline()
             callback(pipeline)
-            return pipeline.exec()
+            return pipeline.exec().then((res) => {
+                console.log('pipelije done')
+                return res
+            })
         })
     }
 

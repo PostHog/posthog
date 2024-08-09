@@ -124,7 +124,8 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
         ...data,
         filters: data.filters ? sanitizeFilters(data.filters) : null,
         inputs: sanitizedInputs,
-        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+        masking: data.masking?.hash ? data.masking : null,
+        icon_url: data.icon_url,
     }
 
     return payload
