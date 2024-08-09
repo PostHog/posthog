@@ -435,6 +435,20 @@ class TupleType(ConstantType):
         return "Tuple"
 
 
+AnyConstantType = (
+    StringType
+    | BooleanType
+    | DateType
+    | DateTimeType
+    | UUIDType
+    | ArrayType
+    | TupleType
+    | UnknownType
+    | IntegerType
+    | FloatType
+)
+
+
 @dataclass(kw_only=True)
 class CallType(Type):
     name: str

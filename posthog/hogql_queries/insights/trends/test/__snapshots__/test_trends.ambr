@@ -1616,7 +1616,7 @@
 # ---
 # name: TestTrends.test_non_deterministic_timezones
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-11-30 23:59:59', 6, 'US/Pacific')), 0))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0, 'US/Pacific'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0, 'US/Pacific'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-11-30 23:59:59', 6, 'US/Pacific')), 0, 'US/Pacific'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -1624,9 +1624,9 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfWeek(toTimeZone(e.timestamp, 'US/Pacific'), 0) AS day_start
+               toStartOfWeek(toTimeZone(e.timestamp, 'US/Pacific'), 0, 'US/Pacific') AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(parseDateTime64BestEffortOrNull('2022-11-30 23:59:59', 6, 'US/Pacific'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(parseDateTime64BestEffortOrNull('2022-11-30 23:59:59', 6, 'US/Pacific'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -2738,7 +2738,7 @@
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from
   '''
-  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC')), 'UTC'), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC')), 'UTC'), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC')), 'UTC'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2746,7 +2746,7 @@
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT e__pdi.person_id) AS total,
-               toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
+               toStartOfHour(toTimeZone(e.timestamp, 'UTC'), 'UTC') AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -2771,7 +2771,7 @@
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from.1
   '''
-  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC')), 'UTC'), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC')), 'UTC'), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC')), 'UTC'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2779,7 +2779,7 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
+               toStartOfHour(toTimeZone(e.timestamp, 'UTC'), 'UTC') AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
@@ -2797,7 +2797,7 @@
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
   '''
-  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix')), 'America/Phoenix'), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix')), 'America/Phoenix'), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix')), 'America/Phoenix'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2805,7 +2805,7 @@
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT e__pdi.person_id) AS total,
-               toStartOfHour(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
+               toStartOfHour(toTimeZone(e.timestamp, 'America/Phoenix'), 'America/Phoenix') AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -2830,7 +2830,7 @@
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
   '''
-  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix')), 'America/Phoenix'), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix')), 'America/Phoenix'), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix')), 'America/Phoenix'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2838,7 +2838,7 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfHour(toTimeZone(e.timestamp, 'America/Phoenix')) AS day_start
+               toStartOfHour(toTimeZone(e.timestamp, 'America/Phoenix'), 'America/Phoenix') AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
@@ -2856,7 +2856,7 @@
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
   '''
-  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo')), 'Asia/Tokyo'), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo')), 'Asia/Tokyo'), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo')), 'Asia/Tokyo'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2864,7 +2864,7 @@
             day_start AS day_start
      FROM
        (SELECT count(DISTINCT e__pdi.person_id) AS total,
-               toStartOfHour(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
+               toStartOfHour(toTimeZone(e.timestamp, 'Asia/Tokyo'), 'Asia/Tokyo') AS day_start
         FROM events AS e SAMPLE 1
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -2889,7 +2889,7 @@
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
   '''
-  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo')), 'Asia/Tokyo'), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo')), 'Asia/Tokyo'), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo')), 'Asia/Tokyo'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2897,7 +2897,7 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfHour(toTimeZone(e.timestamp, 'Asia/Tokyo')) AS day_start
+               toStartOfHour(toTimeZone(e.timestamp, 'Asia/Tokyo'), 'Asia/Tokyo') AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
@@ -2915,7 +2915,7 @@
 # ---
 # name: TestTrends.test_timezones_weekly
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0, 'UTC'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC')), 0, 'UTC'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2923,9 +2923,9 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
+               toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0, 'UTC') AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -2941,7 +2941,7 @@
 # ---
 # name: TestTrends.test_timezones_weekly.1
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC')), 3))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3, 'UTC'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC')), 3, 'UTC'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2949,9 +2949,9 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 3) AS day_start
+               toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 3, 'UTC') AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -2967,7 +2967,7 @@
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix')), 0))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0, 'America/Phoenix'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0, 'America/Phoenix'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix')), 0, 'America/Phoenix'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -2975,9 +2975,9 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 0) AS day_start
+               toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 0, 'America/Phoenix') AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0, 'America/Phoenix')), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -2993,7 +2993,7 @@
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc.1
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix')), 3))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3, 'America/Phoenix'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3, 'America/Phoenix'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix')), 3, 'America/Phoenix'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -3001,9 +3001,9 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 3) AS day_start
+               toStartOfWeek(toTimeZone(e.timestamp, 'America/Phoenix'), 3, 'America/Phoenix') AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3, 'America/Phoenix')), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -3019,7 +3019,7 @@
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo')), 0))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0, 'Asia/Tokyo'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo')), 0, 'Asia/Tokyo'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -3027,9 +3027,9 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 0) AS day_start
+               toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 0, 'Asia/Tokyo') AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0, 'Asia/Tokyo')), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -3045,7 +3045,7 @@
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc.1
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo')), 3))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3, 'Asia/Tokyo'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo')), 3, 'Asia/Tokyo'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -3053,9 +3053,9 @@
             day_start AS day_start
      FROM
        (SELECT count() AS total,
-               toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 3) AS day_start
+               toStartOfWeek(toTimeZone(e.timestamp, 'Asia/Tokyo'), 3, 'Asia/Tokyo') AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3)), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3, 'Asia/Tokyo')), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -4407,7 +4407,7 @@
 # ---
 # name: TestTrends.test_trends_with_hogql_math
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0, 'UTC'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -4415,9 +4415,9 @@
             day_start AS day_start
      FROM
        (SELECT plus(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'x'), ''), 'null'), '^"|"$', ''), 'Float64')), 1000) AS total,
-               toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
+               toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0, 'UTC') AS day_start
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -4483,7 +4483,7 @@
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
   '''
-  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0, 'UTC'))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                         and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
@@ -4494,16 +4494,16 @@
                day_start AS day_start
         FROM
           (SELECT any(e__session.`$session_duration`) AS session_duration,
-                  toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
+                  toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0, 'UTC') AS day_start
            FROM events AS e SAMPLE 1
            LEFT JOIN
              (SELECT dateDiff('second', min(toTimeZone(sessions.min_timestamp, 'UTC')), max(toTimeZone(sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC')), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start,
                     e.`$session_id`,
                     day_start)
@@ -4565,7 +4565,7 @@
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
-    (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
+    (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0, 'UTC'))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                            and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
@@ -4581,16 +4581,16 @@
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
-                     toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
+                     toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0, 'UTC') AS day_start
               FROM events AS e SAMPLE 1
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(sessions.min_timestamp, 'UTC')), max(toTimeZone(sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         sessions.session_id AS session_id
                  FROM sessions
-                 WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+                 WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC')), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
                  GROUP BY sessions.session_id,
                           sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-              WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+              WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY day_start,
                        e.`$session_id`,
                        breakdown_value,
@@ -4675,7 +4675,7 @@
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
-    (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
+    (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC'), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0, 'UTC'))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                            and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
@@ -4691,16 +4691,16 @@
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
                      ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-                     toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
+                     toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0, 'UTC') AS day_start
               FROM events AS e SAMPLE 1
               LEFT JOIN
                 (SELECT dateDiff('second', min(toTimeZone(sessions.min_timestamp, 'UTC')), max(toTimeZone(sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                         sessions.session_id AS session_id
                  FROM sessions
-                 WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+                 WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC')), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
                  GROUP BY sessions.session_id,
                           sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-              WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+              WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
               GROUP BY day_start,
                        e.`$session_id`,
                        breakdown_value_1,

@@ -951,6 +951,12 @@ class TestPrinter(BaseTest):
             f"concat('', %(hogql_val_0)s, toString(3), toString(4), '')",
         )
 
+    def test_typed_concat(self):
+        self.assertEqual(
+            self._expr("concat(toString(multiply(3, 4)), 'a')"),
+            f"concat(toString(multiply(3, 4)), %(hogql_val_0)s)",
+        )
+
     def test_concat_pipes(self):
         self.assertEqual(
             self._expr("'a' || 'b' || 3 || timestamp"),

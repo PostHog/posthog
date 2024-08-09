@@ -11,7 +11,7 @@ from posthog.hogql.ast import (
     StringType,
     TupleType,
     IntegerType,
-    UUIDType,
+    AnyConstantType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
 from posthog.hogql.errors import QueryError
@@ -43,18 +43,6 @@ def validate_function_args(
 
 
 Overload = tuple[tuple[type[ConstantType], ...] | type[ConstantType], str]
-AnyConstantType = (
-    StringType
-    | BooleanType
-    | DateType
-    | DateTimeType
-    | UUIDType
-    | ArrayType
-    | TupleType
-    | UnknownType
-    | IntegerType
-    | FloatType
-)
 
 
 @dataclass()
@@ -86,6 +74,8 @@ def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantTy
         _sig_arg_type = _sig_arg_types[index]
         if not isinstance(arg_type, _sig_arg_type.__class__):
             return False
+        if arg_type.nullable != _sig_arg_type.nullable:
+            return False
 
     return True
 
@@ -108,195 +98,557 @@ HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
 HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # arithmetic
     "plus": HogQLFunctionMeta(
-        "plus",
-        2,
-        2,
+        clickhouse_name="plus",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
             (
                 (
-                    TupleType(item_types=[IntegerType()], repeat=True),
-                    TupleType(item_types=[IntegerType()], repeat=True),
+                    IntegerType(nullable=True),
+                    IntegerType(nullable=True),
                 ),
-                TupleType(item_types=[IntegerType()], repeat=True),
+                IntegerType(nullable=True),
             ),
-            ((DateTimeType(), IntegerType()), DateTimeType()),
-            ((IntegerType(), DateTimeType()), DateTimeType()),
+            (
+                (
+                    IntegerType(nullable=True),
+                    IntegerType(nullable=False),
+                ),
+                IntegerType(nullable=True),
+            ),
+            (
+                (
+                    IntegerType(nullable=False),
+                    IntegerType(nullable=True),
+                ),
+                IntegerType(nullable=True),
+            ),
+            (
+                (
+                    IntegerType(nullable=False),
+                    IntegerType(nullable=False),
+                ),
+                IntegerType(nullable=False),
+            ),
+            (
+                (
+                    FloatType(nullable=True),
+                    FloatType(nullable=True),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    FloatType(nullable=True),
+                    FloatType(nullable=False),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    FloatType(nullable=False),
+                    FloatType(nullable=True),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    FloatType(nullable=False),
+                    FloatType(nullable=False),
+                ),
+                FloatType(nullable=False),
+            ),
+            (
+                (
+                    FloatType(nullable=True),
+                    IntegerType(nullable=True),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    FloatType(nullable=True),
+                    IntegerType(nullable=False),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    FloatType(nullable=False),
+                    IntegerType(nullable=True),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    FloatType(nullable=False),
+                    IntegerType(nullable=False),
+                ),
+                FloatType(nullable=False),
+            ),
+            (
+                (
+                    IntegerType(nullable=True),
+                    FloatType(nullable=True),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    IntegerType(nullable=True),
+                    FloatType(nullable=False),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    IntegerType(nullable=False),
+                    FloatType(nullable=True),
+                ),
+                FloatType(nullable=True),
+            ),
+            (
+                (
+                    IntegerType(nullable=False),
+                    FloatType(nullable=False),
+                ),
+                FloatType(nullable=False),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                ),
+                DateTimeType(nullable=False),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    DateTimeType(nullable=True),
+                ),
+                IntegerType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    DateTimeType(nullable=False),
+                ),
+                IntegerType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    DateTimeType(nullable=True),
+                ),
+                IntegerType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                ),
+                DateType(nullable=False),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    DateType(nullable=True),
+                ),
+                IntegerType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    DateType(nullable=False),
+                ),
+                IntegerType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    DateType(nullable=True),
+                ),
+                IntegerType(nullable=True),
+            ),
+            (
+                (
+                    TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
+                    TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
+                ),
+                TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
+            ),
         ],
     ),
     "minus": HogQLFunctionMeta(
-        "minus",
-        2,
-        2,
+        clickhouse_name="minus",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
+            ((FloatType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
+            ((FloatType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((IntegerType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateTimeType(nullable=True), DateTimeType(nullable=True)), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=True), DateTimeType(nullable=False)), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False), DateTimeType(nullable=True)), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False), DateTimeType(nullable=False)), IntegerType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            ((DateType(nullable=True), DateType(nullable=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=True), DateType(nullable=False)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), DateType(nullable=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), DateType(nullable=False)), IntegerType(nullable=False)),
             (
                 (
-                    TupleType(item_types=[IntegerType()], repeat=True),
-                    TupleType(item_types=[IntegerType()], repeat=True),
+                    TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
+                    TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
                 ),
-                TupleType(item_types=[IntegerType()], repeat=True),
+                TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
             ),
-            ((DateTimeType(), IntegerType()), DateTimeType()),
-            ((IntegerType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "multiply": HogQLFunctionMeta(
-        "multiply",
-        2,
-        2,
+        clickhouse_name="multiply",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
+            ((FloatType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
+            ((FloatType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((IntegerType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
             (
                 (
-                    TupleType(item_types=[IntegerType()], repeat=True),
-                    TupleType(item_types=[IntegerType()], repeat=True),
+                    TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
+                    TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
                 ),
-                TupleType(item_types=[IntegerType()], repeat=True),
+                TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
             ),
             (
-                (IntegerType(), TupleType(item_types=[IntegerType()], repeat=True)),
-                TupleType(item_types=[IntegerType()], repeat=True),
+                (IntegerType(nullable=False), TupleType(item_types=[IntegerType(nullable=False)], repeat=True)),
+                TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
             ),
             (
-                (TupleType(item_types=[IntegerType()], repeat=True), IntegerType()),
-                TupleType(item_types=[IntegerType()], repeat=True),
+                (TupleType(item_types=[IntegerType(nullable=False)], repeat=True), IntegerType(nullable=False)),
+                TupleType(item_types=[IntegerType(nullable=False)], repeat=True),
             ),
-            ((DateTimeType(), IntegerType()), DateTimeType()),
-            ((IntegerType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "divide": HogQLFunctionMeta(
-        "divide",
-        2,
-        2,
+        clickhouse_name="divide",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((FloatType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
+            ((FloatType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((IntegerType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
             (
-                (TupleType(item_types=[IntegerType()], repeat=True), IntegerType()),
-                TupleType(item_types=[IntegerType()], repeat=True),
+                (TupleType(item_types=[IntegerType(nullable=False)], repeat=True), IntegerType(nullable=False)),
+                TupleType(item_types=[FloatType(nullable=False)], repeat=True),
             ),
-            ((DateTimeType(), IntegerType()), DateTimeType()),
-            ((IntegerType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "intDiv": HogQLFunctionMeta(
-        "intDiv",
-        2,
-        2,
+        clickhouse_name="intDiv",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
         ],
     ),
     "intDivOrZero": HogQLFunctionMeta(
-        "intDivOrZero",
-        2,
-        2,
+        clickhouse_name="intDivOrZero",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
         ],
     ),
     "modulo": HogQLFunctionMeta(
-        "modulo",
-        2,
-        2,
+        clickhouse_name="modulo",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
+            ((FloatType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((IntegerType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
         ],
     ),
     "moduloOrZero": HogQLFunctionMeta(
-        "moduloOrZero",
-        2,
-        2,
+        clickhouse_name="moduloOrZero",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
+            ((FloatType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((IntegerType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
         ],
     ),
     "positiveModulo": HogQLFunctionMeta(
-        "positiveModulo",
-        2,
-        2,
+        clickhouse_name="positiveModulo",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(), IntegerType()), IntegerType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
+            ((FloatType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((IntegerType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
         ],
     ),
     "negate": HogQLFunctionMeta(
-        "negate",
-        1,
-        1,
+        clickhouse_name="negate",
+        min_args=1,
+        max_args=1,
         signatures=[
-            ((IntegerType(),), IntegerType()),
-            ((FloatType(),), FloatType()),
+            ((IntegerType(nullable=True),), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False),), IntegerType(nullable=False)),
+            ((FloatType(nullable=True),), FloatType(nullable=True)),
+            ((FloatType(nullable=False),), FloatType(nullable=False)),
         ],
     ),
     "abs": HogQLFunctionMeta(
-        "abs",
-        1,
-        1,
-        signatures=[
-            ((IntegerType(),), IntegerType()),
-        ],
+        clickhouse_name="abs",
+        min_args=1,
+        max_args=1,
         case_sensitive=False,
+        signatures=[
+            ((IntegerType(nullable=True),), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False),), IntegerType(nullable=False)),
+            ((FloatType(nullable=True),), FloatType(nullable=True)),
+            ((FloatType(nullable=False),), FloatType(nullable=False)),
+        ],
     ),
     "gcd": HogQLFunctionMeta(
-        "gcd",
-        2,
-        2,
+        clickhouse_name="gcd",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(),), IntegerType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
         ],
     ),
     "lcm": HogQLFunctionMeta(
-        "lcm",
-        2,
-        2,
+        clickhouse_name="lcm",
+        min_args=2,
+        max_args=2,
         signatures=[
-            ((IntegerType(),), IntegerType()),
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
         ],
     ),
     "max2": HogQLFunctionMeta(
-        "max2",
-        2,
-        2,
-        signatures=[
-            ((IntegerType(), IntegerType()), FloatType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
-        ],
+        clickhouse_name="max2",
+        min_args=2,
+        max_args=2,
         case_sensitive=False,
+        signatures=[
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
+            ((FloatType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
+            ((FloatType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((IntegerType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
+        ],
     ),
     "min2": HogQLFunctionMeta(
-        "min2",
-        2,
-        2,
-        signatures=[
-            ((IntegerType(), IntegerType()), FloatType()),
-            ((FloatType(), IntegerType()), FloatType()),
-            ((IntegerType(), FloatType()), FloatType()),
-        ],
+        clickhouse_name="min2",
+        min_args=2,
+        max_args=2,
         case_sensitive=False,
+        signatures=[
+            ((IntegerType(nullable=True), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=True), IntegerType(nullable=False)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=True)), IntegerType(nullable=True)),
+            ((IntegerType(nullable=False), IntegerType(nullable=False)), IntegerType(nullable=False)),
+            ((FloatType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
+            ((FloatType(nullable=True), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=True), IntegerType(nullable=False)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=True)), FloatType(nullable=True)),
+            ((FloatType(nullable=False), IntegerType(nullable=False)), FloatType(nullable=False)),
+            ((IntegerType(nullable=True), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=True), FloatType(nullable=False)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=True)), FloatType(nullable=True)),
+            ((IntegerType(nullable=False), FloatType(nullable=False)), FloatType(nullable=False)),
+        ],
     ),
     "multiplyDecimal": HogQLFunctionMeta("multiplyDecimal", 2, 3),
     "divideDecimal": HogQLFunctionMeta("divideDecimal", 2, 3),
     # arrays and strings common
-    "empty": HogQLFunctionMeta("empty", 1, 1),
-    "notEmpty": HogQLFunctionMeta("notEmpty", 1, 1),
-    "length": HogQLFunctionMeta("length", 1, 1, case_sensitive=False),
-    "reverse": HogQLFunctionMeta("reverse", 1, 1, case_sensitive=False),
+    "empty": HogQLFunctionMeta(
+        clickhouse_name="empty",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((ArrayType(item_type=UnknownType(nullable=True)),), BooleanType(nullable=False)),
+            ((StringType(nullable=True),), BooleanType(nullable=True)),
+            ((StringType(nullable=False),), BooleanType(nullable=False)),
+        ],
+    ),
+    "notEmpty": HogQLFunctionMeta(
+        "notEmpty",
+        1,
+        1,
+        signatures=[
+            ((ArrayType(item_type=UnknownType(nullable=True)),), BooleanType(nullable=False)),
+            ((StringType(nullable=True),), BooleanType(nullable=True)),
+            ((StringType(nullable=False),), BooleanType(nullable=False)),
+        ],
+    ),
+    "length": HogQLFunctionMeta(
+        "length",
+        1,
+        1,
+        signatures=[
+            ((ArrayType(item_type=UnknownType(nullable=True)),), IntegerType(nullable=False)),
+            ((StringType(nullable=True),), IntegerType(nullable=True)),
+            ((StringType(nullable=False),), IntegerType(nullable=False)),
+        ],
+        case_sensitive=False,
+    ),
+    "reverse": HogQLFunctionMeta(
+        "reverse",
+        1,
+        1,
+        signatures=[
+            ((StringType(nullable=True),), StringType(nullable=True)),
+            ((StringType(nullable=False),), StringType(nullable=False)),
+            ((ArrayType(item_type=UnknownType(nullable=True)),), ArrayType(item_type=UnknownType(nullable=True))),
+        ],
+        case_sensitive=False,
+    ),
     # arrays
     "array": HogQLFunctionMeta("array", 0, None),
     "range": HogQLFunctionMeta("range", 1, 3),
@@ -393,9 +745,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDecimal": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Decimal64")]),
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
-        1,
-        1,
+        min_args=1,
+        max_args=2,
+        signatures=[
+            ((IntegerType(nullable=True),), DateType(nullable=True)),
+            ((IntegerType(nullable=False),), DateType(nullable=True)),
+            ((IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)), DateType(nullable=True)),
+            ((IntegerType(nullable=True), StringType(nullable=False, is_timezone_type=True)), DateType(nullable=True)),
+            ((IntegerType(nullable=False), StringType(nullable=True, is_timezone_type=True)), DateType(nullable=True)),
+            ((IntegerType(nullable=False), StringType(nullable=False, is_timezone_type=True)), DateType(nullable=True)),
+        ],
         overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+        tz_aware=True,
     ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
@@ -404,22 +765,272 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         tz_aware=True,
         overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
         signatures=[
-            ((StringType(),), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType()), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
+            ((StringType(nullable=True),), DateTimeType(nullable=True)),
+            ((StringType(nullable=False),), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
         ],
     ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
     "toString": HogQLFunctionMeta(
-        "toString",
-        1,
-        1,
+        clickhouse_name="toString",
+        min_args=1,
+        max_args=1,
         signatures=[
-            ((IntegerType(),), StringType()),
-            ((StringType(),), StringType()),
-            ((FloatType(),), StringType()),
-            ((DateType(),), StringType()),
-            ((DateTimeType(),), StringType()),
+            ((IntegerType(nullable=True),), StringType(nullable=True)),
+            ((IntegerType(nullable=False),), StringType(nullable=False)),
+            ((IntegerType(nullable=True),), StringType(nullable=True)),
+            ((IntegerType(nullable=False),), StringType(nullable=False)),
+            ((StringType(nullable=True),), StringType(nullable=True)),
+            ((StringType(nullable=False),), StringType(nullable=False)),
+            ((StringType(nullable=True),), StringType(nullable=True)),
+            ((StringType(nullable=False),), StringType(nullable=False)),
+            ((FloatType(nullable=True),), StringType(nullable=True)),
+            ((FloatType(nullable=False),), StringType(nullable=False)),
+            ((FloatType(nullable=True),), StringType(nullable=True)),
+            ((FloatType(nullable=False),), StringType(nullable=False)),
+            ((DateType(nullable=True),), StringType(nullable=True)),
+            ((DateType(nullable=False),), StringType(nullable=False)),
+            ((DateType(nullable=True),), StringType(nullable=True)),
+            ((DateType(nullable=False),), StringType(nullable=False)),
+            ((DateTimeType(nullable=True),), StringType(nullable=True)),
+            ((DateTimeType(nullable=False),), StringType(nullable=False)),
+            ((DateTimeType(nullable=True),), StringType(nullable=True)),
+            ((DateTimeType(nullable=False),), StringType(nullable=False)),
         ],
     ),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
@@ -429,38 +1040,836 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # dates and times
     "toTimeZone": HogQLFunctionMeta("toTimeZone", 2, 2),
     "timeZoneOf": HogQLFunctionMeta("timeZoneOf", 1, 1),
-    "timeZoneOffset": HogQLFunctionMeta("timeZoneOffset", 1, 1),
-    "toYear": HogQLFunctionMeta("toYear", 1, 1),
-    "toQuarter": HogQLFunctionMeta("toQuarter", 1, 1),
-    "toMonth": HogQLFunctionMeta("toMonth", 1, 1),
-    "toDayOfYear": HogQLFunctionMeta("toDayOfYear", 1, 1),
-    "toDayOfMonth": HogQLFunctionMeta("toDayOfMonth", 1, 1),
-    "toDayOfWeek": HogQLFunctionMeta("toDayOfWeek", 1, 3),
-    "toHour": HogQLFunctionMeta("toHour", 1, 1),
-    "toMinute": HogQLFunctionMeta("toMinute", 1, 1),
-    "toSecond": HogQLFunctionMeta("toSecond", 1, 1),
+    "timezoneOffset": HogQLFunctionMeta(
+        clickhouse_name="timezoneOffset",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        case_sensitive=True,
+        signatures=[
+            ((IntegerType(nullable=True),), IntegerType(nullable=True)),
+            (
+                (IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (IntegerType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (IntegerType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (IntegerType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "toYear": HogQLFunctionMeta(
+        clickhouse_name="toYear",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+        ],
+    ),
+    "toWeekYear": HogQLFunctionMeta(clickhouse_name="toWeekYear", min_args=1, max_args=2, tz_aware=True, signatures=[]),
+    "toQuarter": HogQLFunctionMeta(
+        clickhouse_name="toQuarter",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+        ],
+    ),
+    "toMonth": HogQLFunctionMeta(
+        clickhouse_name="toMonth",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+        ],
+    ),
+    "toDayOfYear": HogQLFunctionMeta(
+        clickhouse_name="toDayOfYear",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+        ],
+    ),
+    "toDayOfMonth": HogQLFunctionMeta(
+        clickhouse_name="toDayOfMonth",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+        ],
+    ),
+    "toDayOfWeek": HogQLFunctionMeta(
+        clickhouse_name="toDayOfWeek",
+        min_args=1,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+        ],
+    ),
+    "toDaysSinceYearZero": HogQLFunctionMeta(
+        clickhouse_name="toDaysSinceYearZero",
+        min_args=1,
+        max_args=2,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+        ],
+    ),
+    "toHour": HogQLFunctionMeta(
+        clickhouse_name="toHour",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "toMinute": HogQLFunctionMeta(
+        clickhouse_name="toMinute",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "toSecond": HogQLFunctionMeta(
+        clickhouse_name="toSecond",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
     "toUnixTimestamp": HogQLFunctionMeta("toUnixTimestamp", 1, 2),
     "toUnixTimestamp64Milli": HogQLFunctionMeta("toUnixTimestamp64Milli", 1, 1),
-    "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
-    "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
-    "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),
-    "toStartOfMonth": HogQLFunctionMeta("toStartOfMonth", 1, 1),
     "toLastDayOfMonth": HogQLFunctionMeta("toLastDayOfMonth", 1, 1),
     "toMonday": HogQLFunctionMeta("toMonday", 1, 1),
-    "toStartOfWeek": HogQLFunctionMeta("toStartOfWeek", 1, 2),
-    "toStartOfDay": HogQLFunctionMeta("toStartOfDay", 1, 2),
-    "toLastDayOfWeek": HogQLFunctionMeta("toLastDayOfWeek", 1, 2),
-    "toStartOfHour": HogQLFunctionMeta("toStartOfHour", 1, 1),
-    "toStartOfMinute": HogQLFunctionMeta("toStartOfMinute", 1, 1),
-    "toStartOfSecond": HogQLFunctionMeta("toStartOfSecond", 1, 1),
-    "toStartOfFiveMinutes": HogQLFunctionMeta("toStartOfFiveMinutes", 1, 1),
-    "toStartOfTenMinutes": HogQLFunctionMeta("toStartOfTenMinutes", 1, 1),
-    "toStartOfFifteenMinutes": HogQLFunctionMeta("toStartOfFifteenMinutes", 1, 1),
-    "toTime": HogQLFunctionMeta("toTime", 1, 1),
-    "toISOYear": HogQLFunctionMeta("toISOYear", 1, 1),
-    "toISOWeek": HogQLFunctionMeta("toISOWeek", 1, 1),
-    "toWeek": HogQLFunctionMeta("toWeek", 1, 3),
-    "toYearWeek": HogQLFunctionMeta("toYearWeek", 1, 3),
+    "toLastDayOfWeek": HogQLFunctionMeta(
+        clickhouse_name="toLastDayOfWeek",
+        min_args=1,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfDay": HogQLFunctionMeta(
+        clickhouse_name="toStartOfDay",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+        ],
+    ),
+    "toStartOfMonth": HogQLFunctionMeta(
+        clickhouse_name="toStartOfMonth",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+        ],
+    ),
+    "toStartOfQuarter": HogQLFunctionMeta(
+        clickhouse_name="toStartOfQuarter",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+        ],
+    ),
+    "toStartOfYear": HogQLFunctionMeta(
+        clickhouse_name="toStartOfYear",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+        ],
+    ),
+    "toStartOfWeek": HogQLFunctionMeta(
+        clickhouse_name="toStartOfWeek",
+        min_args=1,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfMinute": HogQLFunctionMeta(
+        clickhouse_name="toStartOfMinute",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateTimeType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfSecond": HogQLFunctionMeta(
+        clickhouse_name="toStartOfSecond",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfMillisecond": HogQLFunctionMeta(
+        clickhouse_name="toStartOfMillisecond",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfMicrosecond": HogQLFunctionMeta(
+        clickhouse_name="toStartOfMicrosecond",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfNanosecond": HogQLFunctionMeta(
+        clickhouse_name="toStartOfNanosecond",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfFiveMinutes": HogQLFunctionMeta(
+        clickhouse_name="toStartOfFiveMinutes",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateTimeType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfTenMinutes": HogQLFunctionMeta(
+        clickhouse_name="toStartOfTenMinutes",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateTimeType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfFifteenMinutes": HogQLFunctionMeta(
+        clickhouse_name="toStartOfFifteenMinutes",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateTimeType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfHour": HogQLFunctionMeta(
+        clickhouse_name="toStartOfHour",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateTimeType(nullable=False)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "toStartOfISOYear": HogQLFunctionMeta(
+        clickhouse_name="toStartOfISOYear",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+            ((DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)), DateType(nullable=True)),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), DateType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), DateType(nullable=True)),
+        ],
+    ),
+    "toISOYear": HogQLFunctionMeta(
+        clickhouse_name="toISOYear",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "toISOWeek": HogQLFunctionMeta(
+        clickhouse_name="toISOWeek",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "toWeek": HogQLFunctionMeta(
+        clickhouse_name="toWeek",
+        min_args=1,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+        ],
+    ),
+    "toYearWeek": HogQLFunctionMeta(
+        clickhouse_name="toYearWeek",
+        min_args=1,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True),), DateType(nullable=True)),
+            ((DateTimeType(nullable=False),), DateType(nullable=False)),
+            ((DateType(nullable=True),), DateType(nullable=True)),
+            ((DateType(nullable=False),), DateType(nullable=False)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateType(nullable=False)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateType(nullable=True),
+            ),
+        ],
+    ),
     "age": HogQLFunctionMeta("age", 3, 3),
     "dateDiff": HogQLFunctionMeta("dateDiff", 3, 3),
     "dateTrunc": HogQLFunctionMeta("dateTrunc", 2, 2),
@@ -473,36 +1882,4144 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "rowNumberInAllBlocks": HogQLFunctionMeta("rowNumberInAllBlocks", 0, 0),
     "today": HogQLFunctionMeta("today"),
     "yesterday": HogQLFunctionMeta("yesterday"),
-    "timeSlot": HogQLFunctionMeta("timeSlot", 1, 1),
-    "toYYYYMM": HogQLFunctionMeta("toYYYYMM", 1, 1),
-    "toYYYYMMDD": HogQLFunctionMeta("toYYYYMMDD", 1, 1),
-    "toYYYYMMDDhhmmss": HogQLFunctionMeta("toYYYYMMDDhhmmss", 1, 1),
-    "addYears": HogQLFunctionMeta("addYears", 2, 2),
-    "addMonths": HogQLFunctionMeta("addMonths", 2, 2),
-    "addWeeks": HogQLFunctionMeta("addWeeks", 2, 2),
-    "addDays": HogQLFunctionMeta("addDays", 2, 2),
-    "addHours": HogQLFunctionMeta("addHours", 2, 2),
-    "addMinutes": HogQLFunctionMeta("addMinutes", 2, 2),
-    "addSeconds": HogQLFunctionMeta("addSeconds", 2, 2),
-    "addQuarters": HogQLFunctionMeta("addQuarters", 2, 2),
-    "subtractYears": HogQLFunctionMeta("subtractYears", 2, 2),
-    "subtractMonths": HogQLFunctionMeta("subtractMonths", 2, 2),
-    "subtractWeeks": HogQLFunctionMeta("subtractWeeks", 2, 2),
-    "subtractDays": HogQLFunctionMeta("subtractDays", 2, 2),
-    "subtractHours": HogQLFunctionMeta("subtractHours", 2, 2),
-    "subtractMinutes": HogQLFunctionMeta("subtractMinutes", 2, 2),
-    "subtractSeconds": HogQLFunctionMeta("subtractSeconds", 2, 2),
-    "subtractQuarters": HogQLFunctionMeta("subtractQuarters", 2, 2),
+    "timeSlot": HogQLFunctionMeta(
+        clickhouse_name="timeSlot",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((IntegerType(nullable=True),), IntegerType(nullable=True)),
+            (
+                (IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (IntegerType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "toYYYYMM": HogQLFunctionMeta(
+        clickhouse_name="toYYYYMM",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "toYYYYMMDD": HogQLFunctionMeta(
+        clickhouse_name="toYYYYMMDD",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "toYYYYMMDDhhmmss": HogQLFunctionMeta(
+        clickhouse_name="toYYYYMMDDhhmmss",
+        min_args=1,
+        max_args=2,
+        tz_aware=True,
+        signatures=[
+            ((DateType(nullable=True),), IntegerType(nullable=True)),
+            ((DateType(nullable=False),), IntegerType(nullable=False)),
+            ((DateTimeType(nullable=True),), IntegerType(nullable=True)),
+            ((DateTimeType(nullable=False),), IntegerType(nullable=False)),
+            ((DateType(nullable=True), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            ((DateType(nullable=False), StringType(nullable=True, is_timezone_type=True)), IntegerType(nullable=True)),
+            (
+                (DateTimeType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+            (
+                (DateTimeType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                IntegerType(nullable=True),
+            ),
+        ],
+    ),
+    "addNanoseconds": HogQLFunctionMeta(
+        clickhouse_name="addNanoseconds",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addMicroseconds": HogQLFunctionMeta(
+        clickhouse_name="addMicroseconds",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addMilliseconds": HogQLFunctionMeta(
+        clickhouse_name="addMilliseconds",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addSeconds": HogQLFunctionMeta(
+        clickhouse_name="addSeconds",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addMinutes": HogQLFunctionMeta(
+        clickhouse_name="addMinutes",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addHours": HogQLFunctionMeta(
+        clickhouse_name="addHours",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addDays": HogQLFunctionMeta(
+        clickhouse_name="addDays",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addWeeks": HogQLFunctionMeta(
+        clickhouse_name="addWeeks",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addMonths": HogQLFunctionMeta(
+        clickhouse_name="addMonths",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addQuarters": HogQLFunctionMeta(
+        clickhouse_name="addQuarters",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "addYears": HogQLFunctionMeta(
+        clickhouse_name="addYears",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractNanoseconds": HogQLFunctionMeta(
+        clickhouse_name="subtractNanoseconds",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractMicroseconds": HogQLFunctionMeta(
+        clickhouse_name="subtractMicroseconds",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractMilliseconds": HogQLFunctionMeta(
+        clickhouse_name="subtractMilliseconds",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractSeconds": HogQLFunctionMeta(
+        clickhouse_name="subtractSeconds",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractMinutes": HogQLFunctionMeta(
+        clickhouse_name="subtractMinutes",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractHours": HogQLFunctionMeta(
+        clickhouse_name="subtractHours",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractDays": HogQLFunctionMeta(
+        clickhouse_name="subtractDays",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractWeeks": HogQLFunctionMeta(
+        clickhouse_name="subtractWeeks",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractMonths": HogQLFunctionMeta(
+        clickhouse_name="subtractMonths",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractQuarters": HogQLFunctionMeta(
+        clickhouse_name="subtractQuarters",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
+    "subtractYears": HogQLFunctionMeta(
+        clickhouse_name="subtractYears",
+        min_args=2,
+        max_args=3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), IntegerType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), IntegerType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    IntegerType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            ((DateTimeType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateTimeType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((DateType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((DateType(nullable=False), FloatType(nullable=False)), DateTimeType(nullable=False)),
+            ((StringType(nullable=True), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            ((StringType(nullable=True), FloatType(nullable=False)), DateTimeType(nullable=True)),
+            ((StringType(nullable=False), FloatType(nullable=True)), DateTimeType(nullable=True)),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    DateTimeType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=True), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (DateType(nullable=False), FloatType(nullable=False), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), FloatType(nullable=True), StringType(nullable=True, is_timezone_type=True)),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=True),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=True),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+            (
+                (
+                    StringType(nullable=False),
+                    FloatType(nullable=False),
+                    StringType(nullable=True, is_timezone_type=True),
+                ),
+                DateTimeType(nullable=True),
+            ),
+        ],
+    ),
     "timeSlots": HogQLFunctionMeta("timeSlots", 2, 3),
     "formatDateTime": HogQLFunctionMeta("formatDateTime", 2, 3),
     "dateName": HogQLFunctionMeta("dateName", 2, 2),
     "monthName": HogQLFunctionMeta("monthName", 1, 1),
     "fromUnixTimestamp": HogQLFunctionMeta(
-        "fromUnixTimestamp",
-        1,
-        1,
+        clickhouse_name="fromUnixTimestamp",
+        min_args=1,
+        max_args=1,
         signatures=[
-            ((IntegerType(),), DateTimeType()),
+            ((IntegerType(nullable=True),), DateTimeType(nullable=True)),
+            ((IntegerType(nullable=False),), DateTimeType(nullable=False)),
         ],
     ),
     "toModifiedJulianDay": HogQLFunctionMeta("toModifiedJulianDayOrNull", 1, 1),
@@ -516,25 +6033,399 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toIntervalQuarter": HogQLFunctionMeta("toIntervalQuarter", 1, 1),
     "toIntervalYear": HogQLFunctionMeta("toIntervalYear", 1, 1),
     # strings
-    "left": HogQLFunctionMeta("left", 2, 2),
-    "right": HogQLFunctionMeta("right", 2, 2),
-    "lengthUTF8": HogQLFunctionMeta("lengthUTF8", 1, 1),
-    "leftPad": HogQLFunctionMeta("leftPad", 2, 3),
-    "rightPad": HogQLFunctionMeta("rightPad", 2, 3),
-    "leftPadUTF8": HogQLFunctionMeta("leftPadUTF8", 2, 3),
-    "rightPadUTF8": HogQLFunctionMeta("rightPadUTF8", 2, 3),
-    "lower": HogQLFunctionMeta("lower", 1, 1, case_sensitive=False),
-    "upper": HogQLFunctionMeta("upper", 1, 1, case_sensitive=False),
-    "lowerUTF8": HogQLFunctionMeta("lowerUTF8", 1, 1),
-    "upperUTF8": HogQLFunctionMeta("upperUTF8", 1, 1),
-    "isValidUTF8": HogQLFunctionMeta("isValidUTF8", 1, 1),
-    "toValidUTF8": HogQLFunctionMeta("toValidUTF8", 1, 1),
-    "repeat": HogQLFunctionMeta("repeat", 2, 2, case_sensitive=False),
+    "left": HogQLFunctionMeta(
+        clickhouse_name="left",
+        min_args=2,
+        max_args=2,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+        ],
+    ),
+    "right": HogQLFunctionMeta(
+        clickhouse_name="right",
+        min_args=2,
+        max_args=2,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+        ],
+    ),
+    "lengthUTF8": HogQLFunctionMeta(
+        clickhouse_name="lengthUTF8",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((StringType(nullable=True),), IntegerType(nullable=True)),
+            ((StringType(nullable=False),), IntegerType(nullable=False)),
+            ((StringType(nullable=True),), IntegerType(nullable=True)),
+            ((StringType(nullable=False),), IntegerType(nullable=False)),
+        ],
+    ),
+    "leftPad": HogQLFunctionMeta(
+        clickhouse_name="leftPad",
+        min_args=2,
+        max_args=3,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), StringType(nullable=False)),
+                StringType(nullable=False),
+            ),
+        ],
+    ),
+    "rightPad": HogQLFunctionMeta(
+        clickhouse_name="rightPad",
+        min_args=2,
+        max_args=3,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), StringType(nullable=False)),
+                StringType(nullable=False),
+            ),
+        ],
+    ),
+    "leftPadUTF8": HogQLFunctionMeta(
+        clickhouse_name="leftPadUTF8",
+        min_args=2,
+        max_args=3,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), StringType(nullable=False)),
+                StringType(nullable=False),
+            ),
+        ],
+    ),
+    "rightPadUTF8": HogQLFunctionMeta(
+        clickhouse_name="rightPadUTF8",
+        min_args=2,
+        max_args=3,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), StringType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), StringType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), StringType(nullable=False)),
+                StringType(nullable=False),
+            ),
+        ],
+    ),
+    "lower": HogQLFunctionMeta(
+        clickhouse_name="lower",
+        min_args=1,
+        max_args=1,
+        tz_aware=False,
+        case_sensitive=False,
+        signatures=[
+            ((StringType(nullable=True),), StringType(nullable=True)),
+            ((StringType(nullable=False),), StringType(nullable=False)),
+        ],
+    ),
+    "upper": HogQLFunctionMeta(
+        clickhouse_name="upper",
+        min_args=1,
+        max_args=1,
+        tz_aware=False,
+        case_sensitive=False,
+        signatures=[
+            ((StringType(nullable=True),), StringType(nullable=True)),
+            ((StringType(nullable=False),), StringType(nullable=False)),
+        ],
+    ),
+    "lowerUTF8": HogQLFunctionMeta(
+        clickhouse_name="lowerUTF8",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((StringType(nullable=True),), StringType(nullable=True)),
+            ((StringType(nullable=False),), StringType(nullable=False)),
+        ],
+    ),
+    "upperUTF8": HogQLFunctionMeta(
+        clickhouse_name="upperUTF8",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((StringType(nullable=True),), StringType(nullable=True)),
+            ((StringType(nullable=False),), StringType(nullable=False)),
+        ],
+    ),
+    "isValidUTF8": HogQLFunctionMeta(
+        clickhouse_name="isValidUTF8",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((StringType(nullable=True),), BooleanType(nullable=True)),
+            ((StringType(nullable=False),), BooleanType(nullable=False)),
+        ],
+    ),
+    "toValidUTF8": HogQLFunctionMeta(
+        clickhouse_name="toValidUTF8",
+        min_args=1,
+        max_args=1,
+        signatures=[
+            ((StringType(nullable=True),), StringType(nullable=True)),
+            ((StringType(nullable=False),), StringType(nullable=False)),
+        ],
+    ),
+    "repeat": HogQLFunctionMeta(
+        clickhouse_name="repeat",
+        min_args=2,
+        max_args=2,
+        tz_aware=False,
+        case_sensitive=False,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+        ],
+    ),
     "format": HogQLFunctionMeta("format", 2, None),
     "reverseUTF8": HogQLFunctionMeta("reverseUTF8", 1, 1),
     "concat": HogQLFunctionMeta("concat", 2, None, case_sensitive=False),
-    "substring": HogQLFunctionMeta("substring", 3, 3, case_sensitive=False),
-    "substringUTF8": HogQLFunctionMeta("substringUTF8", 3, 3),
+    "substring": HogQLFunctionMeta(
+        clickhouse_name="substring",
+        min_args=2,
+        max_args=3,
+        tz_aware=False,
+        case_sensitive=False,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), IntegerType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), IntegerType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), IntegerType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), IntegerType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), IntegerType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), IntegerType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), IntegerType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), IntegerType(nullable=False)),
+                StringType(nullable=False),
+            ),
+        ],
+    ),
+    "substringUTF8": HogQLFunctionMeta(
+        clickhouse_name="substringUTF8",
+        min_args=2,
+        max_args=3,
+        tz_aware=False,
+        case_sensitive=False,
+        signatures=[
+            ((StringType(nullable=True), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=True), IntegerType(nullable=False)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=True)), StringType(nullable=True)),
+            ((StringType(nullable=False), IntegerType(nullable=False)), StringType(nullable=False)),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), IntegerType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=True), IntegerType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), IntegerType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=True), IntegerType(nullable=False), IntegerType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), IntegerType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=True), IntegerType(nullable=False)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), IntegerType(nullable=True)),
+                StringType(nullable=True),
+            ),
+            (
+                (StringType(nullable=False), IntegerType(nullable=False), IntegerType(nullable=False)),
+                StringType(nullable=False),
+            ),
+        ],
+    ),
     "appendTrailingCharIfAbsent": HogQLFunctionMeta("appendTrailingCharIfAbsent", 2, 2),
     "convertCharset": HogQLFunctionMeta("convertCharset", 3, 3),
     "base58Encode": HogQLFunctionMeta("base58Encode", 1, 1),
@@ -543,8 +6434,28 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "base64Encode": HogQLFunctionMeta("base64Encode", 1, 1),
     "base64Decode": HogQLFunctionMeta("base64Decode", 1, 1),
     "tryBase64Decode": HogQLFunctionMeta("tryBase64Decode", 1, 1),
-    "endsWith": HogQLFunctionMeta("endsWith", 2, 2),
-    "startsWith": HogQLFunctionMeta("startsWith", 2, 2),
+    "endsWith": HogQLFunctionMeta(
+        clickhouse_name="endsWith",
+        min_args=2,
+        max_args=2,
+        signatures=[
+            ((StringType(nullable=True), StringType(nullable=True)), BooleanType(nullable=True)),
+            ((StringType(nullable=True), StringType(nullable=False)), BooleanType(nullable=True)),
+            ((StringType(nullable=False), StringType(nullable=True)), BooleanType(nullable=True)),
+            ((StringType(nullable=False), StringType(nullable=False)), BooleanType(nullable=False)),
+        ],
+    ),
+    "startsWith": HogQLFunctionMeta(
+        clickhouse_name="startsWith",
+        min_args=2,
+        max_args=2,
+        signatures=[
+            ((StringType(nullable=True), StringType(nullable=True)), BooleanType(nullable=True)),
+            ((StringType(nullable=True), StringType(nullable=False)), BooleanType(nullable=True)),
+            ((StringType(nullable=False), StringType(nullable=True)), BooleanType(nullable=True)),
+            ((StringType(nullable=False), StringType(nullable=False)), BooleanType(nullable=False)),
+        ],
+    ),
     "trim": HogQLFunctionMeta("trim", 1, 2, case_sensitive=False),
     "trimLeft": HogQLFunctionMeta("trimLeft", 1, 2),
     "trimRight": HogQLFunctionMeta("trimRight", 1, 2),

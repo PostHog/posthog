@@ -653,10 +653,16 @@ class _Printer(Visitor):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNull({left})"
+                if isinstance(node.right.type, ast.ConstantType):
+                    if not node.right.type.nullable:
+                        return op
                 return f"ifNull({op}, 0)"
             elif isinstance(node.left, ast.Constant):
                 if node.left.value is None:
                     return f"isNull({right})"
+                if isinstance(node.left.type, ast.ConstantType):
+                    if not node.left.type.nullable:
+                        return op
                 return f"ifNull({op}, 0)"
             return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
 
@@ -669,10 +675,16 @@ class _Printer(Visitor):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNotNull({left})"
+                if isinstance(node.right.type, ast.ConstantType):
+                    if not node.right.type.nullable:
+                        return op
                 return f"ifNull({op}, 1)"
             elif isinstance(node.left, ast.Constant):
                 if node.left.value is None:
                     return f"isNotNull({right})"
+                if isinstance(node.left.type, ast.ConstantType):
+                    if not node.left.type.nullable:
+                        return op
                 return f"ifNull({op}, 1)"
             return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"  # Worse case performance, but accurate
 
@@ -838,6 +850,12 @@ class _Printer(Visitor):
                                     args.append("''")
                                 else:
                                     args.append(self.visit(arg))
+                            elif (
+                                len(arg.args) == 1
+                                and isinstance(arg.args[0].type, ast.CallType)
+                                and arg.args[0].type.return_type.nullable is False
+                            ):
+                                args.append(self.visit(arg))
                             else:
                                 args.append(f"ifNull({self.visit(arg)}, '')")
                         else:
@@ -1244,6 +1262,8 @@ class _Printer(Visitor):
             return node.value is None
         elif isinstance(node.type, ast.PropertyType):
             return True
+        elif isinstance(node.type, ast.CallType):
+            return node.type.return_type.nullable
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
