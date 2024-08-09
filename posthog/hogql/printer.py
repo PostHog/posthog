@@ -58,7 +58,7 @@ def team_id_guard_for_table(
 
     table = table_type.resolve_database_table(context)
     if isinstance(table, QueryLogTable) or isinstance(table, RawQueryLogTable):
-        if (
+        if not (
             (get_instance_region() == "EU" and context.team_id == EU_INSTANCE_TEAM_ID)
             or (get_instance_region() == "US" and context.team_id == US_INSTANCE_TEAM_ID)
             or settings.DEBUG
