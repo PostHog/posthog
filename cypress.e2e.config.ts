@@ -40,6 +40,10 @@ export default defineConfig({
         setupNodeEvents(on, config) {
             config.env.E2E_TESTING = !!process.env.E2E_TESTING
 
+            config.env.E2E_SAML_LOGIN_EMAIL = process.env.E2E_SAML_LOGIN_EMAIL
+            config.env.E2E_SAML_LOGIN_PASSWORD = process.env.E2E_SAML_LOGIN_PASSWORD
+            config.env.E2E_SAML_ACS_URL = process.env.E2E_SAML_ACS_URL
+
             const options = {
                 webpackOptions: createEntry('cypress'),
                 watchOptions: {},

@@ -1,5 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
+from django.conf import settings
 
 from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import (
@@ -10,6 +12,9 @@ from posthog.models import (
     PluginSourceFile,
     Team,
     User,
+    OrganizationDomain,
+    Organization,
+    Project,
 )
 from posthog.models.event_definition import EventDefinition
 from posthog.models.personal_api_key import hash_key_value
@@ -64,6 +69,44 @@ class Command(BaseCommand):
 
             if options["create_e2e_test_plugin"]:
                 self.create_plugin(team)
+
+            required_settings = [
+                "E2E_SAML_ORGANIZATION_DOMAIN_ID",
+                "E2E_SAML_DOMAIN",
+                "E2E_SAML_ENTITY_ID",
+                "E2E_SAML_ACS_URL",
+                "E2E_SAML_X509_CERT",
+            ]
+
+            if all(hasattr(settings, attr) for attr in required_settings):
+                saml_organization = Organization.objects.create(
+                    name="saml org",
+                    available_product_features=[
+                        {"key": "saml", "name": "SAML"},
+                        {"key": "sso_enforcement", "name": "SSO Enforcement"},
+                        {"key": "automatic_provisioning", "name": "Automatic Provisioning"},
+                        {"key": "social_sso", "name": "Social SSO"},
+                    ],
+                )
+                _, team = Project.objects.create_with_team(
+                    organization=saml_organization,
+                    name="saml project",
+                    team_fields={"name": "saml team"},
+                )
+
+                OrganizationDomain.objects.create(
+                    id=settings.E2E_SAML_ORGANIZATION_DOMAIN_ID,
+                    organization=saml_organization,
+                    domain=settings.E2E_SAML_DOMAIN,
+                    verified_at=timezone.now(),
+                    jit_provisioning_enabled=True,
+                    sso_enforcement="saml",
+                    saml_entity_id=settings.E2E_SAML_ENTITY_ID,
+                    saml_acs_url=settings.E2E_SAML_ACS_URL,
+                    saml_x509_cert=settings.E2E_SAML_X509_CERT,
+                )
+            else:
+                print("Warning: Not all required SAML settings are set. Skipping OrganizationDomain creation.")  # noqa T201
 
     @staticmethod
     def add_property_definition(team: Team, property: str) -> None:
