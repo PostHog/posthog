@@ -27,6 +27,7 @@ import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
 import { HogMasker } from './hog-masker'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
+import { CdpRedis, createCdpRedisPool } from './redis'
 import {
     CdpOverflowMessage,
     HogFunctionAsyncFunctionResponse,
@@ -89,6 +90,7 @@ abstract class CdpConsumerBase {
     groupsManager: GroupsManager
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
+    redis: CdpRedis
 
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
@@ -98,11 +100,12 @@ abstract class CdpConsumerBase {
     protected heartbeat = () => {}
 
     constructor(protected hub: Hub) {
+        this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
-        this.hogWatcher = new HogWatcher(hub, (id, state) => {
+        this.hogWatcher = new HogWatcher(hub, this.redis, (id, state) => {
             void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
         })
-        this.hogMasker = new HogMasker(hub)
+        this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)

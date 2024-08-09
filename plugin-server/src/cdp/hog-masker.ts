@@ -1,11 +1,7 @@
 import { exec } from '@posthog/hogvm'
-import { captureException } from '@sentry/node'
 import { createHash } from 'crypto'
-import { Redis } from 'ioredis'
 
-import { Hub } from '../types'
-import { timeoutGuard } from '../utils/db/utils'
-import { status } from '../utils/status'
+import { CdpRedis } from './redis'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
@@ -39,24 +35,25 @@ type HogInvocationContextWithMasker = HogInvocationContext & {
 
 // Hog masker is meant to be done per batch
 export class HogMasker {
-    constructor(private hub: Hub) {}
+    constructor(private redis: CdpRedis) {}
 
-    private async runRedis<T>(fn: (client: Redis) => Promise<T>): Promise<T | null> {
-        // We want all of this to fail open in the issue of redis being unavailable - we'd rather have the function continue
-        const client = await this.hub.redisPool.acquire()
+    // private async runRedis<T>(fn: (client: Redis) => Promise<T>): Promise<T | null> {
 
-        const timeout = timeoutGuard(`Redis call delayed. Waiting over 30 seconds.`, undefined, 30 * 1000)
-        try {
-            return await fn(client)
-        } catch (e) {
-            status.error('HogWatcher Redis error', e)
-            captureException(e)
-            return null
-        } finally {
-            clearTimeout(timeout)
-            await this.hub.redisPool.release(client)
-        }
-    }
+    //     // We want all of this to fail open in the issue of redis being unavailable - we'd rather have the function continue
+    //     const client = await this.hub.redisPool.acquire()
+
+    //     const timeout = timeoutGuard(`Redis call delayed. Waiting over 30 seconds.`, undefined, 30 * 1000)
+    //     try {
+    //         return await fn(client)
+    //     } catch (e) {
+    //         status.error('HogWatcher Redis error', e)
+    //         captureException(e)
+    //         return null
+    //     } finally {
+    //         clearTimeout(timeout)
+    //         await this.hub.redisPool.release(client)
+    //     }
+    // }
 
     public async filterByMasking(invocations: HogInvocationContext[]): Promise<{
         masked: HogInvocationContext[]
@@ -98,16 +95,12 @@ export class HogMasker {
         }
 
         // Load from redis returning the value - this allows us to compare - if the value is the same then we allow an invocation
-        const result = await this.runRedis(async (client) => {
-            const pipeline = client.pipeline()
-
+        const result = await this.redis.usePipeline({ name: 'masker', failOpen: true }, (pipeline) => {
             Object.values(masks).forEach(({ hash, increment, ttl }) => {
                 pipeline.incrby(`${REDIS_KEY_TOKENS}/${hash}`, increment)
                 // @ts-expect-error - NX is not typed in ioredis
                 pipeline.expire(`${REDIS_KEY_TOKENS}/${hash}`, ttl, 'NX')
             })
-
-            return await pipeline.exec()
         })
 
         Object.values(masks).forEach((masker, index) => {
