@@ -236,6 +236,7 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
 
     database_class = Database
+
     # Only internal users can access query_log
     if (
         (get_instance_region() == "EU" and team_id == EU_INSTANCE_TEAM_ID)

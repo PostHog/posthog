@@ -1,6 +1,5 @@
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    Table,
     IntegerDatabaseField,
     StringDatabaseField,
     DateTimeDatabaseField,
@@ -8,6 +7,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     LazyTableToAdd,
     FloatDatabaseField,
+    FunctionCallTable,
 )
 from posthog.hogql.parser import parse_expr
 
@@ -41,28 +41,30 @@ class QueryLogTable(LazyTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         requested_fields = table_to_add.fields_accessed
 
-        table_name = "raw_query_log"
+        raw_table_name = "raw_query_log"
 
         def get_alias(name, chain):
             if name in STRING_FIELDS:
                 return ast.Alias(alias=name, expr=parse_expr(f"JSONExtractString(log_comment, '{name}')"))
             if name in INT_FIELDS:
                 return ast.Alias(alias=name, expr=parse_expr(f"JSONExtractInt(log_comment, '{name}')"))
-            return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain]))
+            return ast.Alias(alias=name, expr=ast.Field(chain=[raw_table_name, *chain]))
 
         fields: list[ast.Expr] = [get_alias(name, chain) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(
             select=fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=[raw_table_name])),
         )
 
 
-class RawQueryLogTable(Table):
+class RawQueryLogTable(FunctionCallTable):
     fields: dict[str, FieldOrTable] = QUERY_LOG_FIELDS
 
-    def to_printed_clickhouse(self, context):
-        return "system.query_log"
+    name: str = "raw_query_log"
 
-    def to_printed_hogql(self):
-        return "system.query_log"
+    def to_printed_clickhouse(self, context):
+        return "clusterAllReplicas(posthog, system.query_log)"
+
+    def to_printed_hogql(self, context):
+        return "query_log"
