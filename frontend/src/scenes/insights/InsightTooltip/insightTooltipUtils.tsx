@@ -59,6 +59,7 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     breakdownFilter?: BreakdownFilter | undefined | null
     groupTypeLabel?: string
     timezone?: string | null
+    title: string
 }
 
 export const COL_CUTOFF = 4
