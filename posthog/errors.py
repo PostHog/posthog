@@ -81,9 +81,18 @@ class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
     pass
 
 
+class CHQueryErrorTypeMismatch(ExposedCHQueryError):
+    pass
+
+
 CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
     "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
         "Too many simultaneous queries. Try again later.", code=202
+    ),
+    "TYPE_MISMATCH": CHQueryErrorTypeMismatch(
+        "One or more property values in your filters are in an incorrect format."
+        " Please check and adjust them to match the required data types.",
+        code=53,
     ),
 }
 
