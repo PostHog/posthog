@@ -18,6 +18,9 @@ jobs:
             contents: read # allow reading the repo contents
             packages: write # allow push to ghcr.io
 
+        outputs:
+            digest: ${{ steps.docker_build.outputs.digest }}
+
         defaults:
             run:
                 working-directory: vector/
@@ -31,15 +34,6 @@ jobs:
               with:
                   sparse-checkout: 'vector/'
                   sparse-checkout-cone-mode: false
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
-            - name: Login to DockerHub
-              uses: docker/login-action@v2
-              with:
-                  username: posthog
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Login to ghcr.io
               uses: docker/login-action@v2
@@ -70,7 +64,7 @@ jobs:
 
             - name: Build and push image
               id: docker_build
-              uses: depot/build-push-action@v1
+              uses: docker/build-push-action@v5
               with:
                   context: ./vector/replay-capture/
                   file: ./vector/replay-capture/Dockerfile
@@ -78,14 +72,19 @@ jobs:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
-                  build-args: BIN=${{ matrix.image }}
 
-            - name: Container image digest
-              run: echo ${{ steps.docker_build.outputs.digest }}
+    deploy:
+        runs-on: ubuntu-latest
+        needs: build
+        steps:
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
-            - name: Trigger replay capture deployment
+            - name: Trigger livestream deployment
               uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -95,7 +94,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.docker_build.outputs.digest }}"
+                            "sha": "${{ needs.build.outputs.digest }}"
                           }
                         },
                         "release": "replay-capture-vector",
