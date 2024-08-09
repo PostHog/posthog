@@ -7,8 +7,8 @@ def salesforce_refresh_access_token(refresh_token: str) -> str:
         "https://login.salesforce.com/services/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": settings.SALESFORCE_APP_CLIENT_ID,
-            "client_secret": settings.SALESFORCE_APP_CLIENT_SECRET,
+            "client_id": settings.SALESFORCE_CONSUMER_KEY,
+            "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
             "refresh_token": refresh_token,
         },
     )
@@ -25,8 +25,8 @@ def get_salesforce_access_token_from_code(code: str, redirect_uri: str) -> tuple
         "https://login.salesforce.com/services/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": settings.SALESFORCE_APP_CLIENT_ID,
-            "client_secret": settings.SALESFORCE_APP_CLIENT_SECRET,
+            "client_id": settings.SALESFORCE_CONSUMER_KEY,
+            "client_secret": settings.SALESFORCE_CONSUMER_SECRET,
             "redirect_uri": redirect_uri,
             "code": code,
         },

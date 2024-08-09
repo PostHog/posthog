@@ -101,7 +101,7 @@ def security_txt(request):
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
-    salesforce_client_id = settings.SALESFORCE_APP_CLIENT_ID
+    salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
     response = {
         "django": True,
