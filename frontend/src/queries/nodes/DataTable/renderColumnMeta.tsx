@@ -21,7 +21,8 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     let align: ColumnMeta['align']
 
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
-    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+    const queryContextColumn =
+        (queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined) ?? context?.columns?.[key]
 
     if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
         const Component = queryContextColumn.renderTitle
