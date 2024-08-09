@@ -28,13 +28,13 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values: { thread } }) => ({
+    listeners(({ actions, values }) => ({
         askMax: ({ prompt }) =>
             new Promise<void>((resolve) => {
-                actions.addMessage({ role: 'user', content: prompt })
                 const url = new URL(`/api/projects/${teamLogic.values.currentTeamId}/query/chat/`, location.origin)
                 url.searchParams.append('prompt', prompt)
-                url.searchParams.append('thread', JSON.stringify(thread))
+                url.searchParams.append('thread', JSON.stringify(values.thread))
+                actions.addMessage({ role: 'user', content: prompt })
                 const source = new window.EventSource(url.toString())
                 source.onerror = (e) => {
                     console.error('Failed to poll chat: ', e)

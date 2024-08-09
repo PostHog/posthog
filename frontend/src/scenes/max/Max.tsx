@@ -1,43 +1,33 @@
+import './Max.scss'
+
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { HedgehogBuddyStatic } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, TrendsQuery } from '~/queries/schema'
 
-import { maxLogic, ThreadMessage } from './maxLogic'
+import { maxLogic } from './maxLogic'
 
 export const scene: SceneExport = {
     component: Max,
     logic: maxLogic,
 }
 
-function AssistantMessage({ message }: { message: ThreadMessage }): JSX.Element {
-    const content = JSON.parse(message.content)
-    const reasoningSteps = content.reasoning_steps as string[]
-
+function Message({ role, children }: React.PropsWithChildren<{ role: string }>): JSX.Element {
     return (
-        <>
-            {reasoningSteps && (
-                <ul>
-                    {reasoningSteps.map((step, index) => (
-                        <li key={index}>{step}</li>
-                    ))}
-                </ul>
+        <div
+            className={clsx(
+                'border p-2 rounded',
+                role === 'user' ? 'bg-accent-3000 self-end' : 'bg-bg-light self-start w-2/3'
             )}
-            <Query
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: content.answer as TrendsQuery,
-                }}
-                readOnly
-                embedded
-            />
-        </>
+        >
+            {children}
+        </div>
     )
 }
 
@@ -50,22 +40,42 @@ export function Max(): JSX.Element {
 
     return (
         <>
-            <div className="flex flex-col gap-4 grow ">
+            <div className="flex flex-col gap-4 grow p-4">
                 {thread.map((message, index) => {
+                    if (message.role === 'user') {
+                        return (
+                            <Message key={index} role={message.role}>
+                                {message.content || <i>No text</i>}
+                            </Message>
+                        )
+                    }
+
+                    const content = JSON.parse(message.content)
+                    const reasoningSteps = content.reasoning_steps as string[]
+
                     return (
-                        <div
-                            key={index}
-                            className={clsx(
-                                'border p-2 rounded',
-                                message.role === 'user' ? 'bg-accent-3000 self-end' : 'bg-bg-light self-start'
-                            )}
-                        >
-                            {message.role === 'user' ? (
-                                <>{message.content || <i>No text</i>}</>
-                            ) : (
-                                <AssistantMessage message={message} />
-                            )}
-                        </div>
+                        <React.Fragment key={index}>
+                            <Message role={message.role}>
+                                <ul className="list-disc ml-4">
+                                    {reasoningSteps.map((step, index) => (
+                                        <li key={index}>{step}</li>
+                                    ))}
+                                </ul>
+                            </Message>
+                            <Message role={message.role}>
+                                <Query
+                                    query={{
+                                        kind: NodeKind.InsightVizNode,
+                                        source: content.answer as TrendsQuery,
+                                    }}
+                                    readOnly
+                                    embedded
+                                />
+                                <LemonButton className="mt-4" type="primary">
+                                    Edit Query
+                                </LemonButton>
+                            </Message>
+                        </React.Fragment>
                     )
                 })}
             </div>
@@ -86,7 +96,13 @@ export function Max(): JSX.Element {
                     size="large"
                     autoFocus
                     suffix={
-                        <LemonButton type="primary" onClick={() => askMax(question)}>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                askMax(question)
+                                setQuestion('')
+                            }}
+                        >
                             Ask Max
                         </LemonButton>
                     }

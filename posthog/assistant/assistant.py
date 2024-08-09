@@ -222,7 +222,7 @@ class Assistant:
                             "reasoning_steps": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "The reasoning steps leading to the final conclusion.",
+                                "description": "The reasoning steps leading to the final conclusion that will be shown to the user. Use 'you' if you want to refer to the user.",
                             },
                             "answer": self._flat_schema,
                         },
