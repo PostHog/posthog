@@ -65,6 +65,11 @@ describe('HogWatcher', () => {
             mockNow.mockReturnValue(now)
         }
 
+        const reallyAdvanceTime = async (ms: number) => {
+            advanceTime(ms)
+            await delay(ms)
+        }
+
         afterEach(async () => {
             jest.useRealTimers()
             await closeHub()
@@ -255,11 +260,6 @@ describe('HogWatcher', () => {
                 hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL = 1 // Shorter ttl to help with testing
                 hub.CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT = 3
             })
-
-            const reallyAdvanceTime = async (ms: number) => {
-                advanceTime(ms)
-                await delay(ms)
-            }
 
             it('count the number of times it has been disabled', async () => {
                 // Trigger the temporary disabled state 3 times

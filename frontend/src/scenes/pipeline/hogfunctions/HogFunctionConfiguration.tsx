@@ -331,7 +331,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                     label: 'Run once per interval',
                                                 },
                                                 {
-                                                    value: '{person.id}',
+                                                    value: '{person.uuid}',
                                                     label: 'Run once per person per interval',
                                                 },
                                             ]}
