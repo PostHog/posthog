@@ -8,13 +8,10 @@ workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
-axum = { workspace = true, features = ["http2"] }
 chrono = { workspace = true }
 envconfig = { workspace = true }
 health = { path = "../common/health" }
 http = { workspace = true }
-metrics = { workspace = true }
-metrics-exporter-prometheus = { workspace = true }
 rdkafka = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

@@ -3,7 +3,7 @@ use config::Config;
 use envconfig::Envconfig;
 use eyre::Result;
 
-use hook_common::metrics::setup_metrics_routes;
+use common_metrics::setup_metrics_routes;
 use hook_common::pgqueue::PgQueue;
 
 mod config;

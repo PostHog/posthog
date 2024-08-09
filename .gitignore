@@ -64,3 +64,5 @@ plugin-transpiler/dist
 *-esbuild-bundle-visualization.html
 .dlt
 *.db
+# Ignore any log files that happen to be present
+*.log

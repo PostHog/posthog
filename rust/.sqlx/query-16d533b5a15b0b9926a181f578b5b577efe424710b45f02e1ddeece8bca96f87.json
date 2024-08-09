@@ -1,0 +1,12 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "UPDATE cyclotron_jobs SET vm_state = $1 WHERE id = $2 AND lock_id = $3",
+    "describe": {
+        "columns": [],
+        "parameters": {
+            "Left": ["Text", "Uuid", "Uuid"]
+        },
+        "nullable": []
+    },
+    "hash": "16d533b5a15b0b9926a181f578b5b577efe424710b45f02e1ddeece8bca96f87"
+}
