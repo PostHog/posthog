@@ -170,4 +170,8 @@ describe('Trends', () => {
         cy.get('[data-attr=math-monthly_active-0]').trigger('mouseenter') // Activate warning tooltip
         cy.get('.Tooltip').contains('we recommend using "Unique users" here instead').should('exist')
     })
+
+    it('Does not show delete button on single series insight', () => {
+        cy.get('[data-attr=delete-prop-filter-0]').should('not.exist')
+    })
 })
