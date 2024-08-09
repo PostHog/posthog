@@ -219,11 +219,13 @@ export function HogQLBoldNumber(): JSX.Element {
         response?.result?.[0]?.[0] ||
         'Error'
 
+    const isNumber = typeof displayValue === 'number'
+
     return (
         <div className="BoldNumber LemonTable HogQL">
             <div className="BoldNumber__value">
                 <Textfit min={32} max={120}>
-                    {`${displayValue}`}
+                    {`${isNumber ? displayValue.toLocaleString() : displayValue}`}
                 </Textfit>
             </div>
         </div>

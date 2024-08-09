@@ -2,6 +2,8 @@ import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FeedbackNotice } from 'lib/components/FeedbackNotice'
+import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -19,7 +21,7 @@ import {
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
-import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
+import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
@@ -64,10 +66,12 @@ const Tiles = (): JSX.Element => {
     return (
         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
             {tiles.map((tile, i) => {
-                if ('query' in tile) {
+                if (tile.kind === 'query') {
                     return <QueryTileItem key={i} tile={tile} />
-                } else if ('tabs' in tile) {
+                } else if (tile.kind === 'tabs') {
                     return <TabsTileItem key={i} tile={tile} />
+                } else if (tile.kind === 'replay') {
+                    return <WebAnalyticsRecordingsTile key={i} tile={tile} />
                 }
                 return null
             })}
@@ -200,16 +204,17 @@ export const WebTabs = ({
     }[]
     setActiveTabId: (id: string) => void
     openModal: (tileId: TileId, tabId: string) => void
-    getNewInsightUrl: (tileId: TileId, tabId: string) => string
+    getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
     tileId: TileId
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
+    const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
     const buttonsRow = [
-        activeTab?.canOpenInsight ? (
+        activeTab?.canOpenInsight && newInsightUrl ? (
             <LemonButton
                 key="open-insight-button"
-                to={getNewInsightUrl(tileId, activeTabId)}
+                to={newInsightUrl}
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"
@@ -317,7 +322,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
-                <WebAnalyticsNotice />
+                <VersionCheckerBanner />
+                <FeedbackNotice text="PostHog Web analytics is in open beta. Thanks for taking part! We'd love to hear what you think." />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <WebAnalyticsLiveUserCount />
                     <Filters />

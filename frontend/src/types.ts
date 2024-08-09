@@ -333,6 +333,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
 }
 
@@ -657,7 +658,7 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
-    DataImport = 'data-import',
+    Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
     History = 'history',
@@ -666,9 +667,9 @@ export enum PipelineTab {
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
+    Source = 'source',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
-    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
@@ -677,6 +678,8 @@ export enum PipelineNodeTab {
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
+    Schemas = 'schemas',
+    Syncs = 'syncs',
 }
 
 export enum ProgressStatus {
@@ -2656,6 +2659,7 @@ export interface SurveyAppearance {
     submitButtonColor?: string
     // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
+    submitButtonTextColor?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
     borderColor?: string
@@ -3312,26 +3316,34 @@ export interface DateMappingOption {
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
     key: string | number | [scene: Scene, key: string | number]
-    /** Name to display. */
-    name: string | null | undefined
-    /** Symbol, e.g. a lettermark or a profile picture. */
-    symbol?: React.ReactNode
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     /** Path to link to. */
     path?: string
     onRename?: never
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
     onRename?: (newName: string) => Promise<void>
     /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
     forceEditMode?: boolean
 }
-export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
+interface SymbolBreadcrumb extends BreadcrumbBase {
+    name?: never
+    /** Symbol, e.g. a lettermark or a profile picture. */
+    symbol: React.ReactElement
+    path?: never
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb
 
 export enum GraphType {
     Bar = 'bar',
@@ -3496,6 +3508,12 @@ export enum DateOperatorType {
     Before = 'before',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+}
+
+export enum SingleFieldDateType {
+    IsDateExact = 'is_date_exact',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
 }
 
 export enum ValueOptionType {
@@ -4321,14 +4339,8 @@ export enum HogWatcherState {
 
 export type HogFunctionStatus = {
     state: HogWatcherState
-    states: {
-        timestamp: number
-        state: HogWatcherState
-    }[]
-    ratings: {
-        timestamp: number
-        rating: number
-    }[]
+    rating: number
+    tokens: number
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -4402,10 +4414,4 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
-}
-
-export enum DataWarehouseTab {
-    Explore = 'explore',
-    ManagedSources = 'managed-sources',
-    SelfManagedSources = 'self-managed-sources',
 }

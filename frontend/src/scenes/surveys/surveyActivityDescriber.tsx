@@ -164,6 +164,7 @@ const surveyActionsMapping: Record<
             backgroundColor: 'background color',
             submitButtonColor: 'submit button color',
             submitButtonText: 'submit button text',
+            submitButtonTextColor: 'submit button text color',
             ratingButtonColor: 'rating button color',
             ratingButtonActiveColor: 'active rating button color',
             borderColor: 'border color',

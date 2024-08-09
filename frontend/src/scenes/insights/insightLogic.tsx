@@ -1,5 +1,5 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -56,7 +56,7 @@ export const createEmptyInsight = (
     result: null,
 })
 
-export const insightLogic = kea<insightLogicType>([
+export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
@@ -89,11 +89,11 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAs: (redirectToViewMode?: boolean) => ({ redirectToViewMode }),
-        saveAsConfirmation: (name: string, redirectToViewMode?: boolean) => ({
+        saveAs: (redirectToViewMode?: boolean, persist?: boolean) => ({ redirectToViewMode, persist }),
+        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true) => ({
             name,
-
             redirectToViewMode,
+            persist,
         }),
         cancelChanges: true,
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
@@ -123,8 +123,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 loadInsight: async ({ shortId }, breakpoint) => {
                     await breakpoint(100)
-                    const response = await api.insights.loadInsight(shortId)
-
+                    const response = await api.insights.loadInsight(shortId, undefined, 'async')
                     if (response?.results?.[0]) {
                         return response.results[0]
                     }
@@ -295,8 +294,8 @@ export const insightLogic = kea<insightLogicType>([
     })),
     selectors({
         query: [
-            (s) => [s.insightProps],
-            (insightProps): Node | null => insightDataLogic.findMounted(insightProps)?.values.query || null,
+            (s) => [(state) => insightDataLogic.findMounted(s.insightProps(state))?.values.query || null],
+            (node): Node | null => node,
         ],
         queryBasedInsightSaving: [
             (s) => [s.featureFlags],
@@ -427,7 +426,7 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAs: async ({ redirectToViewMode }) => {
+        saveAs: async ({ redirectToViewMode, persist }) => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
@@ -444,10 +443,10 @@ export const insightLogic = kea<insightLogicType>([
                 errors: {
                     name: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode),
+                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode, persist),
             })
         },
-        saveAsConfirmation: async ({ name, redirectToViewMode }) => {
+        saveAsConfirmation: async ({ name, redirectToViewMode, persist }) => {
             const insight = await insightsApi.create(
                 {
                     name,
@@ -464,7 +463,7 @@ export const insightLogic = kea<insightLogicType>([
                     values.queryBasedInsight.name || values.queryBasedInsight.derived_name || name
                 }`
             )
-            actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
+            persist && actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
 
             if (redirectToViewMode) {

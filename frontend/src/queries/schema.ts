@@ -255,6 +255,7 @@ export interface HogQueryResponse {
     bytecode?: any[]
     coloredBytecode?: any[]
     stdout?: string
+    query_status?: never
 }
 
 export interface HogQuery extends DataNode<HogQueryResponse> {
@@ -276,6 +277,7 @@ export interface HogQLMetadataResponse {
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
+    query_status?: never
 }
 
 export interface AutocompleteCompletionItem {
@@ -340,6 +342,7 @@ export interface HogQLAutocompleteResponse {
     incomplete_list: boolean
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    query_status?: never
 }
 
 export enum HogLanguage {
@@ -553,6 +556,7 @@ export interface ChartAxis {
     column: string
     settings?: {
         formatting?: ChartSettingsFormatting
+        display?: ChartSettingsDisplay
     }
 }
 
@@ -563,10 +567,28 @@ export interface ChartSettingsFormatting {
     decimalPlaces?: number
 }
 
+export interface ChartSettingsDisplay {
+    label?: string
+    trendLine?: boolean
+    yAxisPosition?: 'left' | 'right'
+    displayType?: 'auto' | 'line' | 'bar'
+}
+
+export interface YAxisSettings {
+    scale?: 'linear' | 'logarithmic'
+    /** Whether the Y axis should start at zero */
+    startAtZero?: boolean
+}
 export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
+    /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
+    yAxisAtZero?: boolean
+    leftYAxisSettings?: YAxisSettings
+    rightYAxisSettings?: YAxisSettings
+    /** Whether we fill the bars to 100% in stacked mode */
+    stackBars100?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -1020,6 +1042,8 @@ export interface AnalyticsQueryResponseBase<T> {
     error?: string
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
 }
 
 interface CachedQueryResponseMixin {

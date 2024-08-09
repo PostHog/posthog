@@ -5,9 +5,9 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 
-import { AlertType, InsightShortId } from '~/types'
+import { AlertType } from '~/types'
 
-import { alertsLogic } from '../alertsLogic'
+import { alertsLogic, AlertsLogicProps } from '../alertsLogic'
 
 interface AlertListItemProps {
     alert: AlertType
@@ -53,16 +53,13 @@ export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps):
     )
 }
 
-interface ManageAlertsProps {
-    insightShortId: InsightShortId
+interface ManageAlertsProps extends AlertsLogicProps {
     onCancel: () => void
     onSelect: (value: number | 'new') => void
 }
 
-export function ManageAlerts({ insightShortId, onCancel, onSelect }: ManageAlertsProps): JSX.Element {
-    const logic = alertsLogic({
-        insightShortId,
-    })
+export function ManageAlerts(props: ManageAlertsProps): JSX.Element {
+    const logic = alertsLogic(props)
 
     const { alerts } = useValues(logic)
     const { deleteAlert } = useActions(logic)
@@ -85,7 +82,7 @@ export function ManageAlerts({ insightShortId, onCancel, onSelect }: ManageAlert
                             <AlertListItem
                                 key={alert.id}
                                 alert={alert}
-                                onClick={() => onSelect(alert.id)}
+                                onClick={() => props.onSelect(alert.id)}
                                 onDelete={() => deleteAlert(alert.id)}
                             />
                         ))}
@@ -100,7 +97,7 @@ export function ManageAlerts({ insightShortId, onCancel, onSelect }: ManageAlert
             </LemonModal.Content>
 
             <LemonModal.Footer>
-                <LemonButton type="secondary" onClick={onCancel}>
+                <LemonButton type="secondary" onClick={props.onCancel}>
                     Close
                 </LemonButton>
             </LemonModal.Footer>
