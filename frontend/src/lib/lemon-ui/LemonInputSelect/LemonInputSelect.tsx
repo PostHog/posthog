@@ -77,7 +77,7 @@ export function LemonInputSelect({
 
         // We show the input value if custom values are allowed and it's not in the list
         if (allowCustomValues && inputValue && !values.includes(inputValue)) {
-            res.push({ key: inputValue.replace('\\,', ','), label: inputValue.replace('\\,', ',') })
+            res.push({ key: inputValue.replace('\\,', ','), label: inputValue.replace('\\,', ',') }) // Transform escaped commas to plain commas
         }
 
         options.forEach((option) => {
