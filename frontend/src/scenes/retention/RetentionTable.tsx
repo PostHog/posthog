@@ -35,7 +35,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
 
                 {showMean && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
-                        {range(0, tableRows[0].length - 1).map((columnIndex) => (
+                        {range(0, tableRows[0].length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     columnIndex == 0 ? (
@@ -57,18 +57,13 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                                                 })
                                             ) || 0
                                         }
-                                        latest={columnIndex == tableRows[0].length - 1}
+                                        latest={isLatestPeriod && columnIndex == tableRows[0].length - 1}
                                         clickable={false}
                                         backgroundColor={PURPLE}
                                     />
                                 )}
                             </td>
                         ))}
-                        {isLatestPeriod ? (
-                            <td className="pb-2">
-                                <CohortDay percentage={0} latest={true} clickable={false} />
-                            </td>
-                        ) : null}
                     </tr>
                 ) : undefined}
 
