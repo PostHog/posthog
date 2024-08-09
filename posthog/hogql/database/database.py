@@ -235,7 +235,7 @@ def create_hogql_database(
     team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
 
-    database_class = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+    database_class = Database
 
     # Only internal users can access query_log
     if (
@@ -243,7 +243,7 @@ def create_hogql_database(
         or (get_instance_region() == "US" and team_id == US_INSTANCE_TEAM_ID)
         or settings.DEBUG
     ):
-        database_class = InternalDatabase(timezone=team.timezone, week_start_day=team.week_start_day)
+        database_class = InternalDatabase
 
     database = database_class(timezone=team.timezone, week_start_day=team.week_start_day)
 
