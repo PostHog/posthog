@@ -115,6 +115,22 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                     value={query.modifiers?.optimizeJoinedFilters ?? response?.modifiers?.optimizeJoinedFilters}
                 />
             </LemonLabel>
+            <LemonLabel className={labelClassName}>
+                <div>Property Groups:</div>
+                <LemonSelect
+                    options={[
+                        { value: true, label: 'Enabled' },
+                        { value: false, label: 'Disabled' },
+                    ]}
+                    onChange={(value) =>
+                        setQuery({
+                            ...query,
+                            modifiers: { ...query.modifiers, usePropertyGroups: value },
+                        })
+                    }
+                    value={query.modifiers?.usePropertyGroups ?? response?.modifiers?.usePropertyGroups}
+                />
+            </LemonLabel>
         </div>
     )
 }
