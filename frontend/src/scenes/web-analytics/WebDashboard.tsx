@@ -21,6 +21,7 @@ import {
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
+import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
@@ -65,10 +66,12 @@ const Tiles = (): JSX.Element => {
     return (
         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
             {tiles.map((tile, i) => {
-                if ('query' in tile) {
+                if (tile.kind === 'query') {
                     return <QueryTileItem key={i} tile={tile} />
-                } else if ('tabs' in tile) {
+                } else if (tile.kind === 'tabs') {
                     return <TabsTileItem key={i} tile={tile} />
+                } else if (tile.kind === 'replay') {
+                    return <WebAnalyticsRecordingsTile key={i} tile={tile} />
                 }
                 return null
             })}
@@ -201,16 +204,17 @@ export const WebTabs = ({
     }[]
     setActiveTabId: (id: string) => void
     openModal: (tileId: TileId, tabId: string) => void
-    getNewInsightUrl: (tileId: TileId, tabId: string) => string
+    getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
     tileId: TileId
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
+    const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
     const buttonsRow = [
-        activeTab?.canOpenInsight ? (
+        activeTab?.canOpenInsight && newInsightUrl ? (
             <LemonButton
                 key="open-insight-button"
-                to={getNewInsightUrl(tileId, activeTabId)}
+                to={newInsightUrl}
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"

@@ -63,6 +63,7 @@ export type SettingId =
     | 'integration-ip-allowlist'
     | 'project-rbac'
     | 'project-delete'
+    | 'organization-logo'
     | 'organization-display-name'
     | 'invites'
     | 'members'
