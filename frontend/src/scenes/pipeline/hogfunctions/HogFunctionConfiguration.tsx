@@ -249,8 +249,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <h2>Trigger</h2>
-
                                 <LemonField
                                     name="source"
                                     label="Source"
@@ -266,7 +264,15 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                     />
                                 </LemonField>
 
-                                <LemonField name="filters" label="Filters by events and actions" className="gap-2">
+                                <LemonField
+                                    name="filters"
+                                    label="Filters"
+                                    help={
+                                        <>
+                                            This destination will be triggered if <b>any of</b> the above filters match.
+                                        </>
+                                    }
+                                >
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch
@@ -312,9 +318,67 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                     )}
                                 </LemonField>
 
-                                <p className="italic text-muted-alt">
-                                    This destination will be triggered if <b>any of</b> the above filters match.
-                                </p>
+                                <LemonField name="ttl" label="Interval">
+                                    <LemonSelect
+                                        options={[
+                                            {
+                                                value: null,
+                                                label: 'No interval',
+                                            },
+                                            {
+                                                value: 5 * 60,
+                                                label: '5 minutes',
+                                            },
+                                            {
+                                                value: 15 * 60,
+                                                label: '15 minutes',
+                                            },
+                                            {
+                                                value: 30 * 60,
+                                                label: '30 minutes',
+                                            },
+                                            {
+                                                value: 60 * 60,
+                                                label: '1 hour',
+                                            },
+                                            {
+                                                value: 2 * 60 * 60,
+                                                label: '2 hours',
+                                            },
+                                            {
+                                                value: 4 * 60 * 60,
+                                                label: '4 hours',
+                                            },
+                                            {
+                                                value: 8 * 60 * 60,
+                                                label: '8 hours',
+                                            },
+                                            {
+                                                value: 12 * 60 * 60,
+                                                label: '12 hours',
+                                            },
+                                            {
+                                                value: 24 * 60 * 60,
+                                                label: '24 hours',
+                                            },
+                                        ]}
+                                    />
+                                </LemonField>
+
+                                <LemonField name="rules" label="Trigger">
+                                    <LemonSelect
+                                        options={[
+                                            {
+                                                value: 'all',
+                                                label: 'every event',
+                                            },
+                                            {
+                                                value: 'unique_persons',
+                                                label: 'once per ev',
+                                            },
+                                        ]}
+                                    />
+                                </LemonField>
                             </div>
                             <div className="relative border bg-bg-light rounded p-3 space-y-2">
                                 <LemonLabel>Expected volume</LemonLabel>
