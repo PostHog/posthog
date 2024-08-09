@@ -24,7 +24,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 
-import { API_KEY_SCOPE_PRESETS, APIScopes, personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { API_KEY_SCOPE_PRESETS, APIScopes, MAX_API_KEYS_PER_USER, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
     const {
@@ -468,6 +468,7 @@ function PersonalAPIKeysTable(): JSX.Element {
 }
 
 export function PersonalAPIKeys(): JSX.Element {
+    const { keys } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId } = useActions(personalAPIKeysLogic)
 
     return (
@@ -484,7 +485,16 @@ export function PersonalAPIKeys(): JSX.Element {
                     More about API authentication in PostHog Docs.
                 </Link>
             </p>
-            <LemonButton type="primary" icon={<IconPlus />} onClick={() => setEditingKeyId('new')}>
+            <LemonButton
+                type="primary"
+                icon={<IconPlus />}
+                onClick={() => setEditingKeyId('new')}
+                disabledReason={
+                    keys.length >= MAX_API_KEYS_PER_USER
+                        ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
+                        : false
+                }
+            >
                 Create personal API key
             </LemonButton>
 

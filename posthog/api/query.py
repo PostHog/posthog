@@ -26,15 +26,11 @@ from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
-from posthog.rate_limit import (
-    AIBurstRateThrottle,
-    AISustainedRateThrottle,
-    TeamRateThrottle,
-)
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
 
 
-class QueryThrottle(TeamRateThrottle):
+class QueryThrottle(PersonalApiKeyRateThrottle):
     scope = "query"
     rate = "120/hour"
 
