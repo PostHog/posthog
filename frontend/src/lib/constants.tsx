@@ -209,6 +209,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
     FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
     MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
+    WEB_ANALYTICS_REPLAY: 'web-analytics-replay', // owner: @robbie-c
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
