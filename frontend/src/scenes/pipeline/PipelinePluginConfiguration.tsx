@@ -1,6 +1,7 @@
 import { IconLock } from '@posthog/icons'
 import { IconPencil } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonFileInput,
     LemonInput,
@@ -13,6 +14,7 @@ import {
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -27,6 +29,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
+import { urls } from 'scenes/urls'
 
 import { EntityTypes, PipelineStage } from '~/types'
 
@@ -138,6 +141,22 @@ export function PipelinePluginConfiguration({
     return (
         <div className="space-y-3">
             <PageHeader buttons={buttons} />
+
+            {stage === PipelineStage.Destination && (
+                <FlaggedFeature flag="hog-functions">
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            to: urls.pipelineNodeNew(PipelineStage.Destination) + '?kind=hog_function',
+                            children: 'See new destinations',
+                        }}
+                    >
+                        <b>Warning!</b> This destination is a legacy "plugin" destination. These will soon be deprecated
+                        in favour of our flexible V2 Destinations that allow for more control and flexibility.
+                    </LemonBanner>
+                </FlaggedFeature>
+            )}
+
             <Form
                 logic={pipelinePluginConfigurationLogic}
                 props={logicProps}

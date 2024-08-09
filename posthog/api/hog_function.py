@@ -22,7 +22,6 @@ from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
-from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
 
@@ -202,8 +201,6 @@ class HogFunctionViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["id", "team", "created_by", "enabled"]
 
-    permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
     log_source = "hog_function"
     app_source = "hog_function"
 
