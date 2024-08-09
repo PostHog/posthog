@@ -6,6 +6,7 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
+    LemonSelect,
     LemonSwitch,
     LemonTextArea,
     Link,
@@ -248,6 +249,23 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
+                                <h2>Trigger</h2>
+
+                                <LemonField
+                                    name="source"
+                                    label="Source"
+                                    info="The source stream of data that will trigger this destination"
+                                >
+                                    <LemonSelect
+                                        options={[
+                                            {
+                                                value: 'events',
+                                                label: 'Events',
+                                            },
+                                        ]}
+                                    />
+                                </LemonField>
+
                                 <LemonField name="filters" label="Filters by events and actions" className="gap-2">
                                     {({ value, onChange }) => (
                                         <>
