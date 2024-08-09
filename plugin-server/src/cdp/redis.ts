@@ -3,9 +3,9 @@
 import { captureException } from '@sentry/node'
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
-import { timeoutGuard } from 'utils/db/utils'
 
 import { PluginsServerConfig } from '../types'
+import { timeoutGuard } from '../utils/db/utils'
 import { createRedisClient } from '../utils/utils'
 
 type WithCheckRateLimit<T> = {
