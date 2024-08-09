@@ -6,7 +6,7 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { IconHandClick } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { shortTimeZone } from 'lib/utils'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { formatAggregationValue } from 'scenes/insights/utils'
 
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -92,6 +92,7 @@ export function InsightTooltip({
     // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
     // If only a single entity exists, itemize entity counts as rows.
     // Throw these rules out the window if `formula` is set
+    const [pointerEvents, setPointerEvents] = useState(true)
     const itemizeEntitiesAsColumns =
         !!formula ||
         ((seriesData?.length ?? 0) > 1 &&
@@ -174,7 +175,15 @@ export function InsightTooltip({
         }
 
         return (
-            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
+            <div
+                className={clsx(
+                    'InsightTooltip',
+                    embedded && 'InsightTooltip--embedded',
+                    pointerEvents && 'InsightTooltip--pointerAuto'
+                )}
+                onMouseEnter={() => setPointerEvents(!pointerEvents)}
+                onMouseLeave={() => setPointerEvents(!pointerEvents)}
+            >
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -234,7 +243,15 @@ export function InsightTooltip({
     })
 
     return (
-        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
+        <div
+            className={clsx(
+                'InsightTooltip',
+                embedded && 'InsightTooltip--embedded',
+                pointerEvents && 'InsightTooltip--pointerAuto'
+            )}
+            onMouseEnter={() => setPointerEvents(true)}
+            onMouseLeave={() => setPointerEvents(false)}
+        >
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}
