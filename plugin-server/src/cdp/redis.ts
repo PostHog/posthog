@@ -141,10 +141,7 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
         return useClient(options, async (client) => {
             const pipeline = client.pipeline()
             callback(pipeline)
-            return pipeline.exec().then((res) => {
-                console.log('pipelije done')
-                return res
-            })
+            return pipeline.exec()
         })
     }
 
