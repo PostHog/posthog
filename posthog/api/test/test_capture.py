@@ -97,6 +97,7 @@ android_json = {
         "$os_version": "14",
         "$lib": "posthog-android",
         "$lib_version": "3.0.0-beta.3",
+        "$is_emulator": True,
         "$locale": "en-US",
         "$user_agent": "Dalvik/2.1.0 (Linux; U; Android 14; sdk_gphone64_arm64 Build/UPB5.230623.003)",
         "$timezone": "Europe/Vienna",
