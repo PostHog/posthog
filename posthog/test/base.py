@@ -281,6 +281,11 @@ class PostHogTestCase(SimpleTestCase):
             yield value
 
     @contextmanager
+    def is_cloud_eu(self, value: bool):
+        with self.settings(CLOUD_DEPLOYMENT="EU" if value else None):
+            yield value
+
+    @contextmanager
     def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
         for _ in range(max_retries):
             try:

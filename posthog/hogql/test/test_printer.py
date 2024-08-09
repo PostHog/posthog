@@ -1716,8 +1716,16 @@ class TestPrinter(BaseTest):
 
         for table in ("query_log", "raw_query_log"):
             query = parse_select(f"select query from {table}")
+            with self.is_cloud_eu(True):
+                zprint(query, 1)
+                with self.assertRaises(Exception):
+                    zprint(query, 2)
+                with self.assertRaises(Exception):
+                    zprint(query, 3)
 
-            zprint(query, 1)
-            zprint(query, 2)
-            with self.assertRaises(Exception):
-                zprint(query, 3)
+            with self.is_cloud(True):
+                with self.assertRaises(Exception):
+                    zprint(query, 1)
+                zprint(query, 2)
+                with self.assertRaises(Exception):
+                    zprint(query, 3)
