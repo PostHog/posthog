@@ -3214,6 +3214,13 @@ class SessionsTimelineQueryResponse(BaseModel):
     )
 
 
+class TableSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[ChartAxis]] = None
+
+
 class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4079,6 +4086,7 @@ class DataVisualizationNode(BaseModel):
     display: Optional[ChartDisplayType] = None
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
+    tableSettings: Optional[TableSettings] = None
 
 
 class DatabaseSchemaViewTable(BaseModel):

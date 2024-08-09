@@ -55,7 +55,7 @@ describe('Insights', () => {
                 insight.newInsight('SQL')
                 insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
                 cy.get('[data-attr="hogql-query-editor"]').should('exist')
-                cy.get('tr.DataTable__row').should('have.length.gte', 2)
+                cy.get('tr.DataVizRow').should('have.length.gte', 2)
             })
         })
     })
