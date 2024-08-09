@@ -367,9 +367,20 @@ class TestPrinter(BaseTest):
             ),
         )
 
+        # common case: comparing against a (non-empty) string value doesn't require checking if the key exists or not,
+        # which lets us use the bloom filter index on both keys and values for the property group
+        # TODO: consider using the EXPLAIN output to ensure these expressions actually use the expected indices?
+        # TODO: also test with the operands swapped?
         self.assertEqual(
             self._expr("properties['x'] = 'x'", context),
             "events.properties_group_custom[%(hogql_val_0)s] = %(hogql_val_1)s",
+        )
+
+        # special case: keys that don't exist in a map return default values for the type, so we need to check whether
+        # or not the key exists in the map (to utilize the bloom filter index on keys) as well as perform the comparison
+        self.assertEqual(
+            self._expr("properties['x'] = ''", context),
+            "has(events.properties_group_custom, %(hogql_val_0)s) AND events.properties_group_custom[%(hogql_val_0)s] = %(hogql_val_1)s",
         )
 
         self.assertEqual(
@@ -381,6 +392,8 @@ class TestPrinter(BaseTest):
             self._expr("properties['x'] is not null", context),
             "not(has(events.properties_group_custom, %(hogql_val_3)s))",
         )
+
+        # TODO: what about chaining? seems like we could still use the keys index here
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
