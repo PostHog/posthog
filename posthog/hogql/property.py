@@ -238,6 +238,22 @@ def _field_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=field, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=field, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.IS_DATE_AFTER_DAYS:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=field,
+            right=ast.Call(
+                name="minus", args=[field, ast.Call(name="toIntervalDay", args=[ast.Constant(value=value)])]
+            ),
+        )
+    elif operator == PropertyOperator.IS_DATE_BEFORE_DAYS:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=field,
+            right=ast.Call(
+                name="minus", args=[field, ast.Call(name="toIntervalDay", args=[ast.Constant(value=value)])]
+            ),
+        )
     elif operator == PropertyOperator.LTE:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=field, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE:

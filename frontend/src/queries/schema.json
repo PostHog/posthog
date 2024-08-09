@@ -6368,6 +6368,8 @@
                 "is_date_exact",
                 "is_date_before",
                 "is_date_after",
+                "is_date_before_days",
+                "is_date_after_days",
                 "between",
                 "not_between",
                 "min",

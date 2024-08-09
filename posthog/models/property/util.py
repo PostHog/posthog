@@ -569,6 +569,30 @@ def prop_filter_json_extract(
             query,
             {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
         )
+    elif operator == "is_date_after_days":
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+        query = f"""{property_operator} {first_of_date_or_timestamp} > addDays(now(), -%({prop_value_param_key})s)"""
+
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: int(prop.value)},
+        )
+    elif operator == "is_date_before_days":
+        assert isinstance(prop.value, str)
+        prop_value_param_key = "v{}_{}".format(prepend, idx)
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+        query = f"""{property_operator} {first_of_date_or_timestamp} < addDays(now(), -%({prop_value_param_key})s)"""
+
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: int(prop.value)},
+        )
     elif operator in ["gt", "lt", "gte", "lte"]:
         count_operator = get_count_operator(operator)
 

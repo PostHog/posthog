@@ -214,6 +214,12 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [SingleFieldDateType.IsDateBefore]: {
                 label: 'before',
             },
+            [SingleFieldDateType.IsDateBeforeDays]: {
+                label: 'before this many days ago',
+            },
+            [SingleFieldDateType.IsDateAfterDays]: {
+                label: 'after this many days ago',
+            },
         },
     },
     [FieldOptionsType.MathOperators]: {

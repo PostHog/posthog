@@ -836,6 +836,8 @@ class PropertyOperator(StrEnum):
     IS_DATE_EXACT = "is_date_exact"
     IS_DATE_BEFORE = "is_date_before"
     IS_DATE_AFTER = "is_date_after"
+    IS_DATE_BEFORE_DAYS = "is_date_before_days"
+    IS_DATE_AFTER_DAYS = "is_date_after_days"
     BETWEEN = "between"
     NOT_BETWEEN = "not_between"
     MIN = "min"

@@ -623,6 +623,8 @@ export enum PropertyOperator {
     IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    IsDateBeforeDays = 'is_date_before_days',
+    IsDateAfterDays = 'is_date_after_days',
     Between = 'between',
     NotBetween = 'not_between',
     Minimum = 'min',
@@ -3515,6 +3517,8 @@ export enum SingleFieldDateType {
     IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    IsDateBeforeDays = 'is_date_before_days',
+    IsDateAfterDays = 'is_date_after_days',
 }
 
 export enum ValueOptionType {
