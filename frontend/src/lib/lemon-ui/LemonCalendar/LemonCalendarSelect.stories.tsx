@@ -23,8 +23,7 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelect> = (props: LemonCalendar
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(props.granularity)
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ paddingBottom: 500 }}>
+        <div className="pb-[30rem]">
             <Popover
                 actionable
                 overlay={

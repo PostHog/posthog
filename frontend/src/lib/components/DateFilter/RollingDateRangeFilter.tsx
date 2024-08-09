@@ -61,9 +61,7 @@ export function RollingDateRangeFilter({
             <p className="RollingDateRangeFilter__label">{dateRangeFilterLabel}</p>
             <div className="RollingDateRangeFilter__counter" onClick={(e): void => e.stopPropagation()}>
                 <span
-                    className="RollingDateRangeFilter__counter__step cursor-pointer"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ background: 'none' }}
+                    className="RollingDateRangeFilter__counter__step cursor-pointer bg-transparent"
                     onClick={decreaseCounter}
                     title="Decrease rolling date range"
                 >
@@ -79,9 +77,7 @@ export function RollingDateRangeFilter({
                     onChange={(value) => setCounter(value)}
                 />
                 <span
-                    className="RollingDateRangeFilter__counter__step cursor-pointer"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ background: 'none' }}
+                    className="RollingDateRangeFilter__counter__step cursor-pointer bg-transparent"
                     onClick={increaseCounter}
                     title="Increase rolling date range"
                 >
