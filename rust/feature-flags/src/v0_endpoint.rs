@@ -9,6 +9,7 @@ use axum_client_ip::InsecureClientIp;
 use tracing::instrument;
 
 use crate::api::FlagValue;
+use crate::v0_request::Compression;
 use crate::{
     api::{FlagError, FlagsResponse},
     router,
@@ -48,10 +49,17 @@ pub async fn flags(
     let content_encoding = headers
         .get("content-encoding")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    let comp = match meta.compression {
+        None => String::from("unknown"),
+        Some(Compression::Gzip) => String::from("gzip"),
+        Some(Compression::Unsupported) => String::from("unsupported"),
+    };
 
     tracing::Span::current().record("user_agent", user_agent);
     tracing::Span::current().record("content_encoding", content_encoding);
     tracing::Span::current().record("version", meta.version.clone());
+    tracing::Span::current().record("lib_version", meta.lib_version.clone());
+    tracing::Span::current().record("compression", comp.as_str());
     tracing::Span::current().record("method", method.as_str());
     tracing::Span::current().record("path", path.as_str().trim_end_matches('/'));
     tracing::Span::current().record("ip", ip.to_string());

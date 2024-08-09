@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
@@ -10,9 +11,26 @@ use crate::{
 };
 
 #[derive(Deserialize, Default)]
+pub enum Compression {
+    #[default]
+    Unsupported,
+
+    #[serde(rename = "gzip", alias = "gzip-js")]
+    Gzip,
+}
+
+#[derive(Deserialize, Default)]
 pub struct FlagsQueryParams {
     #[serde(alias = "v")]
     pub version: Option<String>,
+
+    pub compression: Option<Compression>,
+
+    #[serde(alias = "ver")]
+    pub lib_version: Option<String>,
+
+    #[serde(alias = "_")]
+    sent_at: Option<i64>,
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -95,6 +113,16 @@ impl FlagRequest {
             _ => Ok(distinct_id.chars().take(200).collect()),
         }
     }
+}
+
+#[derive(Debug)]
+pub struct ProcessingContext {
+    pub lib_version: Option<String>,
+    pub sent_at: Option<OffsetDateTime>,
+    pub token: String,
+    pub now: String,
+    pub client_ip: String,
+    pub historical_migration: bool,
 }
 
 #[cfg(test)]
