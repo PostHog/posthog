@@ -47,10 +47,13 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                                             mean(
                                                 tableRows.map((row) => {
                                                     // Stop before the last item in a row, which is an incomplete time period
-                                                    if (columnIndex < row.length - 1) {
-                                                        return row[columnIndex].percentage
+                                                    if (
+                                                        (columnIndex >= row.length - 1 && isLatestPeriod) ||
+                                                        !row[columnIndex]
+                                                    ) {
+                                                        return null
                                                     }
-                                                    return null
+                                                    return row[columnIndex].percentage
                                                 })
                                             ) || 0
                                         }
@@ -61,9 +64,11 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                                 )}
                             </td>
                         ))}
-                        <td className="pb-2">
-                            <CohortDay percentage={0} latest={true} clickable={false} />
-                        </td>
+                        {isLatestPeriod ? (
+                            <td className="pb-2">
+                                <CohortDay percentage={0} latest={true} clickable={false} />
+                            </td>
+                        ) : null}
                     </tr>
                 ) : undefined}
 
