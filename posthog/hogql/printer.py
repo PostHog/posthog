@@ -44,6 +44,9 @@ from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsOnEventsMode
+from posthog.constants import EU_INSTANCE_TEAM_ID, US_INSTANCE_TEAM_ID
+from django.conf import settings
+from posthog.utils import get_instance_region
 
 
 def team_id_guard_for_table(
@@ -55,7 +58,11 @@ def team_id_guard_for_table(
 
     table = table_type.resolve_database_table(context)
     if isinstance(table, QueryLogTable) or isinstance(table, RawQueryLogTable):
-        if context.team_id not in (1, 2):
+        if (
+            (get_instance_region() == "EU" and context.team_id == EU_INSTANCE_TEAM_ID)
+            or (get_instance_region() == "US" and context.team_id == US_INSTANCE_TEAM_ID)
+            or settings.DEBUG
+        ):
             raise InternalHogQLError("Only posthog team members can view the query log table")
         return None
 
