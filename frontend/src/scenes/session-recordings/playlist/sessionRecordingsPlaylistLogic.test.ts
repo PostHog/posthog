@@ -8,7 +8,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
-    convertUniversalFiltersToLegacyFilters,
+    convertUniversalFiltersToRecordingsQuery,
     DEFAULT_RECORDING_FILTERS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -707,9 +707,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('convertUniversalFiltersToLegacyFilters', () => {
+    describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('expands the visited_page filter to a pageview with $current_url property', () => {
-            const result = convertUniversalFiltersToLegacyFilters({
+            const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
                 filter_group: {
                     type: FilterLogicalOperator.And,
@@ -729,7 +729,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 },
             })
 
-            expect(result.events).toEqual([
+            expect(result.entities).toEqual([
                 {
                     id: '$pageview',
                     name: '$pageview',

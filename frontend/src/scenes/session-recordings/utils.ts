@@ -1,9 +1,9 @@
 import { UniversalFiltersGroup, UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 
-import { RecordingFilters, RecordingUniversalFilters } from '~/types'
+import { LegacyRecordingFilters, RecordingUniversalFilters } from '~/types'
 
 export const isUniversalFilters = (
-    filters: RecordingUniversalFilters | RecordingFilters
+    filters: RecordingUniversalFilters | LegacyRecordingFilters
 ): filters is RecordingUniversalFilters => {
     return 'filter_group' in filters
 }
