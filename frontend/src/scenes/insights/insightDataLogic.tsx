@@ -76,6 +76,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     actions({
         setQuery: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
+        toggleDebugPanel: true,
         cancelChanges: true,
     }),
 
@@ -90,6 +91,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             false,
             {
                 toggleQueryEditorPanel: (state) => !state,
+            },
+        ],
+        showDebugPanel: [
+            false,
+            {
+                toggleDebugPanel: (state) => !state,
             },
         ],
     }),

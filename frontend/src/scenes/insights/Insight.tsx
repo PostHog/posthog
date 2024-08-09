@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
@@ -27,7 +28,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const { insightProps } = useValues(logic)
 
     // insightDataLogic
-    const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
+    const { query, showQueryEditor, showDebugPanel } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -47,6 +48,12 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                 <InsightPageHeader insightLogicProps={insightProps} />
 
                 {insightMode === ItemMode.Edit && <InsightsNav />}
+
+                {showDebugPanel && (
+                    <div className="mb-4">
+                        <DebugCHQueries insightId={insightProps.cachedInsight?.id} />
+                    </div>
+                )}
 
                 <Query
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}
