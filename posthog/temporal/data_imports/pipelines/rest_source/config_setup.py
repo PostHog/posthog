@@ -1,10 +1,5 @@
 from copy import copy
-from typing import (
-    Any,
-    Optional,
-    cast,
-    NamedTuple,
-)
+from typing import Any, Optional, NamedTuple
 from collections.abc import Callable
 import graphlib  # type: ignore[import,unused-ignore]
 import string
@@ -43,7 +38,6 @@ from .typing import (
     PaginatorType,
     AuthType,
     AuthConfig,
-    IncrementalArgs,
     IncrementalConfig,
     PaginatorConfig,
     ResolvedParam,
@@ -141,28 +135,28 @@ def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:
 def setup_incremental_object(
     request_params: dict[str, Any],
     incremental_config: Optional[IncrementalConfig] = None,
-) -> tuple[Optional[Incremental[Any]], Optional[IncrementalParam]]:
+) -> tuple[Optional[Incremental[Any]], Optional[IncrementalParam], Optional[Callable[..., Any]]]:
+    transform: Optional[Callable[..., Any]]
     for key, value in request_params.items():
         if isinstance(value, dlt.sources.incremental):
-            return value, IncrementalParam(start=key, end=None)
+            return value, IncrementalParam(start=key, end=None), None
         if isinstance(value, dict) and value.get("type") == "incremental":
-            config = exclude_keys(value, {"type"})
+            transform = value.get("transform", None)
+            config = exclude_keys(value, {"type", "transform"})
             # TODO: implement param type to bind incremental to
-            return (
-                dlt.sources.incremental(**config),
-                IncrementalParam(start=key, end=None),
-            )
+            return (dlt.sources.incremental(**config), IncrementalParam(start=key, end=None), transform)
     if incremental_config:
-        config = exclude_keys(incremental_config, {"start_param", "end_param"})
+        transform = incremental_config.get("transform", None)
+        config = exclude_keys(incremental_config, {"start_param", "end_param", "transform"})
         return (
-            dlt.sources.incremental(**cast(IncrementalArgs, config)),
+            dlt.sources.incremental(**config),
             IncrementalParam(
                 start=incremental_config["start_param"],
                 end=incremental_config.get("end_param"),
             ),
         )
 
-    return None, None
+    return None, None, None
 
 
 def make_parent_key_name(resource_name: str, field_name: str) -> str:

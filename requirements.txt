@@ -206,7 +206,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.5.2a1
+dlt==0.5.2
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -427,7 +427,7 @@ psycopg2-binary==2.9.7
     # via -r requirements.in
 py==1.11.0
     # via retry
-pyarrow==15.0.0
+pyarrow==17.0.0
     # via
     #   -r requirements.in
     #   deltalake

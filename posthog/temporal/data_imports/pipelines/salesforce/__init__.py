@@ -20,6 +20,7 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                     "q": "SELECT FIELDS(STANDARD) FROM User",
                 },
             },
+            "table_format": "delta",
         },
         "UserRole": {
             "name": "UserRole",
@@ -33,6 +34,7 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                     "q": "SELECT FIELDS(STANDARD) FROM UserRole",
                 },
             },
+            "table_format": "delta",
         },
         "Lead": {
             "name": "Lead",
@@ -46,6 +48,7 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                     "q": "SELECT FIELDS(STANDARD) FROM Lead",
                 },
             },
+            "table_format": "delta",
         },
         "Contact": {
             "name": "Contact",
@@ -59,6 +62,7 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                     "q": "SELECT FIELDS(STANDARD) FROM Contact",
                 },
             },
+            "table_format": "delta",
         },
         "Campaign": {
             "name": "Campaign",
@@ -72,6 +76,7 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                     "q": "SELECT FIELDS(STANDARD) FROM Campaign",
                 },
             },
+            "table_format": "delta",
         },
         "Product2": {
             "name": "Product2",
@@ -85,6 +90,7 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                     "q": "SELECT FIELDS(STANDARD) FROM Product2",
                 },
             },
+            "table_format": "delta",
         },
         "Pricebook2": {
             "name": "Pricebook2",
@@ -98,6 +104,7 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                     "q": "SELECT FIELDS(STANDARD) FROM Pricebook2",
                 },
             },
+            "table_format": "delta",
         },
         "PricebookEntry": {
             "name": "PricebookEntry",
@@ -111,26 +118,33 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                     "q": "SELECT FIELDS(STANDARD) FROM PricebookEntry",
                 },
             },
+            "table_format": "delta",
         },
         "Account": {
             "name": "Account",
             "table_name": "account",
-            "primary_key": "id",
-            "write_disposition": "merge" if is_incremental else "replace",
+            "primary_key": "Id",
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
-                "paginator": SalesforceIncrementalPaginator(schema="Account", subdomain=subdomain),
                 "params": {
                     "q": {
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
-                        "initial_value": "SELECT FIELDS(STANDARD) FROM Account WHERE SystemModstamp > 2000-01-01T00:00:00.000+0000",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "transform": lambda date_str: f"SELECT FIELDS(STANDARD) FROM Account WHERE SystemModstamp > {date_str}",
                     }
                     if is_incremental
                     else "SELECT FIELDS(STANDARD) FROM Account",
                 },
             },
+            "table_format": "delta",
         },
     }
 
@@ -166,9 +180,9 @@ class SalesforceIncrementalPaginator(BasePaginator):
         if request.params is None:
             request.params = {}
 
-        request.params[
-            "q"
-        ] = f"SELECT FIELDS(STANDARD) FROM {self.schema} WHERE SystemModstamp > {self._next_start_time}"
+        request.params["q"] = (
+            f"SELECT FIELDS(STANDARD) FROM {self.schema} WHERE SystemModstamp > {self._next_start_time}"
+        )
 
         request.url = f"https://{self.subdomain}.my.salesforce.com{self._next_page}"
 
