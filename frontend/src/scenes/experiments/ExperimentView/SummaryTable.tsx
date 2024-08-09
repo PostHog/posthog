@@ -130,7 +130,7 @@ export function SummaryTable(): JSX.Element {
                 key: 'credibleInterval',
                 title: (
                     <div className="inline-flex items-center space-x-1">
-                        <div className="">Credible interval</div>
+                        <div className="">Credible interval (95%)</div>
                         <Tooltip title="A credible interval represents a range within which we believe the true parameter value lies with a certain probability (often 95%), based on the posterior distribution derived from the observed data and our prior beliefs.">
                             <IconInfo className="text-muted-alt text-base" />
                         </Tooltip>
