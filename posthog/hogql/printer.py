@@ -20,6 +20,8 @@ from posthog.hogql.functions import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
+from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
+
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
@@ -42,12 +44,27 @@ from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsOnEventsMode
+from posthog.constants import EU_INSTANCE_TEAM_ID, US_INSTANCE_TEAM_ID
+from django.conf import settings
+from posthog.utils import get_instance_region
 
 
-def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
+def team_id_guard_for_table(
+    table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext
+) -> ast.Expr | None:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.team_id:
         raise InternalHogQLError("context.team_id not found")
+
+    table = table_type.resolve_database_table(context)
+    if isinstance(table, QueryLogTable) or isinstance(table, RawQueryLogTable):
+        if not (
+            (get_instance_region() == "EU" and context.team_id == EU_INSTANCE_TEAM_ID)
+            or (get_instance_region() == "US" and context.team_id == US_INSTANCE_TEAM_ID)
+            or settings.DEBUG
+        ):
+            raise InternalHogQLError("Only posthog team members can view the query log table")
+        return None
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
@@ -427,7 +444,7 @@ class _Printer(Visitor):
                 sql = table_type.table.to_printed_hogql()
 
             if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
-                if node.table_args is None:
+                if node.table_args is None and table_type.table.min_args is not None and table_type.table.min_args > 0:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
                 if table_type.table.min_args is not None and (

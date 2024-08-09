@@ -6,8 +6,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.db.models import Q
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
+from django.conf import settings
 
 from posthog.hogql import ast
+from posthog.constants import EU_INSTANCE_TEAM_ID, US_INSTANCE_TEAM_ID
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldOrTable,
@@ -38,6 +40,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
 )
+from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -190,6 +193,12 @@ class Database(BaseModel):
             self._view_table_names.append(f_name)
 
 
+class InternalDatabase(Database):
+    query_log: QueryLogTable = QueryLogTable()
+    raw_query_log: RawQueryLogTable = RawQueryLogTable()
+    _table_names: ClassVar[list[str]] = [*Database._table_names, "query_log"]
+
+
 def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
@@ -225,7 +234,18 @@ def create_hogql_database(
 
     team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
-    database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+
+    database_class = Database
+
+    # Only internal users can access query_log
+    if (
+        (get_instance_region() == "EU" and team_id == EU_INSTANCE_TEAM_ID)
+        or (get_instance_region() == "US" and team_id == US_INSTANCE_TEAM_ID)
+        or settings.DEBUG
+    ):
+        database_class = InternalDatabase
+
+    database = database_class(timezone=team.timezone, week_start_day=team.week_start_day)
 
     if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
         # no change
@@ -488,6 +508,7 @@ def serialize_database(
 
     # PostHog Tables
     posthog_tables = context.database.get_posthog_tables()
+
     for table_key in posthog_tables:
         field_input: dict[str, Any] = {}
         table = getattr(context.database, table_key, None)
