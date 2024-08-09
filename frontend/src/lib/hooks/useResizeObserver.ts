@@ -2,9 +2,70 @@ import { RefCallback, RefObject, useMemo, useState } from 'react'
 import ResizeObserver from 'resize-observer-polyfill'
 import useResizeObserverImport from 'use-resize-observer'
 
+interface ResizeObserverMockType {
+    callback: ResizeObserverCallback
+    observations: Element[]
+    observe: (target: Element) => void
+    unobserve: (target: Element) => void
+    disconnect: () => void
+}
+
 // Use polyfill only if needed
 if (!window.ResizeObserver) {
     window.ResizeObserver = ResizeObserver
+}
+
+if (window.STORYBOOK) {
+    class ResizeObserverMock implements ResizeObserverMockType {
+        callback: ResizeObserverCallback
+        observations: Element[]
+
+        constructor(callback: ResizeObserverCallback) {
+            this.callback = callback
+            this.observations = []
+        }
+
+        observe(target: Element): void {
+            this.observations.push(target)
+            this.callback(
+                [
+                    {
+                        target,
+                        contentRect: target.getBoundingClientRect(),
+                        borderBoxSize: [
+                            {
+                                blockSize: target.clientHeight,
+                                inlineSize: target.clientWidth,
+                            },
+                        ],
+                        contentBoxSize: [
+                            {
+                                blockSize: target.clientHeight,
+                                inlineSize: target.clientWidth,
+                            },
+                        ],
+                        devicePixelContentBoxSize: [
+                            {
+                                blockSize: target.clientHeight,
+                                inlineSize: target.clientWidth,
+                            },
+                        ],
+                    },
+                ],
+                this
+            )
+        }
+
+        unobserve(target: Element): void {
+            this.observations = this.observations.filter((obs) => obs !== target)
+        }
+
+        disconnect(): void {
+            this.observations = []
+        }
+    }
+
+    window.ResizeObserver = ResizeObserverMock
 }
 
 export const useResizeObserver = useResizeObserverImport
