@@ -1,3 +1,4 @@
+from copy import deepcopy
 import itertools
 import pickle
 
@@ -73,22 +74,26 @@ class Command(BaseCommand):
                     continue
 
                 for argSet in table:
-                    combo.append([argsTuple[index].__class__(nullable=z) for index, z in enumerate(argSet)])  # type: ignore
+                    combo.append(
+                        [
+                            argsTuple[index].__class__(nullable=z, is_timezone_type=argsTuple[index].is_timezone_type)
+                            for index, z in enumerate(argSet)
+                        ]
+                    )  # type: ignore
 
                 for argSet2 in combo:
                     args = ", ".join(get_arg_value(blah) for blah in argSet2)
-                    query = f"SELECT {func_name}({args})"
+                    query = f"SELECT {meta.clickhouse_name or func_name}({args})"
                     print(f"Querying... {query}")
                     try:
                         res = sync_execute(query)[0][0]
                         print("Success")
-                        print(res)
-                        # Clone return_type
+                        copied_return_type = deepcopy(return_type)
                         if res is None:
-                            return_type.nullable = True
+                            copied_return_type.nullable = True
                         else:
-                            return_type.nullable = False
-                        newSig.append((tuple(argSet2), return_type))
+                            copied_return_type.nullable = False
+                        newSig.append((tuple(argSet2), copied_return_type))
                     except Exception:
                         print("Exception")
                         continue
@@ -97,10 +102,20 @@ class Command(BaseCommand):
         save_state(newFuncs)
 
         for func_name, meta in newFuncs.items():
-            print("==========")
-            print(func_name)
-            print(meta)
-            print("==========")
+            print(
+                f'"{func_name}": {meta},'.replace(
+                    "min_params=0, max_params=0, aggregate=False, overloads=None, tz_aware=False, case_sensitive=True, ",
+                    "",
+                )
+                .replace(
+                    "min_params=0, max_params=0, aggregate=False, overloads=None, ",
+                    "",
+                )
+                .replace("start=None, end=None, ", "")
+                .replace("case_sensitive=True, ", "")
+                .replace(", is_timezone_type=False", "")
+                .replace(", suffix_args=None", "")
+            )
 
         # def generate_function_sql_queries():
         #     count = 0
