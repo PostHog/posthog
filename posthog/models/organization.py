@@ -120,6 +120,9 @@ class Organization(UUIDModel):
     )
     name: models.CharField = models.CharField(max_length=64)
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
+    logo_media: models.ForeignKey = models.ForeignKey(
+        "posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True
+    )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
