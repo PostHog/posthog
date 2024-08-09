@@ -4283,6 +4283,7 @@ class RecordingsQuery(BaseModel):
         ]
     ] = None
     response: Optional[RecordingsQueryResponse] = None
+    session_ids: Optional[list[str]] = None
 
 
 class RetentionQuery(BaseModel):

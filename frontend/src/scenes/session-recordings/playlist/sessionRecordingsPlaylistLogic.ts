@@ -98,7 +98,7 @@ export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFi
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
 }
 
-const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
+const capturePartialFilters = (filters: Partial<RecordingUniversalFilters>): void => {
     // capture only the partial filters applied (not the full filters object)
     // take each key from the filter and change it to `partial_filter_chosen_${key}`
     const partialFilters = Object.keys(filters).reduce((acc, key) => {
@@ -117,7 +117,13 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const entities: RecordingsQuery['entities'] = []
     const properties: RecordingsQuery['properties'] = []
     const console_log_filters: RecordingsQuery['console_log_filters'] = []
-    const having_predicates: RecordingsQuery['having_predicates'] = [universalFilters.duration[0]]
+    const having_predicates: RecordingsQuery['having_predicates'] = []
+
+    const durationFilter = universalFilters.duration[0]
+
+    if (durationFilter) {
+        having_predicates.push(durationFilter)
+    }
 
     filters.forEach((f) => {
         if (isEntityFilter(f)) {
@@ -167,10 +173,10 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 }
 
 export function convertLegacyFiltersToUniversalFilters(
-    simpleFilters?: RecordingFilters,
-    advancedFilters?: RecordingFilters
+    simpleFilters?: LegacyRecordingFilters,
+    advancedFilters?: LegacyRecordingFilters
 ): RecordingUniversalFilters {
-    const filters = combineRecordingFilters(simpleFilters || {}, advancedFilters || {})
+    const filters = combineLegacyRecordingFilters(simpleFilters || {}, advancedFilters || {})
 
     const events = filters.events ?? []
     const actions = filters.actions ?? []
@@ -219,7 +225,10 @@ export function convertLegacyFiltersToUniversalFilters(
     }
 }
 
-function combineRecordingFilters(simpleFilters: RecordingFilters, advancedFilters: RecordingFilters): RecordingFilters {
+function combineLegacyRecordingFilters(
+    simpleFilters: LegacyRecordingFilters,
+    advancedFilters: LegacyRecordingFilters
+): LegacyRecordingFilters {
     return {
         ...advancedFilters,
         events: [...(simpleFilters?.events || []), ...(advancedFilters?.events || [])],
@@ -337,14 +346,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }
 
                     if (values.orderBy === 'start_time') {
+                        const dateRange = params.date_range || {}
                         if (direction === 'older') {
-                            params['date_range']['date_to'] =
+                            dateRange.date_to =
                                 values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
                         }
 
                         if (direction === 'newer') {
-                            params['date_range']['date_from'] = values.sessionRecordings[0]?.start_time
+                            dateRange.date_from = values.sessionRecordings[0]?.start_time
                         }
+                        params.date_range = dateRange
                     } else {
                         if (direction === 'older') {
                             params['offset'] = values.sessionRecordings.length
@@ -392,6 +403,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     if (recordingIds.length) {
                         const fetchedRecordings = await api.recordings.list({
+                            kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
                         })
 

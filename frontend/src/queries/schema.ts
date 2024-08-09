@@ -274,13 +274,16 @@ export interface RecordingsQueryResponse {
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
-    date_range: DateRange
-    entities: FilterType['events' | 'actions']
+    date_range?: DateRange
+    entities?: FilterType['events' | 'actions']
     properties?: AnyPropertyFilter[]
     console_log_filters?: RecordingConsoleFilter[]
-    having_predicates: AnyPropertyFilter[] // duration and snapshot_source filters
+    having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
+    session_ids?: string[]
+    limit?: integer
+    offset?: integer
 }
 
 export interface HogQLNotice {

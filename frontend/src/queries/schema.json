@@ -8197,6 +8197,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RecordingsQueryResponse"
+                },
+                "session_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["date_range", "having_predicates", "kind"],
