@@ -5018,6 +5018,9 @@
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
+                },
+                "usePropertyGroups": {
+                    "type": "boolean"
                 }
             },
             "type": "object"

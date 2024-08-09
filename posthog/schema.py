@@ -621,6 +621,7 @@ class HogQLQueryModifiers(BaseModel):
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
+    usePropertyGroups: Optional[bool] = None
 
 
 class HogQueryResponse(BaseModel):
