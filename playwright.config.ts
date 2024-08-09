@@ -47,6 +47,11 @@ export default defineConfig({
             name: 'chromium',
             use: {
                 ...devices['Desktop Chrome'],
+                viewport: null,
+                launchOptions: {
+                    ...devices['Desktop Chrome']['launchOptions'],
+                    args: ['--window-size=1280,720'],
+                },
             },
         },
 
