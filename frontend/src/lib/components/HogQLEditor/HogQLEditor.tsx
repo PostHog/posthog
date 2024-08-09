@@ -16,6 +16,7 @@ export interface HogQLEditorProps {
     disableCmdEnter?: boolean
     submitText?: string
     placeholder?: string
+    hidePlaceholder?: boolean
 }
 
 export function HogQLEditor({
@@ -26,6 +27,7 @@ export function HogQLEditor({
     disableCmdEnter,
     submitText,
     placeholder,
+    hidePlaceholder,
 }: HogQLEditorProps): JSX.Element {
     const [bufferedValue, setBufferedValue] = useState(value ?? '')
     useEffect(() => {
@@ -53,14 +55,16 @@ export function HogQLEditor({
                           }
                 }
             />
-            <div className="text-muted pt-2 text-xs">
-                <pre>
-                    {placeholder ??
-                        (metadataSource && isActorsQuery(metadataSource)
-                            ? "Enter HogQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- is_identified ? 'user' : 'anon'"
-                            : "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')")}
-                </pre>
-            </div>
+            {!hidePlaceholder ? (
+                <div className="text-muted pt-2 text-xs">
+                    <pre>
+                        {placeholder ??
+                            (metadataSource && isActorsQuery(metadataSource)
+                                ? "Enter HogQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- is_identified ? 'user' : 'anon'"
+                                : "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')")}
+                    </pre>
+                </div>
+            ) : null}
             <LemonButton
                 className="mt-2"
                 fullWidth
