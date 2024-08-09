@@ -17,11 +17,7 @@ const AVAILABLE_WORKERS = Object.freeze({
 
 async function main() {
     let poolConfig = {
-        host: 'localhost',
-        port: 5432,
-        user: 'posthog',
-        password: 'posthog',
-        db: 'posthog'
+        db_url: "postgresql://posthog:posthog@localhost:5432/cyclotron",
     }
 
     let managerConfig = {
@@ -116,9 +112,6 @@ async function main() {
 
     jobs = JSON.parse(await cyclotron.dequeue_with_vm_state("non-default", AVAILABLE_WORKERS.HOG, 2))
 
-    // TODO - I'm seeing the weirdest ordering failures here, and I cannot trace them to anywhere
-    // specific - the exact same code in rust will work perfectly every time
-    // assert(jobs.length === 2)
     assert(jobs[0].id == job_2.id)
     assert(jobs[1].id == job_1.id)
 
