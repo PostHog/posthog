@@ -81,6 +81,7 @@ module.exports = {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         await page.setViewportSize(viewport)
+        await page.waitForFunction(() => window.innerWidth == viewport.width)
     },
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
@@ -95,6 +96,7 @@ module.exports = {
             // just in case the retry is due to a useResizeObserver fail
             await page.setViewportSize({ width: 1920, height: 1080 })
             await page.setViewportSize(viewport)
+            await page.waitForFunction(() => window.innerWidth == viewport.width)
         }
         const browserContext = page.context()
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
