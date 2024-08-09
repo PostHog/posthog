@@ -436,6 +436,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
         showMean: filters.show_mean,
+        cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index
 }

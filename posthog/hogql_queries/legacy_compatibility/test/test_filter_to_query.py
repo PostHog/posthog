@@ -1504,6 +1504,7 @@ class TestFilterToQuery(BaseTest):
             "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
             "period": "Week",
             "show_mean": True,
+            "cumulative": True,
         }
 
         query = filter_to_query(filter)
@@ -1530,6 +1531,7 @@ class TestFilterToQuery(BaseTest):
                     "order": None,
                 },
                 showMean=True,
+                cumulative=True,
             ),
         )
 

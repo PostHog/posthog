@@ -26,7 +26,7 @@ export function RetentionDatePicker(): JSX.Element {
                 clearable
                 buttonProps={{
                     tooltip: 'Cohorts up to this end date',
-                    type: 'tertiary',
+                    type: 'secondary',
                     sideIcon: null,
                     size: 'small',
                 }}
