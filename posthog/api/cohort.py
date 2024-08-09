@@ -471,7 +471,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"
 
 
 def will_create_loops(cohort: Cohort) -> bool:

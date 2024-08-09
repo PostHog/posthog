@@ -1911,8 +1911,9 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_featureflag"."created_by_id" = "posthog_user"."id")
-  WHERE ("posthog_featureflag"."team_id" = 2
+  WHERE ("posthog_team"."project_id" = 2
          AND "posthog_featureflag"."id" = 2)
   LIMIT 21
   '''
