@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
+import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
 
 import {
@@ -57,6 +58,7 @@ export enum TileId {
     GEOGRAPHY = 'GEOGRAPHY',
     RETENTION = 'RETENTION',
     REPLAY = 'REPLAY',
+    ERROR_TRACKING = 'ERROR_TRACKING',
 }
 
 const loadPriorityMap: Record<TileId, number> = {
@@ -68,6 +70,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.GEOGRAPHY]: 6,
     [TileId.RETENTION]: 7,
     [TileId.REPLAY]: 8,
+    [TileId.ERROR_TRACKING]: 9,
 }
 
 interface BaseTile {
@@ -116,7 +119,12 @@ export interface ReplayTile extends BaseTile {
     kind: 'replay'
 }
 
-export type WebDashboardTile = QueryTile | TabsTile | ReplayTile
+export interface ErrorTrackingTile extends BaseTile {
+    kind: 'error_tracking'
+    query: QuerySchema
+}
+
+export type WebDashboardTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
 
 export interface WebDashboardModalQuery {
     tileId: TileId
@@ -441,6 +449,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         tiles: [
             (s) => [
                 s.webAnalyticsFilters,
+                s.replayFilters,
                 s.tabs,
                 s.dateFilter,
                 s.isPathCleaningEnabled,
@@ -452,6 +461,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             (
                 webAnalyticsFilters,
+                replayFilters,
                 { graphsTab, sourceTab, deviceTab, pathTab, geographyTab },
                 { dateFrom, dateTo, interval },
                 isPathCleaningEnabled,
@@ -1130,6 +1140,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               layout: {
                                   colSpanClassName: 'md:col-span-1',
                               },
+                          }
+                        : null,
+                    featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                        ? {
+                              kind: 'error_tracking',
+                              tileId: TileId.ERROR_TRACKING,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-1',
+                              },
+                              query: errorTrackingQuery({
+                                  order: 'users',
+                                  dateRange: dateRange,
+                                  filterTestAccounts: filterTestAccounts,
+                                  filterGroup: replayFilters.filter_group,
+                                  sparklineSelectedPeriod: null,
+                                  columns: ['error', 'users', 'occurrences'],
+                              }),
                           }
                         : null,
                 ]

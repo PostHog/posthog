@@ -38,16 +38,19 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     sparklineSelectedPeriod,
+    columns,
 }: {
     order: ErrorTrackingQuery['order']
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
+    columns?: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
 }): DataTableNode => {
     const select: string[] = []
-
-    const columns = ['error', 'occurrences', 'sessions', 'users', 'assignee']
+    if (!columns) {
+        columns = ['error', 'occurrences', 'sessions', 'users', 'assignee']
+    }
 
     if (sparklineSelectedPeriod) {
         const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
