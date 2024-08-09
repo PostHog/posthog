@@ -14,7 +14,7 @@ import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/qu
 import { isInsightQueryNode } from '~/queries/utils'
 import { FilterType } from '~/types'
 
-import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsCount, actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 
 export function TrendsSeries(): JSX.Element | null {
@@ -90,6 +90,7 @@ export function TrendsSeries(): JSX.Element | null {
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.DataWarehouse,
                 ]}
+                hideDeleteBtn={actionsAndEventsCount(filters as any) === 1}
             />
         </>
     )
