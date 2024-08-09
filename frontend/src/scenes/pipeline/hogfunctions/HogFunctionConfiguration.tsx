@@ -347,50 +347,84 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 </LemonField>
 
                                 {configuration.masking?.hash ? (
-                                    <LemonField name="masking" label="Interval">
+                                    <LemonField name="masking">
                                         {({ value, onChange }) => (
-                                            <LemonSelect
-                                                value={value?.ttl}
-                                                onChange={(val) => onChange({ ...value, ttl: val })}
-                                                options={[
-                                                    {
-                                                        value: 5 * 60,
-                                                        label: '5 minutes',
-                                                    },
-                                                    {
-                                                        value: 15 * 60,
-                                                        label: '15 minutes',
-                                                    },
-                                                    {
-                                                        value: 30 * 60,
-                                                        label: '30 minutes',
-                                                    },
-                                                    {
-                                                        value: 60 * 60,
-                                                        label: '1 hour',
-                                                    },
-                                                    {
-                                                        value: 2 * 60 * 60,
-                                                        label: '2 hours',
-                                                    },
-                                                    {
-                                                        value: 4 * 60 * 60,
-                                                        label: '4 hours',
-                                                    },
-                                                    {
-                                                        value: 8 * 60 * 60,
-                                                        label: '8 hours',
-                                                    },
-                                                    {
-                                                        value: 12 * 60 * 60,
-                                                        label: '12 hours',
-                                                    },
-                                                    {
-                                                        value: 24 * 60 * 60,
-                                                        label: '24 hours',
-                                                    },
-                                                ]}
-                                            />
+                                            <>
+                                                <span>of</span>
+                                                <LemonSelect
+                                                    value={value?.ttl}
+                                                    onChange={(val) => onChange({ ...value, ttl: val })}
+                                                    options={[
+                                                        {
+                                                            value: 5 * 60,
+                                                            label: '5 minutes',
+                                                        },
+                                                        {
+                                                            value: 15 * 60,
+                                                            label: '15 minutes',
+                                                        },
+                                                        {
+                                                            value: 30 * 60,
+                                                            label: '30 minutes',
+                                                        },
+                                                        {
+                                                            value: 60 * 60,
+                                                            label: '1 hour',
+                                                        },
+                                                        {
+                                                            value: 2 * 60 * 60,
+                                                            label: '2 hours',
+                                                        },
+                                                        {
+                                                            value: 4 * 60 * 60,
+                                                            label: '4 hours',
+                                                        },
+                                                        {
+                                                            value: 8 * 60 * 60,
+                                                            label: '8 hours',
+                                                        },
+                                                        {
+                                                            value: 12 * 60 * 60,
+                                                            label: '12 hours',
+                                                        },
+                                                        {
+                                                            value: 24 * 60 * 60,
+                                                            label: '24 hours',
+                                                        },
+                                                    ]}
+                                                />
+                                                <span>or until an additional</span>
+                                                <LemonSelect
+                                                    value={value?.threshold}
+                                                    onChange={(val) => onChange({ ...value, threshold: val })}
+                                                    options={[
+                                                        {
+                                                            value: null,
+                                                            label: 'Not set',
+                                                        },
+                                                        {
+                                                            value: 100,
+                                                            label: '100 events',
+                                                        },
+                                                        {
+                                                            value: 1000,
+                                                            label: '1,000 events',
+                                                        },
+                                                        {
+                                                            value: 10000,
+                                                            label: '10,000 events',
+                                                        },
+                                                        {
+                                                            value: 100000,
+                                                            label: '100,000 events',
+                                                        },
+                                                        {
+                                                            value: 100000,
+                                                            label: '100,000 events',
+                                                        },
+                                                    ]}
+                                                />
+                                            </>
                                         )}
                                     </LemonField>
                                 ) : null}

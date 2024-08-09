@@ -4292,6 +4292,13 @@ export type HogFunctionInputType = {
     bytecode?: any
 }
 
+export type HogFunctionFiltersMasking = {
+    ttl: number | null
+    threshold?: number | null
+    hash: string
+    bytecode?: any
+}
+
 export type HogFunctionType = {
     id: string
     icon_url?: string
@@ -4306,6 +4313,7 @@ export type HogFunctionType = {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
     filters?: PluginConfigFilters | null
+    masking?: HogFunctionFiltersMasking | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
 }
