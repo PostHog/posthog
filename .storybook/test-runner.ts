@@ -80,9 +80,9 @@ module.exports = {
     async preVisit(page, context) {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
-        const viewPortChange = page.waitForFunction(() => window.innerWidth === viewport.width)
         await page.setViewportSize(viewport)
-        await viewPortChange
+        const viewportWidth = viewport.width
+        await page.waitForFunction((width) => window.innerWidth === width, viewportWidth)
     },
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
@@ -96,9 +96,9 @@ module.exports = {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
             await page.setViewportSize({ width: 1920, height: 1080 })
-            const viewPortChange = page.waitForFunction(() => window.innerWidth === viewport.width)
             await page.setViewportSize(viewport)
-            await viewPortChange
+            const viewportWidth = viewport.width
+            await page.waitForFunction((width) => window.innerWidth === width, viewportWidth)
         }
         const browserContext = page.context()
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
