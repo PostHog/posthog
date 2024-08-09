@@ -1,5 +1,6 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
+import { base64Encode } from 'lib/utils'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -39,7 +40,8 @@ export function ListPage(): JSX.Element {
 
 export function GroupPage(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.errorTrackingGroup('TypeError'))
+        const stringifiedFingerprint = base64Encode(JSON.stringify(['TypeError']))
+        router.actions.push(urls.errorTrackingGroup(stringifiedFingerprint))
     }, [])
     return <App />
 }

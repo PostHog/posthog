@@ -3384,7 +3384,10 @@
                     "type": ["string", "null"]
                 },
                 "fingerprint": {
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "first_seen": {
                     "format": "date-time",
@@ -3396,7 +3399,10 @@
                 },
                 "merged_fingerprints": {
                     "items": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -3449,7 +3455,10 @@
                     "type": "boolean"
                 },
                 "fingerprint": {
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",

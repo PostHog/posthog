@@ -22,7 +22,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     })),
 
     actions({
-        mergeGroups: (fingerprints: string[]) => ({ fingerprints }),
+        mergeGroups: (indexes: number[]) => ({ indexes }),
         assignGroup: (recordIndex: number, assigneeId: number | null) => ({
             recordIndex,
             assigneeId,
@@ -30,10 +30,10 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
-        mergeGroups: async ({ fingerprints }) => {
+        mergeGroups: async ({ indexes }) => {
             const results = values.response?.results as ErrorTrackingGroup[]
 
-            const groups = results.filter((g) => fingerprints.includes(g.fingerprint))
+            const groups = results.filter((_, id) => indexes.includes(id))
             const primaryGroup = groups.shift()
 
             if (primaryGroup && groups.length > 0) {
@@ -45,7 +45,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                     ...values.response,
                     results: results
                         // remove merged groups
-                        .filter((group) => !mergingFingerprints.includes(group.fingerprint))
+                        .filter((_, id) => !indexes.includes(id))
                         .map((group) =>
                             // replace primary group
                             mergedGroup.fingerprint === group.fingerprint ? mergedGroup : group
@@ -58,7 +58,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             const response = values.response
             if (response) {
                 const params = { assignee: assigneeId }
-                const results = values.response?.results as ErrorTrackingGroup[]
+                const results = response.results as ErrorTrackingGroup[]
                 const group = { ...results[recordIndex], ...params }
                 results.splice(recordIndex, 1, group)
                 // optimistically update local results
