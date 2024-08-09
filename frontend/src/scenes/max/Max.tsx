@@ -8,6 +8,7 @@ import React, { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, TrendsQuery } from '~/queries/schema'
 
@@ -52,6 +53,10 @@ export function Max(): JSX.Element {
 
                     const content = JSON.parse(message.content)
                     const reasoningSteps = content.reasoning_steps as string[]
+                    const query = {
+                        kind: NodeKind.InsightVizNode,
+                        source: content.answer as TrendsQuery,
+                    }
 
                     return (
                         <React.Fragment key={index}>
@@ -63,15 +68,13 @@ export function Max(): JSX.Element {
                                 </ul>
                             </Message>
                             <Message role={message.role}>
-                                <Query
-                                    query={{
-                                        kind: NodeKind.InsightVizNode,
-                                        source: content.answer as TrendsQuery,
-                                    }}
-                                    readOnly
-                                    embedded
-                                />
-                                <LemonButton className="mt-4" type="primary">
+                                <Query query={query} readOnly embedded />
+                                <LemonButton
+                                    className="mt-4 w-fit"
+                                    type="primary"
+                                    to={`/insights/new#filters=${JSON.stringify(queryNodeToFilter(content.answer))}`}
+                                    targetBlank
+                                >
                                     Edit Query
                                 </LemonButton>
                             </Message>
