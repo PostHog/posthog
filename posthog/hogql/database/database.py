@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.db.models import Q
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
+from django.conf import settings
 
 from posthog.hogql import ast
 from posthog.constants import EU_INSTANCE_TEAM_ID, US_INSTANCE_TEAM_ID
@@ -239,7 +240,7 @@ def create_hogql_database(
     if (
         (get_instance_region() == "EU" and team_id == EU_INSTANCE_TEAM_ID)
         or (get_instance_region() == "US" and team_id == US_INSTANCE_TEAM_ID)
-        # or settings.DEBUG
+        or settings.DEBUG
     ):
         database_class = InternalDatabase
 
