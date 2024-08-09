@@ -11,7 +11,7 @@ from posthog.hogql.ast import (
     StringType,
     TupleType,
     IntegerType,
-    UUIDType,
+    AnyConstantType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
 from posthog.hogql.errors import QueryError
@@ -43,18 +43,6 @@ def validate_function_args(
 
 
 Overload = tuple[tuple[type[ConstantType], ...] | type[ConstantType], str]
-AnyConstantType = (
-    StringType
-    | BooleanType
-    | DateType
-    | DateTimeType
-    | UUIDType
-    | ArrayType
-    | TupleType
-    | UnknownType
-    | IntegerType
-    | FloatType
-)
 
 
 @dataclass()
