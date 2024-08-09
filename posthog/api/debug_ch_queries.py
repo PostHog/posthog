@@ -114,7 +114,7 @@ class DebugCHQueries(viewsets.ViewSet):
         }
 
     def queries(self, request: Request, insight_id: Optional[str] = None):
-        params = {
+        params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
         }
@@ -127,7 +127,7 @@ class DebugCHQueries(viewsets.ViewSet):
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
             params["query"] = f"/* user_id:{request.user.pk} %"
-            params["start_time"] = str((now() - relativedelta(minutes=10)).timestamp())
+            params["start_time"] = (now() - relativedelta(minutes=10)).timestamp()
 
         response = sync_execute(
             f"""
