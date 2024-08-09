@@ -50,6 +50,7 @@ fi
 
 [[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+export REGISTRY_URL="${REGISTRY_URL:-posthog/posthog}"
 
 cd posthog
 git pull
