@@ -1,6 +1,25 @@
+import pytest
+
 from posthog.test.base import BaseTest
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from posthog.warehouse.models.modeling import DataWarehouseModelPath
+from posthog.warehouse.models.modeling import DataWarehouseModelPath, NodeType, get_parents_from_model_query
+
+
+@pytest.mark.parametrize(
+    "query,parents",
+    [
+        ("select * from events, persons", {"events", "persons"}),
+        ("select * from some_random_view", {"some_random_view"}),
+        (
+            "with cte as (select * from events), cte2 as (select * from cte), cte3 as (select 1) select * from cte2",
+            {"events"},
+        ),
+        ("select 1", set()),
+    ],
+)
+def test_get_parents_from_model_query(query: str, parents: set[str]):
+    """Test parents are correctly parsed from sample queries."""
+    assert parents == get_parents_from_model_query(query)
 
 
 class TestModelPath(BaseTest):
@@ -20,7 +39,7 @@ class TestModelPath(BaseTest):
             query={"query": query},
         )
 
-        model_paths = DataWarehouseModelPath.objects.create_from_saved_query_instance(saved_query)
+        model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
         paths = [model_path.path for model_path in model_paths]
 
         self.assertEqual(len(paths), 2)
@@ -48,8 +67,8 @@ class TestModelPath(BaseTest):
             query={"query": "select * from my_model as my_other_model"},
         )
 
-        parent_model_paths = DataWarehouseModelPath.objects.create_from_saved_query_instance(parent_saved_query)
-        child_model_paths = DataWarehouseModelPath.objects.create_from_saved_query_instance(child_saved_query)
+        parent_model_paths = DataWarehouseModelPath.objects.create_from_saved_query(parent_saved_query)
+        child_model_paths = DataWarehouseModelPath.objects.create_from_saved_query(child_saved_query)
 
         parent_paths = [model_path.path for model_path in parent_model_paths]
         child_paths = [model_path.path for model_path in child_model_paths]
@@ -88,13 +107,13 @@ class TestModelPath(BaseTest):
             query={"query": "select * from my_model_child"},
         )
 
-        DataWarehouseModelPath.objects.create_from_saved_query_instance(parent_saved_query)
-        DataWarehouseModelPath.objects.create_from_saved_query_instance(child_saved_query)
-        DataWarehouseModelPath.objects.create_from_saved_query_instance(grand_child_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(parent_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(child_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(grand_child_saved_query)
 
         child_saved_query.query = {"query": "select * from events as my_other_model"}
         child_saved_query.save()
-        DataWarehouseModelPath.objects.update_from_saved_query_instance(child_saved_query)
+        DataWarehouseModelPath.objects.update_from_saved_query(child_saved_query)
 
         child_refreshed_model_paths = DataWarehouseModelPath.objects.filter(
             team=self.team, saved_query=child_saved_query
@@ -135,8 +154,8 @@ class TestModelPath(BaseTest):
             name="my_model2",
             query={"query": query_2},
         )
-        DataWarehouseModelPath.objects.create_from_saved_query_instance(saved_query_1)
-        DataWarehouseModelPath.objects.create_from_saved_query_instance(saved_query_2)
+        DataWarehouseModelPath.objects.create_from_saved_query(saved_query_1)
+        DataWarehouseModelPath.objects.create_from_saved_query(saved_query_2)
 
         lca = DataWarehouseModelPath.objects.get_longest_common_ancestor_path([saved_query_1, saved_query_2])
         self.assertEqual(lca, "events")
@@ -162,8 +181,8 @@ class TestModelPath(BaseTest):
             query={"query": "select * from my_model as my_other_model"},
         )
 
-        DataWarehouseModelPath.objects.create_from_saved_query_instance(parent_saved_query)
-        DataWarehouseModelPath.objects.create_from_saved_query_instance(child_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(parent_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(child_saved_query)
 
         dag = DataWarehouseModelPath.objects.get_dag(team=self.team)
 
@@ -172,8 +191,8 @@ class TestModelPath(BaseTest):
         self.assertIn(("persons", parent_saved_query.id.hex), dag.edges)
         self.assertEqual(len(dag.edges), 3)
 
-        self.assertIn((child_saved_query.id.hex, "SavedQuery"), dag.nodes)
-        self.assertIn((parent_saved_query.id.hex, "SavedQuery"), dag.nodes)
-        self.assertIn(("events", "PostHog"), dag.nodes)
-        self.assertIn(("persons", "PostHog"), dag.nodes)
+        self.assertIn((child_saved_query.id.hex, NodeType.SAVED_QUERY), dag.nodes)
+        self.assertIn((parent_saved_query.id.hex, NodeType.SAVED_QUERY), dag.nodes)
+        self.assertIn(("events", NodeType.POSTHOG), dag.nodes)
+        self.assertIn(("persons", NodeType.POSTHOG), dag.nodes)
         self.assertEqual(len(dag.nodes), 4)
