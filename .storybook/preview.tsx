@@ -12,6 +12,8 @@ import { withTheme } from './decorators/withTheme'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { getStorybookAppContext } from './app-context'
 
+window.STORYBOOK = true
+
 const setupMsw = () => {
     // Make sure the msw worker is started
     worker.start({

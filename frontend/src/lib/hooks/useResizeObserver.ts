@@ -7,7 +7,9 @@ if (!window.ResizeObserver) {
     window.ResizeObserver = ResizeObserver
 }
 
-export const useResizeObserver = useResizeObserverImport
+const ResizeObserverMock = () => ({})
+
+export const useResizeObserver = window.STORYBOOK ? ResizeObserverMock : useResizeObserverImport
 
 export function useResizeBreakpoints<T extends string>(
     breakpoints: { [key: number]: T },

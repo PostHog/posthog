@@ -22,6 +22,7 @@ declare global {
         }
         IMPERSONATED_SESSION?: boolean
         POSTHOG_JS_UUID_VERSION?: string
+        STORYBOOK?: boolean
 
         EventSourcePolyfill: typeof EventSource
     }
