@@ -1,0 +1,12 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "\n            INSERT INTO posthog_propertydefinition (id, name, is_numerical, query_usage_30_day, property_type, property_type_format, volume_30_day, team_id, group_type_index, type)\n            VALUES ($1, $2, $3, NULL, $4, NULL, NULL, $5, $6, $7)\n            ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))\n            DO UPDATE SET property_type = EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL\n            ",
+    "describe": {
+        "columns": [],
+        "parameters": {
+            "Left": ["Uuid", "Varchar", "Bool", "Varchar", "Int4", "Int2", "Int2"]
+        },
+        "nullable": []
+    },
+    "hash": "bcafdd26b289e1177203db47e7902a95992482fb349e216a912f68dc2a8cf33b"
+}
