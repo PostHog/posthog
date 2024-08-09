@@ -127,7 +127,7 @@ class DebugCHQueries(viewsets.ViewSet):
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
             params["query"] = f"/* user_id:{request.user.pk} %"
-            params["start_time"] = (now() - relativedelta(minutes=10)).timestamp()
+            params["start_time"] = str((now() - relativedelta(minutes=10)).timestamp())
 
         response = sync_execute(
             f"""

@@ -1,4 +1,5 @@
 import { IconCodeInsert, IconCopy } from '@posthog/icons'
+import { ChartConfiguration, ChartDataset } from 'chart.js'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import { actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
@@ -83,7 +84,7 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
     }),
-    loaders(({ props }) => ({
+    loaders(({ props }: { props: { insightId: string } }) => ({
         debugResponse: [
             {} as DebugResponse,
             {
@@ -150,7 +151,7 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
             const exceptions = labels.map((label) => dataMap.get(label)?.exceptions || 0)
             const avgResponseTime = labels.map((label) => dataMap.get(label)?.avg_response_time_ms || 0)
 
-            const datasets = [
+            const datasets: ChartDataset[] = [
                 {
                     label: 'Successful Queries',
                     data: successfulQueries,
@@ -173,14 +174,13 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
                     type: 'line',
                     fill: false,
                     borderColor: 'rgba(153, 102, 255, 0.5)',
-                    tension: 0.1,
                     yAxisID: 'y-axis-2',
                 },
             ]
 
             const maxQueryCount = Math.max(...successfulQueries, ...exceptions)
             const maxResponseTime = Math.max(...avgResponseTime)
-            const options = {
+            const options: ChartConfiguration['options'] = {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
