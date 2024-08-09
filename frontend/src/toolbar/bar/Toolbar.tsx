@@ -17,7 +17,7 @@ import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -143,15 +143,52 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, dragPosition, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
+    const { minimized, dragPosition, isDragging, hedgehogMode, isEmbeddedInApp, element } = useValues(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred, setDragPosition } =
+        useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
+
+    /**
+     * Sets the initial drag position of the toolbar to the bottom center of the window.
+     * Ensures the toolbar is positioned correctly even if the dimensions change.
+     */
+    const setInitialDragPosition = (): void => {
+        const toolbarElement = element
+
+        // Ensure the toolbar element exists
+        if (!toolbarElement) {
+            console.error('Toolbar element not found')
+            return
+        }
+
+        // Get the toolbar's dimensions
+        const { width: toolbarWidth, height: toolbarHeight } = toolbarElement.getBoundingClientRect()
+
+        // Ensure toolbar dimensions are valid
+        if (toolbarWidth <= 0 || toolbarHeight <= 0) {
+            console.error('Invalid toolbar dimensions')
+            return
+        }
+
+        // Calculate the initial position: bottom center of the window
+        const initialX = (window.innerWidth - toolbarWidth) / 2
+        const initialY = window.innerHeight - toolbarHeight
+
+        // Set the initial drag position
+        setDragPosition(initialX, initialY)
+    }
 
     useEffect(() => {
         setElement(ref.current)
         return () => setElement(null)
     }, [ref.current])
+
+    useLayoutEffect(() => {
+        if (element) {
+            setInitialDragPosition()
+        }
+    }, [element])
 
     useKeyboardHotkeys(
         {
