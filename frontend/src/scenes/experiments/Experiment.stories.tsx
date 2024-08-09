@@ -483,6 +483,10 @@ const MOCK_EXPERIMENT_RESULTS: FunnelExperimentResults = {
                 failure_count: 28,
             },
         ],
+        credible_intervals: {
+            control: [0.0126, 0.0526],
+            test: [0.0526, 0.0826],
+        },
     },
 }
 
