@@ -1,6 +1,6 @@
 import './Max.scss'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { HedgehogBuddyStatic } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
@@ -19,12 +19,17 @@ export const scene: SceneExport = {
     logic: maxLogic,
 }
 
-function Message({ role, children }: React.PropsWithChildren<{ role: string }>): JSX.Element {
+function Message({
+    role,
+    children,
+    className,
+}: React.PropsWithChildren<{ role: 'user' | 'assistant'; className?: string }>): JSX.Element {
     return (
         <div
             className={clsx(
                 'border p-2 rounded',
-                role === 'user' ? 'bg-accent-3000 self-end' : 'bg-bg-light self-start w-2/3'
+                role === 'user' ? 'bg-accent-3000 self-end' : 'bg-bg-light self-start w-2/3',
+                className
             )}
         >
             {children}
@@ -34,7 +39,7 @@ function Message({ role, children }: React.PropsWithChildren<{ role: string }>):
 
 export function Max(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { thread } = useValues(maxLogic)
+    const { thread, threadLoading } = useValues(maxLogic)
     const { askMax } = useActions(maxLogic)
 
     const [question, setQuestion] = useState('')
@@ -81,6 +86,14 @@ export function Max(): JSX.Element {
                         </React.Fragment>
                     )
                 })}
+                {threadLoading && (
+                    <Message role="assistant" className="w-fit select-none">
+                        <div className="flex items-center gap-2">
+                            Let me think…
+                            <Spinner className="text-xl" />
+                        </div>
+                    </Message>
+                )}
             </div>
             <div className="relative flex items-start px-4 overflow-hidden">
                 <div className="flex -ml-2.5 -mt-2 animate-rise">
@@ -98,6 +111,11 @@ export function Max(): JSX.Element {
                     fullWidth
                     size="large"
                     autoFocus
+                    onPressEnter={() => {
+                        askMax(question)
+                        setQuestion('')
+                    }}
+                    disabled={threadLoading}
                     suffix={
                         <LemonButton
                             type="primary"
@@ -105,6 +123,7 @@ export function Max(): JSX.Element {
                                 askMax(question)
                                 setQuestion('')
                             }}
+                            disabledReason={threadLoading ? 'Thinking…' : undefined}
                         >
                             Ask Max
                         </LemonButton>

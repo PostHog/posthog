@@ -12,6 +12,7 @@ export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     actions({
         askMax: (prompt: string) => ({ prompt }),
+        askMaxSuccess: true,
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessages: (messages: ThreadMessage[]) => ({ messages }),
     }),
@@ -19,12 +20,15 @@ export const maxLogic = kea<maxLogicType>([
         thread: [
             [] as ThreadMessage[],
             {
-                addMessage: (state, { message }) => {
-                    return [...state, message]
-                },
-                replaceMessages: (_, { messages }) => {
-                    return messages
-                },
+                addMessage: (state, { message }) => [...state, message],
+                replaceMessages: (_, { messages }) => messages,
+            },
+        ],
+        threadLoading: [
+            false,
+            {
+                askMax: () => true,
+                askMaxSuccess: () => false,
             },
         ],
     }),
@@ -32,8 +36,8 @@ export const maxLogic = kea<maxLogicType>([
         askMax: ({ prompt }) =>
             new Promise<void>((resolve) => {
                 const url = new URL(`/api/projects/${teamLogic.values.currentTeamId}/query/chat/`, location.origin)
-                url.searchParams.append('prompt', prompt)
                 url.searchParams.append('thread', JSON.stringify(values.thread))
+                url.searchParams.append('prompt', prompt)
                 actions.addMessage({ role: 'user', content: prompt })
                 const source = new window.EventSource(url.toString())
                 source.onerror = (e) => {
@@ -46,6 +50,7 @@ export const maxLogic = kea<maxLogicType>([
                         // An empty object is the termination signal
                         source.close()
                         resolve()
+                        actions.askMaxSuccess()
                     } else {
                         actions.replaceMessages(eventData)
                     }
