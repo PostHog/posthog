@@ -8154,16 +8154,25 @@
         "RecordingsQuery": {
             "additionalProperties": false,
             "properties": {
+                "actions": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "console_log_filters": {
                     "items": {
                         "$ref": "#/definitions/RecordingConsoleFilter"
                     },
                     "type": "array"
                 },
-                "date_range": {
-                    "$ref": "#/definitions/DateRange"
+                "date_from": {
+                    "type": ["string", "null"]
                 },
-                "entities": {
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "events": {
                     "items": {
                         "type": "object"
                     },
@@ -8182,12 +8191,36 @@
                     "const": "RecordingsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "offset": {
+                    "type": "integer"
+                },
                 "operand": {
                     "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "order": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/DurationType"
+                        },
+                        {
+                            "const": "start_time",
+                            "type": "string"
+                        },
+                        {
+                            "const": "console_error_count",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "person_uuid": {
+                    "type": "string"
                 },
                 "properties": {
                     "items": {
@@ -8205,7 +8238,7 @@
                     "type": "array"
                 }
             },
-            "required": ["date_range", "having_predicates", "kind"],
+            "required": ["kind"],
             "type": "object"
         },
         "RecordingsQueryResponse": {

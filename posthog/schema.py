@@ -4239,31 +4239,39 @@ class RecordingsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actions: Optional[list[dict[str, Any]]] = None
     console_log_filters: Optional[list[Union[RecordingConsoleLogLevelFilter, RecordingConsoleQueryFilter]]] = None
-    date_range: DateRange
-    entities: Optional[list[dict[str, Any]]] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    events: Optional[list[dict[str, Any]]] = None
     filter_test_accounts: Optional[bool] = None
-    having_predicates: list[
-        Union[
-            EventPropertyFilter,
-            PersonPropertyFilter,
-            ElementPropertyFilter,
-            SessionPropertyFilter,
-            CohortPropertyFilter,
-            RecordingPropertyFilter,
-            GroupPropertyFilter,
-            FeaturePropertyFilter,
-            HogQLPropertyFilter,
-            EmptyPropertyFilter,
-            DataWarehousePropertyFilter,
-            DataWarehousePersonPropertyFilter,
+    having_predicates: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
         ]
-    ]
+    ] = None
     kind: Literal["RecordingsQuery"] = "RecordingsQuery"
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = None
+    order: Optional[Union[DurationType, str]] = None
+    person_uuid: Optional[str] = None
     properties: Optional[
         list[
             Union[

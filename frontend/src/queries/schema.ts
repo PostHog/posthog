@@ -9,6 +9,7 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
+    DurationType,
     EventPropertyFilter,
     EventType,
     FilterLogicalOperator,
@@ -274,14 +275,18 @@ export interface RecordingsQueryResponse {
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
-    date_range?: DateRange
-    entities?: FilterType['events' | 'actions']
+    date_from?: string | null
+    date_to?: string | null
+    events?: FilterType['events']
+    actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
     console_log_filters?: RecordingConsoleFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
     session_ids?: string[]
+    person_uuid?: string
+    order: DurationType | 'start_time' | 'console_error_count'
     limit?: integer
     offset?: integer
 }
