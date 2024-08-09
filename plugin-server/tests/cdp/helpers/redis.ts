@@ -5,7 +5,6 @@ export async function deleteKeysWithPrefix(redis: CdpRedis, prefix: string) {
         const keys = await client.keys(`${prefix}*`)
         const pipeline = client.pipeline()
         keys.forEach(function (key) {
-            console.log('deleting ', key)
             pipeline.del(key)
         })
         await pipeline.exec()

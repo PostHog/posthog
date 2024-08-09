@@ -417,10 +417,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                                     value: 100000,
                                                                     label: '100,000 events',
                                                                 },
-                                                                {
-                                                                    value: 100000,
-                                                                    label: '100,000 events',
-                                                                },
                                                             ]}
                                                         />
                                                     </div>

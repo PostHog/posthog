@@ -183,6 +183,7 @@ describe('HogMasker', () => {
 
             it('should mask threshold based in a batch', async () => {
                 hogFunctionAll.masking!.threshold = 5
+                hogFunctionAll.masking!.ttl = 10
 
                 // If we have 10 invocations in a batch then we should have 2 invocations that are not masked
                 expect(
