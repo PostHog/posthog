@@ -77,7 +77,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             reset_pipeline=reset_pipeline,
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
-        from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
+        from posthog.temporal.data_imports.pipelines.hubspot.auth import hubspot_refresh_access_token
         from posthog.temporal.data_imports.pipelines.hubspot import hubspot
 
         hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
@@ -86,7 +86,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             raise ValueError(f"Hubspot refresh token not found for job {model.id}")
 
         if not hubspot_access_code:
-            hubspot_access_code = refresh_access_token(refresh_token)
+            hubspot_access_code = hubspot_refresh_access_token(refresh_token)
 
         source = hubspot(
             api_key=hubspot_access_code,
@@ -214,6 +214,37 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             incremental_field_type=schema.sync_type_config.get("incremental_field_type")
             if schema.is_incremental
             else None,
+        )
+
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
+    elif model.pipeline.source_type == ExternalDataSource.Type.SALESFORCE:
+        from posthog.temporal.data_imports.pipelines.salesforce.auth import salesforce_refresh_access_token
+        from posthog.temporal.data_imports.pipelines.salesforce import salesforce_source
+
+        subdomain = model.pipeline.job_inputs.get("salesforce_subdomain")
+        salesforce_access_token = model.pipeline.job_inputs.get("salesforce_access_token", None)
+        refresh_token = model.pipeline.job_inputs.get("salesforce_refresh_token", None)
+        if not refresh_token:
+            raise ValueError(f"Salesforce refresh token not found for job {model.id}")
+
+        if not salesforce_access_token:
+            salesforce_access_token = salesforce_refresh_access_token(refresh_token)
+
+        source = salesforce_source(
+            subdomain=subdomain,
+            access_token=salesforce_access_token,
+            refresh_token=refresh_token,
+            endpoint=schema.name,
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
+            is_incremental=schema.is_incremental,
         )
 
         return await _run(
