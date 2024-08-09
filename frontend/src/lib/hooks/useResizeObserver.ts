@@ -7,7 +7,14 @@ if (!window.ResizeObserver) {
     window.ResizeObserver = ResizeObserver
 }
 
-export const useResizeObserver = useResizeObserverImport
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const ResizeObserverMock = <T>(_opts: any): { ref: RefCallback<T>; width: undefined; height: undefined } => ({
+    ref: () => {},
+    width: undefined,
+    height: undefined,
+})
+
+export const useResizeObserver = window.STORYBOOK ? ResizeObserverMock : useResizeObserverImport
 
 export function useResizeBreakpoints<T extends string>(
     breakpoints: { [key: number]: T },
