@@ -82,8 +82,8 @@ export function Max(): JSX.Element {
                     )
                 })}
             </div>
-            <div className="relative flex items-start px-4">
-                <div className="flex -ml-2.5 -mt-2">
+            <div className="relative flex items-start px-4 overflow-hidden">
+                <div className="flex -ml-2.5 -mt-2 animate-rise">
                     <HedgehogBuddyStatic
                         accessories={user?.hedgehog_config?.accessories}
                         color={user?.hedgehog_config?.color}

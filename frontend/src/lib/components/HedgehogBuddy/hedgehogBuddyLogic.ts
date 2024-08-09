@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -138,7 +140,15 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             })
         },
 
-        patchHedgehogConfig: async (_, breakpoint) => {
+        patchHedgehogConfig: async ({ config }, breakpoint) => {
+            if ('plopping' in config) {
+                // Don't save plopping state
+                if (Object.keys(config).length === 1) {
+                    return
+                }
+                delete config.plopping
+            }
+
             await breakpoint(1000)
             actions.updateRemoteConfig(values.hedgehogConfig)
         },
@@ -150,6 +160,14 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                 userLogic
                     .findMounted()
                     ?.actions.loadUserSuccess({ ...theUserLogic.values.user, hedgehog_config: remoteConfig } as any)
+            }
+        },
+        [sceneLogic.actionTypes.openScene]: ({ scene }) => {
+            if (scene === Scene.Max) {
+                actions.patchHedgehogConfig({ plopping: true })
+                setTimeout(() => actions.patchHedgehogConfig({ enabled: false }), 250)
+            } else {
+                actions.patchHedgehogConfig({ enabled: true, plopping: false })
             }
         },
     })),
