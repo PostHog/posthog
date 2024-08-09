@@ -15,6 +15,11 @@
 .CodeEditorResizeable,
 .CodeEditorInline {
     .monaco-editor {
+        /* stylelint-disable custom-property-pattern */
+        --vscode-textLink-foreground: transparent;
+        --vscode-focusBorder: transparent;
+        /* stylelint-enable custom-property-pattern */
+
         border-radius: var(--radius);
 
         .overflow-guard {

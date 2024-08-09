@@ -8,6 +8,7 @@ export interface CodeEditorResizableProps extends Omit<CodeEditorProps, 'height'
     minHeight?: string | number
     maxHeight?: string | number
     editorClassName?: string
+    embedded?: boolean
 }
 
 export function CodeEditorResizeable({
@@ -16,6 +17,7 @@ export function CodeEditorResizeable({
     maxHeight = '90vh',
     className,
     editorClassName,
+    embedded = false,
     ...props
 }: CodeEditorResizableProps): JSX.Element {
     const [height, setHeight] = useState(defaultHeight)
@@ -33,7 +35,7 @@ export function CodeEditorResizeable({
     return (
         <div
             ref={ref}
-            className={clsx('CodeEditorResizeable relative border rounded w-full', className)}
+            className={clsx('CodeEditorResizeable relative', !embedded ? 'border rounded w-full' : '', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 minHeight,
