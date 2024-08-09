@@ -11,7 +11,17 @@ type HogFunctionCache = {
     teams: Record<Team['id'], HogFunctionType['id'][] | undefined>
 }
 
-const HOG_FUNCTION_FIELDS = ['id', 'team_id', 'name', 'enabled', 'inputs', 'inputs_schema', 'filters', 'bytecode']
+const HOG_FUNCTION_FIELDS = [
+    'id',
+    'team_id',
+    'name',
+    'enabled',
+    'inputs',
+    'inputs_schema',
+    'filters',
+    'bytecode',
+    'masking',
+]
 
 export class HogFunctionManager {
     private started: boolean

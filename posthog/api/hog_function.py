@@ -19,7 +19,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
-from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
+from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.permissions import PostHogFeatureFlagPermission
@@ -56,9 +56,24 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class HogFunctionMaskingSerializer(serializers.Serializer):
+    ttl = serializers.IntegerField(
+        required=True, min_value=60, max_value=60 * 60 * 24
+    )  # NOTE: 24 hours max for now - we might increase this later
+    threshold = serializers.IntegerField(required=False, allow_null=True)
+    hash = serializers.CharField(required=True)
+    bytecode = serializers.JSONField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        attrs["bytecode"] = generate_template_bytecode(attrs["hash"])
+
+        return super().validate(attrs)
+
+
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
     status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
+    masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
 
     class Meta:
         model = HogFunction
@@ -76,6 +91,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "inputs_schema",
             "inputs",
             "filters",
+            "masking",
             "icon_url",
             "template",
             "template_id",
@@ -156,7 +172,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])
 
-        return attrs
+        return super().validate(attrs)
 
     def to_representation(self, data):
         data = super().to_representation(data)

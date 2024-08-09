@@ -25,7 +25,9 @@ import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
 import { HogExecutor } from './hog-executor'
 import { HogFunctionManager } from './hog-function-manager'
+import { HogMasker } from './hog-masker'
 import { HogWatcher, HogWatcherState } from './hog-watcher'
+import { CdpRedis, createCdpRedisPool } from './redis'
 import {
     CdpOverflowMessage,
     HogFunctionAsyncFunctionResponse,
@@ -84,9 +86,11 @@ abstract class CdpConsumerBase {
     asyncFunctionExecutor: AsyncFunctionExecutor
     hogExecutor: HogExecutor
     hogWatcher: HogWatcher
+    hogMasker: HogMasker
     groupsManager: GroupsManager
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
+    redis: CdpRedis
 
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
@@ -96,10 +100,12 @@ abstract class CdpConsumerBase {
     protected heartbeat = () => {}
 
     constructor(protected hub: Hub) {
+        this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
-        this.hogWatcher = new HogWatcher(hub, (id, state) => {
+        this.hogWatcher = new HogWatcher(hub, this.redis, (id, state) => {
             void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
         })
+        this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
@@ -350,9 +356,7 @@ abstract class CdpConsumerBase {
 
                 const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
 
-                const overflowGlobalsAndFunctions: Record<string, HogFunctionOverflowedGlobals> = {}
-
-                const invocations = possibleInvocations.filter((item) => {
+                const notDisabledInvocations = possibleInvocations.filter((item) => {
                     const state = states[item.hogFunction.id].state
                     if (state >= HogWatcherState.disabledForPeriod) {
                         this.produceAppMetric({
@@ -368,6 +372,29 @@ abstract class CdpConsumerBase {
                         return false
                     }
 
+                    return true
+                })
+
+                // Now we can filter by masking configs
+                const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(
+                    notDisabledInvocations
+                )
+
+                masked.forEach((item) => {
+                    this.produceAppMetric({
+                        team_id: item.globals.project.id,
+                        app_source_id: item.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'masked',
+                        count: 1,
+                    })
+                })
+
+                const overflowGlobalsAndFunctions: Record<string, HogFunctionOverflowedGlobals> = {}
+
+                const notOverflowedInvocations = notMaskedInvocations.filter((item) => {
+                    const state = states[item.hogFunction.id].state
+
                     if (state === HogWatcherState.degraded) {
                         const key = `${item.globals.project.id}-${item.globals.event.uuid}`
                         overflowGlobalsAndFunctions[key] = overflowGlobalsAndFunctions[key] || {
@@ -377,7 +404,6 @@ abstract class CdpConsumerBase {
 
                         overflowGlobalsAndFunctions[key].hogFunctionIds.push(item.hogFunction.id)
                         counterFunctionInvocation.inc({ outcome: 'overflowed' }, 1)
-
                         return false
                     }
 
@@ -396,7 +422,7 @@ abstract class CdpConsumerBase {
                 })
 
                 const results = (
-                    await this.runManyWithHeartbeat(invocations, (item) =>
+                    await this.runManyWithHeartbeat(notOverflowedInvocations, (item) =>
                         this.hogExecutor.executeFunction(item.globals, item.hogFunction)
                     )
                 ).filter((x) => !!x) as HogFunctionInvocationResult[]
