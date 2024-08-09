@@ -34,7 +34,7 @@ export const maxLogic = kea<maxLogicType>([
                 actions.addMessage({ role: 'user', content: prompt })
                 const url = new URL(`/api/projects/${teamLogic.values.currentTeamId}/query/chat/`, location.origin)
                 url.searchParams.append('prompt', prompt)
-                url.searchParams.append('thread', JSON.stringify(thread.slice(1)))
+                url.searchParams.append('thread', JSON.stringify(thread))
                 const source = new window.EventSource(url.toString())
                 source.onerror = (e) => {
                     console.error('Failed to poll chat: ', e)
