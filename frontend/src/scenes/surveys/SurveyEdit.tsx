@@ -533,6 +533,7 @@ export default function SurveyEdit(): JSX.Element {
                                         <>
                                             <LemonField
                                                 name="linked_flag_id"
+                                                className="mt-2"
                                                 label="Link feature flag (optional)"
                                                 info={
                                                     <>
@@ -561,6 +562,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     <>
                                                         <LemonField.Pure
                                                             label="URL targeting"
+                                                            className="mt-2"
                                                             error={urlMatchTypeValidationError}
                                                             info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
                                                         >
@@ -595,7 +597,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 />
                                                             </div>
                                                         </LemonField.Pure>
-                                                        <LemonField.Pure label="CSS selector matches:">
+                                                        <LemonField.Pure label="CSS selector matches:" className="mt-2">
                                                             <LemonInput
                                                                 value={value?.selector}
                                                                 onChange={(selectorVal) =>
@@ -606,7 +608,8 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Survey wait period"
-                                                            info="Note that this condition will only apply to one browser for a given non-anonymous user.  If the user switches browsers or uses an incognito session, they could see this survey again."
+                                                            info="Note that this condition will only apply reliably for identified users within a single browser session. Anonymous users or users who switch browsers, use incognito sessions, or log out and log back in may see the survey again. Additionally, responses submitted while a user is anonymous may be associated with their account if they log in during the same session."
+                                                            className="mt-2"
                                                         >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 <LemonCheckbox
@@ -658,7 +661,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     </>
                                                 )}
                                             </LemonField>
-                                            <LemonField.Pure label="User properties">
+                                            <LemonField.Pure label="User properties" className="mt-2">
                                                 <BindLogic
                                                     logic={featureFlagLogic}
                                                     props={{ id: survey.targeting_flag?.id || 'new' }}
@@ -721,6 +724,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 <LemonField.Pure
                                                     label="User sends events"
                                                     info="Note that these events are only observed, and activate this survey, in the current user session."
+                                                    className="mt-2"
                                                 >
                                                     <>
                                                         <EventSelect
