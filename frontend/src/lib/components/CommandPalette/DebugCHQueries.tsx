@@ -8,6 +8,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
@@ -30,7 +32,6 @@ export interface Query {
     timestamp: string
     query: string
     query_id: string
-    queryJson: string
     exception: string
     /**
      * 1 means running, 2 means finished, 3 means errored before execution, 4 means errored during execution.
@@ -39,6 +40,10 @@ export interface Query {
     status: 1 | 2 | 3 | 4
     execution_time: number
     path: string
+    logComment: {
+        query: any
+        [key: string]: any
+    }
 }
 
 const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
@@ -59,7 +64,7 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             [] as Query[],
             {
                 loadQueries: async () => {
-                    return await api.get('api/debug_ch_queries/')
+                    return (await api.get('api/debug_ch_queries/')).queries
                 },
             },
         ],
@@ -128,9 +133,20 @@ function DebugCHQueries(): JSX.Element {
                         title: 'Timestamp',
                         render: function Timestamp(_, item) {
                             return (
-                                <span className="font-mono whitespace-pre">
-                                    {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
-                                </span>
+                                <>
+                                    <div className="font-mono whitespace-pre mb-2">
+                                        {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
+                                    </div>
+                                    <div>
+                                        {item.status === 1 ? (
+                                            'In progress…'
+                                        ) : (
+                                            <>
+                                                Took {Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms
+                                            </>
+                                        )}
+                                    </div>
+                                </>
                             )
                         },
                         width: 160,
@@ -141,12 +157,71 @@ function DebugCHQueries(): JSX.Element {
                             return (
                                 <div className="max-w-200 py-1 space-y-2">
                                     <div>
-                                        <span className="font-bold tracking-wide">ID:</span>{' '}
-                                        <span className="font-mono">{item.query_id}</span>
+                                        <LemonTag className="inline-block">
+                                            <span className="font-bold tracking-wide">ID:</span>{' '}
+                                            <span className="font-mono">{item.query_id}</span>
+                                        </LemonTag>{' '}
+                                        {item.logComment.cache_key ? (
+                                            <LemonTag className="inline-block">
+                                                <span className="font-bold tracking-wide">Cache key:</span>{' '}
+                                                <span className="font-mono">{item.logComment.cache_key}</span>{' '}
+                                                <Link
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+cache_key%3A${item.logComment.cache_key}&referrer=issue-list&statsPeriod=7d`}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
+                                        ) : null}{' '}
+                                        {item.logComment.insight_id ? (
+                                            <LemonTag className="inline-block">
+                                                <span className="font-bold tracking-wide">Insight ID:</span>{' '}
+                                                <span className="font-mono">{item.logComment.insight_id}</span>{' '}
+                                                <Link
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+insight_id%3A${item.logComment.insight_id}&referrer=issue-list&statsPeriod=7d`}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
+                                        ) : null}{' '}
+                                        {item.logComment.dashboard_id ? (
+                                            <LemonTag className="inline-block">
+                                                <span className="font-bold tracking-wide">Dashboard ID:</span>{' '}
+                                                <span className="font-mono">{item.logComment.dashboard_id}</span>{' '}
+                                                <Link
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+dashboard_id%3A${item.logComment.dashboard_id}&referrer=issue-list&statsPeriod=7d`}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
+                                        ) : null}{' '}
+                                        {item.logComment.user_id ? (
+                                            <LemonTag className="inline-block">
+                                                <span className="font-bold tracking-wide">User ID:</span>{' '}
+                                                <span className="font-mono">{item.logComment.user_id}</span>{' '}
+                                                <Link
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+user%3A%22id%3A${item.logComment.user_id}%22&referrer=issue-list&statsPeriod=7d`}
+                                                    className="inline-block"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                />
+                                            </LemonTag>
+                                        ) : null}
                                     </div>
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
-                                            {item.exception}
+                                            <div>{item.exception}</div>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
+                                                to={`https://sentry.io/issues/?query=is%3Aunresolved+issue.priority%3A%5Bhigh%2C+medium%5D+trace%3A${item.logComment.sentry_trace}&statsPeriod=1d`}
+                                                targetBlank
+                                                className="mt-4 mb-1"
+                                            >
+                                                View in Sentry
+                                            </LemonButton>
                                         </LemonBanner>
                                     )}
                                     <CodeSnippet
@@ -157,39 +232,32 @@ function DebugCHQueries(): JSX.Element {
                                     >
                                         {item.query}
                                     </CodeSnippet>
-                                    {item.queryJson ? (
+                                    {item.logComment.query ? (
                                         <LemonButton
                                             type="primary"
                                             size="small"
                                             fullWidth
                                             center
                                             icon={<IconCodeInsert />}
-                                            to={urls.debugQuery(item.queryJson)}
+                                            to={urls.debugQuery(item.logComment.query)}
                                             targetBlank
                                             sideAction={{
                                                 icon: <IconCopy />,
-                                                onClick: () => void copyToClipboard(item.queryJson, 'query JSON'),
+                                                onClick: () =>
+                                                    void copyToClipboard(
+                                                        JSON.stringify(item.logComment.query),
+                                                        'query JSON'
+                                                    ),
                                                 tooltip: 'Copy query JSON to clipboard',
                                             }}
                                             className="my-0"
                                         >
-                                            Debug {JSON.parse(item.queryJson).kind || 'query'} in new tab
+                                            Debug {item.logComment.query.kind || 'query'} in new tab
                                         </LemonButton>
                                     ) : null}
                                 </div>
                             )
                         },
-                    },
-
-                    {
-                        title: 'Duration',
-                        render: function Duration(_, item) {
-                            if (item.status === 1) {
-                                return 'In progress…'
-                            }
-                            return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
-                        },
-                        align: 'right',
                     },
                     {
                         title: 'Profiling stats',
@@ -287,6 +355,7 @@ function DebugCHQueries(): JSX.Element {
                 loading={queriesLoading}
                 loadingSkeletonRows={5}
                 pagination={undefined}
+                rowClassName="align-top"
             />
         </>
     )
