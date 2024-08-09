@@ -221,8 +221,8 @@ dependencies:
     specifier: ^3.1.5
     version: 3.1.5(react@18.2.0)
   kea-forms:
-    specifier: ^3.1.3
-    version: 3.1.3(kea@3.1.5)
+    specifier: ^3.2.0
+    version: 3.2.0(kea@3.1.5)
   kea-loaders:
     specifier: ^3.0.0
     version: 3.0.0(kea@3.1.5)
@@ -272,8 +272,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.154.2
-    version: 1.154.2
+    specifier: 1.154.5
+    version: 1.154.5
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -15332,8 +15332,8 @@ packages:
     resolution: {integrity: sha512-WbCVYJ27Sz8zi9Q7Q0xHC+05iwkm3Znipc2XTlrnJbsHMYktW4hPhXUE8Ys1engBrvffoSCqbil1JQAa7clRpA==}
     dev: false
 
-  /kea-forms@3.1.3(kea@3.1.5):
-    resolution: {integrity: sha512-110muG4hUz/4+hXZ2Wen+anrfS1GFoSRzB3I/83tFaKrcQmKEGvHiowUAKafwl/68cEhIHxyeEuUZYPpDH7uPw==}
+  /kea-forms@3.2.0(kea@3.1.5):
+    resolution: {integrity: sha512-R/ECGx6FxOZ2TEJv2GcFNLcQJePUK5Qd4Km81rN/7lBHd2hG4CAJglODVpcolWZ0RtcLcvMhHeTg/iqNz5pynw==}
     peerDependencies:
       kea: '>= 3.0.1'
     dependencies:
@@ -17766,8 +17766,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.154.2:
-    resolution: {integrity: sha512-EM8xn5V86fTg/pUhCyyMCRotI07tXDLQryc5TDQinT9kCRz8799G1n+Bq7drOEYdD/xbvcKfcfTWmlMrTZCZ6A==}
+  /posthog-js@1.154.5:
+    resolution: {integrity: sha512-YYhWckDIRObfCrQpiLq+fdcDTIbQp8ebiKi0ueGohMRgugIG9LJVSpBgCeCHZm2C7sOxDUNcAr3T5VBDUSQoOg==}
     dependencies:
       fflate: 0.4.8
       preact: 10.23.1

@@ -3,6 +3,7 @@ import {
     LemonButton,
     LemonInput,
     LemonLabel,
+    LemonSegmentedButton,
     LemonSelect,
     LemonSwitch,
     LemonTabs,
@@ -102,7 +103,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                 >
                     <></>
                 </SeriesGlyph>
-                {name}
+                {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
                 <LemonTag className="ml-2" type="default">
                     {type.name}
                 </LemonTag>
@@ -169,7 +170,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
 
 const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
     return (
-        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="space-y-2">
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="space-y-4">
             <LemonField name="style" label="Style" className="gap-1">
                 <LemonSelect
                     options={[
@@ -194,9 +195,54 @@ const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSerie
 
 const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
     return (
-        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-2">
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
+            <LemonField name="label" label="Label">
+                <LemonInput />
+            </LemonField>
             <LemonField name="trendLine" label="Trend line">
                 {({ value, onChange }) => <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />}
+            </LemonField>
+            <LemonField name="yAxisPosition" label="Y-axis position">
+                {({ value, onChange }) => (
+                    <LemonSegmentedButton
+                        value={value}
+                        className="w-full"
+                        options={[
+                            {
+                                label: 'Left',
+                                value: 'left',
+                            },
+                            {
+                                label: 'Right',
+                                value: 'right',
+                            },
+                        ]}
+                        onChange={(newValue) => onChange(newValue)}
+                    />
+                )}
+            </LemonField>
+            <LemonField name="displayType" label="Display type">
+                {({ value, onChange }) => (
+                    <LemonSegmentedButton
+                        value={value}
+                        className="w-full"
+                        options={[
+                            {
+                                label: 'Auto',
+                                value: 'auto',
+                            },
+                            {
+                                label: 'Line',
+                                value: 'line',
+                            },
+                            {
+                                label: 'Bar',
+                                value: 'bar',
+                            },
+                        ]}
+                        onChange={(newValue) => onChange(newValue)}
+                    />
+                )}
             </LemonField>
         </Form>
     )

@@ -76,12 +76,18 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
         },
         display: {
             defaults: {
+                label: props.series?.settings?.display?.label ?? '',
                 trendLine: props.series?.settings?.display?.trendLine ?? false,
+                yAxisPosition: props.series?.settings?.display?.yAxisPosition ?? 'left',
+                displayType: props.series?.settings?.display?.displayType ?? 'auto',
             },
             submit: async (display) => {
                 actions.updateYSeries(props.seriesIndex, props.series.column.name, {
                     display: {
+                        label: display.label,
                         trendLine: display.trendLine,
+                        yAxisPosition: display.yAxisPosition,
+                        displayType: display.displayType,
                     },
                 })
                 actions.setSettingsOpen(false)
