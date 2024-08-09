@@ -2,7 +2,6 @@ from typing import Any
 
 from prometheus_client import Counter
 
-from posthog.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
@@ -69,7 +68,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             # If the query size is greater than the max predicate size, execute the query and reset the query predicate
             if query_size > MAX_QUERY_SIZE:
                 logger.debug(f"Executing query with args: {args}")
-                sync_execute(
+                self.sync_execute(
                     query,
                     args,
                     settings={},
@@ -80,7 +79,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         logger.debug(f"Executing query with args: {args}")
 
         # This is the default condition if we don't hit the MAX_QUERY_SIZE
-        sync_execute(
+        self.sync_execute(
             query,
             args,
             settings={},
@@ -103,7 +102,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         conditions, args = self._conditions(team_deletions)
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
             query = f"""DELETE FROM {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE {" OR ".join(conditions)}"""
-            sync_execute(
+            self.sync_execute(
                 query,
                 args,
                 settings={},
@@ -122,7 +121,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
     def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
         conditions, args = self._conditions(async_deletions)
-        clickhouse_result = sync_execute(
+        clickhouse_result = self._query(
             f"""
             SELECT DISTINCT {distinct_columns}
             FROM events

@@ -1,6 +1,5 @@
 from typing import Any
 
-from posthog.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 
@@ -23,7 +22,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
 
         conditions, args = self._conditions(deletions)
 
-        sync_execute(
+        self._sync_execute(
             f"""
             DELETE FROM cohortpeople
             WHERE {" OR ".join(conditions)}
@@ -43,7 +42,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
 
     def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
         conditions, args = self._conditions(async_deletions)
-        clickhouse_result = sync_execute(
+        clickhouse_result = self._query(
             f"""
             SELECT DISTINCT {distinct_columns}
             FROM cohortpeople
