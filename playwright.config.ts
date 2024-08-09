@@ -46,7 +46,7 @@ export default defineConfig({
         {
             name: 'chromium',
             use: {
-                // ...devices['Desktop Chrome'],
+                ...devices['Desktop Chrome'],
                 launchOptions: {
                     args: [
                         '--disable-gpu',
