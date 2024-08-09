@@ -9,6 +9,16 @@
 #
 
 services:
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        ports:
+            - 8001:8000
+        depends_on:
+            - replay-capture
+            - capture
+            - web
     db:
         extends:
             file: docker-compose.base.yml
