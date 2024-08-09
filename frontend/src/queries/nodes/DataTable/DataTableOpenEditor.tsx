@@ -16,11 +16,19 @@ interface DataTableOpenEditorProps {
 export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.Element | null {
     const { response } = useValues(dataTableLogic)
 
+    const tableInsightQuery: DataTableNode | null = response?.hogql
+        ? {
+              kind: NodeKind.DataTableNode,
+              full: true,
+              source: { kind: NodeKind.HogQLQuery, query: response.hogql },
+          }
+        : null
+
     return (
         <LemonButton
             type="secondary"
             icon={<IconTableChart />}
-            to={urls.insightNew(undefined, undefined, JSON.stringify(query))}
+            to={urls.insightNew(undefined, undefined, query)}
             sideAction={
                 response?.hogql
                     ? {
@@ -30,15 +38,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
                                       items={[
                                           {
                                               label: 'Open as direct SQL insight',
-                                              to: urls.insightNew(
-                                                  undefined,
-                                                  undefined,
-                                                  JSON.stringify({
-                                                      kind: NodeKind.DataTableNode,
-                                                      full: true,
-                                                      source: { kind: NodeKind.HogQLQuery, query: response.hogql },
-                                                  })
-                                              ),
+                                              to: urls.insightNew(undefined, undefined, tableInsightQuery!),
                                               'data-attr': 'open-sql-editor-button',
                                           },
                                       ]}

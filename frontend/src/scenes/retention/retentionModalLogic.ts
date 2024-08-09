@@ -81,7 +81,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 ) {
                     query.showPropertyFilter = false
                 }
-                return urls.insightNew(undefined, undefined, JSON.stringify(query))
+                return urls.insightNew(undefined, undefined, query)
             },
         ],
     }),
