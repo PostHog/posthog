@@ -695,9 +695,7 @@ class TestSignupAPI(APIBaseTest):
         self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
 
     @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_customer_email")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_admin_emails")
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
@@ -707,21 +705,15 @@ class TestSignupAPI(APIBaseTest):
         mock_identify,
         mock_sso_providers,
         mock_request,
-        mock_update_distinct_ids,
-        mock_update_billing_customer_email,
-        mock_update_billing_admin_emails,
+        mock_update_billing_organization_users,
         mock_capture,
     ):
         with self.is_cloud(True):
             self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
-        assert mock_update_distinct_ids.called_once()
-        assert mock_update_billing_customer_email.called_once()
-        assert mock_update_billing_admin_emails.called_once()
+        assert mock_update_billing_organization_users.called_once()
 
     @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_customer_email")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_admin_emails")
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
@@ -731,16 +723,12 @@ class TestSignupAPI(APIBaseTest):
         mock_identify,
         mock_sso_providers,
         mock_request,
-        mock_update_distinct_ids,
-        mock_update_billing_customer_email,
-        mock_update_billing_admin_emails,
+        mock_update_billing_organization_users,
         mock_capture,
     ):
         with self.is_cloud(True):
             self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture, use_invite=True)
-        assert mock_update_distinct_ids.called_once()
-        assert mock_update_billing_customer_email.called_once()
-        assert mock_update_billing_admin_emails.called_once()
+        assert mock_update_billing_organization_users.called_once()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1285,8 +1273,10 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     @patch("posthoganalytics.capture")
-    @patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
-    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_update_distinct_ids, mock_capture):
+    @patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
+    def test_existing_user_can_sign_up_to_a_new_organization(
+        self, mock_update_billing_organization_users, mock_capture
+    ):
         user = self._create_user("test+159@posthog.com", VALID_TEST_PASSWORD)
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
@@ -1364,7 +1354,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Assert that the org's distinct IDs are sent to billing
-        mock_update_distinct_ids.assert_called_once_with(new_org)
+        mock_update_billing_organization_users.assert_called_once_with(new_org)
 
     @patch("posthoganalytics.capture")
     def test_cannot_use_claim_invite_endpoint_to_update_user(self, mock_capture):
