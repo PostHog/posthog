@@ -212,7 +212,7 @@ export function SecondaryMetricsTable({
                         ),
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
-                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '--'}</div>
+                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '—'}</div>
                         },
                     },
                     {
@@ -220,7 +220,7 @@ export function SecondaryMetricsTable({
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
                             return (
-                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '--'}</div>
+                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '—'}</div>
                             )
                         },
                     },
@@ -233,7 +233,7 @@ export function SecondaryMetricsTable({
                                     <b>
                                         {targetResults?.probability?.[variant] != undefined
                                             ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
-                                            : '--'}
+                                            : '—'}
                                     </b>
                                 </div>
                             )
@@ -251,7 +251,7 @@ export function SecondaryMetricsTable({
                             const { variant } = item
                             const conversionRate = conversionRateForVariant(targetResults || null, variant)
                             if (!conversionRate) {
-                                return <>--</>
+                                return <>—</>
                             }
                             return <div>{`${conversionRate.toFixed(2)}%`}</div>
                         },
@@ -265,7 +265,7 @@ export function SecondaryMetricsTable({
                                     <b>
                                         {targetResults?.probability?.[variant] != undefined
                                             ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
-                                            : '--'}
+                                            : '—'}
                                     </b>
                                 </div>
                             )

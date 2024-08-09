@@ -89,7 +89,7 @@ export function SummaryTable(): JSX.Element {
             render: function Key(_, item): JSX.Element {
                 const conversionRate = conversionRateForVariant(experimentResults, item.key)
                 if (!conversionRate) {
-                    return <>--</>
+                    return <>—</>
                 }
 
                 return <div className="font-semibold">{`${conversionRate.toFixed(2)}%`}</div>
@@ -107,14 +107,14 @@ export function SummaryTable(): JSX.Element {
                 ),
                 render: function Key(_, item): JSX.Element {
                     if (item.key === 'control') {
-                        return <></>
+                        return <em>Baseline</em>
                     }
 
                     const controlConversionRate = conversionRateForVariant(experimentResults, 'control')
                     const variantConversionRate = conversionRateForVariant(experimentResults, item.key)
 
                     if (!controlConversionRate || !variantConversionRate) {
-                        return <>--</>
+                        return <>—</>
                     }
 
                     const delta = variantConversionRate - controlConversionRate
@@ -131,7 +131,7 @@ export function SummaryTable(): JSX.Element {
                 title: (
                     <div className="inline-flex items-center space-x-1">
                         <div className="">Credible interval</div>
-                        <Tooltip title="A credible interval represents the range within which the true parameter value lies with 95% probability, given the observed data.">
+                        <Tooltip title="A credible interval represents a range within which we believe the true parameter value lies with a certain probability (often 95%), based on the posterior distribution derived from the observed data and our prior beliefs.">
                             <IconInfo className="text-muted-alt text-base" />
                         </Tooltip>
                     </div>
@@ -141,7 +141,7 @@ export function SummaryTable(): JSX.Element {
                         item.key
                     ]
                     if (!credibleInterval) {
-                        return <>--</>
+                        return <>—</>
                     }
 
                     const lowerBound = (credibleInterval[0] * 100).toFixed(2)
@@ -177,7 +177,7 @@ export function SummaryTable(): JSX.Element {
                             </span>
                         </span>
                     ) : (
-                        '--'
+                        '—'
                     )}
                 </>
             )
