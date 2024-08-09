@@ -410,6 +410,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               icon: <IconLive />,
                               to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
                           },
+                          {
+                              identifier: Scene.DataWarehouse,
+                              label: 'SQL editor',
+                              icon: <IconServer />,
+                              to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                          },
                       ]
                     : [
                           {
@@ -495,12 +501,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
-                        {
-                            identifier: Scene.DataWarehouse,
-                            label: 'Data warehouse',
-                            icon: <IconServer />,
-                            to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                        },
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
