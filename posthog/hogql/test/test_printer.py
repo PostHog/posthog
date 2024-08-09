@@ -358,6 +358,30 @@ class TestPrinter(BaseTest):
             "nullIf(nullIf(events.mat_foo, ''), 'null')",
         )
 
+    def test_property_groups_optimized_comparisons(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                usePropertyGroups=True,
+            ),
+        )
+
+        self.assertEqual(
+            self._expr("properties['x'] = 'x'", context),
+            "events.properties_group_custom[%(hogql_val_0)s] = %(hogql_val_1)s",
+        )
+
+        self.assertEqual(
+            self._expr("properties['x'] is null", context),
+            "has(events.properties_group_custom, %(hogql_val_2)s)",
+        )
+
+        self.assertEqual(
+            self._expr("properties['x'] is not null", context),
+            "not(has(events.properties_group_custom, %(hogql_val_3)s))",
+        )
+
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
         self.assertEqual(self._expr("count(distinct event)"), "count(DISTINCT events.event)")
