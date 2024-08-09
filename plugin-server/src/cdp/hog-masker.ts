@@ -37,24 +37,6 @@ type HogInvocationContextWithMasker = HogInvocationContext & {
 export class HogMasker {
     constructor(private redis: CdpRedis) {}
 
-    // private async runRedis<T>(fn: (client: Redis) => Promise<T>): Promise<T | null> {
-
-    //     // We want all of this to fail open in the issue of redis being unavailable - we'd rather have the function continue
-    //     const client = await this.hub.redisPool.acquire()
-
-    //     const timeout = timeoutGuard(`Redis call delayed. Waiting over 30 seconds.`, undefined, 30 * 1000)
-    //     try {
-    //         return await fn(client)
-    //     } catch (e) {
-    //         status.error('HogWatcher Redis error', e)
-    //         captureException(e)
-    //         return null
-    //     } finally {
-    //         clearTimeout(timeout)
-    //         await this.hub.redisPool.release(client)
-    //     }
-    // }
-
     public async filterByMasking(invocations: HogInvocationContext[]): Promise<{
         masked: HogInvocationContext[]
         notMasked: HogInvocationContext[]
