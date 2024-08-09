@@ -8,6 +8,7 @@ from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
 from redis import Redis
+import requests
 from structlog import get_logger
 
 from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
@@ -192,6 +193,7 @@ def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
     from posthog.client import sync_execute
+    from posthog.models.team.team import Team
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute, and we compare it with now(), so there's up to 60s delay
@@ -204,11 +206,12 @@ def ingestion_lag() -> None:
     GROUP BY event
     """
 
+    team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
     try:
         results = sync_execute(
             query,
             {
-                "team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS,
+                "team_ids": team_ids,
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
@@ -225,6 +228,17 @@ def ingestion_lag() -> None:
                 lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
+
+    for team in Team.objects.filter(pk__in=team_ids):
+        requests.post(
+            settings.SITE_URL + "/e",
+            json={
+                "event": "heartbeat_api",
+                "distinct_id": "PostHog Heartbeat Plugin",  # NOTE: This used to be a plugin
+                "token": team.api_token,
+                "properties": {"$timestamp": timezone.now().isoformat()},
+            },
+        )
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
