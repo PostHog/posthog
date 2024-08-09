@@ -57,7 +57,7 @@ def team_id_guard_for_table(
     if isinstance(table, QueryLogTable) or isinstance(table, RawQueryLogTable):
         if context.team_id not in (1, 2):
             raise InternalHogQLError("Only posthog team members can view the query log table")
-        return
+        return None
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
