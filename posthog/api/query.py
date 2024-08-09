@@ -1,24 +1,23 @@
 import json
 import re
-from time import sleep
 import uuid
 
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
-from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError, NotAuthenticated
+from rest_framework.exceptions import NotAuthenticated, ValidationError
+from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
-from rest_framework import status
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
+from posthog.assistant.assistant import Assistant
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
@@ -27,6 +26,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -34,7 +34,6 @@ from posthog.rate_limit import (
     TeamRateThrottle,
 )
 from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
-from rest_framework.renderers import BaseRenderer
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -158,19 +157,29 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, renderer_classes=[ServerSentEventRenderer])
     def chat(self, request: Request, *args, **kwargs):
         assert request.user is not None
-        prompt = request.data.get("prompt")
+        prompt = request.query_params.get("prompt")
+        thread = request.query_params.get("thread")
+        assistant = Assistant(self.team)
 
         # if not prompt:
         #     raise ValidationError({"prompt": ["This field is required."]}, code="required")
         # if len(prompt) > 400:
         #     raise ValidationError({"prompt": ["This field is too long."]}, code="too_long")
-        def event_stream():
-            for chunk in [{"role": "assistant"}, {"text": f"echo: {prompt}"}, {}]:
-                data = json.dumps(dict(chunk))
-                yield f"data: {data}\n\n"
-                sleep(2)
 
-        response = StreamingHttpResponse(event_stream(), content_type=ServerSentEventRenderer.media_type)
+        def event_stream():
+            if thread:
+                parsed_thread = json.loads(thread)
+            else:
+                parsed_thread = []
+
+            completions = assistant.create_completion([*parsed_thread, {"role": "user", "content": prompt}])
+            yield f"data: {json.dumps(completions)}\n\n"
+            yield f"data: {json.dumps({})}\n\n"
+
+        response = StreamingHttpResponse(
+            event_stream(),
+            content_type=ServerSentEventRenderer.media_type,
+        )
         return response
 
     def handle_column_ch_error(self, error):

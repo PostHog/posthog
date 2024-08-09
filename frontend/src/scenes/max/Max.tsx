@@ -5,6 +5,9 @@ import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+
 import { maxLogic } from './maxLogic'
 
 export const scene: SceneExport = {
@@ -22,11 +25,37 @@ export function Max(): JSX.Element {
     return (
         <>
             <div className="flex flex-col gap-4 grow ">
-                {thread.map((item, index) => (
-                    <div key={index} className="bg-accent-3000 border p-2 rounded">
-                        {JSON.stringify(item)}
-                    </div>
-                ))}
+                {thread.map((item, index) => {
+                    if (item.role === 'assistant') {
+                        const content = JSON.parse(item.content)
+                        const reasoningSteps = content.reasoning_steps
+                        return (
+                            <div key={index} className="bg-accent-3000 border p-2 rounded">
+                                {reasoningSteps && (
+                                    <ul>
+                                        {reasoningSteps.map((step, index) => (
+                                            <li key={index}>{step}</li>
+                                        ))}
+                                    </ul>
+                                )}
+                                <Query
+                                    query={{
+                                        kind: NodeKind.InsightVizNode,
+                                        source: item.answer,
+                                    }}
+                                    readOnly
+                                    embedded
+                                />
+                            </div>
+                        )
+                    }
+
+                    return (
+                        <div key={index} className="bg-accent-3000 border p-2 rounded">
+                            {JSON.stringify(item)}
+                        </div>
+                    )
+                })}
             </div>
             <div className="relative flex items-start mb-4">
                 <div className="flex -ml-2.5 -mt-2">
