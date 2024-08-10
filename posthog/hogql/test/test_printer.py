@@ -370,7 +370,7 @@ class TestPrinter(BaseTest):
         # common case: comparing against a (non-empty) string value doesn't require checking if the key exists or not,
         # which lets us use the bloom filter index on both keys and values for the property group
         # TODO: consider using the EXPLAIN output to ensure these expressions actually use the expected indices?
-        # TODO: also test with the operands swapped?
+        # TODO: also test with the operands swapped? and additional operators (in, not in are tricky)
         self.assertEqual(
             self._expr("properties['x'] = 'x'", context),
             "events.properties_group_custom[%(hogql_val_0)s] = %(hogql_val_1)s",
