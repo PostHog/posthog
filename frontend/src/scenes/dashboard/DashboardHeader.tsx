@@ -48,8 +48,10 @@ export function DashboardHeader(): JSX.Element | null {
         apiUrl,
         showTextTileModal,
         textTileId,
+        stale,
+        isEditInProgress,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
+    const { setDashboardMode, triggerDashboardUpdate, cancelTemporary, applyTemporary } = useActions(dashboardLogic)
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
@@ -253,7 +255,21 @@ export function DashboardHeader(): JSX.Element | null {
                                 }
                             />
                             <LemonDivider vertical />
-                            {dashboard && (
+                            {isEditInProgress ? (
+                                <div className="flex items-center gap-2">
+                                    <LemonButton onClick={cancelTemporary} type="secondary">
+                                        Cancel changes
+                                    </LemonButton>
+                                    <LemonButton
+                                        onClick={applyTemporary}
+                                        type="primary"
+                                        disabledReason={!stale ? 'No changes to apply' : undefined}
+                                    >
+                                        Save dashboard
+                                    </LemonButton>
+                                </div>
+                            ) : null}
+                            {!isEditInProgress && dashboard && (
                                 <>
                                     <CollaboratorBubbles
                                         dashboard={dashboard}
@@ -268,7 +284,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {dashboard ? (
+                            {!isEditInProgress && dashboard ? (
                                 <LemonButton
                                     to={urls.insightNew(undefined, dashboard.id)}
                                     type="primary"
