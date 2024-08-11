@@ -7,6 +7,6 @@ COPY vector.yaml .
 # evaluate with yq, basically to expand anchors (which vector doesn't support)
 RUN yq -i e 'explode(.)' vector.yaml
 
-FROM timberio/vector:0.40.X-alpine
+FROM frankh/vector:0.41.0-patched
 
 COPY --from=config-builder /config/vector.yaml /etc/vector/vector.yaml
