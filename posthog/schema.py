@@ -4272,7 +4272,7 @@ class RecordingsQuery(BaseModel):
     )
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = None
-    order: Optional[Union[DurationType, str]] = None
+    order: Union[DurationType, str]
     person_uuid: Optional[str] = None
     properties: Optional[
         list[

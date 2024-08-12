@@ -175,7 +175,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert len(mock_summary_lister.call_args_list) == 1
         filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
-        assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
+        assert filter_passed_to_mock.console_log_filters == ["warn", "error"]
 
     @snapshot_postgres_queries
     def test_listing_recordings_is_not_nplus1_for_persons(self):

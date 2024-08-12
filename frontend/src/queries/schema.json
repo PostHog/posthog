@@ -8238,7 +8238,7 @@
                     "type": "array"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "order"],
             "type": "object"
         },
         "RecordingsQueryResponse": {

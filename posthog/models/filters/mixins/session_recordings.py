@@ -20,10 +20,9 @@ class SessionRecordingsMixin(PropertyMixin, BaseParamMixin):
     def order(self) -> str:
         return self._data.get("order", "start_time")
 
-    # TODO: do we need this?
-    @cached_property
-    def console_search_query(self) -> str | None:
-        return self._data.get("console_search_query", None)
+    # @cached_property
+    # def console_search_query(self) -> str | None:
+    #     return self._data.get("console_search_query", None)
 
     # Supports a legacy use case where events were ORed not ANDed
     # Can be removed and replaced with ast_operand once the new universal replay filtering is out

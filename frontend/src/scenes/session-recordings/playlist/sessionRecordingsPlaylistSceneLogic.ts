@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import {
     Breadcrumb,
-    RecordingFilters,
+    LegacyRecordingFilters,
     RecordingUniversalFilters,
     ReplayTabs,
     SessionRecordingPlaylistType,
@@ -46,7 +46,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             properties,
             silent,
         }),
-        setFilters: (filters: RecordingFilters | RecordingUniversalFilters | null) => ({ filters }),
+        setFilters: (filters: LegacyRecordingFilters | RecordingUniversalFilters | null) => ({ filters }),
         loadPinnedRecordings: true,
         onPinnedChange: (recording: SessionRecordingType, pinned: boolean) => ({ pinned, recording }),
     }),
@@ -116,7 +116,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     })),
     reducers(() => ({
         filters: [
-            null as RecordingFilters | RecordingUniversalFilters | null,
+            null as LegacyRecordingFilters | RecordingUniversalFilters | null,
             {
                 getPlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
                 updatePlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
