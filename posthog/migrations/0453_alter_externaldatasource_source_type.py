@@ -20,6 +20,7 @@ class Migration(migrations.Migration):
                     ("Zendesk", "Zendesk"),
                     ("Snowflake", "Snowflake"),
                     ("Salesforce", "Salesforce"),
+                    ("MySQL", "MySQL"),
                 ],
                 max_length=128,
             ),
