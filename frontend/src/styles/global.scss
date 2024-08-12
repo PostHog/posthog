@@ -373,6 +373,10 @@ body {
         @include dark-mode-3000-variables;
     }
 
+    [tabindex='-1']:focus {
+        outline: none !important;
+    }
+
     * > {
         ::-webkit-scrollbar {
             width: 0.5rem;
@@ -452,6 +456,11 @@ body {
 
     table {
         border-collapse: collapse;
+    }
+
+    img {
+        vertical-align: middle;
+        border-style: none;
     }
 
     .LemonButton,
