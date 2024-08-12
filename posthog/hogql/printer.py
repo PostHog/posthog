@@ -211,8 +211,19 @@ class MaterializedPropertyGroupItem:
     def __str__(self) -> str:
         # If the key we're looking for doesn't exist in the map for this property group, an empty string (the default
         # value for the `String` type) is returned. Since that is a valid property value, we need to check it here.
-        qualified_column = f"{self.printed_table}.{self.printed_column}"
-        return f"has({qualified_column}, {self.printed_property_name}) ? {qualified_column}[{self.printed_property_name}] : null"
+        return f"{self.printed_has_expr} ? {self.printed_value_expr} : null"
+
+    @property
+    def printed_qualified_column(self) -> str:
+        return f"{self.printed_table}.{self.printed_column}"
+
+    @property
+    def printed_has_expr(self) -> str:
+        return f"has({self.printed_table}.{self.printed_column}, {self.printed_property_name})"
+
+    @property
+    def printed_value_expr(self) -> str:
+        return f"{self.printed_qualified_column}[{self.printed_property_name}]"
 
 
 class _Printer(Visitor):
@@ -595,7 +606,27 @@ class _Printer(Visitor):
                 if isinstance(node.right, ast.Constant):
                     property_source = self.__get_materialized_property_source(node.left.type)
                     if isinstance(property_source, MaterializedPropertyGroupItem):
-                        raise NotImplementedError
+                        if node.right.value is None:
+                            if node.op == ast.CompareOperationOp.Eq:
+                                return property_source.printed_has_expr
+                            elif node.op == ast.CompareOperationOp.NotEq:
+                                return f"not({property_source.printed_has_expr})"
+                            else:
+                                raise ValueError("unexpected operation")
+                        else:
+                            if node.op == ast.CompareOperationOp.Eq:
+                                op_func = "equals"
+                            elif node.op == ast.CompareOperationOp.NotEq:
+                                op_func = "notEquals"
+                            else:
+                                raise ValueError("unexpected operation")
+                            printed_expr = f"{op_func}({property_source.printed_value_expr}, {self.visit(node.right)})"
+                            if node.right.value == "":  # TODO: check type?
+                                # If we're comparing to an empty string literal, we need to disambiguate this from the
+                                # default value for the ``Map(String, String)`` type used for storing property group values
+                                # by also ensuring the value is actually present in the map.
+                                printed_expr = f"and({property_source.printed_has_expr}, {printed_expr})"
+                            return printed_expr
             elif isinstance(node.right, ast.Field) and isinstance(node.right.type, ast.PropertyType):
                 if isinstance(node.left, ast.Constant):
                     property_source = self.__get_materialized_property_source(node.right.type)

@@ -373,24 +373,24 @@ class TestPrinter(BaseTest):
         # TODO: also test with the operands swapped? and additional operators (in, not in are tricky)
         self.assertEqual(
             self._expr("properties['x'] = 'x'", context),
-            "events.properties_group_custom[%(hogql_val_0)s] = %(hogql_val_1)s",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
         )
 
         # special case: keys that don't exist in a map return default values for the type, so we need to check whether
         # or not the key exists in the map (to utilize the bloom filter index on keys) as well as perform the comparison
         self.assertEqual(
             self._expr("properties['x'] = ''", context),
-            "has(events.properties_group_custom, %(hogql_val_0)s) AND events.properties_group_custom[%(hogql_val_0)s] = %(hogql_val_1)s",
+            "and(has(events.properties_group_custom, %(hogql_val_2)s), equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s))",
         )
 
         self.assertEqual(
             self._expr("properties['x'] is null", context),
-            "has(events.properties_group_custom, %(hogql_val_2)s)",
+            "has(events.properties_group_custom, %(hogql_val_4)s)",
         )
 
         self.assertEqual(
             self._expr("properties['x'] is not null", context),
-            "not(has(events.properties_group_custom, %(hogql_val_3)s))",
+            "not(has(events.properties_group_custom, %(hogql_val_5)s))",
         )
 
         # TODO: what about chaining? seems like we could still use the keys index here
