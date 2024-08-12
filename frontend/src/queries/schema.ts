@@ -868,6 +868,7 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
+    cumulative?: RetentionFilterLegacy['cumulative']
 }
 
 export interface RetentionValue {
