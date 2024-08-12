@@ -22,7 +22,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['querySource'],
+            ['querySource', 'retentionFilter'],
             groupsModel,
             ['aggregationLabel'],
             featureFlagLogic,
