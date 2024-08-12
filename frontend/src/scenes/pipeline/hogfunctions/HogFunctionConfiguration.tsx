@@ -402,12 +402,8 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                                     label: 'Not set',
                                                                 },
                                                                 {
-                                                                    value: 100,
-                                                                    label: '100 events',
-                                                                },
-                                                                {
                                                                     value: 1000,
-                                                                    label: '1,000 events',
+                                                                    label: '1000 events',
                                                                 },
                                                                 {
                                                                     value: 10000,
@@ -416,6 +412,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                                 {
                                                                     value: 100000,
                                                                     label: '100,000 events',
+                                                                },
+                                                                {
+                                                                    value: 1000000,
+                                                                    label: '1,000,000 events',
                                                                 },
                                                             ]}
                                                         />
