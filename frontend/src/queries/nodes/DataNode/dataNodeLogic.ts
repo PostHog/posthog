@@ -182,8 +182,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // if query based and locally cached, return the cached results
                     if ('query' in props.query) {
                         const stringifiedQuery = JSON.stringify(props.query.query)
-                        if (values.localCache[stringifiedQuery] && !refresh) {
-                            return values.localCache[stringifiedQuery]
+                        if (cache.localResults[stringifiedQuery] && !refresh) {
+                            return cache.localResults[stringifiedQuery]
                         }
                     }
 
@@ -446,11 +446,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(({ cache }) => ({
         isShowingCachedResults: [
-            (s) => [(_, props) => props.cachedResults ?? null, (_, props) => props.query, s.localCache],
-            (cachedResults: AnyResponseType | null, query: DataNode, localCache: Record<string, any>): boolean => {
-                return !!cachedResults || ('query' in query && JSON.stringify(query.query) in localCache)
+            () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
+            (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
+                return !!cachedResults || ('query' in query && JSON.stringify(query.query) in cache.localResults)
             },
         ],
         query: [(_, p) => [p.query], (query) => query],
@@ -634,7 +634,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
-    }),
+    })),
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
@@ -660,9 +660,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.onData?.(response)
             actions.collectionNodeLoadDataSuccess(props.key)
             if ('query' in props.query) {
-                actions.setLocalCache({
-                    [JSON.stringify(props.query.query)]: response,
-                })
+                cache.localResults[JSON.stringify(props.query.query)] = response
             }
         },
         loadDataFailure: () => {
@@ -691,7 +689,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.localResults = {}
         if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
