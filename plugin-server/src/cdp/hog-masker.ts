@@ -89,21 +89,32 @@ export class HogMasker {
         })
 
         Object.values(masks).forEach((masker, index) => {
-            const fromRedis = result ? result[index * 2][1] : 0 // Here we want to fail closed as flooding messages is likely not good!
+            const newValue = (result ? result[index * 2][1] : 0) - 1 // Here we want to fail closed as flooding messages is likely not good!
+            const threshold = masker.threshold ?? Infinity
 
             // If increment matches the result then there was no previous result - we can permit one invocation
-            if (fromRedis === masker.increment) {
-                masker.allowedExecutions = 1
+            const oldValue = newValue - masker.increment
+            // We can divide by the threshold and floor the new and old values to get the number of times the threshold was passed
+            const thresholdsPasses = Math.floor(newValue / threshold) - Math.floor(oldValue / threshold)
+
+            console.log({
+                newValue,
+                oldValue,
+                thresholdsPasses,
+                threshold: threshold,
+                floorNew: Math.floor(newValue / threshold),
+                floorOld: Math.floor(oldValue / threshold),
+            })
+
+            if (thresholdsPasses) {
+                masker.allowedExecutions = thresholdsPasses
             }
 
-            if (masker.threshold) {
-                const hasPassedThreshold =
-                    Math.floor((fromRedis - 1) / masker.threshold) !==
-                    Math.floor((fromRedis - 1 - masker.increment) / masker.threshold)
-                if (hasPassedThreshold) {
-                    masker.allowedExecutions = 1
-                }
-            }
+            console.log({
+                newValue,
+                increment: masker.increment,
+                threshold: masker.threshold,
+            })
         })
 
         return invocationsWithMasker.reduce(

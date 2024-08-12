@@ -163,22 +163,22 @@ describe('HogMasker', () => {
 
                 const invocations = [{ globals: createHogExecutionGlobals(), hogFunction: hogFunctionAll }]
                 // First one goes through
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(1)
 
                 // Next 4 should be masked
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(1)
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(1)
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(1)
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(1)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
                 // Now we have hit the threshold so it should not be masked
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(1)
                 // Next 4 should be masked
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(1)
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(1)
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(1)
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(1)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(0)
                 // Again the Nth one shouldn't be masked
-                expect((await masker.filterByMasking(invocations)).masked).toHaveLength(0)
+                expect((await masker.filterByMasking(invocations)).notMasked).toHaveLength(1)
             })
 
             it('should mask threshold based in a batch', async () => {
