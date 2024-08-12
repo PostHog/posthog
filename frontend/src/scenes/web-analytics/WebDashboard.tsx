@@ -12,6 +12,9 @@ import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { isNotNil } from 'lib/utils'
 import React, { useState } from 'react'
+import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
+import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
+import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import {
     QueryTile,
@@ -21,8 +24,6 @@ import {
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
-import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/WebAnalyticsRecordings'
-import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -72,6 +73,8 @@ const Tiles = (): JSX.Element => {
                     return <TabsTileItem key={i} tile={tile} />
                 } else if (tile.kind === 'replay') {
                     return <WebAnalyticsRecordingsTile key={i} tile={tile} />
+                } else if (tile.kind === 'error_tracking') {
+                    return <WebAnalyticsErrorTrackingTile key={i} tile={tile} />
                 }
                 return null
             })}

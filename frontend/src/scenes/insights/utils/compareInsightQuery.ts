@@ -61,6 +61,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
             showMean: undefined,
+            cumulative: undefined,
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
