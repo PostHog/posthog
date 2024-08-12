@@ -602,9 +602,18 @@ class _Printer(Visitor):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            if isinstance(node.left, ast.Field) and isinstance(node.left.type, ast.PropertyType):
+            # XXX: must be a better way to resolve aliases -- also not sure if this is going to need to happen for
+            # node.right below too
+            left = node.left
+            while True:
+                if isinstance(left, ast.Alias):
+                    left = left.expr
+                else:
+                    break
+
+            if isinstance(left.type, ast.PropertyType):
                 if isinstance(node.right, ast.Constant):
-                    property_source = self.__get_materialized_property_source(node.left.type)
+                    property_source = self.__get_materialized_property_source(left.type)
                     if isinstance(property_source, MaterializedPropertyGroupItem):
                         if node.right.value is None:
                             if node.op == ast.CompareOperationOp.Eq:
