@@ -6,8 +6,10 @@ import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { HogFunctionType, IntegrationType } from './types'
 
-export type HogFunctionMap = Record<HogFunctionType['id'], HogFunctionType>
-export type HogFunctionCache = Record<Team['id'], HogFunctionMap>
+type HogFunctionCache = {
+    functions: Record<HogFunctionType['id'], HogFunctionType | undefined>
+    teams: Record<Team['id'], HogFunctionType['id'][] | undefined>
+}
 
 const HOG_FUNCTION_FIELDS = ['id', 'team_id', 'name', 'enabled', 'inputs', 'inputs_schema', 'filters', 'bytecode']
 
@@ -21,7 +23,10 @@ export class HogFunctionManager {
     constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
         this.started = false
         this.ready = false
-        this.cache = {}
+        this.cache = {
+            functions: {},
+            teams: {},
+        }
 
         this.pubSub = new PubSub(this.serverConfig, {
             'reload-hog-functions': async (message) => {
@@ -66,14 +71,27 @@ export class HogFunctionManager {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
-        return Object.values(this.cache[teamId] || {})
+
+        return Object.values(this.cache.teams[teamId] || [])
+            .map((id) => this.cache.functions[id])
+            .filter((x) => !!x) as HogFunctionType[]
+    }
+
+    public getHogFunction(id: HogFunctionType['id']): HogFunctionType | undefined {
+        if (!this.ready) {
+            throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
+        }
+        return this.cache.functions[id]
     }
 
     public getTeamHogFunction(teamId: Team['id'], hogFunctionId: HogFunctionType['id']): HogFunctionType | undefined {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
         }
-        return this.cache[teamId]?.[hogFunctionId]
+        const fn = this.cache.functions[hogFunctionId]
+        if (fn?.team_id === teamId) {
+            return fn
+        }
     }
 
     public teamHasHogFunctions(teamId: Team['id']): boolean {
@@ -96,13 +114,15 @@ export class HogFunctionManager {
 
         await this.enrichWithIntegrations(items)
 
-        const cache: HogFunctionCache = {}
-        for (const item of items) {
-            if (!cache[item.team_id]) {
-                cache[item.team_id] = {}
-            }
+        const cache: HogFunctionCache = {
+            functions: {},
+            teams: {},
+        }
 
-            cache[item.team_id][item.id] = item
+        for (const item of items) {
+            cache.functions[item.id] = item
+            cache.teams[item.team_id] = cache.teams[item.team_id] || []
+            cache.teams[item.team_id]!.push(item.id)
         }
 
         this.cache = cache
@@ -125,17 +145,15 @@ export class HogFunctionManager {
 
         await this.enrichWithIntegrations(items)
 
-        if (!this.cache[teamId]) {
-            this.cache[teamId] = {}
-        }
-
         for (const id of ids) {
-            // First of all delete the item from the cache - this covers the case where the item was deleted or disabled
-            delete this.cache[teamId][id]
+            delete this.cache.functions[id]
+            this.cache.teams[teamId] = this.cache.teams[teamId]?.filter((x) => x !== id)
         }
 
         for (const item of items) {
-            this.cache[teamId][item.id] = item
+            this.cache.functions[item.id] = item
+            this.cache.teams[teamId] = this.cache.teams[teamId] || []
+            this.cache.teams[teamId]!.push(item.id)
         }
     }
 
@@ -157,7 +175,7 @@ export class HogFunctionManager {
     public reloadIntegrations(teamId: Team['id'], ids: IntegrationType['id'][]): Promise<void> {
         // We need to find all hog functions that depend on these integrations and re-enrich them
 
-        const items: HogFunctionType[] = Object.values(this.cache[teamId] || {})
+        const items = this.getTeamHogFunctions(teamId)
         const itemsToReload = items.filter((item) => ids.some((id) => item.depends_on_integration_ids?.has(id)))
 
         return this.enrichWithIntegrations(itemsToReload)

@@ -38,8 +38,8 @@ ul {
 
 // This may look odd but sets up our utility classes
 *,
-::after,
-::before {
+*::before,
+*::after {
     box-sizing: border-box;
     border-color: var(--border);
     border-style: solid;
@@ -338,6 +338,7 @@ input::-ms-clear {
 
 body {
     // Remove below once we're using Tailwind's base
+    --tw-content: '';
     --tw-ring-offset-width: 0px;
     --tw-ring-offset-color: var(--bg-light);
     --tw-ring-color: var(--primary-3000);
