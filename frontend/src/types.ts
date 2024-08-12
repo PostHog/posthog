@@ -4242,6 +4242,7 @@ export interface SourceConfig {
     disabledReason?: string | null
     showPrefix?: (payload: Record<string, any>) => boolean
     showSourceForm?: (payload: Record<string, any>) => boolean
+    oauthPayload?: string[]
 }
 
 export interface ProductPricingTierSubrows {

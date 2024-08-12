@@ -66,6 +66,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         name: 'Hubspot',
         fields: [],
         caption: 'Succesfully authenticated with Hubspot. Please continue here to complete the source setup',
+        oauthPayload: ['code'],
     },
     Postgres: {
         name: 'Postgres',
@@ -435,6 +436,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         caption: 'Succesfully authenticated with Salesforce. Please continue here to complete the source setup',
         showPrefix: (payload) => !!payload.code,
         showSourceForm: (payload) => !payload.code,
+        oauthPayload: ['code', 'subdomain'],
     },
 }
 
@@ -1002,9 +1004,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
                 if (
-                    values.selectedConnector?.name === 'Salesforce' &&
-                    values.source.payload.code &&
-                    values.source.payload.subdomain
+                    values.selectedConnector &&
+                    SOURCE_DETAILS[values.selectedConnector?.name].oauthPayload &&
+                    SOURCE_DETAILS[values.selectedConnector.name].oauthPayload?.every(
+                        (element) => values.source.payload[element]
+                    )
                 ) {
                     return {}
                 }
