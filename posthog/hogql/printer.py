@@ -653,14 +653,10 @@ class _Printer(Visitor):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNull({left})"
-                elif not nullable_left:
-                    return op
                 return f"ifNull({op}, 0)"
             elif isinstance(node.left, ast.Constant):
                 if node.left.value is None:
                     return f"isNull({right})"
-                elif not nullable_right:
-                    return op
                 return f"ifNull({op}, 0)"
             return f"ifNull({op}, isNull({left}) and isNull({right}))"  # Worse case performance, but accurate
 
@@ -673,14 +669,10 @@ class _Printer(Visitor):
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
                     return f"isNotNull({left})"
-                elif not nullable_left:
-                    return op
                 return f"ifNull({op}, 1)"
             elif isinstance(node.left, ast.Constant):
                 if node.left.value is None:
                     return f"isNotNull({right})"
-                elif not nullable_right:
-                    return op
                 return f"ifNull({op}, 1)"
             return f"ifNull({op}, isNotNull({left}) or isNotNull({right}))"  # Worse case performance, but accurate
 
