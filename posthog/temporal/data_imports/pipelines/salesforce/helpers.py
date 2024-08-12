@@ -2,11 +2,11 @@
 
 import pendulum
 
-from typing import Optional, Iterable
+from typing import Optional
+from collections.abc import Iterable
 
 from simple_salesforce import Salesforce
 from dlt.common.typing import TDataItem
-
 
 
 def get_records(
@@ -31,15 +31,9 @@ def get_records(
     # Get all fields for the sobject
     desc = getattr(sf, sobject).describe()
     # Salesforce returns compound fields as separate fields, so we need to filter them out
-    compound_fields = {
-        f["compoundFieldName"]
-        for f in desc["fields"]
-        if f["compoundFieldName"] is not None
-    } - {"Name"}
+    compound_fields = {f["compoundFieldName"] for f in desc["fields"] if f["compoundFieldName"] is not None} - {"Name"}
     # Salesforce returns datetime fields as timestamps, so we need to convert them
-    date_fields = {
-        f["name"] for f in desc["fields"] if f["type"] in ("datetime",) and f["name"]
-    }
+    date_fields = {f["name"] for f in desc["fields"] if f["type"] in ("datetime",) and f["name"]}
     # If no fields are specified, use all fields except compound fields
     fields = [f["name"] for f in desc["fields"] if f["name"] not in compound_fields]
 
