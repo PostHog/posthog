@@ -51,9 +51,9 @@ export interface AxisSeries<T> {
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
-    insightLogicProps: InsightLogicProps
-    context?: QueryContext
     setQuery?: (node: DataVisualizationNode) => void
+    insightLogicProps: InsightLogicProps<DataVisualizationNode>
+    context?: QueryContext<DataVisualizationNode>
     cachedResults?: AnyResponseType
 }
 

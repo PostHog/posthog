@@ -19,7 +19,7 @@ export interface DataTableLogicProps {
     vizKey: string
     dataKey: string
     query: DataTableNode
-    context?: QueryContext
+    context?: QueryContext<DataTableNode>
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
 }

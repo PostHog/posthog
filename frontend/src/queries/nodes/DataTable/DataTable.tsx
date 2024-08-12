@@ -74,7 +74,7 @@ interface DataTableProps {
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
-    context?: QueryContext
+    context?: QueryContext<DataTableNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
@@ -95,7 +95,7 @@ let uniqueNode = 0
 export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const insightProps: InsightLogicProps = context?.insightProps || {
+    const insightProps: InsightLogicProps<DataTableNode> = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${dataKey}`,
         dataNodeCollectionId: dataKey,
     }

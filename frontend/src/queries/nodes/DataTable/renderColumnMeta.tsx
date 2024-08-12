@@ -14,7 +14,7 @@ export interface ColumnMeta {
     align?: 'left' | 'right' | 'center'
 }
 
-export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext): ColumnMeta {
+export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext<DataTableNode>): ColumnMeta {
     let width: string | number | undefined
     let title: JSX.Element | string | undefined
     const queryFeatures = getQueryFeatures(query.source)

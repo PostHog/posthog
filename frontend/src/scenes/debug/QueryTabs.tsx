@@ -71,7 +71,6 @@ export function QueryTabs<Q extends Node>({ query, queryKey, setQuery, response 
                               insightProps: {
                                   dashboardItemId: queryKey,
                                   query,
-                                  // @ts-expect-error - TS is wary of `setQuery` being different later, but we're OK
                                   setQuery: (query) => setQuery(query),
                                   dataNodeCollectionId: queryKey,
                               },
