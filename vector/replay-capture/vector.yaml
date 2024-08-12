@@ -63,15 +63,7 @@ sources:
                     assert!(is_string(.message[0].properties."$$session_id"), "$$session_id is required")
                     assert!(is_string(%token), "token is required")
 
-                    _, err = get_enrichment_table_record("quota_limited_teams", { "token": %token })
-                    # get_enrichment_table_record returns an err if record is not found
-                    # that means err == null iff we found the quota limited record
-                    %quota_limited = err == null
-
                     %response = {"status": 1}
-                    if %quota_limited {
-                      %response.quota_limited = ["recordings"]
-                    }
 
 transforms:
     quota_check:
@@ -82,7 +74,8 @@ transforms:
             quota_limited:
                 type: vrl
                 source: |
-                    %quota_limited == true
+                    _, err = get_enrichment_table_record("quota_limited_teams", { "token": %token })
+                    err == null  # err is not null if row not found, we want to drop where the row _is_ found
 
     events_parsed:
         type: remap
