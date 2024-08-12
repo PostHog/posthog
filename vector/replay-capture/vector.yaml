@@ -82,7 +82,7 @@ transforms:
             quota_limited:
                 type: vrl
                 source: |
-                    %quota_limited
+                    %quota_limited == true
 
     events_parsed:
         type: remap
