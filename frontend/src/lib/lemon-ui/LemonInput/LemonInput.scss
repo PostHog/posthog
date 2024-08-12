@@ -18,6 +18,10 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
 
+    &[aria-disabled='true'] {
+        cursor: not-allowed;
+    }
+
     &:hover:not([aria-disabled='true']),
     &.LemonInput--focused:not([aria-disabled='true']) {
         border-color: var(--border-bold);
@@ -38,12 +42,12 @@
         width: 100%;
         padding: 0;
         text-overflow: ellipsis;
+        cursor: inherit;
         background: none;
         border: none;
         outline: none;
 
         &:disabled {
-            cursor: not-allowed;
             opacity: var(--opacity-disabled);
         }
     }

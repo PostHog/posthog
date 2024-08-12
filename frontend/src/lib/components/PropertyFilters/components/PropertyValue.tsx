@@ -8,7 +8,11 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import {
+    PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
+    PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
+    propertyDefinitionsModel,
+} from '~/models/propertyDefinitionsModel'
 import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
@@ -132,7 +136,13 @@ export function PropertyValue({
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
-            title={type === PropertyFilterType.Event ? 'Suggested values (last 7 days)' : 'Suggested values'}
+            title={
+                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+                    ? 'Suggested values (last 7 days)'
+                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+                    ? 'Suggested values'
+                    : undefined
+            }
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
                 return {

@@ -25,7 +25,8 @@ interface LemonInputPropsBase
         | 'inputMode'
         | 'pattern'
     > {
-    ref?: React.Ref<HTMLInputElement>
+    ref?: React.Ref<HTMLDivElement>
+    inputRef?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
     /** Use the danger status for invalid input. */
@@ -69,7 +70,7 @@ export interface LemonInputPropsNumber
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
-export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
+export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function _LemonInput(
     {
         className,
         onChange,
@@ -86,12 +87,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         transparentBackground = false,
         size = 'medium',
         stopPropagation = false,
+        inputRef,
         ...props
     },
     ref
 ): JSX.Element {
-    const _ref = useRef<HTMLInputElement | null>(null)
-    const inputRef = ref || _ref
+    const internalInputRef = useRef<HTMLInputElement>(null)
+    inputRef ??= internalInputRef
     const [focused, setFocused] = useState<boolean>(Boolean(props.autoFocus))
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
 
@@ -156,6 +158,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             )}
             aria-disabled={props.disabled}
             onClick={() => focus()}
+            ref={ref}
         >
             {prefix}
             <input

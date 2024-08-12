@@ -49,6 +49,14 @@
     }
 }
 
+// stylelint-disable-next-line selector-class-pattern
+.placeholder\:\*\:text-default > *::placeholder {
+    // This is something Tailwind would generate, but we have to do Tailwind's job manually
+    // due to colors not being under Tailwind yet
+    color: var(--default);
+}
+
+// Extra utilties that Tailwind doesn't have built in
 @layer utilities {
     .image-pixelated {
         image-rendering: pixelated;
