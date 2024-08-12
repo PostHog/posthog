@@ -232,25 +232,9 @@ function FirstStep(): JSX.Element {
 }
 
 function SecondStep(): JSX.Element {
-    const { selectedConnector, source } = useValues(sourceWizardLogic)
+    const { selectedConnector } = useValues(sourceWizardLogic)
 
-    let showPrefix = true
-    let showSourceFields = true
-    if (selectedConnector?.name === 'Salesforce') {
-        if (source.payload.code && source.payload.subdomain) {
-            showPrefix = true
-            showSourceFields = false
-        } else {
-            showPrefix = false
-            showSourceFields = true
-        }
-    }
-
-    return selectedConnector ? (
-        <SourceForm sourceConfig={selectedConnector} showPrefix={showPrefix} showSourceFields={showSourceFields} />
-    ) : (
-        <DatawarehouseTableForm />
-    )
+    return selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />
 }
 
 function ThirdStep(): JSX.Element {
