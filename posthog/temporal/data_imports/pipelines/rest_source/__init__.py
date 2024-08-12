@@ -363,7 +363,7 @@ def create_resources(
 def _set_incremental_params(
     params: dict[str, Any],
     incremental_object: Incremental[Any],
-    incremental_param: IncrementalParam,
+    incremental_param: Optional[IncrementalParam],
     transform: Optional[Callable[..., Any]],
 ) -> dict[str, Any]:
     def identity_func(x: Any) -> Any:
@@ -371,6 +371,10 @@ def _set_incremental_params(
 
     if transform is None:
         transform = identity_func
+
+    if incremental_param is None:
+        return params
+
     params[incremental_param.start] = transform(incremental_object.last_value)
     if incremental_param.end:
         params[incremental_param.end] = transform(incremental_object.end_value)
