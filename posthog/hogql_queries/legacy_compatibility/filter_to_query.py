@@ -456,6 +456,7 @@ def _insight_filter(filter: dict):
                 ),
                 period=filter.get("period"),
                 showMean=filter.get("show_mean"),
+                cumulative=filter.get("cumulative"),
             )
         }
     elif _insight_type(filter) == "PATHS":

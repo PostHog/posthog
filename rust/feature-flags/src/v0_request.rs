@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::{api::FlagError, redis::Client, team::Team};
+use crate::{
+    api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient, team::Team,
+};
 
 #[derive(Deserialize, Default)]
 pub struct FlagsQueryParams {
@@ -53,7 +55,8 @@ impl FlagRequest {
 
     pub async fn extract_and_verify_token(
         &self,
-        redis_client: Arc<dyn Client + Send + Sync>,
+        redis_client: Arc<dyn RedisClient + Send + Sync>,
+        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<String, FlagError> {
         let token = match self {
             FlagRequest {
@@ -62,12 +65,22 @@ impl FlagRequest {
             _ => return Err(FlagError::NoTokenError),
         };
 
-        // validate token
-        Team::from_redis(redis_client, token.clone()).await?;
-
-        // TODO: fallback when token not found in redis
-
-        Ok(token)
+        match Team::from_redis(redis_client.clone(), token.clone()).await {
+            Ok(_) => Ok(token),
+            Err(_) => {
+                // Fallback: Check PostgreSQL if not found in Redis
+                match Team::from_pg(pg_client, token.clone()).await {
+                    Ok(team) => {
+                        // Token found in PostgreSQL, update Redis cache
+                        if let Err(e) = Team::update_redis_cache(redis_client, team).await {
+                            tracing::warn!("Failed to update Redis cache: {}", e);
+                        }
+                        Ok(token)
+                    }
+                    Err(_) => Err(FlagError::TokenValidationError),
+                }
+            }
+        }
     }
 
     pub fn extract_distinct_id(&self) -> Result<String, FlagError> {
