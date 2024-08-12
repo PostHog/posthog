@@ -27,7 +27,7 @@ export function RetentionModal(): JSX.Element | null {
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, selectedInterval, exploreUrl, actorsQuery } = useValues(
+    const { aggregationTargetLabel, selectedInterval, exploreUrl, actorsQuery, retentionFilter } = useValues(
         retentionModalLogic(insightProps)
     )
     const { closeModal } = useActions(retentionModalLogic(insightProps))
@@ -53,7 +53,7 @@ export function RetentionModal(): JSX.Element | null {
             footer={
                 <div className="flex justify-between gap-2 w-full">
                     <div className="flex gap-2">
-                        {people.result?.length && !exploreUrl && (
+                        {!!people.result?.length && !exploreUrl && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() =>
@@ -68,7 +68,7 @@ export function RetentionModal(): JSX.Element | null {
                                 Download CSV
                             </LemonButton>
                         )}
-                        {people.result?.length && !!dataTableNodeQuery && (
+                        {!!people.result?.length && !!dataTableNodeQuery && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
@@ -111,20 +111,32 @@ export function RetentionModal(): JSX.Element | null {
                             <tbody>
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
-                                    {row.values?.map((data: any, index: number) => (
-                                        <th key={index}>
-                                            <div>{results[index].label}</div>
-                                            <div>
-                                                {data.count}
-                                                &nbsp;
-                                                {data.count > 0 && (
-                                                    <span className="text-muted">
-                                                        ({percentage(data.count / row?.values[0]['count'])})
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </th>
-                                    ))}
+                                    {row.values?.map((data: any, index: number) => {
+                                        let cumulativeCount = data.count
+                                        if (retentionFilter?.cumulative) {
+                                            for (let i = index + 1; i < row.values.length; i++) {
+                                                cumulativeCount += row.values[i].count
+                                            }
+                                            cumulativeCount = Math.min(cumulativeCount, row.values[0].count)
+                                        }
+                                        const percentageValue =
+                                            row.values[0].count > 0 ? cumulativeCount / row.values[0].count : 0
+
+                                        return (
+                                            <th key={index}>
+                                                <div>{results[index].label}</div>
+                                                <div>
+                                                    {cumulativeCount}
+                                                    &nbsp;
+                                                    {cumulativeCount > 0 && (
+                                                        <span className="text-muted">
+                                                            ({percentage(percentageValue)})
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </th>
+                                        )
+                                    })}
                                 </tr>
                                 {people.result &&
                                     people.result.map((personAppearances: RetentionTableAppearanceType) => (
