@@ -44,6 +44,8 @@ tests:
                 ."_" = "123456789"
                 %token = "limited_token"
 
+                # we can't properly check things that we verify in the capture decoding vrl sadly :(
+                %quota_limited = true
       outputs:
           - conditions:
                 - source: |
