@@ -2,20 +2,17 @@ import requests
 from django.conf import settings
 from dlt.common.pendulum import pendulum
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
-from typing import cast
-from dlt.common.typing import TSecretStrValue
 
 
 class SalseforceAuth(BearerTokenAuth):
     def __init__(self, refresh_token, access_token):
-        self.token = cast(TSecretStrValue, access_token)
+        self.parse_native_representation(access_token)
         self.refresh_token = refresh_token
-        self.token_expiry: pendulum.DateTime = pendulum.now() if access_token is None else pendulum.now().add(hours=1)
+        self.token_expiry: pendulum.DateTime = pendulum.now()
 
     def __call__(self, request):
         if self.token is None or self.is_token_expired():
             self.obtain_token()
-
         request.headers["Authorization"] = f"Bearer {self.token}"
         return request
 
