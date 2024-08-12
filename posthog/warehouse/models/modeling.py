@@ -14,7 +14,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import (
     CreatedMetaFields,
-    DeletedMetaFields,
     UpdatedMetaFields,
     UUIDModel,
     uuid7,
@@ -154,8 +153,7 @@ insert into posthog_datawarehousemodelpath (
   path,
   created_by_id,
   created_at,
-  updated_at,
-  deleted
+  updated_at
 ) (
   select
     id,
@@ -165,8 +163,7 @@ insert into posthog_datawarehousemodelpath (
     parent.path || subpath(model_path.path, index(model_path.path, text2ltree(%(child)s))) as path,
     created_by_id,
     created_at,
-    now() as updated_at,
-    false as deleted
+    now() as updated_at
   from
     posthog_datawarehousemodelpath as model_path,
     (
@@ -258,7 +255,6 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         created_by: User | None = None,
         saved_query_id: uuid.UUID | None = None,
         table_id: uuid.UUID | None = None,
-        deleted: bool = False,
     ) -> "list[DataWarehouseModelPath]":
         """Create all paths to a new leaf model.
 
@@ -269,7 +265,6 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             "created_by": created_by,
             "saved_query_id": saved_query_id,
             "table_id": table_id,
-            "deleted": deleted,
         }
 
         with transaction.atomic():
@@ -301,9 +296,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         if posthog_source_name not in posthog_tables:
             raise ValueError(f"Provided source {posthog_source_name} is not a PostHog table")
 
-        return self.get_or_create(
-            path=[posthog_source_name], team=team, defaults={"saved_query": None, "deleted": False}
-        )
+        return self.get_or_create(path=[posthog_source_name], team=team, defaults={"saved_query": None})
 
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
@@ -327,7 +320,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         return self.get_or_create(
             path=[table_id.hex],
             team=data_warehouse_table.team,
-            defaults={"saved_query": None, "table": data_warehouse_table, "deleted": False},
+            defaults={"saved_query": None, "table": data_warehouse_table},
         )
 
     def filter_all_leaf_paths(self, leaf_id: str | uuid.UUID, team: Team):
@@ -483,7 +476,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         return DAG(edges=edges, nodes=nodes)
 
 
-class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """Django model to represent paths to a data warehouse model.
 
     A data warehouse model is represented by a saved query, and the path to it contains all
