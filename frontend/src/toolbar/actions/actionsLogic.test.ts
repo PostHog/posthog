@@ -6,9 +6,9 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ActionType } from '~/types'
 
 const unsortedActions: ActionType[] = [
-    { name: 'zoo', created_at: '', created_by: null, id: 1 },
-    { name: 'middle', created_at: '', created_by: null, id: 2 },
-    { name: 'begin', created_at: '', created_by: null, id: 3 },
+    { name: 'zoo', created_at: '', created_by: null, id: 1, pinned_at: null },
+    { name: 'middle', created_at: '', created_by: null, id: 2, pinned_at: null },
+    { name: 'begin', created_at: '', created_by: null, id: 3, pinned_at: null },
 ]
 const apiJson = { results: unsortedActions }
 
