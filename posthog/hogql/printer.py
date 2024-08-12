@@ -1256,6 +1256,16 @@ class _Printer(Visitor):
     def _is_nullable(self, node: ast.Expr) -> bool:
         if isinstance(node, ast.Constant):
             return node.value is None
+        elif (
+            isinstance(node.type, ast.IntegerType)
+            or isinstance(node.type, ast.FloatType)
+            or isinstance(node.type, ast.StringType)
+            or isinstance(node.type, ast.BooleanType)
+            or isinstance(node.type, ast.DateType)
+            or isinstance(node.type, ast.DateTimeType)
+            or isinstance(node.type, ast.UUIDType)
+        ):
+            return node.type.nullable
         elif isinstance(node.type, ast.PropertyType):
             return True
         elif isinstance(node.type, ast.CallType):
