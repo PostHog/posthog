@@ -278,7 +278,7 @@ jobs:
         name: Calculate running time
         runs-on: ubuntu-latest
         needs: [cypress]
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+        if: ${{ needs.changes.outputs.shouldTriggerCypress == 'true' && github.repository == 'PostHog/posthog' }}
         steps:
             - name: Calculate running time
               run: |
