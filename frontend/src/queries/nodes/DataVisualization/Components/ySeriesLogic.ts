@@ -22,9 +22,9 @@ export enum YSeriesSettingsTab {
 
 export const ySeriesLogic = kea<ySeriesLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'ySeriesLogic']),
-    key((props) => props.series?.column?.name ?? `new-${props.seriesIndex}`),
+    key((props) => `${props.series?.column?.name ?? 'new'}-${props.seriesIndex ?? 0}`),
     connect((props: YSeriesLogicProps) => ({
-        actions: [dataVisualizationLogic(props.dataVisualizationProps), ['updateYSeries']],
+        actions: [dataVisualizationLogic(props.dataVisualizationProps), ['updateSeriesIndex']],
     })),
     props({ series: EmptyYAxisSeries } as YSeriesLogicProps),
     actions({
@@ -62,7 +62,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 decimalPlaces: props.series?.settings?.formatting?.decimalPlaces ?? '',
             },
             submit: async (format) => {
-                actions.updateYSeries(props.seriesIndex, props.series.column.name, {
+                actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
                     formatting: {
                         prefix: format.prefix,
                         suffix: format.suffix,
@@ -82,7 +82,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 displayType: props.series?.settings?.display?.displayType ?? 'auto',
             },
             submit: async (display) => {
-                actions.updateYSeries(props.seriesIndex, props.series.column.name, {
+                actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
                     display: {
                         label: display.label,
                         trendLine: display.trendLine,
