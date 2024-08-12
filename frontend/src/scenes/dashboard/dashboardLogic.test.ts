@@ -533,7 +533,7 @@ describe('dashboardLogic', () => {
                         // starts loading
                         'refreshAllDashboardItemsManual',
                         'loadDashboard',
-                        'refreshAllDashboardItems',
+                        'updateInsightResults',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses(
                             [dashboards['5'].tiles[0].insight!.short_id],
@@ -650,13 +650,13 @@ describe('dashboardLogic', () => {
         it('should refresh all dashboards if newestRefreshed is older than 3 hours', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['refreshAllDashboardItems']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['updateInsightResults']).toFinishAllListeners()
         })
 
         it('should not refresh all dashboards if newestRefreshed is older than 3 hours but the feature flag is not set', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
-            await expectLogic(logic).toNotHaveDispatchedActions(['refreshAllDashboardItems']).toFinishAllListeners()
+            await expectLogic(logic).toNotHaveDispatchedActions(['updateInsightResults']).toFinishAllListeners()
         })
     })
 
