@@ -138,7 +138,7 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "transform": lambda date_str: f"SELECT FIELDS(STANDARD) FROM Account WHERE SystemModstamp > {date_str}",
+                        "convert": lambda date_str: f"SELECT FIELDS(STANDARD) FROM Account WHERE SystemModstamp > {date_str}",
                     }
                     if is_incremental
                     else "SELECT FIELDS(STANDARD) FROM Account",

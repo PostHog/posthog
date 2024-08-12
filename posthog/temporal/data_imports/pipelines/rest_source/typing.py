@@ -167,7 +167,7 @@ class IncrementalArgs(TypedDict, total=False):
     primary_key: Optional[TTableHintTemplate[TColumnNames]]
     end_value: Optional[str]
     row_order: Optional[TSortOrder]
-    transform: Optional[Callable[..., Any]]
+    convert: Optional[Callable[..., Any]]
 
 
 class IncrementalConfig(IncrementalArgs, total=False):
