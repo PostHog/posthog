@@ -50,7 +50,7 @@ describe('Insights', () => {
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-            cy.get('.DataVizTable tr').should('have.length.gte', 2)
+            cy.get('.DataVizRow').should('have.length.gte', 2)
 
             insight.clickTab('TRENDS')
             cy.get('.TrendsInsight canvas').should('exist')
@@ -61,7 +61,7 @@ describe('Insights', () => {
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-            cy.get('.DataVizTable tr').should('have.length.gte', 2)
+            cy.get('.DataVizRow').should('have.length.gte', 2)
 
             insight.clickTab('TRENDS')
             cy.get('.TrendsInsight canvas').should('exist')
