@@ -140,8 +140,8 @@ staleness_threshold_map = {
         None: timedelta(hours=1),
         "minute": timedelta(hours=1),
         "hour": timedelta(hours=6),
-        "day": timedelta(hours=24),
-        "week": timedelta(days=2),
+        "day": timedelta(hours=6),
+        "week": timedelta(days=1),
         "month": timedelta(days=2),
     },
 }
