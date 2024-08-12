@@ -1,7 +1,6 @@
-from collections.abc import Iterable
-from dataclasses import dataclass
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 
 from posthog import settings
 
