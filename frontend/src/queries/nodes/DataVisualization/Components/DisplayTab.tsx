@@ -1,7 +1,8 @@
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ChartDisplayType } from '~/types'
 
@@ -17,22 +18,59 @@ export const DisplayTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col w-full">
-            <LemonLabel>Chart settings</LemonLabel>
-
-            <div className="mt-1 mb-2">
-                <LemonLabel className="mt-2 mb-1">Begin Y axis at zero</LemonLabel>
-                <LemonCheckbox
-                    checked={chartSettings.yAxisAtZero ?? true}
+            <div className="mt-1 mb-2 flex flex-col">
+                <h3>Left Y-axis</h3>
+                <LemonField.Pure label="Scale" className="gap-0 mb-3">
+                    <LemonSelect
+                        value={chartSettings.leftYAxisSettings?.scale ?? 'linear'}
+                        options={[
+                            { value: 'linear', label: 'Linear' },
+                            { value: 'logarithmic', label: 'Logarithmic' },
+                        ]}
+                        onChange={(value) => {
+                            updateChartSettings({ leftYAxisSettings: { scale: value } })
+                        }}
+                    />
+                </LemonField.Pure>
+                <LemonSwitch
+                    className="flex-1 mb-3 w-full"
+                    label="Begin Y-axis at zero"
+                    checked={chartSettings.leftYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
                     onChange={(value) => {
-                        updateChartSettings({ yAxisAtZero: value })
+                        updateChartSettings({ leftYAxisSettings: { startAtZero: value } })
+                    }}
+                />
+            </div>
+
+            <div className="mt-1 mb-2 flex flex-col">
+                <h3>Right Y-axis</h3>
+                <LemonField.Pure label="Scale" className="gap-0 mb-3">
+                    <LemonSelect
+                        value={chartSettings.rightYAxisSettings?.scale ?? 'linear'}
+                        options={[
+                            { value: 'linear', label: 'Linear' },
+                            { value: 'logarithmic', label: 'Logarithmic' },
+                        ]}
+                        onChange={(value) => {
+                            updateChartSettings({ rightYAxisSettings: { scale: value } })
+                        }}
+                    />
+                </LemonField.Pure>
+                <LemonSwitch
+                    className="flex-1 mb-3 w-full"
+                    label="Begin Y-axis at zero"
+                    checked={chartSettings.rightYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
+                    onChange={(value) => {
+                        updateChartSettings({ rightYAxisSettings: { startAtZero: value } })
                     }}
                 />
             </div>
 
             {isStackedBarChart && (
-                <div className="mt-1 mb-2">
-                    <LemonLabel className="mt-2 mb-1">Stack bars 100%</LemonLabel>
-                    <LemonCheckbox
+                <div className="mt-1 mb-2 flex">
+                    <LemonSwitch
+                        className="flex-1"
+                        label="Stack bars 100%"
                         checked={chartSettings.stackBars100 ?? false}
                         onChange={(value) => {
                             updateChartSettings({ stackBars100: value })
@@ -69,10 +107,10 @@ export const DisplayTab = (): JSX.Element => {
                         />
                     </div>
                 ))}
+                <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusSmall />} fullWidth>
+                    Add goal line
+                </LemonButton>
             </div>
-            <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusSmall />} fullWidth>
-                Add goal line
-            </LemonButton>
         </div>
     )
 }

@@ -135,11 +135,11 @@ export function DashboardItems(): JSX.Element {
                             removeFromDashboard: () => removeTile(tile),
                         }
 
-                        if (insight && legacyInsight) {
+                        if (insight) {
                             return (
                                 <InsightCard
                                     key={tile.id}
-                                    insight={legacyInsight}
+                                    insight={insight}
                                     stale={stale}
                                     loadingQueued={isRefreshingQueued(insight.short_id)}
                                     loading={isRefreshing(insight.short_id)}

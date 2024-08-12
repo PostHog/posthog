@@ -288,13 +288,15 @@ class PostgreSQLClient:
         field_names = comma.join(sql.Identifier(field[0]) for field in update_when_matched)
         conflict_fields = comma.join(sql.Identifier(field[0]) for field in merge_key)
 
-        merge_query = sql.SQL("""\
+        merge_query = sql.SQL(
+            """\
         INSERT INTO {final_table} AS final ({field_names})
         SELECT {field_names} FROM {stage_table}
         ON CONFLICT ({conflict_fields}) DO UPDATE SET
             {update_clause}
         WHERE (EXCLUDED.{person_version_key} > final.{person_version_key} OR EXCLUDED.{person_distinct_id_version_key} > final.{person_distinct_id_version_key})
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             conflict_fields=conflict_fields,
             stage_table=stage_table_identifier,
