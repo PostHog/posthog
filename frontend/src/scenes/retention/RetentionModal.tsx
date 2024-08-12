@@ -53,7 +53,7 @@ export function RetentionModal(): JSX.Element | null {
             footer={
                 <div className="flex justify-between gap-2 w-full">
                     <div className="flex gap-2">
-                        {people.result?.length && !exploreUrl && (
+                        {!!people.result?.length && !exploreUrl && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() =>
@@ -68,7 +68,7 @@ export function RetentionModal(): JSX.Element | null {
                                 Download CSV
                             </LemonButton>
                         )}
-                        {people.result?.length && !!dataTableNodeQuery && (
+                        {!!people.result?.length && !!dataTableNodeQuery && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
