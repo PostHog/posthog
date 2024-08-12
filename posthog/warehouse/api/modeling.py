@@ -7,7 +7,6 @@ from posthog.warehouse.models import DataWarehouseModelPath
 
 class DataWarehouseModelPathSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    columns = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DataWarehouseModelPath
