@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 
-from posthog.models import Organization, OrganizationMembership
+from posthog.models import Organization
+from posthog.tasks.sync_to_billing import sync_to_billing
 
 
 class Command(BaseCommand):
@@ -10,16 +11,20 @@ class Command(BaseCommand):
         parser.add_argument(
             "--action",
             type=str,
-            help="Select the action to perform, 'distinct_ids', 'admin_emails' or 'customer_email'",
+            help="Select the action to perform, 'organization_users' (this is currently the only action)",
         )
         parser.add_argument("--organization-ids", type=str, help="Comma separated list of organization ids to sync")
+        parser.add_argument("--async", type=bool, help="Run the task asynchronously")
+        parser.add_argument("--limit", type=int, help="Limit the number of organizations to sync")
 
     def handle(self, *args, **options):
         action = options["action"]
         organization_ids = options["organization_ids"]
+        run_async = options["async"]
+        limit = options["limit"]
 
         if action not in ["organization_users"]:
-            print("Invalid action, please select 'distinct_ids', 'admin_emails' or 'customer_email'")  # noqa T201
+            print("Invalid action, please select 'organization_users'")  # noqa T201
             return
 
         if organization_ids:
@@ -27,19 +32,18 @@ class Command(BaseCommand):
         else:
             organizations = Organization.objects.all()
 
+        if limit:
+            organizations = organizations[:limit]
+
         print(f"Running {action} for {len(organizations)} organizations")  # noqa T201
 
         for index, organization in enumerate(organizations):
-            first_owner = organization.members.filter(
-                organization_membership__level__gte=OrganizationMembership.Level.OWNER
-            ).first()
-            if not first_owner:
-                print(f"Organization {organization.id} has no owner")  # noqa T201
+            if run_async:
+                sync_to_billing.delay(organization.id)
+            else:
+                sync_to_billing(organization.id)
 
-            if action == "organization_users":
-                first_owner.update_billing_organization_users(organization)
-
-            if index % 50 == 0:
-                print(f"Processed {index} organizations out of {len(organizations)}")  # noqa T201
+                if index % 50 == 0:
+                    print(f"Processed {index} organizations out of {len(organizations)}")  # noqa T201
 
         print("Done")  # noqa T201
