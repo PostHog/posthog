@@ -6,6 +6,7 @@
     align-items: center;
     justify-content: left;
     height: var(--lemon-input-height);
+    min-height: var(--lemon-input-height);
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
@@ -96,11 +97,5 @@
     &.LemonInput--full-width {
         width: 100%;
         max-width: 100%;
-    }
-
-    .LemonInputSelect & {
-        flex-wrap: wrap;
-        height: auto;
-        min-height: var(--lemon-input-height);
     }
 }

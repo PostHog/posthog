@@ -1,4 +1,5 @@
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+import Fuse from 'fuse.js'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
@@ -18,6 +19,8 @@ export interface LemonInputSelectOption {
     key: string
     label: string
     labelComponent?: React.ReactNode
+    /** @internal */
+    __isInput?: boolean
 }
 
 export type LemonInputSelectProps = Pick<
@@ -59,7 +62,7 @@ export function LemonInputSelect({
     allowCustomValues = false,
     autoFocus = false,
     popoverClassName,
-    ...props
+    'data-attr': dataAttr,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -69,44 +72,50 @@ export function LemonInputSelect({
     const values = value ?? []
     const altKeyHeld = useKeyHeld('Alt')
 
+    const fuseRef = useRef<Fuse<LemonInputSelectOption>>(
+        new Fuse(options, {
+            keys: ['label', 'key'],
+        })
+    )
+
     const separateOnComma = allowCustomValues && mode === 'multiple'
 
+    const allOptions = useMemo(() => {
+        // Custom values are values that are not in the options list
+        const customValues = values.filter((value) => !options.some((option) => option.key === value))
+        // Custom values are shown as options before other options
+        const allOptions: LemonInputSelectOption[] = customValues
+            .map((value) => ({ key: value, label: value }))
+            .concat(options)
+        fuseRef.current.setCollection(allOptions) // This is a side effect (boo!) - but it's fine, since it's idempotent
+        return allOptions
+    }, [options, values])
+
     const visibleOptions = useMemo(() => {
-        const res: LemonInputSelectOption[] = []
-        const customValues = [...values]
-
-        // We show the input value if custom values are allowed and it's not in the list
+        const ret: LemonInputSelectOption[] = []
+        // Show the input value if custom values are allowed and it's not in the list
         if (allowCustomValues && inputValue && !values.includes(inputValue)) {
-            res.push({ key: inputValue.replace('\\,', ','), label: inputValue.replace('\\,', ',') }) // Transform escaped commas to plain commas
+            const unescapedInputValue = inputValue.replace('\\,', ',') // Transform escaped commas to plain commas
+            ret.push({ key: unescapedInputValue, label: unescapedInputValue, __isInput: true })
         }
 
-        options.forEach((option) => {
-            // Remove from the custom values list if it's in the options
-            if (customValues.includes(option.key)) {
-                customValues.splice(customValues.indexOf(option.key), 1)
-            }
-
-            // Check for filtering
-            if (inputValue && !disableFiltering && !option.label.toLowerCase().includes(inputValue.toLowerCase())) {
-                return
-            }
-
-            res.push(option)
-        })
-
-        // Custom values are now added after the input value but before other options
-        if (customValues.length) {
-            customValues.forEach((value) => {
-                if (value !== inputValue) {
-                    res.splice(1, 0, { key: value, label: value })
-                }
-            })
+        let relevantOptions = allOptions // Show all options by default
+        if (!disableFiltering && inputValue) {
+            // If filtering is enabled and there's input, perform fuzzy serach
+            const results = fuseRef.current.search(inputValue)
+            relevantOptions = results.map((result) => result.item)
         }
-        // :HACKY: This is a quick fix to make the select dropdown work for large values,
-        // as it was getting slow when we'd load more than ~10k entries. Ideally we'd
-        // make this a virtualized list.
-        return res.slice(0, 100)
-    }, [options, inputValue, values])
+        for (const option of relevantOptions) {
+            ret.push(option)
+            if (ret.length >= 100) {
+                // :HACKY: This is a quick fix to make the select dropdown work for large values, as it was getting slow when
+                // we'd load more than ~10k entries. Ideally we'd make this a virtualized list.
+                break
+            }
+        }
+
+        return ret
+    }, [allOptions, inputValue])
 
     // Reset the selected index when the visible options change
     useEffect(() => {
@@ -131,7 +140,7 @@ export function LemonInputSelect({
         }
 
         _setInputValue(newValue)
-        onInputChange?.(inputValue)
+        onInputChange?.(newValue)
     }
 
     const _removeItem = (item: string): void => {
@@ -168,6 +177,7 @@ export function LemonInputSelect({
                 _removeItem(item)
             }
             setInputValue(item)
+            inputRef.current?.focus()
             return
         }
 
@@ -227,8 +237,12 @@ export function LemonInputSelect({
         }
     }
 
-    const prefix = useMemo(
-        () => (
+    const prefix = useMemo(() => {
+        if (mode !== 'multiple' || values.length === 0) {
+            return null // No need to render a prefix in single-select mode, or if there are no values selected
+        }
+
+        return (
             // TRICKY: We don't want the popover to affect the snack buttons
             <PopoverReferenceContext.Provider value={null}>
                 <>
@@ -243,6 +257,7 @@ export function LemonInputSelect({
                                 title={option?.label}
                                 onClose={() => _onActionItem(value)}
                                 onClick={allowCustomValues ? () => _onActionItem(value) : undefined}
+                                className="font-medium"
                             >
                                 {option?.labelComponent ?? option?.label}
                             </LemonSnack>
@@ -264,9 +279,8 @@ export function LemonInputSelect({
                     })}
                 </>
             </PopoverReferenceContext.Provider>
-        ),
-        [values, options, altKeyHeld, allowCustomValues]
-    )
+        )
+    }, [allOptions, altKeyHeld, allowCustomValues])
 
     return (
         <LemonDropdown
@@ -284,35 +298,46 @@ export function LemonInputSelect({
             }}
             className={popoverClassName}
             overlay={
-                <div className="space-y-px overflow-y-auto">
+                <div className="space-y-px overflow-y-auto max-w-160">
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
-                    {visibleOptions.length ? (
-                        visibleOptions?.map((option, index) => {
-                            const isHighlighted = index === selectedIndex
+                    {visibleOptions.length > 0 ? (
+                        visibleOptions.map((option, index) => {
+                            const isFocused = index === selectedIndex
+                            const isSelected = values.includes(option.key)
                             return (
                                 <LemonButton
                                     key={option.key}
                                     type="tertiary"
                                     size="small"
                                     fullWidth
-                                    active={isHighlighted || values.includes(option.key)}
+                                    active={isFocused || isSelected}
                                     onClick={() => _onActionItem(option.key)}
                                     onMouseEnter={() => setSelectedIndex(index)}
+                                    icon={
+                                        mode === 'multiple' && !option.__isInput ? (
+                                            // No pointer events, since it's only for visual feedback
+                                            <LemonCheckbox checked={isSelected} className="pointer-events-none" />
+                                        ) : undefined
+                                    }
                                 >
-                                    <span className="flex-1 flex items-center justify-between gap-1">
-                                        <span className="ph-no-capture">{option.labelComponent ?? option.label}</span>
-                                        {isHighlighted ? (
+                                    <span className="flex-1 flex min-w-0 items-center justify-between gap-1 whitespace-nowrap">
+                                        <span className="ph-no-capture truncate">
+                                            {option.__isInput
+                                                ? `Add "${option.key}"`
+                                                : option.labelComponent ?? option.label}
+                                        </span>
+                                        {isFocused ? (
                                             <span>
-                                                <KeyboardShortcut enter />{' '}
+                                                <KeyboardShortcut enter className="mr-1.5" />
                                                 {altKeyHeld && allowCustomValues
-                                                    ? 'edit'
-                                                    : !values.includes(option.key)
+                                                    ? 'Edit'
+                                                    : !isSelected
                                                     ? mode === 'single'
-                                                        ? 'select'
-                                                        : 'add'
+                                                        ? 'Select'
+                                                        : 'Add'
                                                     : mode === 'single'
-                                                    ? 'unselect'
-                                                    : 'remove'}
+                                                    ? 'Unselect'
+                                                    : 'Remove'}
                                             </span>
                                         ) : undefined}
                                     </span>
@@ -338,20 +363,20 @@ export function LemonInputSelect({
                 </div>
             }
         >
-            <span className="LemonInputSelect" {...props}>
-                <LemonInput
-                    ref={inputRef}
-                    placeholder={!values.length ? placeholder : undefined}
-                    prefix={prefix}
-                    onFocus={_onFocus}
-                    onBlur={_onBlur}
-                    value={inputValue}
-                    onChange={setInputValue}
-                    onKeyDown={_onKeyDown}
-                    disabled={disabled}
-                    autoFocus={autoFocus}
-                />
-            </span>
+            <LemonInput
+                ref={inputRef}
+                placeholder={values.length === 0 ? placeholder : allowCustomValues ? 'Add value' : 'Pick value'}
+                prefix={prefix}
+                onFocus={_onFocus}
+                onBlur={_onBlur}
+                value={inputValue}
+                onChange={setInputValue}
+                onKeyDown={_onKeyDown}
+                disabled={disabled}
+                autoFocus={autoFocus}
+                className="flex-wrap h-auto"
+                data-attr={dataAttr}
+            />
         </LemonDropdown>
     )
 }
