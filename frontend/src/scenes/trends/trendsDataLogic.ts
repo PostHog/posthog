@@ -101,6 +101,16 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        hasBreakdownMore: [
+            (s) => [s.insightData, s.isTrends],
+            (insightData, isTrends) => {
+                if (!isTrends) {
+                    return false
+                }
+                return !!insightData.hasMore
+            },
+        ],
+
         indexedResults: [
             (s) => [s.results, s.display, s.lifecycleFilter],
             (results, display, lifecycleFilter): IndexedTrendResult[] => {

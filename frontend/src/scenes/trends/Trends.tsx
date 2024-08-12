@@ -23,7 +23,9 @@ export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !embedded
 
-    const { display, series, breakdownFilter, breakdownValuesLoading } = useValues(trendsDataLogic(insightProps))
+    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading } = useValues(
+        trendsDataLogic(insightProps)
+    )
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
@@ -70,10 +72,11 @@ export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
             )}
             {!embedded &&
                 display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
-                breakdownFilter && (
+                breakdownFilter &&
+                hasBreakdownMore && (
                     <div className="p-4">
                         <div className="text-muted">
-                            Breakdown limited to {breakdownFilter.breakdown_limit || 25}{' '}
+                            Breakdown limited to {breakdownFilter.breakdown_limit || 25} - more available
                             <LemonButton
                                 onClick={() =>
                                     updateBreakdownFilter({
