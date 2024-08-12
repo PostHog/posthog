@@ -139,7 +139,7 @@ staleness_threshold_map = {
     ThresholdMode.LAZY: {
         None: timedelta(hours=1),
         "minute": timedelta(hours=1),
-        "hour": timedelta(hours=6),
+        "hour": timedelta(hours=1),
         "day": timedelta(hours=6),
         "week": timedelta(days=1),
         "month": timedelta(days=2),
