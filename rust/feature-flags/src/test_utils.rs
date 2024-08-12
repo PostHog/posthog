@@ -1,11 +1,13 @@
 use anyhow::Error;
+use axum::async_trait;
 use serde_json::{json, Value};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
     config::{Config, DEFAULT_TEST_CONFIG},
-    database::{Client as DatabaseClientTrait, PgClient},
+    database::{Client, CustomDatabaseError, PgClient},
     flag_definitions::{self, FeatureFlag, FeatureFlagRow},
     redis::{Client as RedisClientTrait, RedisClient},
     team::{self, Team},
@@ -137,6 +139,30 @@ pub async fn setup_pg_client(config: Option<&Config>) -> Arc<PgClient> {
     )
 }
 
+pub struct MockPgClient;
+
+#[async_trait]
+impl Client for MockPgClient {
+    async fn run_query(
+        &self,
+        _query: String,
+        _parameters: Vec<String>,
+        _timeout_ms: Option<u64>,
+    ) -> Result<Vec<PgRow>, CustomDatabaseError> {
+        // Simulate a database connection failure
+        Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
+    }
+
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        // Simulate a database connection failure
+        Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
+    }
+}
+
+pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
+    Arc::new(MockPgClient)
+}
+
 pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
@@ -184,7 +210,7 @@ pub async fn insert_new_team_in_pg(client: Arc<PgClient>) -> Result<Team, Error>
     Ok(team)
 }
 
-pub async fn insert_flags_for_team_in_pg(
+pub async fn insert_flag_for_team_in_pg(
     client: Arc<PgClient>,
     team_id: i32,
     flag: Option<FeatureFlagRow>,
@@ -192,7 +218,10 @@ pub async fn insert_flags_for_team_in_pg(
     let id = rand::thread_rng().gen_range(0..10_000_000);
 
     let payload_flag = match flag {
-        Some(value) => value,
+        Some(mut value) => {
+            value.id = id;
+            value
+        }
         None => FeatureFlagRow {
             id,
             key: "flag1".to_string(),

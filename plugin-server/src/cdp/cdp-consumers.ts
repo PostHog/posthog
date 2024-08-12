@@ -17,6 +17,7 @@ import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kaf
 import { runInstrumentedFunction } from '../main/utils'
 import { AppMetric2Type, Hub, RawClickHouseEvent, TeamId, TimestampFormat } from '../types'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
+import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
@@ -95,12 +96,36 @@ abstract class CdpConsumerBase {
     protected heartbeat = () => {}
 
     constructor(protected hub: Hub) {
-        this.hogWatcher = new HogWatcher(hub)
         this.hogFunctionManager = new HogFunctionManager(hub.postgres, hub)
+        this.hogWatcher = new HogWatcher(hub, (id, state) => {
+            void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
+        })
         this.hogExecutor = new HogExecutor(this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.asyncFunctionExecutor = new AsyncFunctionExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
+    }
+
+    private async captureInternalPostHogEvent(
+        hogFunctionId: HogFunctionType['id'],
+        event: string,
+        properties: any = {}
+    ) {
+        const hogFunction = this.hogFunctionManager.getHogFunction(hogFunctionId)
+        if (!hogFunction) {
+            return
+        }
+        const team = await this.hub.teamManager.fetchTeam(hogFunction.team_id)
+
+        if (!team) {
+            return
+        }
+
+        captureTeamEvent(team, event, {
+            ...properties,
+            hog_function_id: hogFunctionId,
+            hog_function_url: `${this.hub.SITE_URL}/project/${team.id}/pipeline/destinations/hog-${hogFunctionId}`,
+        })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
