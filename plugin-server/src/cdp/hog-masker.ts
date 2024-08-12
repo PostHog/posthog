@@ -89,32 +89,26 @@ export class HogMasker {
         })
 
         Object.values(masks).forEach((masker, index) => {
-            const newValue = (result ? result[index * 2][1] : 0) - 1 // Here we want to fail closed as flooding messages is likely not good!
-            const threshold = masker.threshold ?? Infinity
-
-            // If increment matches the result then there was no previous result - we can permit one invocation
-            const oldValue = newValue - masker.increment
-            // We can divide by the threshold and floor the new and old values to get the number of times the threshold was passed
-            const thresholdsPasses = Math.floor(newValue / threshold) - Math.floor(oldValue / threshold)
-
-            console.log({
-                newValue,
-                oldValue,
-                thresholdsPasses,
-                threshold: threshold,
-                floorNew: Math.floor(newValue / threshold),
-                floorOld: Math.floor(oldValue / threshold),
-            })
-
-            if (thresholdsPasses) {
-                masker.allowedExecutions = thresholdsPasses
+            const newValue: number | null = result ? result[index * 2][1] : null
+            if (newValue === null) {
+                // We fail closed here as with a masking config the typical case will be not to send
+                return
             }
 
-            console.log({
-                newValue,
-                increment: masker.increment,
-                threshold: masker.threshold,
-            })
+            const oldValue = newValue - masker.increment
+
+            // Simplest case - the previous value was 0
+            masker.allowedExecutions = oldValue === 0 ? 1 : 0
+
+            if (masker.threshold) {
+                // TRICKY: We minus 1 to account for the "first" execution
+                const thresholdsPasses =
+                    Math.floor((newValue - 1) / masker.threshold) - Math.floor((oldValue - 1) / masker.threshold)
+
+                if (thresholdsPasses) {
+                    masker.allowedExecutions = thresholdsPasses
+                }
+            }
         })
 
         return invocationsWithMasker.reduce(
