@@ -68,7 +68,7 @@ class Command(BaseCommand):
                     query = f"SELECT {meta.clickhouse_name or func_name}({arg_values_str})"
                     print(f"Querying... {query}")  # noqa: T201
                     try:
-                        res = sync_execute(query)[0][0]  # type: ignore
+                        res = sync_execute(query)[0][0]
                         print("Success")  # noqa: T201
                         copied_return_type = deepcopy(return_type)
                         if res is None:
