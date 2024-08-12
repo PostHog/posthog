@@ -20,7 +20,8 @@ class SalseforceAuth(BearerTokenAuth):
         return pendulum.now() >= self.token_expiry
 
     def obtain_token(self) -> None:
-        self.token = salesforce_refresh_access_token(self.refresh_token)
+        new_token = salesforce_refresh_access_token(self.refresh_token)
+        self.parse_native_representation(new_token)
         self.token_expiry = pendulum.now().add(hours=1)
 
 
