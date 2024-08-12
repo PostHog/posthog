@@ -2803,6 +2803,9 @@
                 },
                 "source": {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                "tableSettings": {
+                    "$ref": "#/definitions/TableSettings"
                 }
             },
             "required": ["kind", "source"],
@@ -8780,6 +8783,18 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TableSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/ChartAxis"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "TaxonomicFilterGroupType": {
