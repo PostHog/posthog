@@ -588,6 +588,20 @@ class _Printer(Visitor):
         return f"{self.visit(node.expr)} {node.order}"
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        # If either side of the operation is a property that is part of a property group, special optimizations may
+        # apply here to ensure that data skipping indexes can be used when possible.
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            if isinstance(node.left, ast.Field) and isinstance(node.left.type, ast.PropertyType):
+                if isinstance(node.right, ast.Constant):
+                    property_source = self.__get_materialized_property_source(node.left.type)
+                    if isinstance(property_source, MaterializedPropertyGroupItem):
+                        raise NotImplementedError
+            elif isinstance(node.right, ast.Field) and isinstance(node.right.type, ast.PropertyType):
+                if isinstance(node.left, ast.Constant):
+                    property_source = self.__get_materialized_property_source(node.right.type)
+                    if isinstance(property_source, MaterializedPropertyGroupItem):
+                        raise NotImplementedError
+
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
