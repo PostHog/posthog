@@ -67,7 +67,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             const pathParts = props.formFieldsPrefix ? props.formFieldsPrefix.split('.') : []
 
             setFormValue(pathParts.concat('design'), data.design)
-            setFormValue(pathParts.concat('html'), data.html)
+            setFormValue(pathParts.concat('html'), escapeHTMLStringCurlies(data.html))
 
             // Load the logic and set the property...
             actions.setIsModalOpen(false)
@@ -89,3 +89,32 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 ])
+
+function escapeHTMLStringCurlies(htmlString: string): string {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(htmlString, 'text/html')
+
+    function escapeCurlyBraces(text: string): string {
+        return text.replace(/{/g, '\\{')
+    }
+
+    function processNode(node: Node): void {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            const element = node as HTMLElement
+            if (element.tagName === 'STYLE' || element.tagName === 'SCRIPT') {
+                element.textContent = escapeCurlyBraces(element.textContent || '')
+            } else {
+                Array.from(node.childNodes).forEach(processNode)
+            }
+        } else if (node.nodeType === Node.COMMENT_NODE) {
+            const commentContent = (node as Comment).nodeValue || ''
+            ;(node as Comment).nodeValue = escapeCurlyBraces(commentContent)
+        }
+    }
+
+    processNode(doc.head)
+    processNode(doc.body)
+
+    const serializer = new XMLSerializer()
+    return serializer.serializeToString(doc)
+}
