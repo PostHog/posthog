@@ -13,28 +13,9 @@ class Command(BaseCommand):
     help = "Measure HogQL function types"
 
     def handle(self, *args, **options):
-        arg_types_with_defaults = {
-            IntegerType: "1",
-            StringType: "'hello'",
-            FloatType: "3.14",
-            BooleanType: "true",
-        }
-        # Too heavy
-        skip_functions = ["pointInEllipses"]
-
-        def load_state():
-            try:
-                with open("state.pkl", "rb") as f:
-                    return pickle.load(f)
-            except (FileNotFoundError, EOFError):
-                return {}, {}
-
         def save_state(blah: dict[str, HogQLFunctionMeta]):
             with open("state.pkl", "wb") as f:
                 pickle.dump(blah, f)
-
-        # Try to load previous state
-        # successes, failures = load_state()
 
         def get_arg_value(arg_type: AnyConstantType) -> str:
             if arg_type.nullable:
@@ -63,46 +44,47 @@ class Command(BaseCommand):
             if not meta.signatures:
                 continue
 
-            newSig: list[tuple[tuple[AnyConstantType, ...], AnyConstantType]] = []
+            valid_signatures: list[tuple[tuple[AnyConstantType, ...], AnyConstantType]] = []
 
             for argsTuple, return_type in meta.signatures:
                 table = list(itertools.product([True, False], repeat=len(argsTuple)))
-                combo: list[list[AnyConstantType]] = []
+                signatures: list[list[AnyConstantType]] = []
 
                 if any(isinstance(c, TupleType) for c in argsTuple):
-                    print("Ignoring tuple args")
+                    print("Ignoring tuple args")  # noqa: T201
                     continue
 
                 for argSet in table:
-                    combo.append(
+                    signatures.append(
                         [
-                            argsTuple[index].__class__(nullable=z, is_timezone_type=argsTuple[index].is_timezone_type)
+                            argsTuple[index].__class__(nullable=z, is_timezone_type=argsTuple[index].is_timezone_type)  # type: ignore
                             for index, z in enumerate(argSet)
                         ]
-                    )  # type: ignore
+                    )
 
-                for argSet2 in combo:
-                    args = ", ".join(get_arg_value(blah) for blah in argSet2)
-                    query = f"SELECT {meta.clickhouse_name or func_name}({args})"
-                    print(f"Querying... {query}")
+                for signature in signatures:
+                    arg_values = [get_arg_value(arg_type) for arg_type in signature]
+                    arg_values_str = ", ".join(arg_values)
+                    query = f"SELECT {meta.clickhouse_name or func_name}({arg_values_str})"
+                    print(f"Querying... {query}")  # noqa: T201
                     try:
-                        res = sync_execute(query)[0][0]
-                        print("Success")
+                        res = sync_execute(query)[0][0]  # type: ignore
+                        print("Success")  # noqa: T201
                         copied_return_type = deepcopy(return_type)
                         if res is None:
                             copied_return_type.nullable = True
                         else:
                             copied_return_type.nullable = False
-                        newSig.append((tuple(argSet2), copied_return_type))
+                        valid_signatures.append((tuple(signature), copied_return_type))
                     except Exception:
-                        print("Exception")
+                        print("Exception")  # noqa: T201
                         continue
-            meta.signatures = newSig
+            meta.signatures = valid_signatures
             newFuncs[func_name] = meta
         save_state(newFuncs)
 
         for func_name, meta in newFuncs.items():
-            print(
+            print(  # noqa: T201
                 f'"{func_name}": {meta},'.replace(
                     "min_params=0, max_params=0, aggregate=False, overloads=None, tz_aware=False, case_sensitive=True, ",
                     "",
@@ -116,69 +98,3 @@ class Command(BaseCommand):
                 .replace(", is_timezone_type=False", "")
                 .replace(", suffix_args=None", "")
             )
-
-        # def generate_function_sql_queries():
-        #     count = 0
-        #     all_queries = []
-
-        #     for func_name, meta in HOGQL_CLICKHOUSE_FUNCTIONS.items():
-        #         print(func_name)  # noqa T201
-        #         if func_name in skip_functions:
-        #             print("- Skipping (in skip_functions list)")  # noqa T201
-        #             continue
-        #         if HOGQL_CLICKHOUSE_FUNCTIONS[func_name].signatures is not None:
-        #             print("- Skipping (has signatures)")  # noqa T201
-        #             continue
-
-        #         if func_name not in successes:
-        #             successes[func_name] = set()
-        #         else:
-        #             successes[func_name] = set(
-        #                 query.replace("False", "false").replace("True", "true") for query in successes[func_name]
-        #             )
-
-        #         if func_name not in failures:
-        #             failures[func_name] = set()
-        #         else:
-        #             failures[func_name] = set(
-        #                 query.replace("False", "false").replace("True", "true") for query in successes[func_name]
-        #             )
-
-        #         if func_name not in successes:
-        #             successes[func_name] = set()
-        #         else:
-        #             successes[func_name] = set(
-        #                 query.replace("False", "false").replace("True", "true") for query in successes[func_name]
-        #             )
-
-        #         max_args_start = meta.min_args if meta.max_args is None else meta.max_args
-        #         max_args_end = min(6, meta.min_args + 2 if meta.max_args is None else meta.max_args)
-        #         for max_args in range(max_args_start, max_args_end + 1):
-        #             for num_args in range(meta.min_args, max_args + 1):
-        #                 for combination in product(arg_types_with_defaults, repeat=num_args):
-        #                     args = ", ".join([str(arg[1]) for arg in combination])
-        #                     query = f"SELECT {func_name}({args})"
-        #                     if (
-        #                         query in successes[func_name] or query in failures[func_name]
-        #                     ):  # Skip if we've seen this combination
-        #                         continue
-        #                     all_queries.append(query)
-        #                     try:
-        #                         # Replace this with your actual query execution function
-        #                         sync_execute(query)
-        #                         successes[func_name].add(query)
-        #                     except Exception:
-        #                         failures[func_name].add(query)
-        #                     count += 1
-        #                     if count % 1000 == 0:
-        #                         save_state(successes, failures)  # Save the state after running the queries
-
-        #         save_state(successes, failures)  # Save the state after running the queries
-        #         for query in successes[func_name]:
-        #             print(f"- {query}")  # noqa T201
-        #         if len(successes[func_name]) == 0:
-        #             print("- No successes")  # noqa T201
-
-        #     return all_queries
-
-        # generate_function_sql_queries()
