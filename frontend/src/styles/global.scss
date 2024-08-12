@@ -32,6 +32,7 @@ body strong {
 // Disable default styling for ul
 ul {
     padding-left: 0;
+    margin-top: 0;
     margin-bottom: 0;
     list-style: none;
 }
@@ -336,6 +337,10 @@ input::-ms-clear {
     }
 }
 
+html {
+    text-size-adjust: 100%;
+}
+
 body {
     // Remove below once we're using Tailwind's base
     --tw-content: '';
@@ -354,6 +359,7 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     font-size: 14px;
+    font-variant: tabular-nums;
     line-height: 1.5715;
     color: var(--text-3000);
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
@@ -393,7 +399,9 @@ body {
     h4,
     h5 {
         margin-top: 0;
+        margin-bottom: 0.5em;
         font-family: var(--font-title);
+        font-weight: 500;
     }
 
     h1,
@@ -422,6 +430,7 @@ body {
 
     a {
         color: var(--link);
+        text-decoration: none;
     }
 
     p {
@@ -439,6 +448,10 @@ body {
         font-size: inherit;
         line-height: inherit;
         color: inherit;
+    }
+
+    table {
+        border-collapse: collapse;
     }
 
     .LemonButton,
