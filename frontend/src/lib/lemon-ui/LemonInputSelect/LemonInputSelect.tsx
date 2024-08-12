@@ -446,7 +446,7 @@ export function LemonInputSelect({
                 autoFocus={autoFocus}
                 className={clsx(
                     'flex-wrap h-auto min-w-24',
-                    // Putting button-like text styling on the single-select unfocused value
+                    // Putting button-like text styling on the single-select unfocused placeholder
                     mode === 'single' && values.length > 0 && 'placeholder:*:font-medium',
                     mode === 'single' &&
                         values.length > 0 &&
