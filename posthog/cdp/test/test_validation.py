@@ -1,18 +1,9 @@
 import json
-from typing import Any, Optional
-from unittest.mock import ANY, patch
 
 from inline_snapshot import snapshot
-import pytest
-from rest_framework import status
 
 from posthog.cdp.validation import validate_inputs, validate_inputs_schema
-from posthog.constants import AvailableFeature
-from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 
 
 def create_example_inputs_schema():
@@ -131,8 +122,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         )
 
     def test_validate_inputs_creates_bytecode_for_html(self):
-        # NOTE: This currently fails due to the css blocks being interpolated as hog
-        html_with_css = '<html>\n<head>\n<style type="text/css">\n  .css {\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi {person.properties.email}</p>\n</body>\n</html>'
+        # NOTE: CSS block curly brackets must be escaped beforehand
+        html_with_css = '<html>\n<head>\n<style type="text/css">\n  .css \\{\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi {person.properties.email}</p>\n</body>\n</html>'
 
         assert json.loads(
             json.dumps(
@@ -145,4 +136,28 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     },
                 )
             )
-        ) == snapshot("")
+        ) == snapshot(
+            {
+                "html": {
+                    "bytecode": [
+                        "_h",
+                        32,
+                        "</p>\n</body>\n</html>",
+                        32,
+                        "email",
+                        32,
+                        "properties",
+                        32,
+                        "person",
+                        1,
+                        3,
+                        32,
+                        '<html>\n<head>\n<style type="text/css">\n  .css {\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi ',
+                        2,
+                        "concat",
+                        3,
+                    ],
+                    "value": '<html>\n<head>\n<style type="text/css">\n  .css \\{\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi {person.properties.email}</p>\n</body>\n</html>',
+                },
+            }
+        )
