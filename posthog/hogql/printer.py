@@ -1080,6 +1080,9 @@ class _Printer(Visitor):
         """
         Find a materialized property for the first part of the property chain.
         """
+        if self.context.modifiers.materializationMode == "disabled":
+            return None
+
         field_type = type.field_type
         field = field_type.resolve_database_field(self.context)
 
@@ -1135,24 +1138,23 @@ class _Printer(Visitor):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        if self.context.modifiers.materializationMode != "disabled":
-            materialized_property_source = self.__get_materialized_property_source(type)
-            if materialized_property_source is not None:
-                if isinstance(materialized_property_source, MaterializedColumn):
-                    # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                    if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                        materialized_property_sql = f"nullIf({materialized_property_source}, '')"
-                    else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                        materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
-                else:
-                    materialized_property_sql = str(materialized_property_source)
+        materialized_property_source = self.__get_materialized_property_source(type)
+        if materialized_property_source is not None:
+            if isinstance(materialized_property_source, MaterializedColumn):
+                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
+                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
+                    materialized_property_sql = f"nullIf({materialized_property_source}, '')"
+                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
+                    materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
+            else:
+                materialized_property_sql = str(materialized_property_source)
 
-                if len(type.chain) == 1:
-                    return materialized_property_sql
-                else:
-                    return self._unsafe_json_extract_trim_quotes(
-                        materialized_property_sql, [self.context.add_value(name) for name in type.chain[1:]]
-                    )
+            if len(type.chain) == 1:
+                return materialized_property_sql
+            else:
+                return self._unsafe_json_extract_trim_quotes(
+                    materialized_property_sql, [self.context.add_value(name) for name in type.chain[1:]]
+                )
 
         return self._unsafe_json_extract_trim_quotes(
             self.visit(type.field_type), [self.context.add_value(name) for name in type.chain]
