@@ -1,6 +1,5 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
-import { base64Encode } from 'lib/utils'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -8,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import { errorTrackingGroupQueryResponse, errorTrackingQueryResponse } from './__mocks__/error_tracking_query'
+import { stringifiedFingerprint } from './utils'
 
 const meta: Meta = {
     title: 'Scenes-App/ErrorTracking',
@@ -40,8 +40,7 @@ export function ListPage(): JSX.Element {
 
 export function GroupPage(): JSX.Element {
     useEffect(() => {
-        const stringifiedFingerprint = base64Encode(JSON.stringify(['TypeError']))
-        router.actions.push(urls.errorTrackingGroup(stringifiedFingerprint))
+        router.actions.push(urls.errorTrackingGroup(stringifiedFingerprint(['TypeError'])))
     }, [])
     return <App />
 }

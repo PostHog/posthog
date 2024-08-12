@@ -6,7 +6,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { base64Encode } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -20,6 +19,7 @@ import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+import { stringifiedFingerprint } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -139,7 +139,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 }
                 className="flex-1"
-                to={urls.errorTrackingGroup(base64Encode(JSON.stringify(record.fingerprint)))}
+                to={urls.errorTrackingGroup(stringifiedFingerprint(record.fingerprint))}
             />
         </div>
     )

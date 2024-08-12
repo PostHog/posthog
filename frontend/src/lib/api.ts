@@ -3,8 +3,9 @@ import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { base64Encode, objectClean, toParams } from 'lib/utils'
+import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -670,8 +671,7 @@ class ApiRequest {
     }
 
     public errorTrackingGroup(fingerprint: ErrorTrackingGroup['fingerprint'], teamId?: TeamType['id']): ApiRequest {
-        const stringifiedFingerprint = base64Encode(JSON.stringify(fingerprint))
-        return this.errorTracking(teamId).addPathComponent(stringifiedFingerprint)
+        return this.errorTracking(teamId).addPathComponent(stringifiedFingerprint(fingerprint))
     }
 
     public errorTrackingMerge(fingerprint: ErrorTrackingGroup['fingerprint']): ApiRequest {
