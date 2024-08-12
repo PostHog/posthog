@@ -1,5 +1,27 @@
 import requests
 from django.conf import settings
+from dlt.common.pendulum import pendulum
+
+
+class SalseforceAuth(requests.auth.AuthBase):
+    def __init__(self, refresh_token, access_token):
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.token_expiry: pendulum.DateTime = pendulum.now() if access_token is None else pendulum.now().add(hours=1)
+
+    def __call__(self, request):
+        if self.access_token is None or self.is_token_expired():
+            self.obtain_token()
+        # Modify the request object to include the necessary authentication headers
+        request.headers["Authorization"] = f"Bearer {self.access_token}"
+        return request
+
+    def is_token_expired(self) -> bool:
+        return pendulum.now() >= self.token_expiry
+
+    def obtain_token(self) -> None:
+        self.access_token = salesforce_refresh_access_token(self.refresh_token)
+        self.token_expiry = pendulum.now().add(hours=1)
 
 
 def salesforce_refresh_access_token(refresh_token: str) -> str:
