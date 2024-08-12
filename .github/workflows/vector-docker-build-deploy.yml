@@ -8,7 +8,6 @@ on:
             - '.github/workflows/vector-docker-build-deploy.yml'
         branches:
             - 'master'
-            - frank/test-patched-vector
 
 jobs:
     build:
