@@ -591,11 +591,16 @@ export interface ChartSettings {
     stackBars100?: boolean
 }
 
+export interface TableSettings {
+    columns?: ChartAxis[]
+}
+
 export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }
 
 interface DataTableNodeViewProps {

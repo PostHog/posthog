@@ -68,7 +68,11 @@ class TableSerializer(serializers.ModelSerializer):
             fields = table.hogql_definition().fields
 
         serializes_fields = serialize_fields(
-            fields, HogQLContext(database=database, team_id=self.context["team_id"]), table.name, table.columns
+            fields,
+            HogQLContext(database=database, team_id=self.context["team_id"]),
+            table.name,
+            table.columns,
+            table_type="external",
         )
 
         return [
@@ -132,7 +136,10 @@ class SimpleTableSerializer(serializers.ModelSerializer):
             database = create_hogql_database(team_id=self.context["team_id"])
 
         fields = serialize_fields(
-            table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id), table.name
+            table.hogql_definition().fields,
+            HogQLContext(database=database, team_id=team_id),
+            table.name,
+            table_type="external",
         )
         return [
             SerializedField(
