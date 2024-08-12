@@ -357,7 +357,7 @@ body {
     line-height: 1.5715;
     color: var(--text-3000);
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-    background: var(--bg-light);
+    background: var(--bg-3000);
 
     &[theme='light'] {
         @include light-mode-3000-variables;
