@@ -478,8 +478,8 @@ export function BatchExportsEditFields({
                         <LemonField name="url" label="PostHog region">
                             <LemonSelect
                                 options={[
-                                    { value: 'https://us.i.posthog.com', label: 'US' },
-                                    { value: 'https://eu.i.posthog.com', label: 'EU' },
+                                    { value: 'https://us.i.posthog.com/i/v0/e/', label: 'US' },
+                                    { value: 'https://eu.i.posthog.com/i/v0/e/', label: 'EU' },
                                 ]}
                             />
                         </LemonField>
