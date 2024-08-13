@@ -37,7 +37,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
     const { resetConfiguration, submitConfiguration, setSelectedModel } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service)) {
+    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as any)) {
         return <NotFound object={`batch export service ${service}`} />
     }
 

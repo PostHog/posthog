@@ -10,10 +10,10 @@ import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { BatchExportConfigurationForm } from './batch-exports/types'
+import { humanizeBatchExportName } from './batch-exports/utils'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
-import { humanizeBatchExportName } from './batch-exports/utils'
 
 export interface PipelineBatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
