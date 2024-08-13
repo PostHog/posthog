@@ -372,28 +372,49 @@ class TestPrinter(BaseTest):
         # TODO: consider using the EXPLAIN output to ensure these expressions actually use the expected indices?
         # TODO: also test with the operands swapped? and additional operators (in, not in are tricky)
         self.assertEqual(
-            self._expr("properties['x'] = 'x'", context),
+            self._expr("properties.x = 'x'", context),
             "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
         )
 
         # special case: keys that don't exist in a map return default values for the type, so we need to check whether
         # or not the key exists in the map (to utilize the bloom filter index on keys) as well as perform the comparison
         self.assertEqual(
-            self._expr("properties['x'] = ''", context),
+            self._expr("properties.x = ''", context),
             "and(has(events.properties_group_custom, %(hogql_val_2)s), equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s))",
         )
 
         self.assertEqual(
-            self._expr("properties['x'] is null", context),
+            self._expr("properties.x is null", context),
             "has(events.properties_group_custom, %(hogql_val_4)s)",
         )
 
         self.assertEqual(
-            self._expr("properties['x'] is not null", context),
+            self._expr("properties.x is not null", context),
             "not(has(events.properties_group_custom, %(hogql_val_5)s))",
         )
 
         # TODO: what about chaining? seems like we could still use the keys index here
+
+    def test_property_groups_select_with_field_aliases(self):
+        printed = print_ast(
+            parse_select("""\
+                SELECT properties.file_type AS ft
+                FROM events
+                WHERE ft = 'image/svg'
+            """),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO, usePropertyGroups=True),
+            ),
+            dialect="clickhouse",
+        )
+        assert printed == (
+            "SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS ft "
+            "FROM events "
+            f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s))"
+            "LIMIT 50000"
+        )
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
