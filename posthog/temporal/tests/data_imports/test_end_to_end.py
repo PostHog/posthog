@@ -5,6 +5,8 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
 import pytest
+import pytest_asyncio
+import psycopg
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.team.team import Team
 from posthog.temporal.data_imports import ACTIVITIES
@@ -26,6 +28,33 @@ from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 
 
 BUCKET_NAME = "test-pipeline"
+
+
+@pytest.fixture
+def postgres_config():
+    return {
+        "user": settings.PG_USER,
+        "password": settings.PG_PASSWORD,
+        "database": "external_data_database",
+        "schema": "external_data_schema",
+        "host": settings.PG_HOST,
+        "port": int(settings.PG_PORT),
+    }
+
+
+@pytest_asyncio.fixture
+async def postgres_connection(postgres_config, setup_postgres_test_db):
+    connection = await psycopg.AsyncConnection.connect(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        dbname=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+    )
+
+    yield connection
+
+    await connection.close()
 
 
 async def _run(
@@ -433,3 +462,45 @@ async def test_make_sure_deletions_occur(team, stripe_balance_transaction):
 
         for call in s3_client_mock.exists.call_args_list:
             assert latest_job not in call[0][0]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_binary_columns(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.binary_col_test (id integer, binary_column bytea)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.binary_col_test (id, binary_column) VALUES (1, '\x48656C6C6F')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    await _run(
+        team=team,
+        schema_name="binary_col_test",
+        table_name="postgres_binary_col_test",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_binary_col_test", team)
+    columns = res.columns
+
+    assert columns is not None
+    assert len(columns) == 3
+    assert columns[0] == "id"
+    assert columns[1] == "_dlt_id"
+    assert columns[2] == "_dlt_load_id"
