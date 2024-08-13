@@ -2,7 +2,7 @@ import re
 from typing import Optional
 from django.core.management.base import BaseCommand
 
-from posthog.cdp.validation import compile_hog
+from posthog.cdp.validation import compile_hog, validate_inputs
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.cdp.templates.webhook.template_webhook import template as webhook_template
@@ -48,7 +48,7 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
             action_url = f"{{project.url}}/data-management/actions/{action.id}"
             if action_property == "link":
                 text = text.replace(match, action_url)
-                markdown = action_url
+                markdown = markdown.replace(match, action_url)
             else:
                 markdown = markdown.replace(match, convert_link(action.name, action_url, is_slack))
                 text = text.replace(match, action.name)
@@ -94,24 +94,60 @@ def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
         }
     else:
         body = {
-            "text": message_text,
+            "text": message_markdown,
         }
 
     hog_function = HogFunction(
-        name=f"Webhook for action {action.id}",
+        name=f"Webhook for action {action.id} ({action.name})",
+        description="Automatically migrated webhook from legacy action",
         team_id=action.team_id,
-        inputs={
-            "url": webhook_url,
-            "method": "POST",
-            "body": body,
-        },
+        inputs=validate_inputs(
+            webhook_template.inputs_schema,
+            {"url": {"value": webhook_url}, "method": {"value": "POST"}, "body": {"value": body}},
+        ),
         inputs_schema=webhook_template.inputs_schema,
         template_id=webhook_template.id,
         hog=webhook_template.hog,
         bytecode=compile_hog(webhook_template.hog),
         filters={"actions": [{"id": f"{action.id}", "type": "actions", "name": action.name, "order": 0}]},
+        enabled=True,
     )
     return hog_function
+
+
+def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run: bool = False):
+    if action_ids and team_ids:
+        print("Please provide either action_ids or team_ids, not both")
+        return
+
+    query = Action.objects.select_related("team").filter(post_to_slack=True)
+
+    if team_ids:
+        print("Migrating all actions for teams:", team_ids)
+        query = query.filter(team_id__in=team_ids)
+    elif action_ids:
+        print("Migrating actions:", action_ids)
+        query = query.filter(id__in=action_ids)
+    else:
+        print(f"Migrating all actions")  # noqa T201
+
+    hog_functions: list[HogFunction] = []
+    actions = list(query.all())
+
+    for index, action in enumerate(actions):
+        print(f"Processing action {action.id}")
+        hog_function = convert_to_hog_function(action)
+        if hog_function:
+            hog_functions.append(hog_function)
+
+    if not dry_run:
+        HogFunction.objects.bulk_create(hog_functions)
+    else:
+        print("Would have created the following HogFunctions:")
+        for hog_function in hog_functions:
+            print(hog_function, hog_function.inputs, hog_function.filters)
+
+    print("Done")  # noqa T201
 
 
 class Command(BaseCommand):
@@ -135,30 +171,8 @@ class Command(BaseCommand):
             print("Please provide either action_ids or team_ids, not both")
             return
 
-        query = Action.objects.select_related("team").filter(post_to_slack=True)
-
-        if team_ids:
-            print("Migrating all actions for teams:", team_ids)
-            query = query.filter(team_id__in=team_ids.split(","))
-        elif action_ids:
-            print("Migrating actions:", action_ids)
-            query = query.filter(id__in=action_ids.split(","))
-        else:
-            print(f"Migrating all actions")  # noqa T201
-
-        hog_functions: list[HogFunction] = []
-
-        for index, action in enumerate(query.all()):
-            print(f"Processing action {action.id}")
-            hog_function = convert_to_hog_function(action)
-            if hog_function:
-                hog_functions.append(hog_function)
-
-        if not dry_run:
-            HogFunction.objects.bulk_create(hog_functions)
-        else:
-            print("Would have created the following HogFunctions:")
-            for hog_function in hog_functions:
-                print(hog_function, hog_function.inputs, hog_function.filters)
-
-        print("Done")  # noqa T201
+        migrate_action_webhooks(
+            action_ids=[int(x) for x in action_ids.split(",")] if action_ids else [],
+            team_ids=[int(x) for x in team_ids.split(",")] if team_ids else [],
+            dry_run=dry_run,
+        )
