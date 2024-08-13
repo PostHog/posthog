@@ -7,6 +7,7 @@ from prometheus_client import Counter
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
+
 logger = structlog.get_logger(__name__)
 
 
@@ -15,7 +16,7 @@ deletions_counter = Counter("deletions_confirmed", "Total number of deletions ma
 
 class AsyncDeletionProcess(ABC):
     CLICKHOUSE_MUTATION_CHUNK_SIZE = 1_000_000
-    CLICKHOUSE_VERIFY_CHUNK_SIZE = 1_000
+    CLICKHOUSE_VERIFY_CHUNK_SIZE = 300
     DELETION_TYPES: list[DeletionType] = []
 
     def __init__(self) -> None:

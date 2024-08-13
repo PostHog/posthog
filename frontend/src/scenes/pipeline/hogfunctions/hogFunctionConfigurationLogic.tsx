@@ -39,6 +39,7 @@ import {
     PropertyGroupFilter,
 } from '~/types'
 
+import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
@@ -145,7 +146,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         upsertHogFunction: (configuration: HogFunctionConfigurationType) => ({ configuration }),
         duplicate: true,
         duplicateFromTemplate: true,
-        resetToTemplate: true,
+        resetToTemplate: (keepInputs = true) => ({ keepInputs }),
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
     }),
@@ -154,6 +155,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             false,
             {
                 setShowSource: (_, { showSource }) => showSource,
+            },
+        ],
+
+        hasHadSubmissionErrors: [
+            false,
+            {
+                upsertHogFunctionFailure: () => true,
             },
         ],
     }),
@@ -284,6 +292,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
+        logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
         hasAddon: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
@@ -340,7 +349,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         return
                     }
 
-                    if (input.required && !value) {
+                    const missing = value === undefined || value === null || value === ''
+                    if (input.required && missing) {
                         inputErrors[key] = 'This field is required'
                     }
 
@@ -349,6 +359,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             JSON.parse(value)
                         } catch (e) {
                             inputErrors[key] = 'Invalid JSON'
+                        }
+                    }
+
+                    if (input.type === 'email' && value) {
+                        const emailTemplateErrors: Partial<EmailTemplate> = {
+                            html: !value.html ? 'HTML is required' : undefined,
+                            subject: !value.subject ? 'Subject is required' : undefined,
+                            // text: !value.text ? 'Text is required' : undefined,
+                            from: !value.from ? 'From is required' : undefined,
+                            to: !value.to ? 'To is required' : undefined,
+                        }
+
+                        if (Object.values(emailTemplateErrors).some((v) => !!v)) {
+                            inputErrors[key] = { value: emailTemplateErrors } as any
                         }
                     }
                 })
@@ -575,15 +599,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 )
             }
         },
-        resetToTemplate: async () => {
+        resetToTemplate: async ({ keepInputs }) => {
             if (values.hogFunction?.template) {
                 const template = values.hogFunction.template
                 // Fill defaults from template
                 const inputs: Record<string, HogFunctionInputType> = {}
 
                 template.inputs_schema?.forEach((schema) => {
-                    if (schema.default) {
-                        inputs[schema.key] = { value: schema.default }
+                    inputs[schema.key] = (keepInputs ? values.configuration.inputs?.[schema.key] : undefined) ?? {
+                        value: schema.default,
                     }
                 })
 
@@ -599,8 +623,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
         },
         setConfigurationValue: () => {
-            // Clear the manually set errors otherwise the submission won't work
-            actions.setConfigurationManualErrors({})
+            if (values.hasHadSubmissionErrors) {
+                // Clear the manually set errors otherwise the submission won't work
+                actions.setConfigurationManualErrors({})
+            }
         },
 
         deleteHogFunction: async () => {

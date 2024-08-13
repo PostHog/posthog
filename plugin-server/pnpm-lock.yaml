@@ -44,8 +44,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/hogvm':
-    specifier: ^1.0.30
-    version: 1.0.30(luxon@3.4.4)(re2@1.20.3)
+    specifier: ^1.0.32
+    version: 1.0.32(luxon@3.4.4)(re2@1.20.3)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -73,6 +73,9 @@ dependencies:
   aws-sdk:
     specifier: ^2.927.0
     version: 2.1366.0
+  detect-browser:
+    specifier: ^5.3.0
+    version: 5.3.0
   escape-string-regexp:
     specifier: ^4.0.0
     version: 4.0.0
@@ -3110,8 +3113,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.30(luxon@3.4.4)(re2@1.20.3):
-    resolution: {integrity: sha512-u501rsyskUUnFgMUZjYDfU3pBKp17CKq7aHPAgFpQVFLt1fE9KOQT/hakBjhM9OFUHpjod3SJX3NpbXhOgjz3Q==}
+  /@posthog/hogvm@1.0.32(luxon@3.4.4)(re2@1.20.3):
+    resolution: {integrity: sha512-OjgSzs4fZ1Q0KEiON34/dH9TybfVfallANcgoRiNhUd9KstSm55Ds5cpK6HjGMfRRPpPULuDQ77RH3DBjJ2CCA==}
     peerDependencies:
       luxon: ^3.4.4
       re2: ^1.21.3
@@ -5403,6 +5406,10 @@ packages:
   /destroy@1.2.0:
     resolution: {integrity: sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
+    dev: false
+
+  /detect-browser@5.3.0:
+    resolution: {integrity: sha512-53rsFbGdwMwlF7qvCt0ypLM5V5/Mbl0szB7GPN8y9NCcbknYOeVVXdrXEq+90IwAfrrzt6Hd+u2E2ntakICU8w==}
     dev: false
 
   /detect-libc@1.0.3:

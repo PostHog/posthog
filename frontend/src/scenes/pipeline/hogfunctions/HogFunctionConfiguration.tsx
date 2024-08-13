@@ -155,6 +155,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
+                {hogFunction?.filters?.bytecode_error ? (
+                    <div>
+                        <LemonBanner type="error">
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                        </LemonBanner>
+                    </div>
+                ) : null}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
@@ -248,7 +256,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filters by events and actions">
+                                <LemonField name="filters" label="Filters by events and actions" className="gap-2">
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch

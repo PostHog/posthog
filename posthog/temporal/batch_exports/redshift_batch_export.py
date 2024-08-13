@@ -121,8 +121,8 @@ class RedshiftClient(PostgreSQLClient):
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
-        update_when_matched: Fields,
-        version_key: str = "version",
+        person_version_key: str = "person_version",
+        person_distinct_id_version_key: str = "person_distinct_id_version",
     ) -> None:
         """Merge two identical tables in PostgreSQL."""
         if schema:
@@ -150,24 +150,32 @@ class RedshiftClient(PostgreSQLClient):
             for field in merge_key
         )
 
-        delete_query = sql.SQL("""\
+        delete_query = sql.SQL(
+            """\
         DELETE FROM {stage_table}
         USING {final_table} AS final
-        WHERE {merge_condition} AND {stage_table}.{stage_version_key} > final.{final_version_key};
-        """).format(
+        WHERE {merge_condition}
+        AND {stage_table}.{stage_person_version_key} < final.{final_person_version_key}
+        AND {stage_table}.{stage_person_distinct_id_version_key} < final.{final_person_distinct_id_version_key};
+        """
+        ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=delete_condition,
-            stage_version_key=sql.Identifier(version_key),
-            final_version_key=sql.Identifier(version_key),
+            stage_person_version_key=sql.Identifier(person_version_key),
+            final_person_version_key=sql.Identifier(person_version_key),
+            stage_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
+            final_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
         )
 
-        merge_query = sql.SQL("""\
+        merge_query = sql.SQL(
+            """\
         MERGE INTO {final_table}
         USING {stage_table} AS stage
         ON {merge_condition}
         REMOVE DUPLICATES
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
@@ -219,10 +227,13 @@ def get_redshift_fields_from_record_schema(
             if pa_field.name in known_super_columns and use_super is True:
                 pg_type = "SUPER"
             else:
-                pg_type = "TEXT"
+                # Redshift treats `TEXT` as `VARCHAR(256)`, not as unlimited length like PostgreSQL.
+                # So, instead of `TEXT` we use the largest possible `VARCHAR`.
+                # See: https://docs.aws.amazon.com/redshift/latest/dg/r_Character_types.html
+                pg_type = "VARCHAR(65535)"
 
-        elif pa.types.is_signed_integer(pa_field.type):
-            if pa.types.is_int64(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            if pa.types.is_uint64(pa_field.type) or pa.types.is_int64(pa_field.type):
                 pg_type = "BIGINT"
             else:
                 pg_type = "INTEGER"
@@ -296,31 +307,32 @@ async def insert_records_to_redshift(
 
     total_rows_exported = 0
 
-    async with redshift_client.async_client_cursor() as cursor:
-        batch = []
-        pre_query_str = pre_query.as_string(cursor).encode("utf-8")
-
-        async def flush_to_redshift(batch):
-            nonlocal total_rows_exported
-
-            values = b",".join(batch).replace(b" E'", b" '")
-            await cursor.execute(pre_query_str + values)
-            rows_exported.add(len(batch))
-            total_rows_exported += len(batch)
-            # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
-            # the byte size of each batch the way things are currently written. We can revisit this
-            # in the future if we decide it's useful enough.
-
-        async for record in records_iterator:
-            batch.append(cursor.mogrify(template, record).encode("utf-8"))
-            if len(batch) < batch_size:
-                continue
-
-            await flush_to_redshift(batch)
+    async with redshift_client.connection.transaction():
+        async with redshift_client.async_client_cursor() as cursor:
             batch = []
+            pre_query_str = pre_query.as_string(cursor).encode("utf-8")
 
-        if len(batch) > 0:
-            await flush_to_redshift(batch)
+            async def flush_to_redshift(batch):
+                nonlocal total_rows_exported
+
+                values = b",".join(batch).replace(b" E'", b" '")
+                await cursor.execute(pre_query_str + values)
+                rows_exported.add(len(batch))
+                total_rows_exported += len(batch)
+                # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
+                # the byte size of each batch the way things are currently written. We can revisit this
+                # in the future if we decide it's useful enough.
+
+            async for record in records_iterator:
+                batch.append(cursor.mogrify(template, record).encode("utf-8"))
+                if len(batch) < batch_size:
+                    continue
+
+                await flush_to_redshift(batch)
+                batch = []
+
+            if len(batch) > 0:
+                await flush_to_redshift(batch)
 
     return total_rows_exported
 
@@ -426,7 +438,10 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+        )
 
         if requires_merge:
             primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
@@ -483,7 +498,6 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                         final_table_name=redshift_table,
                         stage_table_name=redshift_stage_table,
                         schema=inputs.schema,
-                        update_when_matched=table_fields,
                         merge_key=merge_key,
                     )
 

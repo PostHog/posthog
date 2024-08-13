@@ -34,6 +34,7 @@ import {
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 import {
     AccessLevel,
@@ -45,7 +46,6 @@ import {
     EntityType,
     Experiment,
     FilterLogicalOperator,
-    FilterType,
     FunnelCorrelation,
     HelpType,
     InsightModel,
@@ -236,6 +236,7 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
 function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
     const payload: Record<string, string | number | boolean | undefined> = {
         query_kind: query?.kind,
+        query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
     }
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
@@ -291,8 +292,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             params,
         }),
         // insights
-        reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
-        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
+        reportInsightCreated: (query: Node | null) => ({ query }),
+        reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
             query: Node | null,
@@ -631,15 +632,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightCreated: async ({ insightType }, breakpoint) => {
+        reportInsightCreated: async ({ query }, breakpoint) => {
             // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
-            posthog.capture('insight created', { insight: insightType })
+
+            posthog.capture('insight created', {
+                query_kind: query?.kind,
+                query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
+            })
         },
-        reportInsightSaved: async ({ filters, isNewInsight }) => {
+        reportInsightSaved: async ({ query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
-                ...filters,
+                ...sanitizeQuery(query),
                 is_new_insight: isNewInsight,
             })
         },

@@ -111,7 +111,7 @@ multiIf(
     (
         {referring_domain} = '$direct'
         AND ({medium} IS NULL)
-        AND ({source} IS NULL OR {source} IN ('(direct)', 'direct'))
+        AND ({source} IS NULL OR {source} IN ('(direct)', 'direct', '$direct'))
     ),
     'Direct',
 
@@ -130,6 +130,12 @@ multiIf(
 
             match({medium}, 'push$'),
             'Push',
+
+            {referring_domain} == '$direct',
+            'Direct',
+
+            {referring_domain} IS NOT NULL,
+            'Referral',
 
             'Unknown'
         )

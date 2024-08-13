@@ -1167,6 +1167,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
             "significant",
             "significance_code",
             "expected_loss",
+            "credible_intervals",
             "variants",
         }
 
