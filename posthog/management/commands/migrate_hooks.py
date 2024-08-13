@@ -73,7 +73,7 @@ class Command(BaseCommand):
             return
 
         migrate_hooks(
-            hook_ids=[int(x) for x in hook_ids.split(",")] if hook_ids else [],
+            hook_ids=hook_ids.split(",") if hook_ids else [],
             team_ids=[int(x) for x in team_ids.split(",")] if team_ids else [],
             dry_run=dry_run,
         )
