@@ -8,10 +8,9 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Sends a webhook templated by the incoming event data",
     icon_url="/static/services/zapier.png",
     hog="""
-let res := fetch(f'https://hooks.zapier.com/{inputs.hook_path}', {
-  'headers': inputs.headers,
-  'body': inputs.body,
-  'method': inputs.method
+let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
+  'method': 'POST',
+  'body': inputs.body
 });
 
 if (inputs.debug) {

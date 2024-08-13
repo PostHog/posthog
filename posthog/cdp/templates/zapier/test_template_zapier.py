@@ -1,39 +1,21 @@
 from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
+from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 
 
-class TestTemplateWebhook(BaseHogFunctionTemplateTest):
-    template = template_webhook
+class TestTemplateZapier(BaseHogFunctionTemplateTest):
+    template = template_zapier
 
     def test_function_works(self):
         self.run_function(
             inputs={
-                "url": "https://posthog.com",
-                "method": "GET",
-                "headers": {},
+                "hook": "hooks/1/2",
                 "body": {"hello": "world"},
                 "debug": False,
             }
         )
 
         assert self.get_mock_fetch_calls()[0] == snapshot(
-            ("https://posthog.com", {"headers": {}, "body": {"hello": "world"}, "method": "GET"})
+            ("https://hooks.zapier.com/hooks/1/2", {"headers": None, "body": {"hello": "world"}, "method": None})
         )
         assert self.get_mock_print_calls() == snapshot([])
-
-    def test_prints_when_debugging(self):
-        self.run_function(
-            inputs={
-                "url": "https://posthog.com",
-                "method": "GET",
-                "headers": {},
-                "body": {"hello": "world"},
-                "debug": True,
-            }
-        )
-
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            ("https://posthog.com", {"headers": {}, "body": {"hello": "world"}, "method": "GET"})
-        )
-        assert self.get_mock_print_calls() == snapshot([("Response", 200, {})])
