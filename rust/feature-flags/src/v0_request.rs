@@ -106,13 +106,13 @@ impl FlagRequest {
 
     pub async fn get_team_from_cache_or_pg(
         &self,
-        token: &String,
+        token: &str,
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         pg_client: Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<Team, FlagError> {
-        match Team::from_redis(redis_client.clone(), token.clone()).await {
+        match Team::from_redis(redis_client.clone(), token.to_owned()).await {
             Ok(team) => Ok(team),
-            Err(_) => match Team::from_pg(pg_client, token.clone()).await {
+            Err(_) => match Team::from_pg(pg_client, token.to_owned()).await {
                 Ok(team) => {
                     // If we have the team in postgres, but not redis, update redis so we're faster next time
                     if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
