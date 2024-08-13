@@ -12,4 +12,4 @@
 #     ]
 # ]
 
-operations = []
+operations = []  # type: ignore  # noqa
