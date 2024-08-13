@@ -634,7 +634,7 @@ class _Printer(Visitor):
 
         if node.op == ast.CompareOperationOp.Eq:
             if constant_expr.value is None:
-                # "IS NOT NULL" can be interpreted as "does not exist in the map".
+                # "IS NULL" can be interpreted as "does not exist in the map".
                 return f"not({property_source.printed_has_expr})"
 
             printed_expr = f"equals({property_source.printed_value_expr}, {self.visit(constant_expr)})"

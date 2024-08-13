@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from typing import Any, Literal, Optional, cast
 from collections.abc import Mapping
@@ -362,7 +362,7 @@ class TestPrinter(BaseTest):
             input_expression: str
             expected_printed_query: str
             expected_context_values: Mapping[str, Any]
-            expected_skip_indexes_used: set[str]
+            expected_skip_indexes_used: set[str] = field(default_factory=set)
 
         cases = [
             # common case: comparing against a (non-empty) string value doesn't require checking if the key exists or
@@ -400,8 +400,8 @@ class TestPrinter(BaseTest):
                 {"hogql_val_0": "key", "hogql_val_1": ""},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
-            # special case: not null comparisons should check to see if the key exists within the map, but do not need
-            # to actually get the value
+            # special case: not null comparisons should check to see if the key exists within the map (and should use
+            # the bloom filter as an optimization), but do not need to actually get the value
             PropertyGroupComparisonTestCase(
                 "properties.key is not null",
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
@@ -419,6 +419,24 @@ class TestPrinter(BaseTest):
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
                 {"hogql_val_0": "key"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            ),
+            # special case: null comparisons don't really benefit from the bloom filter index (even though it still
+            # reports its used in the query plan?), but rewriting to only check if the key exists avoids naively reading
+            # the the values column unnecessarily
+            PropertyGroupComparisonTestCase(
+                "properties.key is null",
+                "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+                {"hogql_val_0": "key"},
+            ),
+            PropertyGroupComparisonTestCase(
+                "properties.key = null",
+                "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+                {"hogql_val_0": "key"},
+            ),
+            PropertyGroupComparisonTestCase(
+                "isNull(properties.key)",
+                "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+                {"hogql_val_0": "key"},
             ),
         ]
 
