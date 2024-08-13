@@ -57,9 +57,12 @@ class HookViewSet(
     serializer_class = HookSerializer
 
     def create_zapier_hog_function(self, validated_data: dict) -> HogFunctionSerializer:
+        action_id = validated_data["resource_id"]
+
         serializer = HogFunctionSerializer(
             data={
                 "template_id": template_zapier.id,
+                "filters": {"actions": [{"id": str(action_id), "name": "", "type": "actions", "order": 0}]},
                 "inputs": {
                     "hook": {
                         "value": validated_data["target"].replace("https://hooks.zapier.com/", ""),
