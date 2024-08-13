@@ -101,7 +101,7 @@ def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
 
     hog_function = HogFunction(
         name=f"Webhook for action {action.id} ({action.name})",
-        description="Automatically migrated webhook from legacy action",
+        description="Automatically migrated from legacy action webhooks",
         team_id=action.team_id,
         inputs=validate_inputs(
             webhook_template.inputs_schema,
@@ -158,7 +158,8 @@ def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run:
             for hog_function in hog_functions:
                 print(hog_function, hog_function.inputs, hog_function.filters)  # noqa: T201
 
-    reload_all_hog_functions_on_workers()
+    if not dry_run:
+        reload_all_hog_functions_on_workers()
 
 
 class Command(BaseCommand):
