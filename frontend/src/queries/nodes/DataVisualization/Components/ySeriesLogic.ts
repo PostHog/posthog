@@ -59,7 +59,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 prefix: props.series?.settings?.formatting?.prefix ?? '',
                 suffix: props.series?.settings?.formatting?.suffix ?? '',
                 style: props.series?.settings?.formatting?.style ?? 'none',
-                decimalPlaces: props.series?.settings?.formatting?.decimalPlaces ?? '',
+                decimalPlaces: props.series?.settings?.formatting?.decimalPlaces,
             },
             submit: async (format) => {
                 actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
@@ -67,8 +67,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                         prefix: format.prefix,
                         suffix: format.suffix,
                         style: format.style,
-                        decimalPlaces:
-                            format.decimalPlaces === '' ? undefined : parseInt(format.decimalPlaces.toString(), 10),
+                        decimalPlaces: Number.isNaN(format.decimalPlaces) ? undefined : format.decimalPlaces,
                     },
                 })
                 actions.setSettingsOpen(false)

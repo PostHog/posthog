@@ -82,7 +82,15 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
     },
 })
 
-export const formatDataWithSettings = (data: number | string, settings?: AxisSeriesSettings): string => {
+export const formatDataWithSettings = (data: number | string | null | object, settings?: AxisSeriesSettings): any => {
+    if (data === null || Number.isNaN(data)) {
+        return null
+    }
+
+    if (typeof data === 'object') {
+        return data
+    }
+
     const decimalPlaces = settings?.formatting?.decimalPlaces
 
     let dataAsString = `${data}`
@@ -552,6 +560,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                         if (column.type.isNumerical) {
                             try {
+                                if (value === null) {
+                                    return value
+                                }
+
                                 const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
 
                                 if (series.settings.formatting?.decimalPlaces) {
