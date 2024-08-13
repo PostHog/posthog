@@ -1,10 +1,9 @@
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { InsightModel, InsightType, QueryBasedInsightModel } from '~/types'
+import { InsightModel, QueryBasedInsightModel } from '~/types'
 
 import { INSIGHTS_PER_PAGE, InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 
@@ -185,16 +184,6 @@ describe('savedInsightsLogic', () => {
                     results: [partial({ id: 123 }), partial({ id: 1 }), partial({ id: 2 }), partial({ id: 3 })],
                 }),
             })
-    })
-
-    describe('redirects old /insights urls to the real URL', () => {
-        it('new mode with ?insight= and no hash params', async () => {
-            router.actions.push(combineUrl('/insights', cleanFilters({ insight: InsightType.FUNNELS })).url)
-            await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.project(MOCK_TEAM_ID, urls.insightNew()) }),
-                hashParams: { filters: partial({ insight: InsightType.FUNNELS }) },
-            })
-        })
     })
 
     it('can duplicate and does not use derived name for name', async () => {

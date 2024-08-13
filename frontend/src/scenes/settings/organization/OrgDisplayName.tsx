@@ -31,7 +31,7 @@ export function OrganizationDisplayName(): JSX.Element {
                 disabled={isRestricted || !name || !currentOrganization || name === currentOrganization.name}
                 loading={currentOrganizationLoading}
             >
-                Rename Organization
+                Rename organization
             </LemonButton>
         </div>
     )

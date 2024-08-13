@@ -13,6 +13,8 @@ from .mailjet.template_mailjet import (
     template_update_contact_list as mailjet_update_contact_list,
 )
 
+from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
+
 
 HOG_FUNCTION_TEMPLATES = [
     slack,
@@ -28,6 +30,7 @@ HOG_FUNCTION_TEMPLATES = [
     salesforce_update,
     mailjet_create_contact,
     mailjet_update_contact_list,
+    mailgun,
 ]
 
 
