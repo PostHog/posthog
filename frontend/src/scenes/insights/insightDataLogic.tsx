@@ -147,13 +147,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         query: [
-            (s) => [
-                s.propsQuery,
-                s.queryBasedInsight,
-                s.internalQuery,
-                s.filterTestAccountsDefault,
-                s.isDataWarehouseQuery,
-            ],
+            (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
             (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>
                 propsQuery ||
                 internalQuery ||
