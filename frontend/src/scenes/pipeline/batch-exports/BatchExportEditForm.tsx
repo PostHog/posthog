@@ -475,15 +475,15 @@ export function BatchExportsEditFields({
                     </>
                 ) : batchExportConfigForm.destination === 'HTTP' ? (
                     <>
-                        <LemonField name="url" label="URL">
+                        <LemonField name="url" label="PostHog region">
                             <LemonSelect
                                 options={[
-                                    { value: 'https://us.i.posthog.com', label: 'https://us.i.posthog.com' },
-                                    { value: 'https://eu.i.posthog.com', label: 'https://eu.i.posthog.com' },
+                                    { value: 'https://us.i.posthog.com', label: 'US' },
+                                    { value: 'https://eu.i.posthog.com', label: 'EU' },
                                 ]}
                             />
                         </LemonField>
-                        <LemonField name="token" label="Project API Key">
+                        <LemonField name="token" label="Destination project API Key">
                             <LemonInput placeholder="e.g. phc_12345..." />
                         </LemonField>
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
