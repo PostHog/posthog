@@ -373,10 +373,6 @@ body {
         @include dark-mode-3000-variables;
     }
 
-    [tabindex='-1']:focus {
-        outline: none !important;
-    }
-
     * > {
         ::-webkit-scrollbar {
             width: 0.5rem;
@@ -432,35 +428,10 @@ body {
         font-family: var(--font-mono);
     }
 
-    a {
-        color: var(--link);
-        text-decoration: none;
-    }
-
-    p {
+    pre {
         margin-top: 0;
         margin-bottom: 1em;
-    }
-
-    button,
-    input,
-    optgroup,
-    select,
-    textarea {
-        margin: 0;
-        font-family: inherit;
-        font-size: inherit;
-        line-height: inherit;
-        color: inherit;
-    }
-
-    table {
-        border-collapse: collapse;
-    }
-
-    img {
-        vertical-align: middle;
-        border-style: none;
+        overflow: auto;
     }
 
     .LemonButton,
@@ -477,6 +448,41 @@ body {
     }
 
     @include common-variables;
+}
+
+a {
+    color: var(--link);
+    text-decoration: none;
+}
+
+p {
+    margin-top: 0;
+    margin-bottom: 1em;
+}
+
+table {
+    border-collapse: collapse;
+}
+
+img {
+    vertical-align: middle;
+    border-style: none;
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+    margin: 0;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+}
+
+[tabindex='-1']:focus {
+    outline: none !important;
 }
 
 .storybook-test-runner {
