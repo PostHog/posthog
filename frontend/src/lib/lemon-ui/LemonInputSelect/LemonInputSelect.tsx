@@ -408,9 +408,10 @@ export function LemonInputSelect({
                     ) : loading ? (
                         <>
                             {range(5).map((x) => (
-                                <div key={x} className="flex gap-2 items-center h-10 px-1">
-                                    <LemonSkeleton.Circle className="w-6 h-6" />
-                                    <LemonSkeleton />
+                                // 33px is the height of a regular list item
+                                <div key={x} className="flex gap-2 items-center h-[33px] px-2">
+                                    <LemonSkeleton.Circle className="size-[18px]" />
+                                    <LemonSkeleton className="h-3.5 w-full" />
                                 </div>
                             ))}
                         </>
