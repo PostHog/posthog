@@ -252,7 +252,7 @@ export function LemonInputSelect({
                                 key={value}
                                 title={
                                     <>
-                                        <KeyboardShortcut option /> + click to edit
+                                        <KeyboardShortcut option /> + click to edit, click to remove
                                     </>
                                 }
                             >

@@ -46,7 +46,7 @@ export const cleanFilter = (
 export function compareFilters(
     a: Partial<AnyFilterType>,
     b: Partial<AnyFilterType>,
-    test_account_filters_default_checked: boolean | undefined
+    test_account_filters_default_checked?: boolean | undefined
 ): boolean {
     // this is not optimized for speed and does not work for many cases yet
     // e.g. falsy values are not treated the same as undefined values, unset filters are not handled, ordering of series isn't checked
