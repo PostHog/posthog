@@ -1131,7 +1131,7 @@ mod tests {
         let received_response = async_function_response.get("response").unwrap();
         assert_eq!(
             json!({
-                "body": None::<String>, // TODO: We should still return the response.
+                "body": Some("{\"message\": \"bad response\"}"),
                 "status": 500
             }),
             *received_response
