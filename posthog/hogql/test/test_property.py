@@ -664,7 +664,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             clear_locations(action_to_expr(action8)),
-            self._parse_expr("event = '$autocapture' and has(elements_chain_texts, 'blabla')"),
+            self._parse_expr("event = '$autocapture' and arrayExists(x -> x = '%blabla%', elements_chain_texts)"),
         )
 
     def test_cohort_filter_static(self):
