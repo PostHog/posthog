@@ -247,25 +247,27 @@ def _field_to_compare_op(
 
 
 def property_to_expr(
-    property: list
-    | dict
-    | PropertyGroup
-    | PropertyGroupFilter
-    | PropertyGroupFilterValue
-    | Property
-    | ast.Expr
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter,
+    property: (
+        list
+        | dict
+        | PropertyGroup
+        | PropertyGroupFilter
+        | PropertyGroupFilterValue
+        | Property
+        | ast.Expr
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+    ),
     team: Team,
     scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
 ) -> ast.Expr:
@@ -337,6 +339,7 @@ def property_to_expr(
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
+        or property.type == "recording"
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
@@ -364,6 +367,8 @@ def property_to_expr(
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
+        elif property.type == "recording":
+            chain = []
         else:
             chain = ["properties"]
 

@@ -262,7 +262,9 @@ class SessionRecordingListFromFilters:
     def _having_predicates(self) -> ast.Expr:
         # exprs: list[ast.Expr] = []
 
-        return property_to_expr(self._filter.having_predicates, team=self._team)
+        print(self._filter.having_predicates)
+
+        return property_to_expr(self._filter.having_predicates, team=self._team, scope="replay")
 
         # if self._filter.recording_duration_filter:
         #     op = (

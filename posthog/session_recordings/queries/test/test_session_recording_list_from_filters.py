@@ -234,8 +234,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "duration",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
             }
         )
 
@@ -249,8 +248,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "active_seconds",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"active_seconds","value":"60","operator":"gt"}]',
             }
         )
 
@@ -260,8 +258,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "inactive_seconds",
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"inactive_seconds","value":"60","operator":"gt"}]',
             }
         )
 
