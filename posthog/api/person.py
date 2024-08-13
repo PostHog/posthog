@@ -144,6 +144,7 @@ def get_person_name_helper(
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
         if person_properties and person_properties.get(property):
             display_name = person_properties.get(property)
+            break
     if display_name:
         return display_name
     if len(distinct_ids) > 0:

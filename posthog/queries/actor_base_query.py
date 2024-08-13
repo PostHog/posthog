@@ -295,7 +295,9 @@ def get_people(
 def get_serialized_people(
     team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None
 ) -> list[SerializedPerson]:
-    persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(people_ids)
+    persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
+        people_ids, order_by="created_at DESC, uuid"
+    )
     from posthog.api.person import get_person_name_helper
 
     return [
