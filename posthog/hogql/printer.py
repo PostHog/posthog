@@ -599,8 +599,7 @@ class _Printer(Visitor):
         return f"{self.visit(node.expr)} {node.order}"
 
     def get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
-        # XXX: This only applies to syntactical operators -- not their functional equivalents, e.g. `equals`,
-        # `notEquals`, `isNull`, `isNotNull`, etc.
+        # XXX: `isNull`, `isNotNull` are not covered here
         # TODO: Performance could be slightly improved by doing some of the easy checks first (e.g. node.op
         # equality checks.)
 

@@ -428,6 +428,19 @@ class TestPrinter(BaseTest):
         )
         self.assertDictContainsSubset({"hogql_val_11": "key"}, context.values)
 
+        # functional equivalents
+        self.assertEqual(
+            self._expr("equals(properties.key, 'value')", context),
+            "equals(events.properties_group_custom[%(hogql_val_12)s], %(hogql_val_13)s)",
+        )
+        self.assertDictContainsSubset({"hogql_val_12": "key", "hogql_val_13": "value"}, context.values)
+
+        self.assertEqual(
+            self._expr("equals(properties.key, '')", context),
+            "and(has(events.properties_group_custom, %(hogql_val_14)s), equals(events.properties_group_custom[%(hogql_val_14)s], %(hogql_val_15)s))",
+        )
+        self.assertDictContainsSubset({"hogql_val_14": "key", "hogql_val_15": ""}, context.values)
+
     def test_property_groups_select_with_aliases(self):
         context = HogQLContext(
             team_id=self.team.pk,
