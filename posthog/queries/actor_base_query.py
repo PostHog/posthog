@@ -14,6 +14,7 @@ from django.db.models.query import Prefetch, QuerySet
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.hogql_queries.actor_strategies import PersonStrategy
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Entity, Filter, PersonDistinctId, SessionRecording, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -21,6 +22,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import ActorsQuery
 
 
 class EventInfoForRecording(TypedDict):
@@ -292,8 +294,8 @@ def get_people(
 # A faster get_people if you don't need the Person objects
 def get_serialized_people(
     team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None
-) -> tuple[QuerySet[Person], list[SerializedPerson]]:
-    persons_dict = PersonStrategy(team, None, None).get_actors(people_ids)
+) -> list[SerializedPerson]:
+    persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(people_ids)
     from posthog.api.person import get_person_name2
 
     return [
