@@ -24,26 +24,28 @@ import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLog
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
+const Caption = (): JSX.Element => (
+    <>
+        Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
+        <br />
+        You can find your account ID{' '}
+        <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
+            in your Stripe dashboard
+        </Link>
+        , and create a secret key{' '}
+        <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
+            here
+        </Link>
+        .
+    </>
+)
+
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
-        caption: (
-            <>
-                Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
-                <br />
-                You can find your account ID{' '}
-                <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
-                    in your Stripe dashboard
-                </Link>
-                , and create a secret key{' '}
-                <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
-                    here
-                </Link>
-                .
-            </>
-        ),
+        caption: <Caption />,
         fields: [
             {
                 name: 'account_id',
