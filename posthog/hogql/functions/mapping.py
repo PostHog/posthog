@@ -742,6 +742,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "JSONLength": HogQLFunctionMeta("JSONLength", 1, None),
     "JSONArrayLength": HogQLFunctionMeta("JSONArrayLength", 1, None),
     "JSONType": HogQLFunctionMeta("JSONType", 1, None),
+    "JSONExtract": HogQLFunctionMeta("JSONExtract", 2, None),
     "JSONExtractUInt": HogQLFunctionMeta("JSONExtractUInt", 1, None),
     "JSONExtractInt": HogQLFunctionMeta("JSONExtractInt", 1, None),
     "JSONExtractFloat": HogQLFunctionMeta("JSONExtractFloat", 1, None),
