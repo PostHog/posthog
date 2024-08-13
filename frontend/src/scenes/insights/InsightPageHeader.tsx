@@ -210,18 +210,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 data-attr="edit-insight-sql"
                                                 onClick={() => {
                                                     router.actions.push(
-                                                        urls.insightNew(
-                                                            undefined,
-                                                            undefined,
-                                                            JSON.stringify({
-                                                                kind: NodeKind.DataTableNode,
-                                                                source: {
-                                                                    kind: NodeKind.HogQLQuery,
-                                                                    query: hogQL,
-                                                                },
-                                                                full: true,
-                                                            } as DataTableNode)
-                                                        )
+                                                        urls.insightNew(undefined, undefined, {
+                                                            kind: NodeKind.DataTableNode,
+                                                            source: {
+                                                                kind: NodeKind.HogQLQuery,
+                                                                query: hogQL,
+                                                            },
+                                                            full: true,
+                                                        } as DataTableNode)
                                                     )
                                                 }}
                                                 fullWidth

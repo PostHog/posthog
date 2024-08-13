@@ -8,3 +8,11 @@ xxxx  hello  world
 ['hello']
 ['hello', 'world']
 ['hello', 'world', 'and', 'more']
+false
+true
+false
+true
+true
+false
+true
+true
