@@ -15,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BATCH_EXPORT_SERVICE_NAMES,
     BatchExportService,
+    HogFunctionTemplateStatus,
     HogFunctionTemplateType,
     PipelineStage,
     PluginType,
@@ -31,7 +32,7 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated'
+    status?: HogFunctionTemplateStatus
 }
 
 export type NewDestinationFilters = {

@@ -14,6 +14,7 @@ import { AvailableFeature, PipelineStage, SidePanelTab } from '~/types'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { PipelineBackend } from '../types'
 import { newDestinationsLogic } from './newDestinationsLogic'
+import { DestinationTag } from './DestinationTag'
 
 export function DestinationOptionsTable(): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
@@ -94,17 +95,7 @@ export function DestinationOptionsTable(): JSX.Element {
                                     title={
                                         <>
                                             {target.name}
-                                            {target.status === 'alpha' ? (
-                                                <LemonTag type="danger">Experimental</LemonTag>
-                                            ) : target.status === 'beta' ? (
-                                                <LemonTag type="completion">Beta</LemonTag>
-                                            ) : target.status === 'stable' ? (
-                                                <LemonTag type="highlight">New</LemonTag> // Once Hog Functions are fully released we can remove the new label
-                                            ) : target.status ? (
-                                                <LemonTag type="highlight">
-                                                    {capitalizeFirstLetter(target.status)}
-                                                </LemonTag>
-                                            ) : undefined}
+                                            {target.status && <DestinationTag status={target.status} />}
                                         </>
                                     }
                                     description={target.description}

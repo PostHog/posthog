@@ -30,6 +30,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { groupsModel } from '~/models/groupsModel'
 import { AvailableFeature, EntityTypes, SidePanelTab } from '~/types'
 
+import { DestinationTag } from '../destinations/DestinationTag'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
@@ -55,6 +56,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         hasAddon,
         sparkline,
         sparklineLoading,
+        template,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -176,8 +178,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         )}
                                     </LemonField>
 
-                                    <div className="flex flex-col py-1 flex-1 justify-start">
+                                    <div className="flex flex-col items-start py-1 flex-1 justify-start">
                                         <span className="font-semibold">{configuration.name}</span>
+                                        {template && <DestinationTag status={template.status} />}
                                     </div>
 
                                     <HogFunctionStatusIndicator />
