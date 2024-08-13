@@ -10,6 +10,7 @@ from asgiref.sync import async_to_sync
 import asyncio
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
+from dlt.common.libs.deltalake import get_delta_tables
 from dlt.sources import DltSource
 from deltalake.exceptions import DeltaError
 from collections import Counter
@@ -174,6 +175,12 @@ class DataImportPipeline:
                     table_schema=self.source.schema.tables,
                     row_count=total_counts.total(),
                 )
+
+        delta_tables = get_delta_tables(pipeline)
+
+        for table in delta_tables.values():
+            table.optimize.compact()
+            table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
         return dict(total_counts)
 
