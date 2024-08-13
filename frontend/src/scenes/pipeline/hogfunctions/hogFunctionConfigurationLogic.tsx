@@ -406,11 +406,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
-                        elements_chain: '',
-                        elements_chain_href: '',
-                        elements_chain_texts: [],
-                        elements_chain_ids: [],
-                        elements_chain_elements: [],
                     },
                     person: {
                         uuid: uuid(),
