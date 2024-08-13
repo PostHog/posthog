@@ -57,61 +57,44 @@ export function convertToParsedClickhouseEvent(event: RawClickHouseEvent): Parse
     }
 }
 
-// Regular expressions equivalent to the ClickHouse queries
-
-// ADD COLUMN IF NOT EXISTS elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"'),
-const hrefRegex = new RE2(/(?:;|")href="(.*?)"/)
-
-// ADD COLUMN IF NOT EXISTS elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
-const textRegex = new RE2(/(?:;|")text="(.*?)"/g)
-
-// ADD COLUMN IF NOT EXISTS elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
-const idRegex = new RE2(/(?:;|")id="(.*?)"/g)
-
-// ADD COLUMN IF NOT EXISTS elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
-const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
-
-export function extractElementsChain(elementsChain: string): {
-    elements_chain_href: string
-    elements_chain_texts: string[]
-    elements_chain_ids: string[]
-    elements_chain_elements: string[]
-} {
-    // Extract the href
+// extract(elements_chain, '(?::|\")href="(.*?)"'),
+const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
+function getElementsChainHref(elementsChain: string): string {
     const hrefMatch = hrefRegex.exec(elementsChain)
-    const elements_chain_href = hrefMatch ? hrefMatch[1] : ''
+    return hrefMatch ? hrefMatch[1] : ''
+}
 
-    // Extract distinct text values
+// arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+const textRegex = new RE2(/(?::|")text="(.*?)"/g)
+function getElementsChainTexts(elementsChain: string): string[] {
     const textMatches = new Set<string>()
     let textMatch
     while ((textMatch = textRegex.exec(elementsChain)) !== null) {
         textMatches.add(textMatch[1])
     }
-    const elements_chain_texts = Array.from(textMatches)
+    return Array.from(textMatches)
+}
 
-    // Extract distinct id values
+// arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
+const idRegex = new RE2(/(?::|")id="(.*?)"/g)
+function getElementsChainIds(elementsChain: string): string[] {
     const idMatches = new Set<string>()
     let idMatch
     while ((idMatch = idRegex.exec(elementsChain)) !== null) {
         idMatches.add(idMatch[1])
     }
-    const elements_chain_ids = Array.from(idMatches)
+    return Array.from(idMatches)
+}
 
-    // Extract distinct elements
+// arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
+function getElementsChainElements(elementsChain: string): string[] {
     const elementMatches = new Set<string>()
     let elementMatch
     while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
         elementMatches.add(elementMatch[1])
     }
-    const elements_chain_elements = Array.from(elementMatches)
-
-    // Return the extracted values
-    return {
-        elements_chain_href,
-        elements_chain_texts,
-        elements_chain_ids,
-        elements_chain_elements,
-    }
+    return Array.from(elementMatches)
 }
 
 // that we can keep to as a contract
@@ -156,8 +139,6 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
-            elements_chain: event.elements_chain,
-            ...extractElementsChain(event.elements_chain ?? ''),
         },
         person,
     }
@@ -174,14 +155,19 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         }
     }
 
+    const elementsChain = globals.event.properties['$elements_chain']
+
     return {
         event: globals.event.name,
-        elements_chain: globals.event.properties['$elements_chain'],
+        elements_chain: elementsChain,
+        elements_chain_href: elementsChain ? getElementsChainHref(elementsChain) : '',
+        elements_chain_texts: elementsChain ? getElementsChainTexts(elementsChain) : [],
+        elements_chain_ids: elementsChain ? getElementsChainIds(elementsChain) : [],
+        elements_chain_elements: elementsChain ? getElementsChainElements(elementsChain) : [],
         timestamp: globals.event.timestamp,
         properties: globals.event.properties,
         person: globals.person ? { properties: globals.person.properties } : undefined,
         ...groups,
-        ...extractElementsChain(globals.event.properties['$elements_chain'] ?? ''),
     }
 }
 
