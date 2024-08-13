@@ -40,7 +40,7 @@ export function ProjectDisplayName(): JSX.Element {
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
             >
-                Rename Project
+                Rename project
             </LemonButton>
         </div>
     )

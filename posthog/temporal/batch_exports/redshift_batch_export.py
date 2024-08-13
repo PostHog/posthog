@@ -150,13 +150,15 @@ class RedshiftClient(PostgreSQLClient):
             for field in merge_key
         )
 
-        delete_query = sql.SQL("""\
+        delete_query = sql.SQL(
+            """\
         DELETE FROM {stage_table}
         USING {final_table} AS final
         WHERE {merge_condition}
         AND {stage_table}.{stage_person_version_key} < final.{final_person_version_key}
         AND {stage_table}.{stage_person_distinct_id_version_key} < final.{final_person_distinct_id_version_key};
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=delete_condition,
@@ -166,12 +168,14 @@ class RedshiftClient(PostgreSQLClient):
             final_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
         )
 
-        merge_query = sql.SQL("""\
+        merge_query = sql.SQL(
+            """\
         MERGE INTO {final_table}
         USING {stage_table} AS stage
         ON {merge_condition}
         REMOVE DUPLICATES
-        """).format(
+        """
+        ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,

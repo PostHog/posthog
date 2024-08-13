@@ -4,14 +4,13 @@ import uuid
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
-from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from rest_framework import status
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
-from rest_framework import status
+from sentry_sdk import capture_exception, set_tag
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -25,6 +24,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -159,3 +159,4 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+        set_tag("client_query_id", query_id)

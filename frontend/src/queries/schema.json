@@ -2803,6 +2803,9 @@
                 },
                 "source": {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                "tableSettings": {
+                    "$ref": "#/definitions/TableSettings"
                 }
             },
             "required": ["kind", "source"],
@@ -3384,7 +3387,10 @@
                     "type": ["string", "null"]
                 },
                 "fingerprint": {
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "first_seen": {
                     "format": "date-time",
@@ -3396,7 +3402,10 @@
                 },
                 "merged_fingerprints": {
                     "items": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -3449,7 +3458,10 @@
                     "type": "boolean"
                 },
                 "fingerprint": {
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -8090,6 +8102,9 @@
         "RetentionFilter": {
             "additionalProperties": false,
             "properties": {
+                "cumulative": {
+                    "type": "boolean"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
@@ -8121,6 +8136,9 @@
             "additionalProperties": false,
             "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
             "properties": {
+                "cumulative": {
+                    "type": "boolean"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
                 },
@@ -8774,6 +8792,18 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TableSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/ChartAxis"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "TaxonomicFilterGroupType": {
