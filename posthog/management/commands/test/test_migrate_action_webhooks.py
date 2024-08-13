@@ -27,6 +27,22 @@ class TestMigrateActionWebhooks(BaseTest):
             post_to_slack=True,
         )
 
+    def test_dry_run(self):
+        migrate_action_webhooks(action_ids=[], team_ids=[], dry_run=True)
+        assert not HogFunction.objects.exists()
+
+    def test_only_specified_team(self):
+        migrate_action_webhooks(action_ids=[], team_ids=[9999])
+        assert not HogFunction.objects.exists()
+        migrate_action_webhooks(action_ids=[], team_ids=[self.team.id])
+        assert HogFunction.objects.exists()
+
+    def test_only_specified_actiojns(self):
+        migrate_action_webhooks(action_ids=[9999], team_ids=[])
+        assert not HogFunction.objects.exists()
+        migrate_action_webhooks(action_ids=[self.action.id], team_ids=[])
+        assert HogFunction.objects.exists()
+
     def test_migrates_base_action_config_correctly(self):
         migrate_action_webhooks(action_ids=[], team_ids=[], dry_run=False)
 
