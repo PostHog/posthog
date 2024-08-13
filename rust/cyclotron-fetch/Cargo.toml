@@ -8,7 +8,6 @@ workspace = true
 
 [dependencies]
 tracing-subscriber = { workspace = true }
-sqlx = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
