@@ -293,7 +293,6 @@ export function LemonInputSelect({
                                 title={option?.label}
                                 onClose={() => _onActionItem(value)}
                                 onClick={allowCustomValues ? () => _onActionItem(value) : undefined}
-                                className="font-medium"
                             >
                                 {option?.labelComponent ?? option?.label}
                             </LemonSnack>
