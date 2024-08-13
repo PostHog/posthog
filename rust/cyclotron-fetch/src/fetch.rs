@@ -7,21 +7,21 @@ use cyclotron_core::{
     worker::Worker,
 };
 use futures::StreamExt;
-use health::HealthHandle;
 use http::StatusCode;
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::OwnedSemaphorePermit;
 use tracing::error;
+
+use crate::context::AppContext;
 
 // TODO - a lot of these should maybe be configurable
 pub const DEAD_LETTER_QUEUE: &str = "fetch-dead-letter";
-pub const ABSOLUTE_MAX_RETRIES: u32 = 10;
 pub const DEFAULT_RETRIES: u32 = 3;
 pub const DEFAULT_ON_FINISH: OnFinish = OnFinish::Return;
-pub const EXP_BACKOFF_BASE: i64 = 4;
-pub const MAX_RESPONSE_SIZE: usize = 1024 * 1024;
+pub const EXP_BACKOFF_BASE_SECONDS: i64 = 4;
+pub const HEARTBEAT_INTERVAL_MS: i64 = 5000;
 
 // Exclusively for errors in the worker - these will
 // never be serialised into the job queue, and indicate
@@ -29,7 +29,7 @@ pub const MAX_RESPONSE_SIZE: usize = 1024 * 1024;
 // is produced, we should let the worker fall over (as in,
 // the outer worker loop should exit).
 #[derive(Error, Debug)]
-pub enum WorkerError {
+pub enum FetchError {
     #[error("timeout fetching jobs")]
     JobFetchTimeout,
     #[error(transparent)]
@@ -38,6 +38,9 @@ pub enum WorkerError {
     // invalid), but this is used in cases where /we/ fail to serialise something /to/ the queue
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
+    // We failed doing some kind of setup, like creating a reqwest client
+    #[error("error during startup: {0}")]
+    StartupError(String),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -72,9 +75,8 @@ pub struct FetchParameters {
     return_queue: Option<String>, // Defaults to the original queue
     header: Option<HashMap<String, String>>,
     body: Option<String>,
-    max_tries: Option<u32>,        // Defaults to 3
-    fetch_timeout_ms: Option<u64>, // Defaults to 1000
-    on_finish: Option<OnFinish>,   // Defaults to Return
+    max_tries: Option<u32>,      // Defaults to 3
+    on_finish: Option<OnFinish>, // Defaults to Return
 }
 
 // What should we do when we get a result, or run out of tries for a given job?
@@ -106,7 +108,7 @@ pub enum FetchResult {
 
 impl FetchResult {
     pub fn is_success(&self) -> bool {
-        matches!(self, FetchResult::Completed { .. })
+        matches!(self, FetchResult::Success { .. })
     }
 }
 
@@ -207,36 +209,25 @@ pub enum FetchFailureKind {
 #[serde(rename_all = "lowercase")]
 pub struct FetchResponse {
     pub status: u16,
+    pub headers: HashMap<String, String>,
     pub body: String,
 }
 
-pub struct FetchWorker {
-    pub id: String,
-    pub worker: Worker,
-    pub client: reqwest::Client,
-    pub job_poll_interval: Duration,
-    pub concurrency_limit: Arc<Semaphore>,
-    pub fetch_timeout: Duration,
-    pub liveness: HealthHandle,
-    pub queue_served: String,
-    pub batch_size: usize,
-}
-
-pub fn report_worker_saturation(worker: &FetchWorker) {
+pub fn report_worker_saturation(context: &AppContext) {
     metrics::gauge!("fetch_worker_available_permits")
-        .set(worker.concurrency_limit.available_permits() as f64);
+        .set(context.concurrency_limit.available_permits() as f64);
 }
 
 // Blocks until at least one job is available. Reports healthy while waiting, and is
 // guaranteed to 1) return at least one job and 2) report healthy at least once.
-pub async fn wait_for_jobs(worker: &FetchWorker, max_jobs: usize) -> Result<Vec<Job>, WorkerError> {
-    let mut interval = tokio::time::interval(worker.job_poll_interval.to_std().unwrap());
+pub async fn wait_for_jobs(context: &AppContext, max_jobs: usize) -> Result<Vec<Job>, FetchError> {
+    let mut interval = tokio::time::interval(context.config.job_poll_interval.to_std().unwrap());
     loop {
-        worker.liveness.report_healthy().await;
+        context.liveness.report_healthy().await;
 
-        let jobs = worker
+        let jobs = context
             .worker
-            .dequeue_jobs(worker.queue_served.as_str(), WaitingOn::Fetch, max_jobs)
+            .dequeue_jobs(&context.config.queue_served, WaitingOn::Fetch, max_jobs)
             .await?;
 
         if !jobs.is_empty() {
@@ -247,21 +238,25 @@ pub async fn wait_for_jobs(worker: &FetchWorker, max_jobs: usize) -> Result<Vec<
     }
 }
 
-pub async fn tick(worker: Arc<FetchWorker>) -> Result<usize, WorkerError> {
-    report_worker_saturation(&worker);
+pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
+    report_worker_saturation(&context);
 
     let max_jobs = min(
-        worker.concurrency_limit.available_permits(),
-        worker.batch_size,
+        context.concurrency_limit.available_permits(),
+        context.config.batch_size,
     );
 
-    let jobs = wait_for_jobs(&worker, max_jobs).await?;
+    let jobs = wait_for_jobs(&context, max_jobs).await?;
 
     let num_jobs = jobs.len();
 
     for job in jobs {
-        let worker = worker.clone();
-        let permit = worker
+        let context = context.clone();
+        // We grab job permits individually, so that as soon as a job is finished, the
+        // permit to run another job is immediately available. This call should
+        // never block, since we only ever dequeue as many jobs as we have permits
+        // available.
+        let permit = context
             .concurrency_limit
             .clone()
             .acquire_owned()
@@ -271,7 +266,7 @@ pub async fn tick(worker: Arc<FetchWorker>) -> Result<usize, WorkerError> {
             // TODO - since worker errors are never an indication of a fetch failure,
             // only of some internal worker issue, we should report unhealthy or fall
             // over or something here.
-            if let Err(e) = run_job(worker.clone(), job, permit).await {
+            if let Err(e) = run_job(context.clone(), job, permit).await {
                 error!("Error running job: {:?}", e);
             }
         });
@@ -280,6 +275,7 @@ pub async fn tick(worker: Arc<FetchWorker>) -> Result<usize, WorkerError> {
     Ok(num_jobs)
 }
 
+// Mostly a thin wrapper to make ser/de a bit easier
 struct FetchJob<'a> {
     _job: &'a Job,
     metadata: FetchMetadata,
@@ -329,16 +325,15 @@ impl<'a> TryFrom<&'a Job> for FetchJob<'a> {
 }
 
 pub async fn run_job(
-    worker: Arc<FetchWorker>,
+    context: Arc<AppContext>,
     job: Job,
     _permit: OwnedSemaphorePermit,
-) -> Result<(), WorkerError> {
+) -> Result<(), FetchError> {
     let parsed: FetchJob = match (&job).try_into() {
         Ok(p) => p,
-        Err(e) => return dead_letter_job(&worker.worker, job, vec![e]).await,
+        Err(e) => return dead_letter_job(&context.worker, job, vec![e]).await,
     };
 
-    let start = Utc::now();
     let method: http::Method = (&parsed.parameters.method).into();
 
     // Parsing errors are always dead letters - it /will/ fail every time, so dump it
@@ -348,7 +343,7 @@ pub async fn run_job(
         Ok(u) => u,
         Err(e) => {
             return dead_letter_job(
-                &worker.worker,
+                &context.worker,
                 job,
                 vec![FetchFailure::new(
                     FetchFailureKind::InvalidParameters,
@@ -363,7 +358,7 @@ pub async fn run_job(
             Ok(h) => h,
             Err(e) => {
                 return dead_letter_job(
-                    &worker.worker,
+                    &context.worker,
                     job,
                     vec![FetchFailure::new(
                         FetchFailureKind::InvalidParameters,
@@ -376,7 +371,7 @@ pub async fn run_job(
 
     let body = reqwest::Body::from(parsed.parameters.body.unwrap_or_default());
 
-    let send_fut = worker
+    let send_fut = context
         .client
         .request(method, url)
         .headers(headers)
@@ -385,25 +380,28 @@ pub async fn run_job(
 
     let mut send_fut = Box::pin(send_fut);
 
+    let start = Utc::now();
     let res = loop {
         tokio::select! {
             res = &mut send_fut => {
                 break res
             }
-            _ = tokio::time::sleep(Duration::milliseconds(500).to_std().unwrap()) => {
-                worker.worker.heartbeat(job.id).await?;
+            _ = tokio::time::sleep(Duration::milliseconds(HEARTBEAT_INTERVAL_MS).to_std().unwrap()) => {
+                context.worker.heartbeat(job.id).await?;
             }
         }
     };
 
-    // We want to ensure at least 1 heartbeat during the initial request
-    worker.worker.heartbeat(job.id).await?;
+    // If we took, say, 25% of the heartbeat interval to send the request, we may as well heartbeat now
+    if Utc::now() - start > Duration::milliseconds(HEARTBEAT_INTERVAL_MS / 4) {
+        context.worker.heartbeat(job.id).await?;
+    }
 
     let res = match res {
         Ok(r) => r,
         Err(e) => {
             return handle_fetch_failure(
-                &worker,
+                &context,
                 &job,
                 &parsed.metadata,
                 parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
@@ -430,14 +428,20 @@ pub async fn run_job(
         .collect();
 
     // We pre-emptively get the response body, because we incldued it in the failure trace, even if we got a failure status
-    let body = first_n_bytes_of_response(&worker.worker, &job, res, MAX_RESPONSE_SIZE).await?;
+    let body = first_n_bytes_of_response(
+        &context.worker,
+        &job,
+        res,
+        context.config.max_response_bytes,
+    )
+    .await?;
     let body = match body {
         Ok(b) => b,
         Err(e) => {
             // Tag the status and headers onto the failure
             let e = e.with_status(status.as_u16()).with_headers(headers);
             return handle_fetch_failure(
-                &worker,
+                &context,
                 &job,
                 &parsed.metadata,
                 parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
@@ -458,7 +462,7 @@ pub async fn run_job(
             .with_body(body)
             .with_headers(headers);
         return handle_fetch_failure(
-            &worker,
+            &context,
             &job,
             &parsed.metadata,
             parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
@@ -470,7 +474,23 @@ pub async fn run_job(
         .await;
     }
 
-    todo!()
+    let result = FetchResult::Success {
+        response: FetchResponse {
+            status: status.as_u16(),
+            headers,
+            body,
+        },
+    };
+
+    complete_job(
+        &context.worker,
+        &job,
+        parsed.parameters.return_worker,
+        parsed.parameters.return_queue,
+        parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
+        result,
+    )
+    .await
 }
 
 // Checks if the retry limit has been reached, and does one of:
@@ -478,7 +498,7 @@ pub async fn run_job(
 // - Complete the job, with the failure trace
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_fetch_failure<F>(
-    worker: &FetchWorker,
+    context: &AppContext,
     job: &Job,
     metadata: &FetchMetadata,
     max_tries: u32,
@@ -486,7 +506,7 @@ pub async fn handle_fetch_failure<F>(
     return_queue: Option<String>,
     on_finish: OnFinish,
     failure: F,
-) -> Result<(), WorkerError>
+) -> Result<(), FetchError>
 where
     F: Into<FetchFailure>,
 {
@@ -498,8 +518,9 @@ where
     // TODO - right now we treat all failures as retryable, but we should probably be more aggressive in
     // culling retries for permanent failures (this is less of a correctness issue and more of an efficiency/
     // politeness one). We might also want to make backoff configurable.
-    if metadata.tries <= min(max_tries, ABSOLUTE_MAX_RETRIES) {
-        let next_available = Utc::now() + Duration::seconds(EXP_BACKOFF_BASE.pow(metadata.tries));
+    if metadata.tries <= min(max_tries, context.config.max_retry_attempts) {
+        let next_available =
+            Utc::now() + Duration::seconds(EXP_BACKOFF_BASE_SECONDS.pow(metadata.tries));
         // We back off for at most an hour (since callers can configure max retries to be very high)
         let next_available = min(next_available, Utc::now() + Duration::hours(1));
         // Add some seconds of jitter
@@ -507,24 +528,24 @@ where
             next_available + Duration::seconds((rand::random::<u64>() % 30) as i64);
 
         // Set us up for a retry - update metadata, reschedule, and put back in the queue we pulled from
-        worker
+        context
             .worker
             .set_metadata(job.id, Some(serde_json::to_string(&metadata)?))?;
-        worker.worker.set_state(job.id, JobState::Available)?;
-        worker.worker.set_queue(job.id, &job.queue_name)?;
-        worker.worker.set_scheduled_at(job.id, next_available)?;
+        context.worker.set_state(job.id, JobState::Available)?;
+        context.worker.set_queue(job.id, &job.queue_name)?;
+        context.worker.set_scheduled_at(job.id, next_available)?;
 
         // We downgrade the priority of jobs that fail, so first attempts at jobs get better QoS
-        worker.worker.set_priority(job.id, job.priority + 1)?;
+        context.worker.set_priority(job.id, job.priority + 1)?;
 
-        worker.worker.flush_job(job.id).await?;
+        context.worker.flush_job(job.id).await?;
     } else {
         // Complete the job, with a Failed result
         let result = FetchResult::Failure {
             trace: metadata.trace.clone(),
         };
         complete_job(
-            &worker.worker,
+            &context.worker,
             job,
             return_worker,
             return_queue,
@@ -546,7 +567,7 @@ pub async fn complete_job(
     return_queue: Option<String>,
     on_finish: OnFinish,
     result: FetchResult,
-) -> Result<(), WorkerError> {
+) -> Result<(), FetchError> {
     // If we fail any serde, we just want to flush to the DLQ and bail
     worker.set_state(job.id, JobState::Available)?;
     worker.set_queue(job.id, DEAD_LETTER_QUEUE)?;
@@ -559,7 +580,7 @@ pub async fn complete_job(
             // Leave behind a hint for debugging
             worker.set_metadata(job.id, Some(format!("Failed to serialise result: {}", e)))?;
             worker.flush_job(job.id).await?;
-            return Err(WorkerError::SerdeError(e));
+            return Err(FetchError::SerdeError(e));
         }
     };
 
@@ -593,7 +614,7 @@ pub async fn dead_letter_job(
     worker: &Worker,
     job: Job,
     errors: Vec<FetchFailure>,
-) -> Result<(), WorkerError> {
+) -> Result<(), FetchError> {
     worker.set_state(job.id, JobState::Available)?;
     worker.set_queue(job.id, DEAD_LETTER_QUEUE)?;
 
@@ -609,7 +630,7 @@ pub async fn dead_letter_job(
                 )),
             )?;
             worker.flush_job(job.id).await?;
-            return Err(WorkerError::SerdeError(e));
+            return Err(FetchError::SerdeError(e));
         }
     };
 
@@ -626,7 +647,7 @@ pub async fn first_n_bytes_of_response(
     job: &Job,
     response: Response,
     n: usize,
-) -> Result<Result<String, FetchFailure>, WorkerError> {
+) -> Result<Result<String, FetchFailure>, FetchError> {
     let mut body = response.bytes_stream();
     // We deserialize into a vec<u8>, and then parse to a string
     let mut buffer = Vec::with_capacity(n);
@@ -650,9 +671,9 @@ pub async fn first_n_bytes_of_response(
                     ));
                 };
             }
-            _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+            _ = tokio::time::sleep(Duration::milliseconds(HEARTBEAT_INTERVAL_MS).to_std().unwrap()) => {}
         }
-        // Heartbeat every time we get a new body chunk, or every 500ms
+        // Heartbeat every time we get a new body chunk, or every HEARTBEAT_INTERVAL_MS
         worker.heartbeat(job.id).await?;
     }
 

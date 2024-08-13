@@ -1,3 +1,5 @@
+use chrono::Duration;
+use cyclotron_core::PoolConfig;
 use envconfig::Envconfig;
 use uuid::Uuid;
 
@@ -11,9 +13,6 @@ pub struct Config {
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/cyclotron")]
     pub database_url: String,
-
-    #[envconfig(default = "30")]
-    pub cleanup_interval_secs: u64,
 
     #[envconfig(default = "10")]
     pub pg_max_connections: u32,
@@ -30,13 +29,66 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub pg_idle_timeout_seconds: u64,
 
-    pub worker_id: Option<String>,
+    pub worker_id: Option<String>,              // Default to a UUID
+    pub job_poll_interval_seconds: Option<u32>, // Defaults to 1
+    pub concurrent_requests_limit: Option<u32>, // Defaults to 1000
+    pub fetch_timeout_seconds: Option<u32>,     // Defaults to 30
+    pub max_retry_attempts: Option<u32>,        // Defaults to 10
+    pub queue_served: Option<String>,           // Default to "default"
+    pub batch_size: Option<usize>,              // Defaults to 1000
+    pub max_response_bytes: Option<usize>,      // Defaults to 1MB
+}
+
+// I do this instead of using envconfig's defaults because
+// envconfig doesn't support defaults provided by functions,
+// which is frustrating when I want to use UUIDs, and if I'm
+// going to break out one field, I might as well break out
+// everything into "AppConfig" and "PoolConfig"
+#[derive(Debug, Clone)]
+pub struct AppConfig {
+    pub host: String,
+    pub port: u16,
+    pub worker_id: String,
+    pub job_poll_interval: Duration,
+    pub concurrent_requests_limit: u32,
+    pub fetch_timeout: Duration,
+    pub max_retry_attempts: u32,
+    pub queue_served: String,
+    pub batch_size: usize,
+    pub max_response_bytes: usize,
 }
 
 impl Config {
-    pub fn get_id(&self) -> String {
-        self.worker_id
-            .clone()
-            .unwrap_or_else(|| Uuid::now_v7().to_string())
+    pub fn to_components(self) -> (AppConfig, PoolConfig) {
+        let worker_id = self.worker_id.unwrap_or_else(|| Uuid::now_v7().to_string());
+        let job_poll_interval_seconds = self.job_poll_interval_seconds.unwrap_or(1);
+        let concurrent_requests_limit = self.concurrent_requests_limit.unwrap_or(1000);
+        let fetch_timeout_seconds = self.fetch_timeout_seconds.unwrap_or(30);
+        let max_retry_attempts = self.max_retry_attempts.unwrap_or(10);
+        let queue_served = self.queue_served.unwrap_or_else(|| "default".to_string());
+
+        let app_config = AppConfig {
+            host: self.host,
+            port: self.port,
+            worker_id,
+            job_poll_interval: Duration::seconds(job_poll_interval_seconds as i64),
+            concurrent_requests_limit,
+            fetch_timeout: Duration::seconds(fetch_timeout_seconds as i64),
+            max_retry_attempts,
+            queue_served,
+            batch_size: self.batch_size.unwrap_or(1000),
+            max_response_bytes: self.max_response_bytes.unwrap_or(1024 * 1024),
+        };
+
+        let pool_config = PoolConfig {
+            db_url: self.database_url,
+            max_connections: Some(self.pg_max_connections),
+            min_connections: Some(self.pg_min_connections),
+            acquire_timeout_seconds: Some(self.pg_acquire_timeout_seconds),
+            max_lifetime_seconds: Some(self.pg_max_lifetime_seconds),
+            idle_timeout_seconds: Some(self.pg_idle_timeout_seconds),
+        };
+
+        (app_config, pool_config)
     }
 }

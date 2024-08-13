@@ -1,9 +1,13 @@
 use axum::{extract::State, routing::get, Router};
 use common_metrics::setup_metrics_routes;
-use cyclotron_fetch::{config::Config, fetch::FetchError};
+use cyclotron_fetch::{
+    config::Config,
+    context::AppContext,
+    fetch::{tick, FetchError},
+};
 use envconfig::Envconfig;
-use health::{HealthHandle, HealthRegistry};
-use std::{future::ready, time::Duration};
+use health::HealthRegistry;
+use std::{future::ready, sync::Arc};
 use tracing::{error, info};
 
 async fn listen(app: Router, bind: String) -> Result<(), std::io::Error> {
@@ -30,8 +34,17 @@ async fn index(State(worker_id): State<WorkerId>) -> String {
     format!("cyclotron janitor {}", worker_id.0)
 }
 
-async fn worker_loop(worker_liveness: HealthHandle) -> Result<(), FetchError> {
-    todo!()
+async fn worker_loop(context: AppContext) -> Result<(), FetchError> {
+    let context = Arc::new(context);
+    loop {
+        let started = tick(context.clone()).await?;
+        info!("started {} jobs", started);
+        // TODO - tick only returns when we have definitely started some jobs,
+        // because our dequeue loops. Once we've kicked off some work - any work -
+        // we sleep.. I think there's probably something smarter that can be done here,
+        // but I don't know what
+        tokio::time::sleep(context.config.job_poll_interval.to_std().unwrap()).await;
+    }
 }
 
 #[tokio::main]
@@ -41,25 +54,30 @@ async fn main() {
 
     let liveness = HealthRegistry::new("liveness");
 
-    let worker_id = config.get_id();
-    let bind = format!("{}:{}", config.host, config.port);
+    let (app_config, pool_config) = config.to_components();
+    let bind = format!("{}:{}", app_config.host, app_config.port);
 
     info!(
         "Fetch worker starting with ID {:?}, listening at {}",
-        worker_id, bind
+        app_config.worker_id, bind
     );
 
     let worker_liveness = liveness
         .register(
             "worker".to_string(),
-            Duration::from_secs(config.cleanup_interval_secs * 4),
+            (app_config.job_poll_interval * 4).to_std().unwrap(),
         )
         .await;
 
-    let app = setup_metrics_routes(app(liveness, worker_id));
+    let app = setup_metrics_routes(app(liveness, app_config.worker_id.clone()));
+
+    let context = AppContext::create(app_config, pool_config, worker_liveness)
+        .await
+        .expect("failed to create app context");
 
     let http_server = tokio::spawn(listen(app, bind));
-    let worker_loop = tokio::spawn(worker_loop(worker_liveness));
+
+    let worker_loop = tokio::spawn(worker_loop(context));
 
     tokio::select! {
         res = worker_loop => {
