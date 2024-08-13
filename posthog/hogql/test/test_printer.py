@@ -438,6 +438,8 @@ class TestPrinter(BaseTest):
                         return result
 
         for cases_evaluated, case in enumerate(cases, 1):  # noqa: B007 - `cases_evaluated` used below
+            # XXX: Error messages within this block are not very descriptive, it would be better to use something like
+            # pytest parameterization if possible, but not sure how that will play with the other test lifecycle stuff?
             context = HogQLContext(
                 team_id=self.team.pk,
                 modifiers=HogQLQueryModifiers(
