@@ -370,51 +370,60 @@ class TestPrinter(BaseTest):
         # common case: comparing against a (non-empty) string value doesn't require checking if the key exists or not,
         # which lets us use the bloom filter index on both keys and values for the property group
         # TODO: consider using the EXPLAIN output to ensure these expressions actually use the expected indices?
-        # TODO: also test with the operands swapped? and additional operators (in, not in are tricky)
         self.assertEqual(
-            self._expr("properties.x = 'x'", context),
+            self._expr("properties.key = 'value'", context),
             "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
         )
+        self.assertDictContainsSubset({"hogql_val_0": "key", "hogql_val_1": "value"}, context.values)
+
+        self.assertEqual(
+            self._expr("'value' = properties.key", context),
+            "equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s)",
+        )
+        self.assertDictContainsSubset({"hogql_val_2": "key", "hogql_val_3": "value"}, context.values)
 
         # special case: keys that don't exist in a map return default values for the type, so we need to check whether
         # or not the key exists in the map (to utilize the bloom filter index on keys) as well as perform the comparison
         self.assertEqual(
-            self._expr("properties.x = ''", context),
-            "and(has(events.properties_group_custom, %(hogql_val_2)s), equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s))",
+            self._expr("properties.key = ''", context),
+            "and(has(events.properties_group_custom, %(hogql_val_4)s), equals(events.properties_group_custom[%(hogql_val_4)s], %(hogql_val_5)s))",
         )
+        self.assertDictContainsSubset({"hogql_val_4": "key", "hogql_val_5": ""}, context.values)
 
         self.assertEqual(
-            self._expr("properties.x is null", context),
-            "has(events.properties_group_custom, %(hogql_val_4)s)",
+            self._expr("properties.key is null", context),
+            "not(has(events.properties_group_custom, %(hogql_val_6)s))",
         )
+        self.assertDictContainsSubset({"hogql_val_6": "key"}, context.values)
 
         self.assertEqual(
-            self._expr("properties.x is not null", context),
-            "not(has(events.properties_group_custom, %(hogql_val_5)s))",
+            self._expr("properties.key is not null", context),
+            "has(events.properties_group_custom, %(hogql_val_7)s)",
         )
+        self.assertDictContainsSubset({"hogql_val_7": "key"}, context.values)
 
-        # TODO: what about chaining? seems like we could still use the keys index here
-
-    def test_property_groups_select_with_field_aliases(self):
-        printed = print_ast(
-            parse_select("""\
-                SELECT properties.file_type AS ft
-                FROM events
-                WHERE ft = 'image/svg'
-            """),
-            HogQLContext(
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO, usePropertyGroups=True),
-            ),
-            dialect="clickhouse",
+    def test_property_groups_select_with_aliases(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO, usePropertyGroups=True),
         )
+        parsed = parse_select("SELECT properties.file_type AS ft FROM events WHERE ft = 'image/svg'")
+        printed = print_ast(parsed, context, dialect="clickhouse")
         assert printed == (
             "SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS ft "
             "FROM events "
-            f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s))"
+            f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) "
             "LIMIT 50000"
         )
+
+        # What about this?
+        # parsed = parse_select("SELECT properties.file_type AS ft, 'image/svg' as ft2 FROM events WHERE ft = ft2")
+        # printed = print_ast(
+        #     parsed,
+        #     context,
+        #     dialect="clickhouse"
+        # )
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
