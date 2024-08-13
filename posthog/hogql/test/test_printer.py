@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+import json
 from typing import Any, Literal, Optional, cast
 from collections.abc import Mapping
 
 import pytest
 from django.test import override_settings
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
@@ -15,14 +17,8 @@ from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import (
-    HogQLQueryModifiers,
-    MaterializationMode,
-    PersonsArgMaxVersion,
-    PersonsOnEventsMode,
-    PropertyGroupsMode,
-)
-from posthog.test.base import BaseTest, cleanup_materialized_columns
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgMaxVersion, PersonsOnEventsMode, PropertyGroupsMode
+from posthog.test.base import BaseTest, _create_event, cleanup_materialized_columns
 
 
 class TestPrinter(BaseTest):
@@ -366,6 +362,7 @@ class TestPrinter(BaseTest):
             input_expression: str
             output_printed_query: str
             output_context_values: Mapping[str, Any]
+            expected_skip_indexes_used: set[str]
 
         cases = [
             # common case: comparing against a (non-empty) string value doesn't require checking if the key exists or
@@ -374,16 +371,19 @@ class TestPrinter(BaseTest):
                 "properties.key = 'value'",
                 "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
             ),
             PropertyGroupTestCase(
                 "'value' = properties.key",
                 "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
             ),
             PropertyGroupTestCase(
                 "equals(properties.key, 'value')",
                 "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
             ),
             # special case: keys that don't exist in a map return default values for the type, so we need to check
             # whether or not the key exists in the map (to utilize the bloom filter index on keys) as well as perform
@@ -392,11 +392,13 @@ class TestPrinter(BaseTest):
                 "properties.key = ''",
                 "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
                 {"hogql_val_0": "key", "hogql_val_1": ""},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
             PropertyGroupTestCase(
                 "equals(properties.key, '')",
                 "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
                 {"hogql_val_0": "key", "hogql_val_1": ""},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
             # special case: not null comparisons should check to see if the key exists within the map, but do not need
             # to actually get the value
@@ -404,18 +406,36 @@ class TestPrinter(BaseTest):
                 "properties.key is not null",
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
                 {"hogql_val_0": "key"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
             PropertyGroupTestCase(
                 "properties.key != null",
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
                 {"hogql_val_0": "key"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
             PropertyGroupTestCase(
                 "isNotNull(properties.key)",
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
                 {"hogql_val_0": "key"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
         ]
+
+        # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise the
+        # query is optimized to read from `NullSource` which doesn't do us much good here...
+        for _ in range(10):
+            _create_event(team=self.team, distinct_id="distinct_id", event="event")
+
+        def find_node(node, condition):
+            """Find the first node in a query plan meeting a given condition (using depth-first search.)"""
+            if condition(node):
+                return node
+            else:
+                for child in node["Plans"]:
+                    result = find_node(child, condition)
+                    if result is not None:
+                        return result
 
         for cases_evaluated, case in enumerate(cases, 1):  # noqa: B007 - `cases_evaluated` used below
             context = HogQLContext(
@@ -425,8 +445,21 @@ class TestPrinter(BaseTest):
                     propertyGroupsMode=PropertyGroupsMode.ENABLED,
                 ),
             )
-            self.assertEqual(self._expr(case.input_expression, context), case.output_printed_query)
+            printed_expr = self._expr(case.input_expression, context)
+            self.assertEqual(printed_expr, case.output_printed_query)
             self.assertDictContainsSubset(case.output_context_values, context.values)
+
+            [[raw_explain_result]] = sync_execute(
+                f"EXPLAIN indexes = 1, json = 1 SELECT count() FROM events WHERE {printed_expr}",
+                context.values,
+            )
+            plan = json.loads(raw_explain_result)[0]["Plan"]
+            read_from_merge_tree = find_node(plan, condition=lambda node: node["Node Type"] == "ReadFromMergeTree")
+            self.assertTrue(
+                case.expected_skip_indexes_used.issubset(
+                    {index["Name"] for index in read_from_merge_tree.get("Indexes", []) if index["Type"] == "Skip"}
+                ),
+            )
 
         self.assertEqual(cases_evaluated, len(cases))
 
