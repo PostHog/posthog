@@ -25,8 +25,9 @@ from .helpers import (
     get_primary_key,
     SqlDatabaseTableConfiguration,
 )
+from dlt.common.data_types.typing import TDataType
 
-POSTGRES_TO_DLT_TYPES = {
+POSTGRES_TO_DLT_TYPES: dict[str, TDataType] = {
     # Text types
     "char": "text",
     "character": "text",

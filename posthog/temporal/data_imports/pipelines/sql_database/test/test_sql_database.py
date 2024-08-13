@@ -24,22 +24,22 @@ def test_get_column_hints_numeric_no_results():
 
 
 def test_get_column_hints_numeric_with_scale_and_precision():
-    mock_engine = _setup([("column", "numeric", 10, 2)])
+    mock_engine = _setup([("column", "numeric", 10, 2, "NO")])
 
     assert get_column_hints(mock_engine, "some_schema", "some_table") == {
-        "column": {"data_type": "decimal", "precision": 10, "scale": 2}
+        "column": {"data_type": "decimal", "precision": 10, "scale": 2, "nullable": False}
     }
 
 
 def test_get_column_hints_numeric_with_missing_scale_and_precision():
-    mock_engine = _setup([("column", "numeric", None, None)])
+    mock_engine = _setup([("column", "numeric", None, None, "NO")])
 
     assert get_column_hints(mock_engine, "some_schema", "some_table") == {
-        "column": {"data_type": "decimal", "precision": 76, "scale": 32}
+        "column": {"data_type": "decimal", "precision": 76, "scale": 32, "nullable": False}
     }
 
 
 def test_get_column_hints_numeric_with_no_numeric():
-    mock_engine = _setup([("column", "bigint", None, None)])
+    mock_engine = _setup([("column", "bigint", None, None, "NO")])
 
     assert get_column_hints(mock_engine, "some_schema", "some_table") == {}
