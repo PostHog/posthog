@@ -155,6 +155,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
+                {hogFunction?.filters?.bytecode_error ? (
+                    <div>
+                        <LemonBanner type="error">
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                        </LemonBanner>
+                    </div>
+                ) : null}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
