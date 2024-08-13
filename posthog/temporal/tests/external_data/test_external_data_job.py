@@ -914,6 +914,101 @@ async def test_run_postgres_job(
         job_1_team_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/"
         )
+
+        assert len(job_1_team_objects["Contents"]) == 3
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_run_postgres_job_empty_table(
+    activity_environment, team, minio_client, postgres_connection, postgres_config, **kwargs
+):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.posthog_test (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    async def setup_job_1():
+        new_source = await sync_to_async(ExternalDataSource.objects.create)(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
+            team=team,
+            status="running",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": False,
+            },
+        )
+
+        posthog_test_schema = await _create_schema("posthog_test", new_source, team)
+
+        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
+            team_id=team.id,
+            pipeline_id=new_source.pk,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+            schema=posthog_test_schema,
+        )
+
+        new_job = await sync_to_async(
+            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get
+        )()
+
+        inputs = ImportDataActivityInputs(
+            team_id=team.id, run_id=str(new_job.pk), source_id=new_source.pk, schema_id=posthog_test_schema.id
+        )
+
+        return new_job, inputs
+
+    job_1, job_1_inputs = await setup_job_1()
+
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            BUCKET_NAME=BUCKET_NAME,
+        ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    ):
+        await asyncio.gather(
+            activity_environment.run(import_data_activity, job_1_inputs),
+        )
+
+        folder_path = await sync_to_async(job_1.folder_path)()
+        job_1_team_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/"
+        )
         assert len(job_1_team_objects["Contents"]) == 3
 
 
