@@ -328,7 +328,8 @@ abstract class CdpConsumerBase {
 
                 // Find all functions that could need running
                 invocationGlobals.forEach((globals) => {
-                    const { matchingFunctions, nonMatchingFunctions } = this.hogExecutor.findMatchingFunctions(globals)
+                    const { matchingFunctions, nonMatchingFunctions, logs } =
+                        this.hogExecutor.findMatchingFunctions(globals)
 
                     possibleInvocations.push(
                         ...matchingFunctions.map((hogFunction) => ({
@@ -346,6 +347,14 @@ abstract class CdpConsumerBase {
                             count: 1,
                         })
                     )
+
+                    logs.forEach((log) => {
+                        this.messagesToProduce.push({
+                            topic: KAFKA_LOG_ENTRIES,
+                            value: log,
+                            key: log.instance_id,
+                        })
+                    })
                 })
 
                 const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))

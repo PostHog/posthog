@@ -2,8 +2,9 @@ import { calculateCost, convertHogToJS, convertJSToHog, exec, ExecResult } from 
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
+import { TimestampFormat } from '../types'
 import { status } from '../utils/status'
-import { UUIDT } from '../utils/utils'
+import { castTimestampOrNow, UUIDT } from '../utils/utils'
 import { HogFunctionManager } from './hog-function-manager'
 import {
     HogFunctionInvocation,
@@ -11,6 +12,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
+    HogFunctionLogEntrySerialized,
     HogFunctionType,
 } from './types'
 import { convertToHogFunctionFilterGlobal } from './utils'
@@ -76,12 +78,14 @@ export class HogExecutor {
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
         nonMatchingFunctions: HogFunctionType[]
+        logs: HogFunctionLogEntrySerialized[]
     } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []
         const matchingFunctions: HogFunctionType[] = []
+        const logs: HogFunctionLogEntrySerialized[] = []
 
         // Filter all functions based on the invocation
         allFunctionsForTeam.forEach((hogFunction) => {
@@ -99,11 +103,14 @@ export class HogExecutor {
                     }
                 }
             } catch (error) {
-                // TODO: This should be reported as a log or metric
-                status.error('🦔', `[HogExecutor] Error filtering function`, {
-                    hogFunctionId: hogFunction.id,
-                    hogFunctionName: hogFunction.name,
-                    error: error.message,
+                logs.push({
+                    team_id: hogFunction.team_id,
+                    log_source: 'hog_function',
+                    log_source_id: hogFunction.id,
+                    instance_id: new UUIDT().toString(),
+                    level: 'error',
+                    timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                    message: `[HogExecutor] Error filtering event for ${hogFunction.name}: ${error.message}`,
                 })
             }
 
@@ -120,6 +127,7 @@ export class HogExecutor {
         return {
             nonMatchingFunctions,
             matchingFunctions,
+            logs,
         }
     }
 
