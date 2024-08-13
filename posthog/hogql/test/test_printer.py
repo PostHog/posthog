@@ -775,10 +775,10 @@ class TestPrinter(BaseTest):
                 f"AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY "
                 f"person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), "
                 f"0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person "
-                f"WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id "
+                f"WHERE and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id "
                 f"AS id, max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -797,10 +797,10 @@ class TestPrinter(BaseTest):
                 f"WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING "
                 f"ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi "
                 f"ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE "
-                f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
+                f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                f"plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -817,10 +817,10 @@ class TestPrinter(BaseTest):
             self.assertEqual(
                 expected,
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
-                f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
+                f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -836,10 +836,10 @@ class TestPrinter(BaseTest):
             self.assertEqual(
                 expected,
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
-                f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id AS id, "
+                f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -1045,12 +1045,12 @@ class TestPrinter(BaseTest):
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
             f"ifNull(equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
             f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
-            # now() = now() (also two nullable fields)
-            f"ifNull(equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNull(now64(6, %(hogql_val_2)s)) and isNull(now64(6, %(hogql_val_3)s))), "
+            # now() = now()
+            f"equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), "
             # 1 = now()
-            f"ifNull(equals(1, now64(6, %(hogql_val_4)s)), 0), "
+            f"equals(1, now64(6, %(hogql_val_4)s)), "
             # now() = 1
-            f"ifNull(equals(now64(6, %(hogql_val_5)s), 1), 0), "
+            f"equals(now64(6, %(hogql_val_5)s), 1), "
             # 1 = 1
             f"1, "
             # click_count = 1
@@ -1085,12 +1085,12 @@ class TestPrinter(BaseTest):
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
             f"ifNull(notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
             f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
-            # now() = now() (also two nullable fields)
-            f"ifNull(notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNotNull(now64(6, %(hogql_val_2)s)) or isNotNull(now64(6, %(hogql_val_3)s))), "
+            # now() = now()
+            f"notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), "
             # 1 = now()
-            f"ifNull(notEquals(1, now64(6, %(hogql_val_4)s)), 1), "
+            f"notEquals(1, now64(6, %(hogql_val_4)s)), "
             # now() = 1
-            f"ifNull(notEquals(now64(6, %(hogql_val_5)s), 1), 1), "
+            f"notEquals(now64(6, %(hogql_val_5)s), 1), "
             # 1 = 1
             f"0, "
             # click_count = 1
@@ -1129,8 +1129,8 @@ class TestPrinter(BaseTest):
         )
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s, NULL), 1), 0), "
-            "ifNull(equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 0), 0), "
+            "equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s, NULL), 1), "
+            "equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 0), "
             "isNull(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_4)s, %(hogql_val_5)s, NULL)) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
@@ -1620,10 +1620,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
     def test_dont_inline_persons(self):
         query = parse_select(
@@ -1650,10 +1647,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
     def test_two_joins(self):
         query = parse_select(
@@ -1669,14 +1663,8 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
 
     def test_two_clauses(self):
         query = parse_select(
@@ -1693,10 +1681,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(7, 8, 9)), 0), ifNull(in(id, tuple(1, 2, 3)), 0))"
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(7, 8, 9)), in(id, tuple(1, 2, 3)))"
             in printed
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
