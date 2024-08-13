@@ -1,7 +1,6 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'kea-forms'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -13,8 +12,8 @@ import { AvailableFeature, PipelineStage, SidePanelTab } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { PipelineBackend } from '../types'
-import { newDestinationsLogic } from './newDestinationsLogic'
 import { DestinationTag } from './DestinationTag'
+import { newDestinationsLogic } from './newDestinationsLogic'
 
 export function DestinationOptionsTable(): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
