@@ -152,42 +152,6 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
     return resources[name]
 
 
-class SalesforceIncrementalPaginator(BasePaginator):
-    def __init__(self, subdomain, schema):
-        super().__init__()
-        self.subdomain = subdomain
-        self.schema = schema
-
-    def update_state(self, response: Response) -> None:
-        res = response.json()
-
-        self._next_start_time = None
-        self._next_page = None
-
-        if not res:
-            self._has_next_page = False
-            return
-
-        if not res["done"]:
-            self._has_next_page = True
-            self._next_page = res["nextRecordsUrl"]
-
-            last_value_in_response = res["records"][-1]["SystemModstamp"]
-            self._next_start_time = last_value_in_response
-        else:
-            self._has_next_page = False
-
-    def update_request(self, request: Request) -> None:
-        if request.params is None:
-            request.params = {}
-
-        request.params["q"] = (
-            f"SELECT FIELDS(STANDARD) FROM {self.schema} WHERE SystemModstamp > {self._next_start_time}"
-        )
-
-        request.url = f"https://{self.subdomain}.my.salesforce.com{self._next_page}"
-
-
 class SalesforceEndpointPaginator(BasePaginator):
     def __init__(self, subdomain):
         super().__init__()
