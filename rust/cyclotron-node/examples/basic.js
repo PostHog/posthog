@@ -64,7 +64,7 @@ async function main() {
     // Jobs (as well as any other 'complex' data shape) are serialized across the API boundary,
     // because that's (according to the neon maintainers) /actually faster/ than doing a bunch
     // of cross-runtime pointer chasing.
-    let jobs = JSON.parse(await cyclotron.dequeue_jobs(queue_name, AVAILABLE_WORKERS.FETCH, 2))
+    let jobs = JSON.parse(await cyclotron.dequeue_jobs(queue_name, 2))
     assert(jobs.length === 2)
     assert(jobs[0].function_id === job_1.function_id)
     assert(jobs[1].function_id === job_2.function_id)
@@ -105,7 +105,7 @@ async function main() {
     await cyclotron.flush_job(job_1.id)
     await cyclotron.flush_job(job_2.id)
 
-    jobs = JSON.parse(await cyclotron.dequeue_with_vm_state('non-default', AVAILABLE_WORKERS.HOG, 2))
+    jobs = JSON.parse(await cyclotron.dequeue_with_vm_state('non-default', 2))
 
     assert(jobs[0].id == job_2.id)
     assert(jobs[1].id == job_1.id)
