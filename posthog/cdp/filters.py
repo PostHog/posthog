@@ -77,6 +77,8 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
     filters = filters or {}
     try:
         filters["bytecode"] = create_bytecode(compile_filters_expr(filters, team, actions))
+        if "bytecode_error" in filters:
+            del filters["bytecode_error"]
     except Exception as e:
         # TODO: Better reporting of this issue
         filters["bytecode"] = None
