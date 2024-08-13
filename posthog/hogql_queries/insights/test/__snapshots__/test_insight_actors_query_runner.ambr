@@ -35,19 +35,19 @@
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
                     FROM
                       (SELECT toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
-                              e__pdi.person_id AS aggregation_target,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                               if(equals(e.event, '$pageview'), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                               if(equals(e.event, '$pageview'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                        FROM events AS e
-                       INNER JOIN
-                         (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                                 person_distinct_id2.distinct_id AS distinct_id
-                          FROM person_distinct_id2
-                          WHERE equals(person_distinct_id2.team_id, 2)
-                          GROUP BY person_distinct_id2.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 2)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-19 23:59:59.999999', 6, 'US/Pacific'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
@@ -84,7 +84,7 @@
      FROM
        (SELECT DISTINCT actor_id AS actor_id
         FROM
-          (SELECT min(events__pdi__person.created_at) AS created_at,
+          (SELECT min(events__person.created_at) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity,
@@ -99,23 +99,22 @@
                   arrayJoin(temp_concat) AS period_status_pairs,
                   period_status_pairs.1 AS start_of_period,
                   period_status_pairs.2 AS status,
-                  events__pdi.person_id AS actor_id
+                  if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id
            FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
              (SELECT argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version) AS created_at,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
-              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
            GROUP BY actor_id)
         WHERE and(ifNull(equals(start_of_period, toStartOfDay(parseDateTime64BestEffortOrNull('2020-01-12', 6, 'US/Pacific'))), isNull(start_of_period)
@@ -132,23 +131,23 @@
                                                                                               FROM
                                                                                                 (SELECT DISTINCT actor_id AS actor_id
                                                                                                  FROM
-                                                                                                   (SELECT min(events__pdi__person.created_at) AS created_at, arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity, arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity, arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity, arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        and isNull(current)), 'new', if(and(ifNull(equals(minus(current, toIntervalDay(1)), previous), isNull(minus(current, toIntervalDay(1)))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status, arrayMap((current, next) -> if(ifNull(equals(plus(current, toIntervalDay(1)), next), isNull(plus(current, toIntervalDay(1)))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  and isNull(next)), '', 'dormant'), all_activity, following_activity) AS dormant_status, arrayMap(x -> plus(x, toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods, arrayMap(x -> 'dormant', dormant_periods) AS dormant_label, arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat, arrayJoin(temp_concat) AS period_status_pairs, period_status_pairs.1 AS start_of_period, period_status_pairs.2 AS status, events__pdi.person_id AS actor_id
+                                                                                                   (SELECT min(events__person.created_at) AS created_at, arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity, arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity, arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity, arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   and isNull(current)), 'new', if(and(ifNull(equals(minus(current, toIntervalDay(1)), previous), isNull(minus(current, toIntervalDay(1)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status, arrayMap((current, next) -> if(ifNull(equals(plus(current, toIntervalDay(1)), next), isNull(plus(current, toIntervalDay(1)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             and isNull(next)), '', 'dormant'), all_activity, following_activity) AS dormant_status, arrayMap(x -> plus(x, toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods, arrayMap(x -> 'dormant', dormant_periods) AS dormant_label, arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat, arrayJoin(temp_concat) AS period_status_pairs, period_status_pairs.1 AS start_of_period, period_status_pairs.2 AS status, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id
                                                                                                     FROM events
-                                                                                                    INNER JOIN
-                                                                                                      (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
-                                                                                                       FROM person_distinct_id2
-                                                                                                       WHERE equals(person_distinct_id2.team_id, 2)
-                                                                                                       GROUP BY person_distinct_id2.distinct_id
-                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                                                                                                    LEFT OUTER JOIN
+                                                                                                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                       FROM person_distinct_id_overrides
+                                                                                                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                                                                                                       GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                     LEFT JOIN
                                                                                                       (SELECT argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version) AS created_at, person.id AS id
                                                                                                        FROM person
                                                                                                        WHERE equals(person.team_id, 2)
                                                                                                        GROUP BY person.id
-                                                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+                                                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                                                                                                     WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
                                                                                                     GROUP BY actor_id)
                                                                                                  WHERE and(ifNull(equals(start_of_period, toStartOfDay(parseDateTime64BestEffortOrNull('2020-01-12', 6, 'US/Pacific'))), isNull(start_of_period)
@@ -205,16 +204,16 @@
      FROM
        (SELECT aggregation_target AS actor_id
         FROM
-          (SELECT e__pdi.person_id AS aggregation_target,
+          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                   count(DISTINCT toStartOfDay(toTimeZone(e.timestamp, 'US/Pacific'))) AS num_intervals
            FROM events AS e SAMPLE 1
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 00:00:00', 6, 'US/Pacific')))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), equals(e.event, '$pageview'))
            GROUP BY aggregation_target)
         WHERE ifNull(equals(num_intervals, 2), 0)) AS source
@@ -230,14 +229,14 @@
                                                                                               FROM
                                                                                                 (SELECT aggregation_target AS actor_id
                                                                                                  FROM
-                                                                                                   (SELECT e__pdi.person_id AS aggregation_target, count(DISTINCT toStartOfDay(toTimeZone(e.timestamp, 'US/Pacific'))) AS num_intervals
+                                                                                                   (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, count(DISTINCT toStartOfDay(toTimeZone(e.timestamp, 'US/Pacific'))) AS num_intervals
                                                                                                     FROM events AS e SAMPLE 1
-                                                                                                    INNER JOIN
-                                                                                                      (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
-                                                                                                       FROM person_distinct_id2
-                                                                                                       WHERE equals(person_distinct_id2.team_id, 2)
-                                                                                                       GROUP BY person_distinct_id2.distinct_id
-                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                                                    LEFT OUTER JOIN
+                                                                                                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                       FROM person_distinct_id_overrides
+                                                                                                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                                                                                                       GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                                                                     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 00:00:00', 6, 'US/Pacific')))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), equals(e.event, '$pageview'))
                                                                                                     GROUP BY aggregation_target)
                                                                                                  WHERE ifNull(equals(num_intervals, 2), 0)) AS source)))
@@ -295,26 +294,25 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count
         FROM
-          (SELECT e__pdi.person_id AS actor_id,
+          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
                   e.uuid AS uuid
            FROM events AS e
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
-              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-           WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__pdi__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+           WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
@@ -325,21 +323,21 @@
                                                    FROM
                                                      (SELECT actor_id AS actor_id, count() AS event_count
                                                       FROM
-                                                        (SELECT e__pdi.person_id AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid
+                                                        (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid
                                                          FROM events AS e
-                                                         INNER JOIN
-                                                           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
-                                                            FROM person_distinct_id2
-                                                            WHERE equals(person_distinct_id2.team_id, 2)
-                                                            GROUP BY person_distinct_id2.distinct_id
-                                                            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                         LEFT OUTER JOIN
+                                                           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                            FROM person_distinct_id_overrides
+                                                            WHERE equals(person_distinct_id_overrides.team_id, 2)
+                                                            GROUP BY person_distinct_id_overrides.distinct_id
+                                                            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                          LEFT JOIN
                                                            (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, person.id AS id
                                                             FROM person
                                                             WHERE equals(person.team_id, 2)
                                                             GROUP BY person.id
-                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-                                                         WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__pdi__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
+                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                         WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
                                                       GROUP BY actor_id) AS source)))
         GROUP BY person.id
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -362,18 +360,17 @@
        (SELECT actor_id AS actor_id,
                count() AS event_count
         FROM
-          (SELECT e__pdi.person_id AS actor_id,
+          (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
                   e.uuid AS uuid
            FROM events AS e
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -383,8 +380,8 @@
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
-                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-           WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__pdi__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+           WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT person.id AS id,
@@ -398,14 +395,14 @@
                                                                                               FROM
                                                                                                 (SELECT actor_id AS actor_id, count() AS event_count
                                                                                                  FROM
-                                                                                                   (SELECT e__pdi.person_id AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid
+                                                                                                   (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid
                                                                                                     FROM events AS e
-                                                                                                    INNER JOIN
-                                                                                                      (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, person_distinct_id2.distinct_id AS distinct_id
-                                                                                                       FROM person_distinct_id2
-                                                                                                       WHERE equals(person_distinct_id2.team_id, 2)
-                                                                                                       GROUP BY person_distinct_id2.distinct_id
-                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                                                                                                    LEFT OUTER JOIN
+                                                                                                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                       FROM person_distinct_id_overrides
+                                                                                                       WHERE equals(person_distinct_id_overrides.team_id, 2)
+                                                                                                       GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                                                                     LEFT JOIN
                                                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
                                                                                                        FROM person
@@ -414,8 +411,8 @@
                                                                                                                                                          FROM person
                                                                                                                                                          WHERE equals(person.team_id, 2)
                                                                                                                                                          GROUP BY person.id
-                                                                                                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-                                                                                                    WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__pdi__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
+                                                                                                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                                                                                                    WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
                                                                                                  GROUP BY actor_id) AS source)))
                                                    GROUP BY person.id
                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
