@@ -67,7 +67,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 results: ['Recordings filtered by date'],
                             },
                         ]
-                    } else if (JSON.parse(searchParams.get('session_recording_duration') ?? '{}')['value'] === 600) {
+                    } else if (
+                        (searchParams.get('having_predicates')?.length || 0) > 0 &&
+                        JSON.parse(searchParams.get('having_predicates') || '[]')[0]['value'] === 600
+                    ) {
                         return [
                             200,
                             {
