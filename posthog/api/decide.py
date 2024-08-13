@@ -245,7 +245,7 @@ def get_decide(request: HttpRequest):
             ):
                 response["elementsChainAsString"] = True
 
-            response["sessionRecording"] = _session_recording_config_response(request, team)
+            response["sessionRecording"] = _session_recording_config_response(request, team, token)
 
             response["surveys"] = True if team.surveys_opt_in else False
             response["heatmaps"] = True if team.heatmaps_opt_in else False
@@ -291,13 +291,23 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
+def _session_recording_config_response(request: HttpRequest, team: Team, token: str) -> bool | dict:
     session_recording_config_response: bool | dict = False
 
     try:
         if team.session_recording_opt_in and (
             on_permitted_recording_domain(team, request) or not team.recording_domains
         ):
+            if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
+                from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+                limited_tokens_recordings = list_limited_team_attributes(
+                    QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+
+                if token in limited_tokens_recordings:
+                    return False
+
             capture_console_logs = True if team.capture_console_log_opt_in else False
             sample_rate = team.session_recording_sample_rate or None
             if sample_rate == "1.00":
