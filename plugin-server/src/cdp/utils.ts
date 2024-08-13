@@ -1,6 +1,7 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { DateTime } from 'luxon'
+import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
@@ -56,6 +57,63 @@ export function convertToParsedClickhouseEvent(event: RawClickHouseEvent): Parse
     }
 }
 
+// Regular expressions equivalent to the ClickHouse queries
+
+// ADD COLUMN IF NOT EXISTS elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"'),
+const hrefRegex = new RE2(/(?:;|")href="(.*?)"/)
+
+// ADD COLUMN IF NOT EXISTS elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+const textRegex = new RE2(/(?:;|")text="(.*?)"/g)
+
+// ADD COLUMN IF NOT EXISTS elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")id="(.*?)"')),
+const idRegex = new RE2(/(?:;|")id="(.*?)"/g)
+
+// ADD COLUMN IF NOT EXISTS elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
+
+export function extractElementsChain(elementsChain: string): {
+    elements_chain_href: string
+    elements_chain_texts: string[]
+    elements_chain_ids: string[]
+    elements_chain_elements: string[]
+} {
+    // Extract the href
+    const hrefMatch = hrefRegex.exec(elementsChain)
+    const elements_chain_href = hrefMatch ? hrefMatch[1] : ''
+
+    // Extract distinct text values
+    const textMatches = new Set<string>()
+    let textMatch
+    while ((textMatch = textRegex.exec(elementsChain)) !== null) {
+        textMatches.add(textMatch[1])
+    }
+    const elements_chain_texts = Array.from(textMatches)
+
+    // Extract distinct id values
+    const idMatches = new Set<string>()
+    let idMatch
+    while ((idMatch = idRegex.exec(elementsChain)) !== null) {
+        idMatches.add(idMatch[1])
+    }
+    const elements_chain_ids = Array.from(idMatches)
+
+    // Extract distinct elements
+    const elementMatches = new Set<string>()
+    let elementMatch
+    while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
+        elementMatches.add(elementMatch[1])
+    }
+    const elements_chain_elements = Array.from(elementMatches)
+
+    // Return the extracted values
+    return {
+        elements_chain_href,
+        elements_chain_texts,
+        elements_chain_ids,
+        elements_chain_elements,
+    }
+}
+
 // that we can keep to as a contract
 export function convertToHogFunctionInvocationGlobals(
     event: RawClickHouseEvent,
@@ -98,6 +156,8 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+            elements_chain: event.elements_chain,
+            ...extractElementsChain(event.elements_chain ?? ''),
         },
         person,
     }
@@ -121,6 +181,7 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         properties: globals.event.properties,
         person: globals.person ? { properties: globals.person.properties } : undefined,
         ...groups,
+        ...extractElementsChain(globals.event.properties['$elements_chain'] ?? ''),
     }
 }
 

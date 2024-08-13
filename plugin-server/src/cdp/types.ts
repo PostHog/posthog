@@ -80,6 +80,11 @@ export type HogFunctionInvocationGlobals = {
         properties: Record<string, any>
         timestamp: string
         url: string
+        elements_chain: string
+        elements_chain_href: string
+        elements_chain_texts: string[]
+        elements_chain_ids: string[]
+        elements_chain_elements: string[]
     }
     person?: {
         uuid: string
@@ -104,6 +109,11 @@ export type HogFunctionFilterGlobals = {
     event: string
     timestamp: string
     elements_chain: string
+    elements_chain_href: string
+    elements_chain_texts: string[]
+    elements_chain_ids: string[]
+    elements_chain_elements: string[]
+
     properties: Record<string, any>
 
     person?: {
