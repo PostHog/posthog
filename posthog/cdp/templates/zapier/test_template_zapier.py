@@ -16,6 +16,6 @@ class TestTemplateZapier(BaseHogFunctionTemplateTest):
         )
 
         assert self.get_mock_fetch_calls()[0] == snapshot(
-            ("https://hooks.zapier.com/hooks/1/2", {"headers": None, "body": {"hello": "world"}, "method": None})
+            ("https://hooks.zapier.com/hooks/1/2", {"body": {"hello": "world"}, "method": "POST"})
         )
         assert self.get_mock_print_calls() == snapshot([])
