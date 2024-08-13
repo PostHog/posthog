@@ -552,7 +552,7 @@ def action_to_expr(action: Action) -> ast.Expr:
                 else:
                     exprs.append(
                         parse_expr(
-                            "arrayExists(x -> x = {value}, elements_chain_texts)",
+                            "has(elements_chain_texts, {value})",
                             {"value": ast.Constant(value=value)},
                         )
                     )
