@@ -53,13 +53,15 @@ class TestMigrateActionWebhooks(BaseTest):
 
         assert hog_function.name == f"Webhook for action {self.action.id} (Test Action)"
         assert hog_function.filters == {
-            "actions": [{"id": f"{self.action.id}", "name": "Test Action", "type": "actions", "order": 0}]
+            "actions": [{"id": f"{self.action.id}", "name": "Test Action", "type": "actions", "order": 0}],
+            "bytecode": ["_h", 29, 3, 1, 4, 1],
         }
         assert hog_function.hog == template_webhook.hog
         assert hog_function.inputs_schema == template_webhook.inputs_schema
         assert hog_function.template_id == template_webhook.id
         assert hog_function.bytecode
         assert hog_function.enabled
+        assert hog_function.icon_url == template_webhook.icon_url
 
         assert self.action.post_to_slack is False
 

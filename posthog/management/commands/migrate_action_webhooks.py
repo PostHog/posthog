@@ -3,6 +3,7 @@ from typing import Optional
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 
+from posthog.cdp.filters import compile_filters_bytecode
 from posthog.cdp.validation import compile_hog, validate_inputs
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -109,8 +110,11 @@ def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
         template_id=webhook_template.id,
         hog=webhook_template.hog,
         bytecode=compile_hog(webhook_template.hog),
-        filters={"actions": [{"id": f"{action.id}", "type": "actions", "name": action.name, "order": 0}]},
+        filters=compile_filters_bytecode(
+            {"actions": [{"id": f"{action.id}", "type": "actions", "name": action.name, "order": 0}]}, action.team
+        ),
         enabled=True,
+        icon_url=webhook_template.icon_url,
     )
     return hog_function
 
@@ -120,7 +124,7 @@ def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run:
         print("Please provide either action_ids or team_ids, not both")  # noqa: T201
         return
 
-    query = Action.objects.select_related("team").filter(post_to_slack=True)
+    query = Action.objects.select_related("team").filter(post_to_slack=True).order_by("id")
 
     if team_ids:
         print("Migrating all actions for teams:", team_ids)  # noqa: T201
@@ -148,8 +152,6 @@ def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run:
         if not dry_run:
             HogFunction.objects.bulk_create(hog_functions)
             Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
-            # TODO: Disable the action webhook
-
         else:
             print("Would have created the following HogFunctions:")  # noqa: T201
             for hog_function in hog_functions:
