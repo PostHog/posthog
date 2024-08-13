@@ -274,7 +274,7 @@ export class HogExecutor {
                 let hogLogs = 0
                 execRes = exec(invocation.vmState ?? hogFunction.bytecode, {
                     globals,
-                    timeout: DEFAULT_TIMEOUT_MS, // TODO: Swap this to milliseconds when the package is updated
+                    timeout: DEFAULT_TIMEOUT_MS,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
