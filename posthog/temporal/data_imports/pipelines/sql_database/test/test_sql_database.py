@@ -42,4 +42,6 @@ def test_get_column_hints_numeric_with_missing_scale_and_precision():
 def test_get_column_hints_numeric_with_no_numeric():
     mock_engine = _setup([("column", "bigint", None, None, "NO")])
 
-    assert get_column_hints(mock_engine, "some_schema", "some_table") == {}
+    assert get_column_hints(mock_engine, "some_schema", "some_table") == {
+        "column": {"name": "column", "data_type": "bigint", "nullable": False}
+    }
