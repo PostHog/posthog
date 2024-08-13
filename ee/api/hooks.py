@@ -63,7 +63,26 @@ class HookViewSet(
                 "inputs": {
                     "hook": {
                         "value": validated_data["target"].replace("https://hooks.zapier.com/", ""),
-                    }
+                    },
+                    "body": {
+                        # NOTE: This is for backwards compatibility with the old webhook format
+                        "value": {
+                            "hook": {
+                                "id": "{eventUuid}",
+                                "event": "{event}",
+                                "target": "https://hooks.zapier.com/{inputs.hook}",
+                            },
+                            "data": {
+                                "eventUuid": "{event.uuid}",
+                                "event": "{event.name}",
+                                "teamId": "{project.id}",
+                                "distinctId": "{event.distinct_id}",
+                                "properties": "{event.properties}",
+                                "timestamp": "{event.timestamp}",
+                                "person": {"uuid": "{person.uuid}", "properties": "{person.properties}"},
+                            },
+                        }
+                    },
                 },
             },
             context=self.get_serializer_context(),
@@ -87,7 +106,7 @@ class HookViewSet(
                 "id": hog_function.id,
                 "event": serializer.validated_data["event"],
                 "target": serializer.validated_data["target"],
-                "resource_id": None,
+                "resource_id": serializer.validated_data.get("resource_id"),
                 "team": self.team.id,
             }
         )

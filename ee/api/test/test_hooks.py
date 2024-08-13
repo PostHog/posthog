@@ -1,4 +1,5 @@
 from typing import cast
+from unittest.mock import ANY
 
 from ee.api.hooks import valid_domain
 from ee.api.test.base import APILicensedTest
@@ -91,7 +92,28 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         }
 
         assert hog_function.inputs == {
-            "body": {},  # TODO: Fix the defaults...
+            "body": {
+                "bytecode": ANY,
+                "value": {
+                    "data": {
+                        "distinctId": "{event.distinct_id}",
+                        "event": "{event.name}",
+                        "eventUuid": "{event.uuid}",
+                        "person": {
+                            "properties": "{person.properties}",
+                            "uuid": "{person.uuid}",
+                        },
+                        "properties": "{event.properties}",
+                        "teamId": "{project.id}",
+                        "timestamp": "{event.timestamp}",
+                    },
+                    "hook": {
+                        "event": "{event}",
+                        "id": "{eventUuid}",
+                        "target": "https://hooks.zapier.com/{inputs.hook}",
+                    },
+                },
+            },
             "debug": {},
             "hook": {
                 "bytecode": [

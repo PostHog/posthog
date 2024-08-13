@@ -32,7 +32,22 @@ if (inputs.debug) {
             "key": "body",
             "type": "json",
             "label": "JSON Body",
-            "default": {"event": "{event}", "person": "{person}"},
+            "default": {
+                "hook": {
+                    "id": "{source.url}",
+                    "event": "{event}",
+                    "target": "https://hooks.zapier.com/{inputs.hook}",
+                },
+                "data": {
+                    "eventUuid": "{event.uuid}",
+                    "event": "{event.name}",
+                    "teamId": "{project.id}",
+                    "distinctId": "{event.distinct_id}",
+                    "properties": "{event.properties}",
+                    "timestamp": "{event.timestamp}",
+                    "person": {"uuid": "{person.uuid}", "properties": "{person.properties}"},
+                },
+            },
             "secret": False,
             "required": False,
         },
