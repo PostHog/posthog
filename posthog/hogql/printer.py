@@ -1264,6 +1264,8 @@ class _Printer(Visitor):
             return node.type.return_type.nullable
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable(self.context)
+        elif isinstance(node.type, ast.FieldAliasType):
+            return node.type.resolve_constant_type(self.context).nullable
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
         elif isinstance(node, ast.Tuple):
