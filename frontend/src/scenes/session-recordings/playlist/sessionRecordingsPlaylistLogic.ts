@@ -157,6 +157,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     return {
         kind: NodeKind.RecordingsQuery,
+        order: 'start_time',
         date_from: universalFilters.date_from,
         date_to: universalFilters.date_to,
         properties,

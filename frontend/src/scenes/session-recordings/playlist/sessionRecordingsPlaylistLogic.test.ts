@@ -729,7 +729,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 },
             })
 
-            expect(result.entities).toEqual([
+            expect(result.events).toEqual([
                 {
                     id: '$pageview',
                     name: '$pageview',
