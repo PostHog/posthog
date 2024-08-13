@@ -538,14 +538,14 @@ def action_to_expr(action: Action) -> ast.Expr:
                 if step.text_matching == "regex":
                     exprs.append(
                         parse_expr(
-                            "arrayExists(x -> match(x, {value}), elements_chain_texts)",
+                            "arrayExists(x -> x =~ {value}, elements_chain_texts)",
                             {"value": ast.Constant(value=value)},
                         )
                     )
                 elif step.text_matching == "contains":
                     exprs.append(
                         parse_expr(
-                            "arrayExists(x -> ilike(x, {value}), elements_chain_texts)",
+                            "arrayExists(x -> x ilike {value}, elements_chain_texts)",
                             {"value": ast.Constant(value=f"%{value}%")},
                         )
                     )
