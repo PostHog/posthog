@@ -138,7 +138,7 @@ def get_person_name(team: Team, person: Person) -> str:
 
 
 def get_person_name_helper(
-    person_pk: str, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
 ) -> str:
     display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
@@ -149,7 +149,7 @@ def get_person_name_helper(
     if len(distinct_ids) > 0:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(distinct_ids, key=is_anonymous_id)[0]
-    return person_pk
+    return str(person_pk)
 
 
 class PersonsThrottle(ClickHouseSustainedRateThrottle):
