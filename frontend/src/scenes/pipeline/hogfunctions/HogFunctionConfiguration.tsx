@@ -197,11 +197,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         )}
                                     </LemonField>
                                 </div>
-                                <LemonField
-                                    name="name"
-                                    label="Name"
-                                    info="Customising the name can be useful if multiple instances of the same type are used."
-                                >
+                                <LemonField name="name" label="Name">
                                     <LemonInput type="text" disabled={loading} />
                                 </LemonField>
                                 <LemonField
@@ -213,41 +209,42 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 </LemonField>
 
                                 {hogFunction?.template ? (
-                                    <p className="border border-dashed rounded text-muted-alt p-2">
-                                        Built from template:{' '}
-                                        <LemonDropdown
-                                            showArrow
-                                            overlay={
-                                                <div className="max-w-120 p-1">
-                                                    <p>
-                                                        This function was built from the template{' '}
-                                                        <b>{hogFunction.template.name}</b>. If the template is updated,
-                                                        this function is not affected unless you choose to update it.
-                                                    </p>
+                                    <LemonDropdown
+                                        showArrow
+                                        overlay={
+                                            <div className="max-w-120 p-1">
+                                                <p>
+                                                    This function was built from the template{' '}
+                                                    <b>{hogFunction.template.name}</b>. If the template is updated, this
+                                                    function is not affected unless you choose to update it.
+                                                </p>
 
-                                                    <div className="flex flex-1 gap-2 items-center border-t pt-2">
-                                                        <div className="flex-1">
-                                                            <LemonButton>Close</LemonButton>
-                                                        </div>
-                                                        <LemonButton onClick={() => resetToTemplate()}>
-                                                            Reset to template
-                                                        </LemonButton>
-
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            onClick={() => duplicateFromTemplate()}
-                                                        >
-                                                            New function from template
-                                                        </LemonButton>
+                                                <div className="flex flex-1 gap-2 items-center border-t pt-2">
+                                                    <div className="flex-1">
+                                                        <LemonButton>Close</LemonButton>
                                                     </div>
+                                                    <LemonButton onClick={() => resetToTemplate()}>
+                                                        Reset to template
+                                                    </LemonButton>
+
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => duplicateFromTemplate()}
+                                                    >
+                                                        New function from template
+                                                    </LemonButton>
                                                 </div>
-                                            }
-                                        >
-                                            <Link subtle className="font-semibold">
-                                                {hogFunction?.template.name} <IconInfo />
+                                            </div>
+                                        }
+                                    >
+                                        <div className="border border-dashed rounded text-muted-alt text-xs">
+                                            <Link subtle className="flex items-center gap-1 flex-wrap p-2">
+                                                Built from template:
+                                                <span className="font-semibold">{hogFunction?.template.name}</span>
+                                                <DestinationTag status={hogFunction.template.status} /> <IconInfo />
                                             </Link>
-                                        </LemonDropdown>
-                                    </p>
+                                        </div>
+                                    </LemonDropdown>
                                 ) : null}
                             </div>
 
