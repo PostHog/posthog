@@ -8,6 +8,7 @@ from posthog.cdp.validation import compile_hog, validate_inputs
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.cdp.templates.webhook.template_webhook import template as webhook_template
+from posthog.plugins.plugin_server_api import reload_all_hog_functions_on_workers
 
 # Maps to a string or a tuple of name and url
 mappings: dict[str, str | list[str]] = {
@@ -156,6 +157,8 @@ def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run:
             print("Would have created the following HogFunctions:")  # noqa: T201
             for hog_function in hog_functions:
                 print(hog_function, hog_function.inputs, hog_function.filters)  # noqa: T201
+
+    reload_all_hog_functions_on_workers()
 
 
 class Command(BaseCommand):
