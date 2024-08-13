@@ -13,6 +13,8 @@ from .mailjet.template_mailjet import (
     template_update_contact_list as mailjet_update_contact_list,
 )
 
+from .zapier.template_zapier import template as zapier
+
 
 HOG_FUNCTION_TEMPLATES = [
     slack,
@@ -23,11 +25,12 @@ HOG_FUNCTION_TEMPLATES = [
     posthog,
     sendgrid,
     aws_kinesis,
-    clearbit,
+    zapier,
     salesforce_create,
     salesforce_update,
     mailjet_create_contact,
     mailjet_update_contact_list,
+    clearbit,
 ]
 
 
