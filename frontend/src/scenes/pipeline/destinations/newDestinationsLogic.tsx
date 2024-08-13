@@ -93,15 +93,14 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             (pluginsLoading, hogFunctionTemplatesLoading) => pluginsLoading || hogFunctionTemplatesLoading,
         ],
         batchExportServiceNames: [
-            (s) => [s.user],
-            (user): BatchExportService['type'][] => {
+            (s) => [s.user, s.featureFlags],
+            (user, featureFlags): BatchExportService['type'][] => {
+                const httpEnabled =
+                    featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
                 // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
-                const services: BatchExportService['type'][] = BATCH_EXPORT_SERVICE_NAMES.filter(
-                    (service) => service !== 'HTTP'
-                ) as BatchExportService['type'][]
-                if (user?.is_impersonated || user?.is_staff) {
-                    services.push('HTTP')
-                }
+                const services: BatchExportService['type'][] = BATCH_EXPORT_SERVICE_NAMES.filter((service) =>
+                    httpEnabled ? true : service !== ('HTTP' as const)
+                )
                 return services
             },
         ],
