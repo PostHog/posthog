@@ -379,29 +379,28 @@ export function LemonInputSelect({
                                             <LemonCheckbox checked={isSelected} className="pointer-events-none" />
                                         ) : undefined
                                     }
+                                    sideAction={{
+                                        // To reduce visual clutter we only show the button for the focused item,
+                                        // but we do want the side action present to make sure the layout is stable
+                                        icon: isFocused ? <IconPencil /> : undefined,
+                                        tooltip: (
+                                            <>
+                                                Edit this value <KeyboardShortcut option enter />
+                                            </>
+                                        ),
+                                        onClick: () => {
+                                            setInputValue(option.key)
+                                            inputRef.current?.focus()
+                                            _onFocus()
+                                        },
+                                    }}
                                 >
-                                    <span className="flex-1 flex min-w-0 items-center justify-between gap-1 whitespace-nowrap">
-                                        <span className="ph-no-capture truncate">
-                                            {!option.__isInput
-                                                ? option.labelComponent ?? option.label // Regular option
-                                                : mode === 'multiple'
-                                                ? `Add "${option.key}"` // Input-based option
-                                                : option.key}
-                                        </span>
-                                        {isFocused ? (
-                                            <span>
-                                                <KeyboardShortcut enter className="mr-1.5" />
-                                                {altKeyHeld && allowCustomValues
-                                                    ? 'Edit'
-                                                    : !isSelected
-                                                    ? mode === 'single'
-                                                        ? 'Select'
-                                                        : 'Add'
-                                                    : mode === 'single'
-                                                    ? 'Unselect'
-                                                    : 'Remove'}
-                                            </span>
-                                        ) : undefined}
+                                    <span className="whitespace-nowrap ph-no-capture truncate">
+                                        {!option.__isInput
+                                            ? option.labelComponent ?? option.label // Regular option
+                                            : mode === 'multiple'
+                                            ? `Add "${option.key}"` // Input-based option
+                                            : option.key}
                                     </span>
                                 </LemonButton>
                             )
