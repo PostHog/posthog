@@ -11,9 +11,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import {
+    BaseMathType,
     Breadcrumb,
     FeatureFlagFilters,
     MultipleSurveyQuestion,
@@ -1114,6 +1115,47 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey) =>
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
+        ],
+        surveyAsInsightURL: [
+            (s) => [s.survey],
+            (survey) => {
+                const query: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        properties: [
+                            {
+                                key: '$survey_id',
+                                value: survey.id,
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey sent',
+                                name: 'survey sent',
+                                math: BaseMathType.TotalCount,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey shown',
+                                name: 'survey shown',
+                                math: BaseMathType.TotalCount,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey dismissed',
+                                name: 'survey dismissed',
+                                math: BaseMathType.TotalCount,
+                            },
+                        ],
+                    },
+                }
+
+                return urls.insightNew(undefined, undefined, query)
+            },
         ],
     }),
     forms(({ actions, props, values }) => ({

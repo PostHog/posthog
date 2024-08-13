@@ -117,6 +117,17 @@ services:
             - redis
             - kafka
 
+    # Optional capture
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+        ports:
+            - 3001:8000
+        depends_on:
+            - redis
+            - kafka
+
     livestream:
         extends:
             file: docker-compose.base.yml

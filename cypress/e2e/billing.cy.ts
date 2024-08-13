@@ -27,8 +27,8 @@ describe('Billing', () => {
             expect(matchingEvent.properties.$survey_id).to.equal(UNSUBSCRIBE_SURVEY_ID)
             expect(matchingEvent.properties.$survey_response).to.equal('Product analytics')
             expect(matchingEvent.properties.$survey_response_1).to.equal('product_analytics')
-            expect(matchingEvent.properties.$survey_reasons.length).to.equal(1)
-            expect(matchingEvent.properties.$survey_reasons[0]).to.equal('Too expensive')
+            expect(matchingEvent.properties.$survey_response_2.length).to.equal(1)
+            expect(matchingEvent.properties.$survey_response_2[0]).to.equal('Too expensive')
         })
 
         cy.get('.LemonModal').should('not.exist')

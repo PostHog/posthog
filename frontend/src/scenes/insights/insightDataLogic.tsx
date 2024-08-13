@@ -2,17 +2,27 @@ import { actions, connect, kea, key, listeners, path, props, propsChanged, reduc
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { examples } from '~/queries/examples'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
-import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    HogQuery,
+    InsightNodeKind,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
 import { ExportContext, FilterType, InsightLogicProps, InsightType } from '~/types'
 
@@ -27,6 +37,37 @@ export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode =
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
+
+export const getDefaultQuery = (
+    insightType: InsightType,
+    filterTestAccountsDefault: boolean
+): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+    if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {
+        if (insightType === InsightType.JSON) {
+            return examples.TotalEventsTable as DataTableNode
+        } else if (insightType === InsightType.SQL) {
+            return examples.DataVisualization as DataVisualizationNode
+        } else if (insightType === InsightType.HOG) {
+            return examples.Hoggonacci as HogQuery
+        }
+    } else {
+        if (insightType === InsightType.TRENDS) {
+            return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.FUNNELS) {
+            return queryFromKind(NodeKind.FunnelsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.RETENTION) {
+            return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.PATHS) {
+            return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.STICKINESS) {
+            return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.LIFECYCLE) {
+            return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
+        }
+    }
+
+    throw new Error('encountered unexpected type for view')
+}
 
 export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -74,6 +115,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     actions({
         setQuery: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
+        toggleDebugPanel: true,
         cancelChanges: true,
     }),
 
@@ -90,6 +132,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 toggleQueryEditorPanel: (state) => !state,
             },
         ],
+        showDebugPanel: [
+            false,
+            {
+                toggleDebugPanel: (state) => !state,
+            },
+        ],
     }),
 
     selectors({
@@ -99,12 +147,25 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         query: [
-            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault],
-            (propsQuery, insight, internalQuery, filterTestAccountsDefault): Node | null =>
+            (s) => [
+                s.propsQuery,
+                s.queryBasedInsight,
+                s.internalQuery,
+                s.filterTestAccountsDefault,
+                s.isDataWarehouseQuery,
+            ],
+            (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>
                 propsQuery ||
                 internalQuery ||
                 insight.query ||
-                queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
+                (isDataWarehouseQuery
+                    ? examples.DataWarehouse
+                    : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)),
+        ],
+
+        isDataWarehouseQuery: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps) => props.dashboardItemId?.startsWith(DATAWAREHOUSE_EDITOR_ITEM_ID),
         ],
 
         propsQuery: [

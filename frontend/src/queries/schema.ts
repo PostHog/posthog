@@ -556,6 +556,7 @@ export interface ChartAxis {
     column: string
     settings?: {
         formatting?: ChartSettingsFormatting
+        display?: ChartSettingsDisplay
     }
 }
 
@@ -566,14 +567,32 @@ export interface ChartSettingsFormatting {
     decimalPlaces?: number
 }
 
+export interface ChartSettingsDisplay {
+    label?: string
+    trendLine?: boolean
+    yAxisPosition?: 'left' | 'right'
+    displayType?: 'auto' | 'line' | 'bar'
+}
+
+export interface YAxisSettings {
+    scale?: 'linear' | 'logarithmic'
+    /** Whether the Y axis should start at zero */
+    startAtZero?: boolean
+}
 export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
-    /** Whether the Y axis should start at zero */
+    /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
     yAxisAtZero?: boolean
+    leftYAxisSettings?: YAxisSettings
+    rightYAxisSettings?: YAxisSettings
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
+}
+
+export interface TableSettings {
+    columns?: ChartAxis[]
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -581,6 +600,7 @@ export interface DataVisualizationNode extends Node<never> {
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }
 
 interface DataTableNodeViewProps {
@@ -853,6 +873,7 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
+    cumulative?: RetentionFilterLegacy['cumulative']
 }
 
 export interface RetentionValue {

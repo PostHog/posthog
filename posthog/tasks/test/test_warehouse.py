@@ -4,6 +4,7 @@ from posthog.tasks.warehouse import (
     check_synced_row_limits_of_team,
     capture_workspace_rows_synced_by_team,
     validate_data_warehouse_table_columns,
+    capture_external_data_rows_synced,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataJob
 from freezegun import freeze_time
@@ -171,3 +172,27 @@ class TestWarehouse(APIBaseTest):
         assert table.columns.get("some_columns").get("valid") is True
         mock_ph_client.capture.assert_called_once()
         mock_ph_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.warehouse.capture_workspace_rows_synced_by_team.delay")
+    def test_capture_external_data_rows_synced(self, mock_capture_workspace_rows_synced_by_team: MagicMock) -> None:
+        ExternalDataSource.objects.create(
+            source_id="test_id",
+            connection_id="fake connectino_id",
+            destination_id="fake destination_id",
+            team=self.team,
+            status="Running",
+            source_type="Stripe",
+        )
+
+        ExternalDataSource.objects.create(
+            source_id="another_id",
+            connection_id="fake connectino_id",
+            destination_id="fake destination_id",
+            team=self.team,
+            status="Running",
+            source_type="Stripe",
+        )
+
+        capture_external_data_rows_synced()
+
+        assert mock_capture_workspace_rows_synced_by_team.call_count == 1

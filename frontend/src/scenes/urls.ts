@@ -2,14 +2,14 @@ import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { HogQLFilters } from '~/queries/schema'
+import { HogQLFilters, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
     AnnotationType,
-    AnyPartialFilterType,
     DashboardType,
     InsightShortId,
+    InsightType,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
@@ -71,13 +71,9 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insights: (): string => '/insights',
-    insightNew: (
-        filters?: AnyPartialFilterType,
-        dashboardId?: DashboardType['id'] | null,
-        query?: string | Record<string, any>
-    ): string =>
+    insightNew: (type?: InsightType, dashboardId?: DashboardType['id'] | null, query?: Node): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-            ...(filters ? { filters } : {}),
+            ...(type ? { insight: type } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
@@ -145,12 +141,7 @@ export const urls = {
     dataWarehouse: (query?: string | Record<string, any>): string =>
         combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
             .url,
-    dataWarehouseView: (id: string, query?: string | Record<string, any>): string =>
-        combineUrl(
-            `/data-warehouse/view/${id}`,
-            {},
-            query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}
-        ).url,
+    dataWarehouseView: (id: string): string => combineUrl(`/data-warehouse/view/${id}`).url,
     dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
