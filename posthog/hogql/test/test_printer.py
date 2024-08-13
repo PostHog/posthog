@@ -438,6 +438,24 @@ class TestPrinter(BaseTest):
                 "not(has(events.properties_group_custom, %(hogql_val_0)s))",
                 {"hogql_val_0": "key"},
             ),
+            # IN operator works much like equality, but it also needs to handle the empty string special case
+            PropertyGroupComparisonTestCase(
+                "properties.key IN ('a', 'b')",
+                "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s))",
+                {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+            ),
+            PropertyGroupComparisonTestCase(
+                "properties.key IN ('a', 'b', '')",
+                (
+                    "or("
+                    "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)), "
+                    "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_3)s], %(hogql_val_4)s))"
+                    ")"
+                ),
+                {"hogql_val_0": "key", "hogql_val_1": "", "hogql_val_2": "value"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+            ),
         ]
 
         # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise the
