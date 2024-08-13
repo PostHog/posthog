@@ -390,6 +390,7 @@ class TestPrinter(BaseTest):
         )
         self.assertDictContainsSubset({"hogql_val_4": "key", "hogql_val_5": ""}, context.values)
 
+        # positive null comparisons of various forms -- these are all equivalent
         self.assertEqual(
             self._expr("properties.key is null", context),
             "not(has(events.properties_group_custom, %(hogql_val_6)s))",
@@ -397,10 +398,35 @@ class TestPrinter(BaseTest):
         self.assertDictContainsSubset({"hogql_val_6": "key"}, context.values)
 
         self.assertEqual(
-            self._expr("properties.key is not null", context),
-            "has(events.properties_group_custom, %(hogql_val_7)s)",
+            self._expr("properties.key = null", context),
+            "not(has(events.properties_group_custom, %(hogql_val_7)s))",
         )
         self.assertDictContainsSubset({"hogql_val_7": "key"}, context.values)
+
+        self.assertEqual(
+            self._expr("null = properties.key", context),
+            "not(has(events.properties_group_custom, %(hogql_val_8)s))",
+        )
+        self.assertDictContainsSubset({"hogql_val_8": "key"}, context.values)
+
+        # negative null comparisons of various forms -- these are all equivalent
+        self.assertEqual(
+            self._expr("properties.key is not null", context),
+            "has(events.properties_group_custom, %(hogql_val_9)s)",
+        )
+        self.assertDictContainsSubset({"hogql_val_9": "key"}, context.values)
+
+        self.assertEqual(
+            self._expr("properties.key != null", context),
+            "has(events.properties_group_custom, %(hogql_val_10)s)",
+        )
+        self.assertDictContainsSubset({"hogql_val_10": "key"}, context.values)
+
+        self.assertEqual(
+            self._expr("null != properties.key", context),
+            "has(events.properties_group_custom, %(hogql_val_11)s)",
+        )
+        self.assertDictContainsSubset({"hogql_val_11": "key"}, context.values)
 
     def test_property_groups_select_with_aliases(self):
         context = HogQLContext(
