@@ -45,6 +45,7 @@ class TestMigrateActionWebhooks(BaseTest):
 
     def test_migrates_base_action_config_correctly(self):
         migrate_action_webhooks(action_ids=[], team_ids=[], dry_run=False)
+        self.action.refresh_from_db()
 
         hog_functons = HogFunction.objects.all()
         assert len(hog_functons) == 1
@@ -58,6 +59,9 @@ class TestMigrateActionWebhooks(BaseTest):
         assert hog_function.inputs_schema == template_webhook.inputs_schema
         assert hog_function.template_id == template_webhook.id
         assert hog_function.bytecode
+        assert hog_function.enabled
+
+        assert self.action.post_to_slack is False
 
     def test_migrates_message_format(self):
         migrate_action_webhooks(action_ids=[], team_ids=[], dry_run=False)

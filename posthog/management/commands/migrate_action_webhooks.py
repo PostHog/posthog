@@ -1,6 +1,7 @@
 import re
 from typing import Optional
 from django.core.management.base import BaseCommand
+from django.core.paginator import Paginator
 
 from posthog.cdp.validation import compile_hog, validate_inputs
 from posthog.models.action.action import Action
@@ -67,7 +68,7 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
             markdown = markdown.replace(match, f"{{{content}}}")
             text = text.replace(match, f"{{{content}}}")
 
-    print(
+    print(  # noqa: T201
         "Converted message format:",
         {
             "original": message_format,
@@ -82,7 +83,6 @@ def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
     webhook_url = action.team.slack_incoming_webhook
 
     if not webhook_url:
-        print(f"No slack_incoming_webhook set for team {action.team_id}, skipping action {action.id}")
         return None
 
     message_markdown, message_text = convert_slack_message_format_to_hog(action, is_slack="slack" in webhook_url)
@@ -117,37 +117,43 @@ def convert_to_hog_function(action: Action) -> Optional[HogFunction]:
 
 def migrate_action_webhooks(action_ids: list[int], team_ids: list[int], dry_run: bool = False):
     if action_ids and team_ids:
-        print("Please provide either action_ids or team_ids, not both")
+        print("Please provide either action_ids or team_ids, not both")  # noqa: T201
         return
 
     query = Action.objects.select_related("team").filter(post_to_slack=True)
 
     if team_ids:
-        print("Migrating all actions for teams:", team_ids)
+        print("Migrating all actions for teams:", team_ids)  # noqa: T201
         query = query.filter(team_id__in=team_ids)
     elif action_ids:
-        print("Migrating actions:", action_ids)
+        print("Migrating actions:", action_ids)  # noqa: T201
         query = query.filter(id__in=action_ids)
     else:
         print(f"Migrating all actions")  # noqa T201
 
-    hog_functions: list[HogFunction] = []
-    actions = list(query.all())
+    paginator = Paginator(query.all(), 100)
 
-    for index, action in enumerate(actions):
-        print(f"Processing action {action.id}")
-        hog_function = convert_to_hog_function(action)
-        if hog_function:
-            hog_functions.append(hog_function)
+    for page_number in paginator.page_range:
+        page = paginator.page(page_number)
+        hog_functions: list[HogFunction] = []
+        actions_to_update: list[Action] = []
 
-    if not dry_run:
-        HogFunction.objects.bulk_create(hog_functions)
-    else:
-        print("Would have created the following HogFunctions:")
-        for hog_function in hog_functions:
-            print(hog_function, hog_function.inputs, hog_function.filters)
+        for action in page.object_list:
+            hog_function = convert_to_hog_function(action)
+            if hog_function:
+                hog_functions.append(hog_function)
+                action.post_to_slack = False
+                actions_to_update.append(action)
 
-    print("Done")  # noqa T201
+        if not dry_run:
+            HogFunction.objects.bulk_create(hog_functions)
+            Action.objects.bulk_update(actions_to_update, ["post_to_slack"])
+            # TODO: Disable the action webhook
+
+        else:
+            print("Would have created the following HogFunctions:")  # noqa: T201
+            for hog_function in hog_functions:
+                print(hog_function, hog_function.inputs, hog_function.filters)  # noqa: T201
 
 
 class Command(BaseCommand):
@@ -168,7 +174,7 @@ class Command(BaseCommand):
         team_ids = options["team_ids"]
 
         if action_ids and team_ids:
-            print("Please provide either action_ids or team_ids, not both")
+            print("Please provide either action_ids or team_ids, not both")  # noqa: T201
             return
 
         migrate_action_webhooks(
