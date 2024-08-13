@@ -4,6 +4,7 @@ import structlog
 from django.conf import settings
 from django.db import transaction
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
+from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -147,3 +148,64 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         self.perform_destroy(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=True)
+    def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Return the ancestors of this saved query.
+
+        By default, we return the immediate parents. The `level` parameter can be used to
+        look further back into the ancestor tree. If `level` overshoots (i.e. points to only
+        ancestors beyond the root), we return an empty list.
+        """
+        level = request.data.get("level", 1)
+
+        saved_query = self.get_object()
+        saved_query_id = saved_query.id.hex
+        lquery = f"*{{{level},}}.{saved_query_id}"
+
+        paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
+
+        if not paths:
+            return response.Response({"ancestors": []})
+
+        ancestors = set()
+        for model_path in paths:
+            offset = len(model_path.path) - level - 1  # -1 corrects for level being 1-indexed
+
+            if offset < 0:
+                continue
+
+            ancestors.add(model_path.path[offset])
+
+        return response.Response({"ancestors": ancestors})
+
+    @action(methods=["POST"], detail=True)
+    def descendants(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Return the descendants of this saved query.
+
+        By default, we return the immediate children. The `level` parameter can be used to
+        look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
+        descendants further than a leaf), we return an empty list.
+        """
+        level = request.data.get("level", 1)
+
+        saved_query = self.get_object()
+        saved_query_id = saved_query.id.hex
+
+        lquery = f"*.{saved_query_id}.*{{{level},}}"
+        paths = DataWarehouseModelPath.objects.filter(team=saved_query.team, path__lquery=lquery)
+
+        if not paths:
+            return response.Response({"descendants": []})
+
+        descendants = set()
+
+        for model_path in paths:
+            offset = model_path.path.index(saved_query_id) + level
+
+            if offset > len(model_path.path):
+                continue
+
+            descendants.add(model_path.path[offset])
+
+        return response.Response({"descendants": descendants})
