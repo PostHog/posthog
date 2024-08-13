@@ -134,22 +134,12 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
 
 
 def get_person_name(team: Team, person: Person) -> str:
-    if display_name := get_person_display_name(person, team):
-        return display_name
-    if len(person.distinct_ids) > 0:
-        # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
-        return sorted(person.distinct_ids, key=is_anonymous_id)[0]
-    return person.pk
+    return get_person_name_helper(person.pk, person.properties, person.distinct_ids, team)
 
 
-def get_person_display_name(person: Person, team: Team) -> str | None:
-    for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
-        if person.properties and person.properties.get(property):
-            return person.properties.get(property)
-    return None
-
-
-def get_person_name2(person_pk: str, person_properties: dict[str, str], distinct_ids: list[str], team: Team) -> str:
+def get_person_name_helper(
+    person_pk: str, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+) -> str:
     display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
         if person_properties and person_properties.get(property):

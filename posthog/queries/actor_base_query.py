@@ -296,7 +296,7 @@ def get_serialized_people(
     team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None
 ) -> list[SerializedPerson]:
     persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(people_ids)
-    from posthog.api.person import get_person_name2
+    from posthog.api.person import get_person_name_helper
 
     return [
         SerializedPerson(
@@ -306,7 +306,9 @@ def get_serialized_people(
             created_at=person_dict["created_at"],
             properties=person_dict["properties"],
             is_identified=person_dict["is_identified"],
-            name=get_person_name2(person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team),
+            name=get_person_name_helper(
+                person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team
+            ),
             distinct_ids=person_dict["distinct_ids"],
             matched_recordings=[],
             value_at_data_point=value_per_actor_id[str(uuid)] if value_per_actor_id else None,
