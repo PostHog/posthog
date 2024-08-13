@@ -104,7 +104,7 @@ class HogFunction(UUIDModel):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.name
+        return f"HogFunction {self.id}: {self.name}"
 
 
 @receiver(post_save, sender=HogFunction)
