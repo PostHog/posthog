@@ -293,7 +293,7 @@ def get_people(
 
 # A faster get_people if you don't need the Person objects
 def get_serialized_people(
-    team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None
+    team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None, distinct_id_limit=None
 ) -> list[SerializedPerson]:
     persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
         people_ids, order_by="created_at DESC, uuid"
@@ -311,7 +311,9 @@ def get_serialized_people(
             name=get_person_name_helper(
                 person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team
             ),
-            distinct_ids=person_dict["distinct_ids"],
+            distinct_ids=person_dict["distinct_ids"]
+            if distinct_id_limit is None
+            else person_dict["distinct_ids"][:distinct_id_limit],
             matched_recordings=[],
             value_at_data_point=value_per_actor_id[str(uuid)] if value_per_actor_id else None,
         )

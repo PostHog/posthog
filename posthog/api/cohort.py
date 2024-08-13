@@ -357,7 +357,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_result]
-        serialized_actors = get_serialized_people(team, actor_ids)
+        serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
         _should_paginate = len(actor_ids) >= filter.limit
 
