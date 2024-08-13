@@ -500,7 +500,7 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.errorTracking()]: Scene.ErrorTracking,
-    [urls.errorTrackingGroup(':id')]: Scene.ErrorTrackingGroup,
+    [urls.errorTrackingGroup(':fingerprint')]: Scene.ErrorTrackingGroup,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,

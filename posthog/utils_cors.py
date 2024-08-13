@@ -10,6 +10,7 @@ CORS_ALLOWED_TRACING_HEADERS = (
     "Baggage",
     "x-highlight-request",
     "x-datadome-clientid",
+    "x-posthog-token",
 )
 
 
