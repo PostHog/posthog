@@ -143,6 +143,7 @@ export function PropertyValue({
                     ? 'Suggested values'
                     : undefined
             }
+            popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
                 return {
