@@ -12,7 +12,7 @@ import { billingProductLogic } from './billingProductLogic'
 export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const limitInputRef = useRef<HTMLInputElement | null>(null)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { isEditingBillingLimit, customLimitUsd, currentAndUpgradePlans } = useValues(
+    const { isEditingBillingLimit, customLimitUsd, hasCustomLimitSet, currentAndUpgradePlans } = useValues(
         billingProductLogic({ product, billingLimitInputRef: limitInputRef })
     )
     const { setIsEditingBillingLimit, setBillingLimitInput, submitBillingLimitInput } = useActions(
@@ -26,7 +26,6 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
         return null
     }
 
-    const hasCustomLimit = customLimitUsd === 0 || customLimitUsd
     return (
         <Form formKey="billingLimitInput" props={{ product: product }} logic={billingProductLogic} enableFormOnSubmit>
             <div className="border-t border-border p-8" data-attr={`billing-limit-input-${product.type}`}>
@@ -34,7 +33,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                 <div className="flex">
                     {!isEditingBillingLimit ? (
                         <div className="flex items-center justify-center gap-1">
-                            {hasCustomLimit ? (
+                            {hasCustomLimitSet ? (
                                 <>
                                     {usingInitialBillingLimit ? (
                                         <Tooltip title="Initial limits protect you from accidentally incurring large unexpected charges. Some features may stop working and data may be dropped if your usage exceeds your limit.">
@@ -113,13 +112,13 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                             >
                                 Cancel
                             </LemonButton>
-                            {hasCustomLimit ? (
+                            {hasCustomLimitSet ? (
                                 <LemonButton
                                     status="danger"
                                     size="small"
                                     tooltip="Remove billing limit"
                                     onClick={() => {
-                                        setBillingLimitInput(undefined)
+                                        setBillingLimitInput(null)
                                         submitBillingLimitInput()
                                     }}
                                 >

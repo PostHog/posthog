@@ -85,7 +85,7 @@ export const convertUsageToAmount = (
 }
 
 export const convertAmountToUsage = (
-    amount: string,
+    amount: number | null,
     productAndAddonTiers: BillingTierType[][],
     discountPercent?: number
 ): number => {
@@ -111,7 +111,7 @@ export const convertAmountToUsage = (
         }
     })
 
-    let remainingAmount = parseFloat(amount)
+    let remainingAmount = amount
     let usage = 0
     let previousTier: BillingTierType | undefined = undefined
 
