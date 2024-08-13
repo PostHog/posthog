@@ -591,11 +591,16 @@ export interface ChartSettings {
     stackBars100?: boolean
 }
 
+export interface TableSettings {
+    columns?: ChartAxis[]
+}
+
 export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }
 
 interface DataTableNodeViewProps {
@@ -1319,7 +1324,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    fingerprint?: string
+    fingerprint?: string[]
     select?: HogQLExpression[]
     eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
@@ -1331,9 +1336,9 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingGroup {
-    fingerprint: string
+    fingerprint: string[]
     exception_type: string | null
-    merged_fingerprints: string[]
+    merged_fingerprints: string[][]
     occurrences: number
     sessions: number
     users: number
