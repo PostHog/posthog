@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0453_alter_errortrackinggroup_fingerprint_and_more"),
+        ("posthog", "0454_alter_datawarehousetable_format"),
     ]
 
     operations = [
