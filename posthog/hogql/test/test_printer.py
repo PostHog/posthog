@@ -358,28 +358,28 @@ class TestPrinter(BaseTest):
 
     def test_property_groups_optimized_comparisons(self):
         @dataclass
-        class PropertyGroupTestCase:
+        class PropertyGroupComparisonTestCase:
             input_expression: str
-            output_printed_query: str
-            output_context_values: Mapping[str, Any]
+            expected_printed_query: str
+            expected_context_values: Mapping[str, Any]
             expected_skip_indexes_used: set[str]
 
         cases = [
             # common case: comparing against a (non-empty) string value doesn't require checking if the key exists or
             # not, which lets us use the bloom filter index on both keys and values for the property group
-            PropertyGroupTestCase(
+            PropertyGroupComparisonTestCase(
                 "properties.key = 'value'",
                 "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
             ),
-            PropertyGroupTestCase(
+            PropertyGroupComparisonTestCase(
                 "'value' = properties.key",
                 "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
             ),
-            PropertyGroupTestCase(
+            PropertyGroupComparisonTestCase(
                 "equals(properties.key, 'value')",
                 "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
@@ -388,13 +388,13 @@ class TestPrinter(BaseTest):
             # special case: keys that don't exist in a map return default values for the type, so we need to check
             # whether or not the key exists in the map (to utilize the bloom filter index on keys) as well as perform
             # the comparison
-            PropertyGroupTestCase(
+            PropertyGroupComparisonTestCase(
                 "properties.key = ''",
                 "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
                 {"hogql_val_0": "key", "hogql_val_1": ""},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
-            PropertyGroupTestCase(
+            PropertyGroupComparisonTestCase(
                 "equals(properties.key, '')",
                 "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
                 {"hogql_val_0": "key", "hogql_val_1": ""},
@@ -402,19 +402,19 @@ class TestPrinter(BaseTest):
             ),
             # special case: not null comparisons should check to see if the key exists within the map, but do not need
             # to actually get the value
-            PropertyGroupTestCase(
+            PropertyGroupComparisonTestCase(
                 "properties.key is not null",
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
                 {"hogql_val_0": "key"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
-            PropertyGroupTestCase(
+            PropertyGroupComparisonTestCase(
                 "properties.key != null",
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
                 {"hogql_val_0": "key"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
-            PropertyGroupTestCase(
+            PropertyGroupComparisonTestCase(
                 "isNotNull(properties.key)",
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
                 {"hogql_val_0": "key"},
@@ -432,7 +432,7 @@ class TestPrinter(BaseTest):
             if condition(node):
                 return node
             else:
-                for child in node["Plans"]:
+                for child in node.get("Plans", []):
                     result = find_node(child, condition)
                     if result is not None:
                         return result
@@ -446,18 +446,20 @@ class TestPrinter(BaseTest):
                 ),
             )
             printed_expr = self._expr(case.input_expression, context)
-            self.assertEqual(printed_expr, case.output_printed_query)
-            self.assertDictContainsSubset(case.output_context_values, context.values)
+            self.assertEqual(printed_expr, case.expected_printed_query)
+            self.assertDictContainsSubset(case.expected_context_values, context.values)
 
             [[raw_explain_result]] = sync_execute(
                 f"EXPLAIN indexes = 1, json = 1 SELECT count() FROM events WHERE {printed_expr}",
                 context.values,
             )
-            plan = json.loads(raw_explain_result)[0]["Plan"]
-            read_from_merge_tree = find_node(plan, condition=lambda node: node["Node Type"] == "ReadFromMergeTree")
+            read_from_merge_tree_step = find_node(
+                json.loads(raw_explain_result)[0]["Plan"],
+                condition=lambda node: node["Node Type"] == "ReadFromMergeTree",
+            )
             self.assertTrue(
                 case.expected_skip_indexes_used.issubset(
-                    {index["Name"] for index in read_from_merge_tree.get("Indexes", []) if index["Type"] == "Skip"}
+                    {index["Name"] for index in read_from_merge_tree_step.get("Indexes", []) if index["Type"] == "Skip"}
                 ),
             )
 
