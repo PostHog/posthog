@@ -237,7 +237,7 @@ class SessionRecordingListFromFilters:
         #         )
         #     )
 
-        if self._filter.console_log_filters:
+        if self._filter.console_log_filters.values:
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
