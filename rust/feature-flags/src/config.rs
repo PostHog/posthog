@@ -57,11 +57,11 @@ mod tests {
         );
         assert_eq!(
             config.write_database_url,
-            "postgres://posthog:posthog@localhost:5432/test_posthog"
+            "postgres://posthog:posthog@localhost:5432/posthog"
         );
         assert_eq!(
             config.read_database_url,
-            "postgres://posthog:posthog@localhost:5432/test_posthog"
+            "postgres://posthog:posthog@localhost:5432/posthog"
         );
         assert_eq!(config.max_concurrent_jobs, 1024);
         assert_eq!(config.max_pg_connections, 100);
