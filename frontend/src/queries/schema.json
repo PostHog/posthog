@@ -1703,6 +1703,7 @@
                     "type": "string"
                 },
                 "hasMore": {
+                    "description": "Wether more breakdown values are available.",
                     "type": "boolean"
                 },
                 "hogql": {
@@ -7507,6 +7508,7 @@
                             "type": "string"
                         },
                         "hasMore": {
+                            "description": "Wether more breakdown values are available.",
                             "type": "boolean"
                         },
                         "hogql": {
@@ -9151,6 +9153,7 @@
                     "type": "string"
                 },
                 "hasMore": {
+                    "description": "Wether more breakdown values are available.",
                     "type": "boolean"
                 },
                 "hogql": {
