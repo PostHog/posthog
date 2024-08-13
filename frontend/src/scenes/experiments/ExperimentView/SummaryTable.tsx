@@ -6,7 +6,7 @@ import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
-import { FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
+import { _FunnelExperimentResults, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
@@ -88,13 +88,68 @@ export function SummaryTable(): JSX.Element {
             title: 'Conversion rate',
             render: function Key(_, item): JSX.Element {
                 const conversionRate = conversionRateForVariant(experimentResults, item.key)
-                return (
-                    <div className="font-semibold">
-                        {conversionRate === '--' ? conversionRate : `${conversionRate}%`}
-                    </div>
-                )
+                if (!conversionRate) {
+                    return <>—</>
+                }
+
+                return <div className="font-semibold">{`${conversionRate.toFixed(2)}%`}</div>
             },
-        })
+        }),
+            columns.push({
+                key: 'delta',
+                title: (
+                    <div className="inline-flex items-center space-x-1">
+                        <div className="">Delta %</div>
+                        <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
+                            <IconInfo className="text-muted-alt text-base" />
+                        </Tooltip>
+                    </div>
+                ),
+                render: function Key(_, item): JSX.Element {
+                    if (item.key === 'control') {
+                        return <em>Baseline</em>
+                    }
+
+                    const controlConversionRate = conversionRateForVariant(experimentResults, 'control')
+                    const variantConversionRate = conversionRateForVariant(experimentResults, item.key)
+
+                    if (!controlConversionRate || !variantConversionRate) {
+                        return <>—</>
+                    }
+
+                    const delta = variantConversionRate - controlConversionRate
+
+                    return (
+                        <div
+                            className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}
+                        >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
+                    )
+                },
+            }),
+            columns.push({
+                key: 'credibleInterval',
+                title: (
+                    <div className="inline-flex items-center space-x-1">
+                        <div className="">Credible interval (95%)</div>
+                        <Tooltip title="A credible interval represents a range within which we believe the true parameter value lies with a certain probability (often 95%), based on the posterior distribution derived from the observed data and our prior beliefs.">
+                            <IconInfo className="text-muted-alt text-base" />
+                        </Tooltip>
+                    </div>
+                ),
+                render: function Key(_, item): JSX.Element {
+                    const credibleInterval = (experimentResults as _FunnelExperimentResults)?.credible_intervals?.[
+                        item.key
+                    ]
+                    if (!credibleInterval) {
+                        return <>—</>
+                    }
+
+                    const lowerBound = (credibleInterval[0] * 100).toFixed(2)
+                    const upperBound = (credibleInterval[1] * 100).toFixed(2)
+
+                    return <div className="font-semibold">{`[${lowerBound}%, ${upperBound}%]`}</div>
+                },
+            })
     }
 
     columns.push({
@@ -122,7 +177,7 @@ export function SummaryTable(): JSX.Element {
                             </span>
                         </span>
                     ) : (
-                        '--'
+                        '—'
                     )}
                 </>
             )

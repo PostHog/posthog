@@ -201,7 +201,7 @@ def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[
         columns[column_name] = {
             "data_type": "decimal",
             "precision": numeric_precision or 76,
-            "scale": numeric_scale or 16,
+            "scale": numeric_scale or 32,
         }
 
     return columns

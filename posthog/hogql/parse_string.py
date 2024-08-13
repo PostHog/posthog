@@ -53,4 +53,5 @@ def parse_string_text_ctx(ctx: ParserRuleContext, escape_quotes=True) -> str:
     if escape_quotes:
         text = text.replace("''", "'")
         text = text.replace("\\'", "'")
+    text = text.replace("\\{", "{")
     return replace_common_escape_characters(text)

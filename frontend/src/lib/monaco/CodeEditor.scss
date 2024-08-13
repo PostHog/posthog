@@ -2,6 +2,11 @@
     display: block !important;
 }
 
+.editor-wrapper .monaco-editor,
+.editor-wrapper .overflow-guard {
+    border-radius: 0;
+}
+
 .monaco-editor .suggest-widget .monaco-list .monaco-list-row > .contents > .main > .left > .signature-label {
     width: 100%;
     text-align: right;
@@ -10,6 +15,11 @@
 .CodeEditorResizeable,
 .CodeEditorInline {
     .monaco-editor {
+        /* stylelint-disable custom-property-pattern */
+        --vscode-textLink-foreground: transparent;
+        --vscode-focusBorder: transparent;
+        /* stylelint-enable custom-property-pattern */
+
         border-radius: var(--radius);
 
         .overflow-guard {

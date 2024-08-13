@@ -334,6 +334,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
 }
 
@@ -2269,6 +2270,7 @@ export interface RetentionFilterType extends FilterType {
 
     //frontend only
     show_mean?: boolean
+    cumulative?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -3183,6 +3185,7 @@ export interface _FunnelExperimentResults extends BaseExperimentResults {
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface TrendsExperimentResults {
@@ -3316,26 +3319,34 @@ export interface DateMappingOption {
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
     key: string | number | [scene: Scene, key: string | number]
-    /** Name to display. */
-    name: string | null | undefined
-    /** Symbol, e.g. a lettermark or a profile picture. */
-    symbol?: React.ReactNode
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     /** Path to link to. */
     path?: string
     onRename?: never
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
     onRename?: (newName: string) => Promise<void>
     /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
     forceEditMode?: boolean
 }
-export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
+interface SymbolBreadcrumb extends BreadcrumbBase {
+    name?: never
+    /** Symbol, e.g. a lettermark or a profile picture. */
+    symbol: React.ReactElement
+    path?: never
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb
 
 export enum GraphType {
     Bar = 'bar',
@@ -3500,6 +3511,12 @@ export enum DateOperatorType {
     Before = 'before',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+}
+
+export enum SingleFieldDateType {
+    IsDateExact = 'is_date_exact',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
 }
 
 export enum ValueOptionType {
@@ -4259,7 +4276,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4325,14 +4342,8 @@ export enum HogWatcherState {
 
 export type HogFunctionStatus = {
     state: HogWatcherState
-    states: {
-        timestamp: number
-        state: HogWatcherState
-    }[]
-    ratings: {
-        timestamp: number
-        rating: number
-    }[]
+    rating: number
+    tokens: number
 }
 
 export type HogFunctionInvocationGlobals = {

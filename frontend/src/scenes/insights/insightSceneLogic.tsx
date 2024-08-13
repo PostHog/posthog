@@ -1,14 +1,14 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -16,18 +16,31 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { Node } from '~/queries/schema'
+import { isInsightVizNode } from '~/queries/utils'
+import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
 
-import { insightDataLogic } from './insightDataLogic'
+import { getDefaultQuery, insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { summarizeInsight } from './summarizeInsight'
+import { compareFilters } from './utils/compareFilters'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['disableNavigationHooks']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            sceneLogic,
+            ['activeScene'],
+            preflightLogic,
+            ['disableNavigationHooks'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+        ],
     })),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -45,6 +58,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             logic,
             unmount,
         }),
+        setOpenedWithQuery: (query: Node | null) => ({ query }),
     }),
     reducers({
         insightId: [
@@ -84,6 +98,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setInsightDataLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
+        openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
     }),
     selectors(() => ({
         legacyInsightSelector: [
@@ -186,7 +201,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
             { dashboard, ...searchParams }, // search params
-            { filters: _filters, q }, // hash params
+            { insight: insightType, q }, // hash params
             { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
@@ -222,12 +237,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 actions.setSceneState(insightId, insightMode, itemId)
             }
 
-            // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
-            const filters: Partial<FilterType> | null =
-                Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
+            let query: Node | null = null
+            if (q) {
+                query = JSON.parse(q)
+            } else if (insightType && Object.values(InsightType).includes(insightType)) {
+                query = getDefaultQuery(insightType, values.filterTestAccountsDefault)
+            }
 
-            // Redirect to a simple URL if we had filters in the URL
-            if (filters || q) {
+            // Redirect to a simple URL if we had a query in the URL
+            if (q || insightType) {
                 router.actions.replace(
                     insightId === 'new'
                         ? urls.insightNew(undefined, dashboard)
@@ -238,15 +256,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             // reset the insight's state if we have to
-            if (initial || method === 'PUSH' || filters || q) {
+            if (initial || method === 'PUSH' || query) {
                 if (insightId === 'new') {
                     const teamFilterTestAccounts = values.currentTeam?.test_account_filters_default_checked || false
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight('new', teamFilterTestAccounts),
-                            ...(filters ? { filters: cleanFilters(filters || {}, teamFilterTestAccounts) } : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
-                            ...(q ? { query: JSON.parse(q) } : {}),
+                            ...(query ? { query } : {}),
                         },
                         {
                             fromPersistentApi: false,
@@ -254,13 +271,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         }
                     )
 
-                    eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                }
-            }
+                    actions.setOpenedWithQuery(query || null)
 
-            // show a warning toast if opened `/edit#filters={...}`
-            if (filters && insightMode === ItemMode.Edit && insightId !== 'new') {
-                lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
+                    eventUsageLogic.actions.reportInsightCreated(query)
+                }
             }
         },
     })),
@@ -284,7 +298,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightMode: actionToUrl,
         }
     }),
-    beforeUnload(({ values }) => ({
+    beforeUnload(({ values, props }) => ({
         enabled: (newLocation?: CombinedLocation) => {
             // safeguard against running this check on other scenes
             if (values.activeScene !== Scene.Insight) {
@@ -295,15 +309,51 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
-            // If just the hash changes, don't show the prompt
-            if (router.values.currentLocation.pathname === newLocation?.pathname) {
+            // If just the hash or project part changes, don't show the prompt
+            const currentPathname = router.values.currentLocation.pathname.replace(/\/project\/\d+/, '')
+            const newPathname = newLocation?.pathname.replace(/\/project\/\d+/, '')
+            if (currentPathname === newPathname) {
                 return false
             }
 
+            let newInsightEdited = false
+            if (props.dashboardItemId === 'new') {
+                const startingQuery =
+                    values.openedWithQuery || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
+                const currentQuery = values.insightDataLogicRef?.logic.values.query
+
+                if (isInsightVizNode(startingQuery) && isInsightVizNode(currentQuery)) {
+                    // TODO: This shouldn't be necessary after we have removed the `cleanFilters` function.
+                    // Currently this causes "default" properties to be set on the query.
+                    const startingFilters = queryNodeToFilter(startingQuery.source)
+                    const currentFilters = queryNodeToFilter(currentQuery.source)
+
+                    if (
+                        currentFilters.filter_test_accounts === false &&
+                        currentFilters.filter_test_accounts === values.filterTestAccountsDefault
+                    ) {
+                        delete currentFilters.filter_test_accounts
+                    }
+
+                    newInsightEdited = !compareFilters(
+                        startingFilters,
+                        currentFilters,
+                        values.filterTestAccountsDefault
+                    )
+                } else if (!isInsightVizNode(startingQuery) && !isInsightVizNode(currentQuery)) {
+                    newInsightEdited = !objectsEqual(startingQuery, currentQuery)
+                } else {
+                    newInsightEdited = true
+                }
+            }
+
+            const insightMetadataEdited = !!values.insightLogicRef?.logic.values.insightChanged
+            const savedInsightEdited =
+                props.dashboardItemId !== 'new' && !!values.insightDataLogicRef?.logic.values.queryChanged
+
             return (
                 values.insightMode === ItemMode.Edit &&
-                (!!values.insightLogicRef?.logic.values.insightChanged ||
-                    !!values.insightDataLogicRef?.logic.values.queryChanged)
+                (insightMetadataEdited || savedInsightEdited || newInsightEdited)
             )
         },
         message: 'Leave insight?\nChanges you made will be discarded.',

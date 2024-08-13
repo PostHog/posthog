@@ -172,7 +172,10 @@ export type HogFunctionAsyncFunctionResponse = {
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
     /** The data to be passed to the Hog function from the response */
-    response: any
+    response?: {
+        status: number
+        body: any
+    } | null
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
 }
