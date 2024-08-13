@@ -49,7 +49,6 @@ import {
     FunnelCorrelation,
     HelpType,
     InsightShortId,
-    InsightType,
     MultipleSurveyQuestion,
     PersonType,
     PropertyFilterType,
