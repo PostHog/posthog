@@ -8,8 +8,6 @@ import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture
 import { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { NotebookNodeType } from '~/types'
-
 import { asDisplay, asLink } from './person-utils'
 import { PersonPreview } from './PersonPreview'
 
@@ -83,19 +81,6 @@ export function PersonDisplay({
                               router.actions.push(href)
                           } else {
                               setVisible(true)
-
-                              if (notebookNode && person) {
-                                  notebookNode.actions.updateAttributes({
-                                      children: [
-                                          {
-                                              type: NotebookNodeType.Person,
-                                              attrs: {
-                                                  id: person.distinct_id || person.distinct_ids?.[0],
-                                              },
-                                          },
-                                      ],
-                                  })
-                              }
                           }
                       }
                     : undefined
@@ -107,7 +92,7 @@ export function PersonDisplay({
                 <Link
                     to={href}
                     onClick={(e) => {
-                        if (!noPopover) {
+                        if (!noPopover && !notebookNode) {
                             e.preventDefault()
                             return
                         }
@@ -134,8 +119,8 @@ export function PersonDisplay({
                 }
                 visible={visible}
                 onClickOutside={() => setVisible(false)}
-                placement="right"
-                fallbackPlacements={['bottom', 'top']}
+                placement="top"
+                fallbackPlacements={['bottom', 'right']}
                 showArrow
             >
                 {content}

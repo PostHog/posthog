@@ -147,7 +147,7 @@ const errorTrackingGroupQueryResponse = {
                 person: {
                     created_at: '2024-04-05T21:14:16.048000Z',
                     distinct_id: 'BTQiT390vxwlLeDSwZAZpXC7r7bkNc3TQuhobit0oj7',
-                    properties: JSON.stringify({ email: 'test@example.com' }),
+                    properties: { email: 'test@example.com' },
                     uuid: 'person_uuid',
                 },
             })),

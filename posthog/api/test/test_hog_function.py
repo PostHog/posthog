@@ -1,12 +1,12 @@
 import json
-from typing import Optional
+from typing import Any, Optional
 from unittest.mock import ANY, patch
 
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -167,7 +167,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {"bytecode": ["_h", 29]},
             "icon_url": None,
             "template": None,
-            "status": {"ratings": [], "state": 0, "states": []},
+            "status": {"rating": 0, "state": 0, "tokens": 0},
         }
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
@@ -484,7 +484,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_loads_status_when_enabled_and_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             mock_get.return_value.status_code = status.HTTP_200_OK
-            mock_get.return_value.json.return_value = {"state": 1, "states": [], "ratings": []}
+            mock_get.return_value.json.return_value = {"state": 1, "tokens": 0, "rating": 0}
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
@@ -499,7 +499,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_201_CREATED, response.json()
 
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
-            assert response.json()["status"] == {"state": 1, "states": [], "ratings": []}
+            assert response.json()["status"] == {"state": 1, "tokens": 0, "rating": 0}
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_does_not_crash_when_status_not_available(self, *args):
@@ -519,14 +519,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
-            assert response.json()["status"] == {"ratings": [], "state": 0, "states": []}
+            assert response.json()["status"] == DEFAULT_STATE
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_patches_status_on_enabled_update(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
                 mock_get.return_value.status_code = status.HTTP_200_OK
-                mock_get.return_value.json.return_value = {"state": 4, "states": [], "ratings": []}
+                mock_get.return_value.json.return_value = {"state": 4, "tokens": 0, "rating": 0}
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
@@ -552,3 +552,62 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
                     json={"state": 2},
                 )
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_list_with_filters_filter(self, *args):
+        action1 = Action.objects.create(
+            team=self.team,
+            name="test action",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        action2 = Action.objects.create(
+            team=self.team,
+            name="test action",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ]
+        self.team.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "actions": [
+                        {"id": f"{action1.id}", "name": "Test Action", "type": "actions", "order": 1},
+                        {"id": f"{action2.id}", "name": "Test Action 2", "type": "actions", "order": 1},
+                    ],
+                    "filter_test_accounts": True,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        filters: Any = {"filter_test_accounts": True}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 1
+
+        filters = {"filter_test_accounts": False}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 0
+
+        filters = {"actions": [{"id": f"other"}]}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 0
+
+        filters = {"actions": [{"id": f"{action1.id}"}]}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 1
+
+        filters = {"actions": [{"id": f"{action2.id}"}]}
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 1

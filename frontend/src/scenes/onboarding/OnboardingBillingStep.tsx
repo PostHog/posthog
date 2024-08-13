@@ -24,7 +24,7 @@ export const OnboardingBillingStep = ({
     product: BillingProductV2Type
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, billingLoading } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
@@ -37,7 +37,7 @@ export const OnboardingBillingStep = ({
             showSkip={!product.subscribed}
             stepKey={stepKey}
             continueOverride={
-                product?.subscribed ? undefined : (
+                product?.subscribed && !billingLoading ? undefined : (
                     <BillingUpgradeCTA
                         // TODO: redirect path won't work properly until navigation is properly set up
                         to={getUpgradeProductLink({
@@ -48,6 +48,7 @@ export const OnboardingBillingStep = ({
                         type="primary"
                         status="alt"
                         center
+                        disabledReason={billingLoading && 'Please wait...'}
                         disableClientSideRouting
                         onClick={() => {
                             reportBillingUpgradeClicked(product.type)
@@ -59,7 +60,7 @@ export const OnboardingBillingStep = ({
                 )
             }
         >
-            {billing?.products && productKey && product ? (
+            {billing?.products && productKey && product && !billingLoading ? (
                 <div className="mt-6">
                     {product.subscribed && (
                         <div className="mb-8">
@@ -97,7 +98,9 @@ export const OnboardingBillingStep = ({
                     )}
                 </div>
             ) : (
-                <Spinner className="text-lg" />
+                <div className="flex items-center justify-center my-20">
+                    <Spinner className="text-2xl text-muted w-10 h-10" />
+                </div>
             )}
         </OnboardingStep>
     )

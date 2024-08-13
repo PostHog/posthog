@@ -306,6 +306,7 @@ export function cleanFilters(
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
             show_mean: filters.show_mean,
+            cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }

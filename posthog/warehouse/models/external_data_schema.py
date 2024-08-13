@@ -1,17 +1,27 @@
 from collections import defaultdict
+from datetime import timedelta
 from typing import Optional
 from django.db import models
+from django_deprecate_fields import deprecate_field
 import snowflake.connector
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
+from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
 import psycopg2
+import pymysql
+from .external_data_source import ExternalDataSource
+from posthog.warehouse.data_load.service import (
+    external_data_workflow_exists,
+    pause_external_data_schedule,
+    sync_external_data_job_workflow,
+    unpause_external_data_schedule,
+)
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
 
 
-class ExternalDataSchema(CreatedMetaFields, UUIDModel):
+class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -47,8 +57,12 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
         default=dict,
         blank=True,
     )
-    sync_frequency: models.CharField = models.CharField(
-        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True
+    # Deprecated in favour of `sync_frequency_interval`
+    sync_frequency = deprecate_field(
+        models.CharField(max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True)
+    )
+    sync_frequency_interval: models.DurationField = models.DurationField(
+        default=timedelta(hours=6), null=True, blank=True
     )
 
     __repr__ = sane_repr("name")
@@ -79,6 +93,26 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 
 
 @database_sync_to_async
+def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    schema.should_sync = should_sync
+    schema.save()
+
+    schedule_exists = external_data_workflow_exists(schema_id)
+
+    if schedule_exists:
+        if should_sync is False:
+            pause_external_data_schedule(schema_id)
+        elif should_sync is True:
+            unpause_external_data_schedule(schema_id)
+    else:
+        if should_sync is True:
+            sync_external_data_job_workflow(schema, create=True)
+
+    return schema
+
+
+@database_sync_to_async
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
     return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).all())
 
@@ -95,6 +129,48 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
 
     for schema in schemas_to_create:
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
+
+
+def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta:
+    if frequency == "5min":
+        return timedelta(minutes=5)
+    if frequency == "30min":
+        return timedelta(minutes=30)
+    if frequency == "1hour":
+        return timedelta(hours=1)
+    if frequency == "6hour":
+        return timedelta(hours=6)
+    if frequency == "12hour":
+        return timedelta(hours=12)
+    if frequency == "24hour":
+        return timedelta(hours=24)
+    if frequency == "7day":
+        return timedelta(days=7)
+    if frequency == "30day":
+        return timedelta(days=30)
+
+    raise ValueError(f"Frequency {frequency} is not supported")
+
+
+def sync_frequency_interval_to_sync_frequency(schema: ExternalDataSchema) -> str:
+    if schema.sync_frequency_interval == timedelta(minutes=5):
+        return "5min"
+    if schema.sync_frequency_interval == timedelta(minutes=30):
+        return "30min"
+    if schema.sync_frequency_interval == timedelta(hours=1):
+        return "1hour"
+    if schema.sync_frequency_interval == timedelta(hours=6):
+        return "6hour"
+    if schema.sync_frequency_interval == timedelta(hours=12):
+        return "12hour"
+    if schema.sync_frequency_interval == timedelta(hours=24):
+        return "24hour"
+    if schema.sync_frequency_interval == timedelta(days=7):
+        return "7day"
+    if schema.sync_frequency_interval == timedelta(days=30):
+        return "30day"
+
+    raise ValueError(f"Frequency interval {schema.sync_frequency_interval} is not supported")
 
 
 def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -196,3 +272,83 @@ def get_postgres_schemas(
             return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
 
     return get_schemas(host, int(port))
+
+
+def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type.startswith("timestamp"):
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "datetime":
+            results.append((column_name, IncrementalFieldType.DateTime))
+        elif type == "tinyint" or type == "smallint" or type == "mediumint" or type == "int" or type == "bigint":
+            results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
+
+
+def get_mysql_schemas(
+    host: str,
+    port: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    ssh_tunnel: SSHTunnel,
+) -> dict[str, list[tuple[str, str]]]:
+    def get_schemas(mysql_host: str, mysql_port: int):
+        connection = pymysql.connect(
+            host=mysql_host,
+            port=mysql_port,
+            database=database,
+            user=user,
+            password=password,
+            connect_timeout=5,
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": schema},
+            )
+            result = cursor.fetchall()
+
+            schema_list = defaultdict(list)
+            for row in result:
+                schema_list[row[0]].append((row[1], row[2]))
+
+        connection.close()
+
+        return schema_list
+
+    if ssh_tunnel.enabled:
+        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return get_schemas(host, int(port))
+
+
+def get_sql_schemas_for_source_type(
+    source_type: ExternalDataSource.Type,
+    host: str,
+    port: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    ssh_tunnel: SSHTunnel,
+) -> dict[str, list[tuple[str, str]]]:
+    if source_type == ExternalDataSource.Type.POSTGRES:
+        schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+    elif source_type == ExternalDataSource.Type.MYSQL:
+        schemas = get_mysql_schemas(host, port, database, user, password, schema, ssh_tunnel)
+    else:
+        raise Exception("Unsupported source_type")
+
+    return schemas

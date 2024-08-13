@@ -80,7 +80,7 @@ export function DatabaseTables<T extends DatabaseSchemaTable>({
                                       const query = defaultQuery(table as string, Object.values(obj.fields))
                                       return (
                                           <div className="flex">
-                                              <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                              <Link to={urls.insightNew(undefined, undefined, query)}>
                                                   <code>{table}</code>
                                               </Link>
                                           </div>

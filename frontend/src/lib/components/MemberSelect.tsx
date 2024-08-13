@@ -1,4 +1,4 @@
-import { LemonButton, LemonDropdown, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonDropdownProps, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { fullName } from 'lib/utils'
 import { useEffect, useMemo, useState } from 'react'
@@ -9,11 +9,12 @@ import { UserBasicType } from '~/types'
 export type MemberSelectProps = {
     defaultLabel?: string
     // NOTE: Trying to cover a lot of different cases - if string we assume uuid, if number we assume id
-    value: UserBasicType | string | number | null
+    value: string | number | null
     onChange: (value: UserBasicType | null) => void
+    children?: (selectedUser: UserBasicType | null) => LemonDropdownProps['children']
 }
 
-export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: MemberSelectProps): JSX.Element {
+export function MemberSelect({ defaultLabel = 'Any user', value, onChange, children }: MemberSelectProps): JSX.Element {
     const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -22,11 +23,8 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
         if (!value) {
             return null
         }
-        if (typeof value === 'string' || typeof value === 'number') {
-            const propToCompare = typeof value === 'string' ? 'uuid' : 'id'
-            return meFirstMembers.find((member) => member.user[propToCompare] === value)?.user ?? `${value}`
-        }
-        return value
+        const propToCompare = typeof value === 'string' ? 'uuid' : 'id'
+        return meFirstMembers.find((member) => member.user[propToCompare] === value)?.user ?? null
     }, [value, meFirstMembers])
 
     const _onChange = (value: UserBasicType | null): void => {
@@ -94,18 +92,20 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
                 </div>
             }
         >
-            <LemonButton size="small" type="secondary">
-                {typeof selectedMemberAsUser === 'string' ? (
-                    selectedMemberAsUser
-                ) : selectedMemberAsUser ? (
-                    <span>
-                        {fullName(selectedMemberAsUser)}
-                        {meFirstMembers[0].user.uuid === selectedMemberAsUser.uuid ? ` (you)` : ''}
-                    </span>
-                ) : (
-                    defaultLabel
-                )}
-            </LemonButton>
+            {children ? (
+                children(selectedMemberAsUser)
+            ) : (
+                <LemonButton size="small" type="secondary">
+                    {selectedMemberAsUser ? (
+                        <span>
+                            {fullName(selectedMemberAsUser)}
+                            {meFirstMembers[0].user.uuid === selectedMemberAsUser.uuid ? ` (you)` : ''}
+                        </span>
+                    ) : (
+                        defaultLabel
+                    )}
+                </LemonButton>
+            )}
         </LemonDropdown>
     )
 }

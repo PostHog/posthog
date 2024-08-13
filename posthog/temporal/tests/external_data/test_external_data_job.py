@@ -264,6 +264,99 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_update_external_job_activity_with_retryable_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await sync_to_async(create_external_data_job)(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        id=str(new_job.id),
+        run_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error="Some other retryable error",
+        schema_id=str(schema.pk),
+        team_id=team.id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert new_job.status == ExternalDataJob.Status.COMPLETED
+    assert schema.status == ExternalDataJob.Status.COMPLETED
+    assert schema.should_sync is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_non_retryable_error(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await sync_to_async(create_external_data_job)(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        id=str(new_job.id),
+        run_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error="NoSuchTableError: TableA",
+        schema_id=str(schema.pk),
+        team_id=team.id,
+    )
+    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert new_job.status == ExternalDataJob.Status.COMPLETED
+    assert schema.status == ExternalDataJob.Status.COMPLETED
+    assert schema.should_sync is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
     async def setup_job_1():
         new_source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -383,6 +476,16 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
+    def mock_to_object_store_rs_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     with (
         mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
@@ -397,6 +500,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             return_value={"clickhouse": {"id": "string", "name": "string"}},
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
@@ -407,7 +511,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/"
         )
 
-        assert len(job_1_customer_objects["Contents"]) == 2
+        assert len(job_1_customer_objects["Contents"]) == 3
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_charges_paginate),
@@ -423,6 +527,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             return_value={"clickhouse": {"id": "string", "name": "string"}},
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_2_inputs),
@@ -431,7 +536,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
         job_2_charge_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path()}/charge/"
         )
-        assert len(job_2_charge_objects["Contents"]) == 2
+        assert len(job_2_charge_objects["Contents"]) == 3
 
 
 @pytest.mark.django_db(transaction=True)
@@ -493,8 +598,17 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
             "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
             "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
@@ -513,6 +627,7 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
             return_value={"clickhouse": {"id": "string", "name": "string"}},
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
@@ -524,7 +639,7 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
         )
 
         # if job was not canceled, this job would run indefinitely
-        assert len(job_1_customer_objects.get("Contents", [])) == 0
+        assert len(job_1_customer_objects.get("Contents", [])) == 1
 
         await sync_to_async(job_1.refresh_from_db)()
         assert job_1.rows_synced == 0
@@ -599,6 +714,16 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
+    def mock_to_object_store_rs_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     with (
         mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
@@ -613,6 +738,7 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             return_value={"clickhouse": {"id": "string", "name": "string"}},
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
@@ -623,7 +749,7 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             Bucket=BUCKET_NAME, Prefix=f"{folder_path}/customer/"
         )
 
-        assert len(job_1_customer_objects["Contents"]) == 2
+        assert len(job_1_customer_objects["Contents"]) == 3
 
         await sync_to_async(job_1.refresh_from_db)()
         assert job_1.rows_synced == 1
@@ -758,6 +884,16 @@ async def test_run_postgres_job(
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
+    def mock_to_object_store_rs_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
@@ -768,6 +904,7 @@ async def test_run_postgres_job(
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         await asyncio.gather(
             activity_environment.run(import_data_activity, job_1_inputs),
@@ -777,7 +914,7 @@ async def test_run_postgres_job(
         job_1_team_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{folder_path}/posthog_test/"
         )
-        assert len(job_1_team_objects["Contents"]) == 2
+        assert len(job_1_team_objects["Contents"]) == 3
 
 
 @pytest.mark.django_db(transaction=True)

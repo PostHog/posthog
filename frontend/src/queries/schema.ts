@@ -255,6 +255,7 @@ export interface HogQueryResponse {
     bytecode?: any[]
     coloredBytecode?: any[]
     stdout?: string
+    query_status?: never
 }
 
 export interface HogQuery extends DataNode<HogQueryResponse> {
@@ -276,6 +277,7 @@ export interface HogQLMetadataResponse {
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
+    query_status?: never
 }
 
 export interface AutocompleteCompletionItem {
@@ -340,6 +342,7 @@ export interface HogQLAutocompleteResponse {
     incomplete_list: boolean
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    query_status?: never
 }
 
 export enum HogLanguage {
@@ -551,12 +554,45 @@ export interface GoalLine {
 
 export interface ChartAxis {
     column: string
+    settings?: {
+        formatting?: ChartSettingsFormatting
+        display?: ChartSettingsDisplay
+    }
 }
 
-interface ChartSettings {
+export interface ChartSettingsFormatting {
+    prefix?: string
+    suffix?: string
+    style?: 'none' | 'number' | 'percent'
+    decimalPlaces?: number
+}
+
+export interface ChartSettingsDisplay {
+    label?: string
+    trendLine?: boolean
+    yAxisPosition?: 'left' | 'right'
+    displayType?: 'auto' | 'line' | 'bar'
+}
+
+export interface YAxisSettings {
+    scale?: 'linear' | 'logarithmic'
+    /** Whether the Y axis should start at zero */
+    startAtZero?: boolean
+}
+export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
+    /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
+    yAxisAtZero?: boolean
+    leftYAxisSettings?: YAxisSettings
+    rightYAxisSettings?: YAxisSettings
+    /** Whether we fill the bars to 100% in stacked mode */
+    stackBars100?: boolean
+}
+
+export interface TableSettings {
+    columns?: ChartAxis[]
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -564,6 +600,7 @@ export interface DataVisualizationNode extends Node<never> {
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }
 
 interface DataTableNodeViewProps {
@@ -836,6 +873,7 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
+    cumulative?: RetentionFilterLegacy['cumulative']
 }
 
 export interface RetentionValue {
@@ -1010,6 +1048,8 @@ export interface AnalyticsQueryResponseBase<T> {
     error?: string
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
 }
 
 interface CachedQueryResponseMixin {
@@ -1079,9 +1119,11 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     results?: any
-    /**  @format date-time */
+    /** When was the query execution task picked up by a worker. @format date-time */
+    pickup_time?: string
+    /** When was query execution task enqueued. @format date-time */
     start_time?: string
-    /**  @format date-time */
+    /** When did the query execution task finish (whether successfully or not). @format date-time */
     end_time?: string
     /**  @format date-time */
     expiration_time?: string
@@ -1279,7 +1321,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    fingerprint?: string
+    fingerprint?: string[]
     select?: HogQLExpression[]
     eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
@@ -1291,8 +1333,9 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingGroup {
-    fingerprint: string
-    merged_fingerprints: string[]
+    fingerprint: string[]
+    exception_type: string | null
+    merged_fingerprints: string[][]
     occurrences: number
     sessions: number
     users: number

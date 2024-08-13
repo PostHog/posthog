@@ -94,7 +94,7 @@
             },
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
-            "args": ["run_autoreload_celery"],
+            "args": ["run_autoreload_celery", "--type=worker"],
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
@@ -121,7 +121,7 @@
                 "WORKER_CONCURRENCY": "2",
                 "OBJECT_STORAGE_ENABLED": "True",
                 "HOG_HOOK_URL": "http://localhost:3300/hoghook",
-                "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": "*"
+                "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": ""
             },
             "presentation": {
                 "group": "main"

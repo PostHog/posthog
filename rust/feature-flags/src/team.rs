@@ -2,18 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::{
-    api::FlagError,
-    redis::{Client, CustomRedisError},
-};
+use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
-    pub id: i64,
+    pub id: i32,
     pub name: String,
     pub api_token: String,
 }
@@ -23,24 +20,13 @@ impl Team {
 
     #[instrument(skip_all)]
     pub async fn from_redis(
-        client: Arc<dyn Client + Send + Sync>,
+        client: Arc<dyn RedisClient + Send + Sync>,
         token: String,
     ) -> Result<Team, FlagError> {
-        // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
+        // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
             .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
-            .await
-            .map_err(|e| match e {
-                CustomRedisError::NotFound => FlagError::TokenValidationError,
-                CustomRedisError::PickleError(_) => {
-                    tracing::error!("failed to fetch data: {}", e);
-                    FlagError::DataParsingError
-                }
-                _ => {
-                    tracing::error!("Unknown redis error: {}", e);
-                    FlagError::RedisUnavailable
-                }
-            })?;
+            .await?;
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
         let team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
@@ -49,6 +35,45 @@ impl Team {
         })?;
 
         Ok(team)
+    }
+
+    #[instrument(skip_all)]
+    pub async fn update_redis_cache(
+        client: Arc<dyn RedisClient + Send + Sync>,
+        team: Team,
+    ) -> Result<(), FlagError> {
+        let serialized_team = serde_json::to_string(&team).map_err(|e| {
+            tracing::error!("Failed to serialize team: {}", e);
+            FlagError::DataParsingError
+        })?;
+
+        client
+            .set(
+                format!("{TEAM_TOKEN_CACHE_PREFIX}{}", team.api_token),
+                serialized_team,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update Redis cache: {}", e);
+                FlagError::CacheUpdateError
+            })?;
+
+        Ok(())
+    }
+
+    pub async fn from_pg(
+        client: Arc<dyn DatabaseClient + Send + Sync>,
+        token: String,
+    ) -> Result<Team, FlagError> {
+        let mut conn = client.get_connection().await?;
+
+        let query = "SELECT id, name, api_token FROM posthog_team WHERE api_token = $1";
+        let row = sqlx::query_as::<_, Team>(query)
+            .bind(&token)
+            .fetch_one(&mut *conn)
+            .await?;
+
+        Ok(row)
     }
 }
 
@@ -60,14 +85,19 @@ mod tests {
     use super::*;
     use crate::{
         team,
-        test_utils::{insert_new_team_in_redis, random_string, setup_redis_client},
+        test_utils::{
+            insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_client,
+            setup_redis_client,
+        },
     };
 
     #[tokio::test]
     async fn test_fetch_team_from_redis() {
         let client = setup_redis_client(None);
 
-        let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+        let team = insert_new_team_in_redis(client.clone())
+            .await
+            .expect("Failed to insert team in redis");
 
         let target_token = team.api_token;
 
@@ -137,4 +167,39 @@ mod tests {
             Ok(_) => panic!("Expected DataParsingError"),
         };
     }
+
+    #[tokio::test]
+    async fn test_fetch_team_from_pg() {
+        let client = setup_pg_client(None).await;
+
+        let team = insert_new_team_in_pg(client.clone())
+            .await
+            .expect("Failed to insert team in pg");
+
+        let target_token = team.api_token;
+
+        let team_from_pg = Team::from_pg(client.clone(), target_token.clone())
+            .await
+            .expect("Failed to fetch team from pg");
+
+        assert_eq!(team_from_pg.api_token, target_token);
+        assert_eq!(team_from_pg.id, team.id);
+        assert_eq!(team_from_pg.name, team.name);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_from_pg_with_invalid_token() {
+        // TODO: Figure out a way such that `run_database_migrations` is called only once, and already called
+        // before running these tests.
+
+        let client = setup_pg_client(None).await;
+        let target_token = "xxxx".to_string();
+
+        match Team::from_pg(client.clone(), target_token.clone()).await {
+            Err(FlagError::TokenValidationError) => (),
+            _ => panic!("Expected TokenValidationError"),
+        };
+    }
+
+    // TODO: Handle cases where db connection fails.
 }
