@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use cyclotron_core::{
-    base_ops::{JobInit, JobState, WaitingOn},
+    base_ops::{JobInit, JobState},
     manager::{ManagerConfig, QueueManager},
     worker::Worker,
     PoolConfig,
@@ -34,7 +34,6 @@ async fn main() {
     loop {
         let test_job = JobInit {
             team_id: 1,
-            waiting_on: WaitingOn::Fetch,
             queue_name: "default".to_string(),
             priority: 0,
             scheduled: now,
@@ -51,10 +50,7 @@ async fn main() {
         manager.create_job(test_job).await.unwrap();
         manager.create_job(test_job_2).await.unwrap();
 
-        let jobs = worker
-            .dequeue_jobs("default", WaitingOn::Fetch, 2)
-            .await
-            .unwrap();
+        let jobs = worker.dequeue_jobs("default", 2).await.unwrap();
 
         assert!(jobs.len() == 2);
         assert!(jobs[0].priority == 0);
@@ -74,10 +70,7 @@ async fn main() {
         worker.flush_job(jobs[0].id).await.unwrap();
         worker.flush_job(jobs[1].id).await.unwrap();
 
-        let jobs = worker
-            .dequeue_with_vm_state("default", WaitingOn::Fetch, 2)
-            .await
-            .unwrap();
+        let jobs = worker.dequeue_with_vm_state("default", 2).await.unwrap();
 
         assert!(jobs.len() == 2);
         // Assert our priority re-ordering was respected

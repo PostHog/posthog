@@ -1,27 +1,27 @@
-const assert = require('assert');
-const cyclotron = require('../.');
-const crypto = require('crypto');
+const assert = require('assert')
+const cyclotron = require('../.')
+const crypto = require('crypto')
 
 // Set of available job states
 const JOB_STATES = Object.freeze({
-    AVAILABLE: "available",
-    RUNNING: "running",
-    FAILED: "failed",
-    COMPLETED: "completed",
-});
+    AVAILABLE: 'available',
+    RUNNING: 'running',
+    FAILED: 'failed',
+    COMPLETED: 'completed',
+})
 
 const AVAILABLE_WORKERS = Object.freeze({
-    FETCH: "fetch",
-    HOG: "hog",
-});
+    FETCH: 'fetch',
+    HOG: 'hog',
+})
 
 async function main() {
     let poolConfig = {
-        db_url: "postgresql://posthog:posthog@localhost:5432/cyclotron",
+        db_url: 'postgresql://posthog:posthog@localhost:5432/cyclotron',
     }
 
     let managerConfig = {
-        shards: [poolConfig]
+        shards: [poolConfig],
     }
 
     // Most processes will only need to do one of these, but we can do both here for demonstration purposes
@@ -34,30 +34,28 @@ async function main() {
     await cyclotron.maybe_init_manager(JSON.stringify(managerConfig))
 
     let five_mintes_ago = new Date(new Date().getTime() - 5 * 60000).toISOString()
-    let queue_name = "default"
+    let queue_name = 'default'
 
     let job_1 = {
         team_id: 1,
-        waiting_on: AVAILABLE_WORKERS.FETCH,
-        queue_name: queue_name,
+        queue_name,
         priority: 0,
         scheduled: five_mintes_ago,
         function_id: crypto.randomUUID(), // Is nullable
         vm_state: null,
         parameters: null,
-        metadata: null
+        metadata: null,
     }
 
     let job_2 = {
         team_id: 1,
-        waiting_on: AVAILABLE_WORKERS.FETCH,
-        queue_name: queue_name,
+        queue_name,
         priority: 1,
         scheduled: five_mintes_ago,
         function_id: crypto.randomUUID(), // Is nullable
         vm_state: null,
         parameters: null,
-        metadata: null
+        metadata: null,
     }
 
     await cyclotron.create_job(JSON.stringify(job_1))
@@ -81,11 +79,8 @@ async function main() {
     cyclotron.set_state(job_1.id, JOB_STATES.AVAILABLE)
     cyclotron.set_state(job_2.id, JOB_STATES.AVAILABLE)
 
-    cyclotron.set_waiting_on(job_1.id, AVAILABLE_WORKERS.HOG)
-    cyclotron.set_waiting_on(job_2.id, AVAILABLE_WORKERS.HOG)
-
-    cyclotron.set_queue(job_1.id, "non-default")
-    cyclotron.set_queue(job_2.id, "non-default")
+    cyclotron.set_queue(job_1.id, 'non-default')
+    cyclotron.set_queue(job_2.id, 'non-default')
 
     // Priority is lowest-first, so this means we can assert that job_2 will be returned first on subsequent dequeue_jobs
     cyclotron.set_priority(job_1.id, 2)
@@ -95,14 +90,14 @@ async function main() {
     cyclotron.set_scheduled_at(job_1.id, ten_minutes_ago)
     cyclotron.set_scheduled_at(job_2.id, ten_minutes_ago)
 
-    cyclotron.set_vm_state(job_1.id, JSON.stringify({ "state": "running" }))
-    cyclotron.set_vm_state(job_2.id, JSON.stringify({ "state": "running" }))
+    cyclotron.set_vm_state(job_1.id, JSON.stringify({ state: 'running' }))
+    cyclotron.set_vm_state(job_2.id, JSON.stringify({ state: 'running' }))
 
-    cyclotron.set_parameters(job_1.id, JSON.stringify({ "parameters": "running" }))
-    cyclotron.set_parameters(job_2.id, JSON.stringify({ "parameters": "running" }))
+    cyclotron.set_parameters(job_1.id, JSON.stringify({ parameters: 'running' }))
+    cyclotron.set_parameters(job_2.id, JSON.stringify({ parameters: 'running' }))
 
-    cyclotron.set_metadata(job_1.id, JSON.stringify({ "metadata": "running" }))
-    cyclotron.set_metadata(job_2.id, JSON.stringify({ "metadata": "running" }))
+    cyclotron.set_metadata(job_1.id, JSON.stringify({ metadata: 'running' }))
+    cyclotron.set_metadata(job_2.id, JSON.stringify({ metadata: 'running' }))
 
     // Flush the updates queued up above back to the queue. Subsequent calls to flush
     // will throw if a job isn't re-acquired. Flushes will fail if a job state update
@@ -110,7 +105,7 @@ async function main() {
     await cyclotron.flush_job(job_1.id)
     await cyclotron.flush_job(job_2.id)
 
-    jobs = JSON.parse(await cyclotron.dequeue_with_vm_state("non-default", AVAILABLE_WORKERS.HOG, 2))
+    jobs = JSON.parse(await cyclotron.dequeue_with_vm_state('non-default', AVAILABLE_WORKERS.HOG, 2))
 
     assert(jobs[0].id == job_2.id)
     assert(jobs[1].id == job_1.id)
@@ -121,11 +116,8 @@ async function main() {
     assert(jobs[0].team_id === job_2.team_id)
     assert(jobs[1].team_id === job_1.team_id)
 
-    assert(jobs[0].waiting_on === AVAILABLE_WORKERS.HOG)
-    assert(jobs[1].waiting_on === AVAILABLE_WORKERS.HOG)
-
-    assert(jobs[0].queue_name === "non-default")
-    assert(jobs[1].queue_name === "non-default")
+    assert(jobs[0].queue_name === 'non-default')
+    assert(jobs[1].queue_name === 'non-default')
 
     assert(jobs[0].priority === 1)
     assert(jobs[1].priority === 2)
@@ -133,12 +125,12 @@ async function main() {
     assert(jobs[0].scheduled === ten_minutes_ago)
     assert(jobs[1].scheduled === ten_minutes_ago)
 
-    assert(jobs[0].vm_state === JSON.stringify({ "state": "running" }))
-    assert(jobs[1].vm_state === JSON.stringify({ "state": "running" }))
-    assert(jobs[0].parameters === JSON.stringify({ "parameters": "running" }))
-    assert(jobs[1].parameters === JSON.stringify({ "parameters": "running" }))
-    assert(jobs[0].metadata === JSON.stringify({ "metadata": "running" }))
-    assert(jobs[1].metadata === JSON.stringify({ "metadata": "running" }))
+    assert(jobs[0].vm_state === JSON.stringify({ state: 'running' }))
+    assert(jobs[1].vm_state === JSON.stringify({ state: 'running' }))
+    assert(jobs[0].parameters === JSON.stringify({ parameters: 'running' }))
+    assert(jobs[1].parameters === JSON.stringify({ parameters: 'running' }))
+    assert(jobs[0].metadata === JSON.stringify({ metadata: 'running' }))
+    assert(jobs[1].metadata === JSON.stringify({ metadata: 'running' }))
 
     // Now we'll mark these jobs as completed
     cyclotron.set_state(job_1.id, JOB_STATES.COMPLETED)
@@ -147,7 +139,6 @@ async function main() {
     // And flush them back to the queue
     await cyclotron.flush_job(job_1.id)
     await cyclotron.flush_job(job_2.id)
-
 }
 
 main()

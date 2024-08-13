@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use cyclotron_core::{
-    base_ops::{JobInit, JobState, WaitingOn},
+    base_ops::{JobInit, JobState},
     manager::{ManagerConfig, QueueManager},
     worker::Worker,
     PoolConfig,
@@ -178,14 +178,7 @@ fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
 fn dequeue_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let queue_name = cx.argument::<JsString>(0)?.value(&mut cx);
 
-    let arg2: String = cx.argument::<JsString>(1)?.value(&mut cx);
-    let worker_type: WaitingOn = cx
-        .argument::<JsString>(1)?
-        .value(&mut cx)
-        .parse()
-        .or_else(|_| cx.throw_error(format!("invalid worker type: {}", arg2)))?;
-
-    let limit = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize; // TODO - I don't love this cast
+    let limit = cx.argument::<JsNumber>(1)?.value(&mut cx) as usize; // TODO - I don't love this cast
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -201,7 +194,7 @@ fn dequeue_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 return;
             }
         };
-        let jobs = worker.dequeue_jobs(&queue_name, worker_type, limit).await;
+        let jobs = worker.dequeue_jobs(&queue_name, limit).await;
         deferred.settle_with(&channel, move |mut cx| {
             let jobs = jobs.or_else(|e| cx.throw_error(format!("{}", e)))?;
             let jobs = to_json_string(&mut cx, jobs)?;
@@ -217,12 +210,7 @@ fn dequeue_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
 fn dequeue_with_vm_state(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let queue_name = cx.argument::<JsString>(0)?.value(&mut cx);
 
-    let arg = cx.argument::<JsString>(1)?.value(&mut cx);
-    let worker_type = arg
-        .parse()
-        .or_else(|_| cx.throw_error(format!("invalid worker type {}", arg)))?;
-
-    let limit = cx.argument::<JsNumber>(2)?.value(&mut cx) as usize; // TODO - I don't love this cast
+    let limit = cx.argument::<JsNumber>(1)?.value(&mut cx) as usize; // TODO - I don't love this cast
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -238,9 +226,7 @@ fn dequeue_with_vm_state(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 return;
             }
         };
-        let jobs = worker
-            .dequeue_with_vm_state(&queue_name, worker_type, limit)
-            .await;
+        let jobs = worker.dequeue_with_vm_state(&queue_name, limit).await;
         deferred.settle_with(&channel, move |mut cx| {
             let jobs = jobs.or_else(|e| cx.throw_error(format!("{}", e)))?;
             let jobs = to_json_string(&mut cx, jobs)?;
@@ -300,26 +286,6 @@ fn set_state(mut cx: FunctionContext) -> JsResult<JsNull> {
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_state(job_id, state)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
-
-    Ok(cx.null())
-}
-
-fn set_waiting_on(mut cx: FunctionContext) -> JsResult<JsNull> {
-    let arg = cx.argument::<JsString>(0)?.value(&mut cx);
-    let job_id: Uuid = arg
-        .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
-
-    let arg = cx.argument::<JsString>(1)?.value(&mut cx);
-    let waiting_on: WaitingOn = arg
-        .parse()
-        .or_else(|_| cx.throw_error(format!("invalid waiting on: {}", arg)))?;
-
-    WORKER
-        .get()
-        .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
-        .set_waiting_on(job_id, waiting_on)
         .or_else(|e| cx.throw_error(format!("{}", e)))?;
 
     Ok(cx.null())
@@ -473,7 +439,6 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("dequeue_with_vm_state", dequeue_with_vm_state)?;
     cx.export_function("flush_job", flush_job)?;
     cx.export_function("set_state", set_state)?;
-    cx.export_function("set_waiting_on", set_waiting_on)?;
     cx.export_function("set_queue", set_queue)?;
     cx.export_function("set_priority", set_priority)?;
     cx.export_function("set_scheduled_at", set_scheduled_at)?;

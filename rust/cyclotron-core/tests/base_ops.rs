@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use cyclotron_core::{
-    base_ops::{bulk_create_jobs, Job, JobInit, JobState, WaitingOn},
+    base_ops::{bulk_create_jobs, Job, JobInit, JobState},
     manager::QueueManager,
     worker::Worker,
 };
@@ -13,7 +13,6 @@ fn create_new_job() -> JobInit {
     JobInit {
         team_id: 1,
         function_id: Some(Uuid::now_v7()), // Lets us uniquely identify jobs without having the Uuid
-        waiting_on: WaitingOn::Fetch,
         queue_name: "test".to_string(),
         priority: 0,
         scheduled: Utc::now() - Duration::minutes(1),
@@ -36,7 +35,6 @@ fn dates_match(left: &DateTime<Utc>, right: &DateTime<Utc>) -> bool {
 fn assert_job_matches_init(job: &Job, init: &JobInit) {
     assert_eq!(job.team_id, init.team_id);
     assert_eq!(job.function_id, init.function_id);
-    assert_eq!(job.waiting_on, init.waiting_on);
     assert_eq!(job.queue_name, init.queue_name);
     assert_eq!(job.priority, init.priority);
     assert!(dates_match(&job.scheduled, &init.scheduled));
@@ -57,7 +55,6 @@ async fn test_queue(db: PgPool) {
     job_2.priority = 2; // Lower priority jobs should be returned second
 
     let queue_name = job_1.queue_name.clone();
-    let waiting_on = job_1.waiting_on;
 
     manager
         .create_job(job_1.clone())
@@ -69,7 +66,7 @@ async fn test_queue(db: PgPool) {
         .expect("failed to create job");
 
     let jobs = worker
-        .dequeue_jobs(&queue_name, waiting_on, 2)
+        .dequeue_jobs(&queue_name, 2)
         .await
         .expect("failed to dequeue job");
 
@@ -97,7 +94,7 @@ async fn test_queue(db: PgPool) {
         .expect("failed to flush job");
 
     let jobs = worker
-        .dequeue_jobs(&queue_name, waiting_on, 2)
+        .dequeue_jobs(&queue_name, 2)
         .await
         .expect("failed to dequeue job");
 
@@ -128,7 +125,7 @@ async fn test_queue(db: PgPool) {
     let queue_name_moved = queue_name.clone();
     let fut_1 = async move {
         moved
-            .dequeue_jobs(&queue_name_moved, waiting_on, 2)
+            .dequeue_jobs(&queue_name_moved, 2)
             .await
             .expect("failed to dequeue job")
     };
@@ -136,7 +133,7 @@ async fn test_queue(db: PgPool) {
     let queue_name_moved = queue_name.clone();
     let fut_2 = async move {
         moved
-            .dequeue_jobs(&queue_name_moved, waiting_on, 2)
+            .dequeue_jobs(&queue_name_moved, 2)
             .await
             .expect("failed to dequeue job")
     };
@@ -151,7 +148,7 @@ async fn test_queue(db: PgPool) {
 
     // And now, any subsequent dequeues will return no jobs
     let empty = worker
-        .dequeue_jobs(&queue_name, waiting_on, 2)
+        .dequeue_jobs(&queue_name, 2)
         .await
         .expect("failed to dequeue job");
     assert_eq!(empty.len(), 0);
@@ -190,7 +187,7 @@ async fn test_queue(db: PgPool) {
 
     // And now, any subsequent dequeues will return no jobs (because these jobs are finished)
     let empty = worker
-        .dequeue_jobs(&queue_name, waiting_on, 2)
+        .dequeue_jobs(&queue_name, 2)
         .await
         .expect("failed to dequeue job");
     assert_eq!(empty.len(), 0);
@@ -200,7 +197,6 @@ async fn test_queue(db: PgPool) {
     // Set up some initial values
     let now = Utc::now();
     let mut job = create_new_job();
-    job.waiting_on = WaitingOn::Fetch;
     job.queue_name = "test".to_string();
     job.priority = 0;
     job.scheduled = now - Duration::minutes(2);
@@ -216,7 +212,7 @@ async fn test_queue(db: PgPool) {
 
     // Then dequeue it
     let job = worker
-        .dequeue_jobs("test", WaitingOn::Fetch, 1)
+        .dequeue_jobs("test", 1)
         .await
         .expect("failed to dequeue job")
         .pop()
@@ -226,9 +222,6 @@ async fn test_queue(db: PgPool) {
     worker
         .set_state(job.id, JobState::Available)
         .expect("failed to set state");
-    worker
-        .set_waiting_on(job.id, WaitingOn::Hog)
-        .expect("failed to set waiting_on");
     worker
         .set_queue(job.id, "test_2")
         .expect("failed to set queue");
@@ -253,14 +246,13 @@ async fn test_queue(db: PgPool) {
 
     // Then dequeue it again (this time being sure to grab the vm state too)
     let job = worker
-        .dequeue_with_vm_state("test_2", WaitingOn::Hog, 1)
+        .dequeue_with_vm_state("test_2", 1)
         .await
         .expect("failed to dequeue job")
         .pop()
         .expect("failed to dequeue job");
 
     // And every value should be the updated one
-    assert_eq!(job.waiting_on, WaitingOn::Hog);
     assert_eq!(job.queue_name, "test_2");
     assert_eq!(job.priority, 1);
     assert!(dates_match(&job.scheduled, &(now - Duration::minutes(10))),);
@@ -286,7 +278,7 @@ pub async fn test_bulk_insert(db: PgPool) {
     bulk_create_jobs(&db, jobs).await.unwrap();
 
     let dequeue_jobs = worker
-        .dequeue_jobs(&job_template.queue_name, job_template.waiting_on, 1000)
+        .dequeue_jobs(&job_template.queue_name, 1000)
         .await
         .expect("failed to dequeue job");
 

@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::{
     base_ops::{
         dequeue_jobs, dequeue_with_vm_state, flush_job, set_heartbeat, Job, JobState, JobUpdate,
-        WaitingOn,
     },
     error::QueueError,
     PoolConfig,
@@ -56,13 +55,8 @@ impl Worker {
     /// Dequeues jobs from the queue, and returns them. Job sorting happens at the queue level,
     /// workers can't provide any filtering or sorting criteria - queue managers decide which jobs are run,
     /// workers just run them.
-    pub async fn dequeue_jobs(
-        &self,
-        queue: &str,
-        worker_type: WaitingOn,
-        limit: usize,
-    ) -> Result<Vec<Job>, QueueError> {
-        let jobs = dequeue_jobs(&self.pool, queue, worker_type, limit).await?;
+    pub async fn dequeue_jobs(&self, queue: &str, limit: usize) -> Result<Vec<Job>, QueueError> {
+        let jobs = dequeue_jobs(&self.pool, queue, limit).await?;
 
         let mut pending = self.pending.lock().unwrap();
         for job in &jobs {
@@ -81,10 +75,9 @@ impl Worker {
     pub async fn dequeue_with_vm_state(
         &self,
         queue: &str,
-        worker_type: WaitingOn,
         limit: usize,
     ) -> Result<Vec<Job>, QueueError> {
-        let jobs = dequeue_with_vm_state(&self.pool, queue, worker_type, limit).await?;
+        let jobs = dequeue_with_vm_state(&self.pool, queue, limit).await?;
 
         let mut pending = self.pending.lock().unwrap();
         for job in &jobs {
@@ -133,11 +126,11 @@ impl Worker {
     }
 
     /// Jobs are reaped after some seconds (the number is deployment specific, and may become
-    /// specific on job properties like queue name or waiting_on in the future, as we figure out
-    /// what /kinds/ of jobs are longer or shorter running). A job is considered "dead" if it's
-    /// in a running state, and it's last heartbeat was more than the reaping time ago. This,
-    /// like flush, returns an error if you try to set the heartbeat on a job whose lock you
-    /// don't have (which can happen if e.g. the job was reaped out from under you).
+    /// specific on job properties like queue name in the future, as we figure out what /kinds/ of
+    /// jobs are longer or shorter running). A job is considered "dead" if it's in a running state,
+    /// and it's last heartbeat was more than the reaping time ago. This, like flush, returns an
+    /// error if you try to set the heartbeat on a job whose lock you don't have (which can happen
+    /// if e.g. the job was reaped out from under you).
     pub async fn heartbeat(&self, job_id: Uuid) -> Result<(), QueueError> {
         let lock_id = {
             let pending = self.pending.lock().unwrap();
@@ -157,15 +150,6 @@ impl Worker {
             .get_mut(&job_id)
             .ok_or(QueueError::UnknownJobId(job_id))?
             .state = Some(state);
-        Ok(())
-    }
-
-    pub fn set_waiting_on(&self, job_id: Uuid, waiting_on: WaitingOn) -> Result<(), QueueError> {
-        let mut pending = self.pending.lock().unwrap();
-        pending
-            .get_mut(&job_id)
-            .ok_or(QueueError::UnknownJobId(job_id))?
-            .waiting_on = Some(waiting_on);
         Ok(())
     }
 

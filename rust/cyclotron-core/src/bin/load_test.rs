@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{Duration, Utc};
 use cyclotron_core::{
-    base_ops::{JobInit, JobState, WaitingOn},
+    base_ops::{JobInit, JobState},
     manager::{ManagerConfig, QueueManager},
     worker::Worker,
     PoolConfig,
@@ -31,18 +31,13 @@ async fn producer_loop(manager: QueueManager, shared_context: Arc<SharedContext>
     loop {
         let mut to_insert = Vec::with_capacity(1000);
         for _ in 0..INSERT_BATCH_SIZE {
-            let waiting_on = if rand::random() {
-                WaitingOn::Fetch
-            } else {
-                WaitingOn::Hog
-            };
+            let queue = if rand::random() { "fetch" } else { "hog" };
 
             let priority = (rand::random::<u16>() % 3) as i16;
 
             let test_job = JobInit {
                 team_id: 1,
-                waiting_on,
-                queue_name: "default".to_string(),
+                queue_name: queue.to_string(),
                 priority,
                 scheduled: now,
                 function_id: Some(Uuid::now_v7()),
@@ -80,20 +75,17 @@ async fn producer_loop(manager: QueueManager, shared_context: Arc<SharedContext>
     }
 }
 
-async fn worker_loop(worker: Worker, shared_context: Arc<SharedContext>, worker_type: WaitingOn) {
+async fn worker_loop(worker: Worker, shared_context: Arc<SharedContext>, queue: &str) {
     let mut time_spent_dequeuing = Duration::zero();
     let start = Utc::now();
     loop {
         let loop_start = Instant::now();
-        let jobs = worker
-            .dequeue_jobs("default", worker_type, 1000)
-            .await
-            .unwrap();
+        let jobs = worker.dequeue_jobs(queue, 1000).await.unwrap();
 
         if jobs.is_empty() {
             println!(
                 "Worker {:?} outpacing inserts, got no jobs, sleeping!",
-                worker_type
+                queue
             );
             tokio::time::sleep(Duration::milliseconds(100).to_std().unwrap()).await;
             continue;
@@ -122,14 +114,14 @@ async fn worker_loop(worker: Worker, shared_context: Arc<SharedContext>, worker_
             "Dequeued, processed and completed {} jobs in {} for {:?}. Total time running: {}",
             dequeued,
             time_spent_dequeuing,
-            worker_type,
+            queue,
             Utc::now() - start
         );
 
         if jobs.len() < 1000 {
             println!(
                 "Worker {:?} outpacing manager, only got {} jobs, sleeping!",
-                worker_type,
+                queue,
                 jobs.len()
             );
             tokio::time::sleep(Duration::milliseconds(100).to_std().unwrap()).await;
@@ -162,8 +154,8 @@ async fn main() {
     let worker_2 = Worker::new(pool_config.clone()).await.unwrap();
 
     let producer = producer_loop(manager, shared_context.clone());
-    let worker_1 = worker_loop(worker_1, shared_context.clone(), WaitingOn::Fetch);
-    let worker_2 = worker_loop(worker_2, shared_context.clone(), WaitingOn::Hog);
+    let worker_1 = worker_loop(worker_1, shared_context.clone(), "fetch");
+    let worker_2 = worker_loop(worker_2, shared_context.clone(), "hog");
 
     let producer = tokio::spawn(producer);
     let worker_1 = tokio::spawn(worker_1);

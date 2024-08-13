@@ -46,37 +46,10 @@ impl PgHasArrayType for JobState {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::Type, Copy, Clone, Eq, PartialEq, Hash)]
-#[serde(rename_all = "lowercase")]
-#[sqlx(type_name = "WaitingOn", rename_all = "lowercase")]
-pub enum WaitingOn {
-    Fetch,
-    Hog,
-}
-
-impl FromStr for WaitingOn {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "fetch" => Ok(WaitingOn::Fetch),
-            "hog" => Ok(WaitingOn::Hog),
-            _ => Err(()),
-        }
-    }
-}
-
-impl PgHasArrayType for WaitingOn {
-    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
-        PgTypeInfo::with_name("_WaitingOn")
-    }
-}
-
 // The chunk of data needed to enqueue a job
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct JobInit {
     pub team_id: i32,
-    pub waiting_on: WaitingOn,
     pub queue_name: String,
     pub priority: i16,
     pub scheduled: DateTime<Utc>,
@@ -112,7 +85,6 @@ pub struct Job {
 
     // Virtual queue components
     pub queue_name: String, // We can have multiple "virtual queues" workers pull from
-    pub waiting_on: WaitingOn,
 
     // Job availability
     pub state: JobState,
@@ -144,7 +116,6 @@ INSERT INTO cyclotron_jobs
         transition_count,
         last_transition,
         queue_name,
-        waiting_on,
         state,
         scheduled,
         priority,
@@ -153,13 +124,12 @@ INSERT INTO cyclotron_jobs
         parameters
     )
 VALUES
-    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10, $11)
+    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10)
     "#,
         id,
         data.team_id,
         data.function_id,
         data.queue_name,
-        data.waiting_on as _,
         JobState::Available as _,
         data.scheduled,
         data.priority,
@@ -189,7 +159,6 @@ where
     let mut transition_counts = Vec::with_capacity(jobs.len());
     let mut last_transitions = Vec::with_capacity(jobs.len());
     let mut queue_names = Vec::with_capacity(jobs.len());
-    let mut waiting_ons = Vec::with_capacity(jobs.len());
     let mut states = Vec::with_capacity(jobs.len());
     let mut scheduleds = Vec::with_capacity(jobs.len());
     let mut priorities = Vec::with_capacity(jobs.len());
@@ -208,7 +177,6 @@ where
         transition_counts.push(0);
         last_transitions.push(now);
         queue_names.push(d.queue_name);
-        waiting_ons.push(d.waiting_on);
         states.push(JobState::Available);
         scheduleds.push(d.scheduled);
         priorities.push(d.priority);
@@ -232,7 +200,6 @@ INSERT INTO cyclotron_jobs
         transition_count,
         last_transition,
         queue_name,
-        waiting_on,
         state,
         scheduled,
         priority,
@@ -257,8 +224,7 @@ FROM UNNEST(
         $13,
         $14,
         $15,
-        $16,
-        $17
+        $16
     )
 "#,
     )
@@ -272,7 +238,6 @@ FROM UNNEST(
     .bind(transition_counts)
     .bind(last_transitions)
     .bind(queue_names)
-    .bind(waiting_ons)
     .bind(states)
     .bind(scheduleds)
     .bind(priorities)
@@ -289,7 +254,6 @@ FROM UNNEST(
 pub async fn dequeue_jobs<'c, E>(
     executor: E,
     queue: &str,
-    worker_type: WaitingOn,
     max: usize,
 ) -> Result<Vec<Job>, QueueError>
 where
@@ -311,19 +275,18 @@ WITH available AS (
     FROM cyclotron_jobs
     WHERE
         state = 'available'::JobState
-        AND waiting_on = $1
-        AND queue_name = $2
+        AND queue_name = $1
         AND scheduled <= NOW()
     ORDER BY
         priority ASC,
         scheduled ASC
-    LIMIT $3
+    LIMIT $2
     FOR UPDATE SKIP LOCKED
 )
 UPDATE cyclotron_jobs
 SET
     state = 'running'::JobState,
-    lock_id = $4,
+    lock_id = $3,
     last_heartbeat = NOW(),
     last_transition = NOW(),
     transition_count = transition_count + 1
@@ -334,7 +297,6 @@ RETURNING
     cyclotron_jobs.id,
     team_id,
     available.state as "state: JobState",
-    waiting_on as "waiting_on: WaitingOn",
     queue_name,
     priority,
     function_id,
@@ -349,7 +311,6 @@ RETURNING
     last_heartbeat,
     janitor_touch_count
     "#,
-        worker_type as _,
         queue,
         max as i64,
         lock_id
@@ -364,7 +325,6 @@ RETURNING
 pub async fn dequeue_with_vm_state<'c, E>(
     executor: E,
     queue: &str,
-    worker_type: WaitingOn,
     max: usize,
 ) -> Result<Vec<Job>, QueueError>
 where
@@ -381,19 +341,18 @@ WITH available AS (
     FROM cyclotron_jobs
     WHERE
         state = 'available'::JobState
-        AND waiting_on = $1
-        AND queue_name = $2
+        AND queue_name = $1
         AND scheduled <= NOW()
     ORDER BY
         priority ASC,
         scheduled ASC
-    LIMIT $3
+    LIMIT $2
     FOR UPDATE SKIP LOCKED
 )
 UPDATE cyclotron_jobs
 SET
     state = 'running'::JobState,
-    lock_id = $4,
+    lock_id = $3,
     last_heartbeat = NOW(),
     last_transition = NOW(),
     transition_count = transition_count + 1
@@ -404,7 +363,6 @@ RETURNING
     cyclotron_jobs.id,
     team_id,
     available.state as "state: JobState",
-    waiting_on as "waiting_on: WaitingOn",
     queue_name,
     priority,
     function_id,
@@ -419,7 +377,6 @@ RETURNING
     last_heartbeat,
     janitor_touch_count
     "#,
-        worker_type as _,
         queue,
         max as i64,
         lock_id
@@ -462,7 +419,6 @@ where
 pub struct JobUpdate {
     pub lock_id: Uuid, // The ID of the lock acquired when this worker dequeued the job, required for any update to be valid
     pub state: Option<JobState>,
-    pub waiting_on: Option<WaitingOn>,
     pub queue_name: Option<String>,
     pub priority: Option<i16>,
     pub scheduled: Option<DateTime<Utc>>,
@@ -476,7 +432,6 @@ impl JobUpdate {
         Self {
             lock_id,
             state: None,
-            waiting_on: None,
             queue_name: None,
             priority: None,
             scheduled: None,
@@ -511,10 +466,6 @@ where
 
     if let Some(state) = updates.state {
         set_state(&mut *txn, job_id, updates.lock_id, state).await?;
-    }
-
-    if let Some(waiting_on) = updates.waiting_on {
-        set_waiting_on(&mut *txn, job_id, waiting_on, lock_id).await?;
     }
 
     if let Some(queue_name) = updates.queue_name {
@@ -588,30 +539,14 @@ where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
     let q = sqlx::query!(
-        "UPDATE cyclotron_jobs SET state = $1, last_transition = NOW(), transition_count = transition_count + 1 WHERE id = $2 AND lock_id = $3",
+        r#"UPDATE cyclotron_jobs
+            SET state = $1, last_transition = NOW(), transition_count = transition_count + 1
+            WHERE id = $2 AND lock_id = $3"#,
         state as _,
         job_id,
         lock_id
     );
 
-    assert_does_update(executor, job_id, lock_id, q).await
-}
-
-pub async fn set_waiting_on<'c, E>(
-    executor: E,
-    job_id: Uuid,
-    waiting_on: WaitingOn,
-    lock_id: Uuid,
-) -> Result<(), QueueError>
-where
-    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-{
-    let q = sqlx::query!(
-        "UPDATE cyclotron_jobs SET waiting_on = $1 WHERE id = $2 AND lock_id = $3",
-        waiting_on as _,
-        job_id,
-        lock_id
-    );
     assert_does_update(executor, job_id, lock_id, q).await
 }
 

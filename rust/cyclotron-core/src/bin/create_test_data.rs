@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use cyclotron_core::{
-    base_ops::{JobInit, WaitingOn},
+    base_ops::JobInit,
     manager::{ManagerConfig, QueueManager},
     PoolConfig,
 };
@@ -29,18 +29,13 @@ async fn main() {
     let start = Utc::now();
     let mut count = 0;
     loop {
-        let waiting_on = if rand::random() {
-            WaitingOn::Fetch
-        } else {
-            WaitingOn::Hog
-        };
+        let queue = if rand::random() { "fetch" } else { "hog" };
 
         let priority = (rand::random::<u16>() % 3) as i16;
 
         let test_job = JobInit {
             team_id: 1,
-            waiting_on,
-            queue_name: "default".to_string(),
+            queue_name: queue.to_string(),
             priority,
             scheduled: now,
             function_id: Some(Uuid::now_v7()),

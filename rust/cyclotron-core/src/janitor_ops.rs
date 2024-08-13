@@ -2,9 +2,9 @@ use chrono::{Duration, Utc};
 
 use crate::error::QueueError;
 
-// As a general rule, janitor operations are not queue specific (as in, they don't account
-// for the queue name or waiting_on). We can revisit this later, if we decide we need the
-// ability to do janitor operations on a per-queue basis.
+// As a general rule, janitor operations are not queue specific (as in, they don't account for the
+// queue name). We can revisit this later, if we decide we need the ability to do janitor operations
+// on a per-queue basis.
 pub async fn delete_completed_jobs<'c, E>(executor: E) -> Result<u64, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,

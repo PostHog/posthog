@@ -2,7 +2,7 @@ use std::{cmp::min, collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Duration, Utc};
 use cyclotron_core::{
-    base_ops::{Job, JobState, WaitingOn},
+    base_ops::{Job, JobState},
     error::QueueError,
     worker::Worker,
 };
@@ -71,8 +71,7 @@ impl From<&HttpMethod> for http::Method {
 pub struct FetchParameters {
     url: String,
     method: HttpMethod,
-    return_worker: WaitingOn,
-    return_queue: Option<String>, // Defaults to the original queue
+    return_queue: String,
     header: Option<HashMap<String, String>>,
     body: Option<String>,
     max_tries: Option<u32>,      // Defaults to 3
@@ -227,7 +226,7 @@ pub async fn wait_for_jobs(context: &AppContext, max_jobs: usize) -> Result<Vec<
 
         let jobs = context
             .worker
-            .dequeue_jobs(&context.config.queue_served, WaitingOn::Fetch, max_jobs)
+            .dequeue_jobs(&context.config.queue_served, max_jobs)
             .await?;
 
         if !jobs.is_empty() {
@@ -405,7 +404,6 @@ pub async fn run_job(
                 &job,
                 &parsed.metadata,
                 parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
-                parsed.parameters.return_worker,
                 parsed.parameters.return_queue,
                 parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
@@ -445,7 +443,6 @@ pub async fn run_job(
                 &job,
                 &parsed.metadata,
                 parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
-                parsed.parameters.return_worker,
                 parsed.parameters.return_queue,
                 parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
                 e,
@@ -466,7 +463,6 @@ pub async fn run_job(
             &job,
             &parsed.metadata,
             parsed.parameters.max_tries.unwrap_or(DEFAULT_RETRIES),
-            parsed.parameters.return_worker,
             parsed.parameters.return_queue,
             parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
             failure,
@@ -485,7 +481,6 @@ pub async fn run_job(
     complete_job(
         &context.worker,
         &job,
-        parsed.parameters.return_worker,
         parsed.parameters.return_queue,
         parsed.parameters.on_finish.unwrap_or(DEFAULT_ON_FINISH),
         result,
@@ -502,8 +497,7 @@ pub async fn handle_fetch_failure<F>(
     job: &Job,
     metadata: &FetchMetadata,
     max_tries: u32,
-    return_worker: WaitingOn,
-    return_queue: Option<String>,
+    return_queue: String,
     on_finish: OnFinish,
     failure: F,
 ) -> Result<(), FetchError>
@@ -544,15 +538,7 @@ where
         let result = FetchResult::Failure {
             trace: metadata.trace.clone(),
         };
-        complete_job(
-            &context.worker,
-            job,
-            return_worker,
-            return_queue,
-            on_finish,
-            result,
-        )
-        .await?;
+        complete_job(&context.worker, job, return_queue, on_finish, result).await?;
     }
 
     Ok(())
@@ -563,8 +549,7 @@ where
 pub async fn complete_job(
     worker: &Worker,
     job: &Job,
-    return_worker: WaitingOn,
-    return_queue: Option<String>,
+    return_queue: String,
     on_finish: OnFinish,
     result: FetchResult,
 ) -> Result<(), FetchError> {
@@ -584,11 +569,7 @@ pub async fn complete_job(
         }
     };
 
-    worker.set_queue(
-        job.id,
-        &return_queue.unwrap_or_else(|| job.queue_name.clone()),
-    )?;
-    worker.set_waiting_on(job.id, return_worker)?;
+    worker.set_queue(job.id, &return_queue)?;
 
     match (is_success, on_finish) {
         (true, _) | (false, OnFinish::Return) => {

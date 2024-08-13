@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use cyclotron_core::{
-    base_ops::{JobInit, JobState, WaitingOn},
+    base_ops::{JobInit, JobState},
     manager::QueueManager,
     worker::Worker,
 };
@@ -30,7 +30,6 @@ async fn janitor_test(db: PgPool) {
 
     let job_init = JobInit {
         team_id: 1,
-        waiting_on: WaitingOn::Fetch,
         queue_name: queue_name.clone(),
         priority: 0,
         scheduled: now,
@@ -43,7 +42,7 @@ async fn janitor_test(db: PgPool) {
     // First test - if we mark a job as completed, the janitor will clean it up
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
-        .dequeue_jobs(&queue_name, WaitingOn::Fetch, 1)
+        .dequeue_jobs(&queue_name, 1)
         .await
         .unwrap()
         .pop()
@@ -61,7 +60,7 @@ async fn janitor_test(db: PgPool) {
     // Second test - if we mark a job as failed, the janitor will clean it up
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
-        .dequeue_jobs(&queue_name, WaitingOn::Fetch, 1)
+        .dequeue_jobs(&queue_name, 1)
         .await
         .unwrap()
         .pop()
@@ -82,7 +81,7 @@ async fn janitor_test(db: PgPool) {
 
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
-        .dequeue_jobs(&queue_name, WaitingOn::Fetch, 1)
+        .dequeue_jobs(&queue_name, 1)
         .await
         .unwrap()
         .pop()
@@ -112,7 +111,7 @@ async fn janitor_test(db: PgPool) {
 
     // But if we re-dequeue the job, we can flush it
     let job = worker
-        .dequeue_jobs(&queue_name, WaitingOn::Fetch, 1)
+        .dequeue_jobs(&queue_name, 1)
         .await
         .unwrap()
         .pop()
@@ -127,7 +126,7 @@ async fn janitor_test(db: PgPool) {
 
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
-        .dequeue_jobs(&queue_name, WaitingOn::Fetch, 1)
+        .dequeue_jobs(&queue_name, 1)
         .await
         .unwrap()
         .pop()
@@ -164,7 +163,7 @@ async fn janitor_test(db: PgPool) {
 
     manager.create_job(job_init.clone()).await.unwrap();
     let mut job = worker
-        .dequeue_jobs(&queue_name, WaitingOn::Fetch, 1)
+        .dequeue_jobs(&queue_name, 1)
         .await
         .unwrap()
         .pop()
@@ -187,7 +186,7 @@ async fn janitor_test(db: PgPool) {
 
         // re-dequeue the job
         job = worker
-            .dequeue_jobs(&queue_name, WaitingOn::Fetch, 1)
+            .dequeue_jobs(&queue_name, 1)
             .await
             .unwrap()
             .pop()
@@ -211,10 +210,7 @@ async fn janitor_test(db: PgPool) {
     // Sixth test - the janitor can operate on multiple jobs at once
     manager.create_job(job_init.clone()).await.unwrap();
     manager.create_job(job_init.clone()).await.unwrap();
-    let jobs = worker
-        .dequeue_jobs(&queue_name, WaitingOn::Fetch, 2)
-        .await
-        .unwrap();
+    let jobs = worker.dequeue_jobs(&queue_name, 2).await.unwrap();
 
     worker.set_state(jobs[0].id, JobState::Completed).unwrap();
     worker.set_state(jobs[1].id, JobState::Failed).unwrap();
