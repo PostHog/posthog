@@ -1,5 +1,6 @@
 import './LemonInput.scss'
 
+import { useMergeRefs } from '@floating-ui/react'
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
@@ -25,7 +26,6 @@ interface LemonInputPropsBase
         | 'inputMode'
         | 'pattern'
     > {
-    ref?: React.Ref<HTMLDivElement>
     inputRef?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
@@ -93,14 +93,13 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
     ref
 ): JSX.Element {
     const internalInputRef = useRef<HTMLInputElement>(null)
-    inputRef ??= internalInputRef
+    const mergedInputRef = useMergeRefs([inputRef, internalInputRef])
+
     const [focused, setFocused] = useState<boolean>(Boolean(props.autoFocus))
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
 
     const focus = (): void => {
-        if (inputRef && 'current' in inputRef) {
-            inputRef.current?.focus()
-        }
+        internalInputRef.current?.focus()
         setFocused(true)
     }
 
@@ -163,7 +162,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
             {prefix}
             <input
                 className="LemonInput__input"
-                ref={inputRef}
+                ref={mergedInputRef}
                 type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                 value={value}
                 onChange={(event) => {
