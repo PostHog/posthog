@@ -606,8 +606,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+        )
 
-        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
         async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
             async with (
                 snow_client.managed_table(inputs.table_name, table_fields, delete=False) as snow_table,

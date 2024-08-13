@@ -99,6 +99,16 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
+    def mock_to_object_store_rs_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         override_settings(
@@ -109,6 +119,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
