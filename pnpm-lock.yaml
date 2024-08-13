@@ -272,8 +272,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.154.6
-    version: 1.154.6
+    specifier: 1.155.1
+    version: 1.155.1
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -13494,7 +13494,7 @@ packages:
       source-map: 0.6.1
       wordwrap: 1.0.0
     optionalDependencies:
-      uglify-js: 3.19.1
+      uglify-js: 3.19.2
     dev: true
 
   /hard-rejection@2.1.0:
@@ -13962,7 +13962,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.23.1
+      preact: 10.23.2
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17769,11 +17769,11 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.154.6:
-    resolution: {integrity: sha512-8dA9xRex27cIbtSKwxNEvx+khGO+arlwfwyfD/TKuoc0TI5mFAXwtgxE45nnWFnP2hZ4CUCv2WMifLudIqJvcw==}
+  /posthog-js@1.155.1:
+    resolution: {integrity: sha512-UvA0sBS8kr2CFtzQAg5rWE4G7u2UEMCuf+4CgjLO3UgrCe5m4m75aqWmTgpTXeKoGQE5iog+oLtr25+RsYARFA==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.23.1
+      preact: 10.23.2
       web-vitals: 4.2.3
     dev: false
 
@@ -17781,8 +17781,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.23.1:
-    resolution: {integrity: sha512-O5UdRsNh4vdZaTieWe3XOgSpdMAmkIYBCT3VhQDlKrzyCm8lUYsk0fmVEvoQQifoOjFRTaHZO69ylrzTW2BH+A==}
+  /preact@10.23.2:
+    resolution: {integrity: sha512-kKYfePf9rzKnxOAKDpsWhg/ysrHPqT+yQ7UW4JjdnqjFIeNUnNcEJvhuA8fDenxAGWzUqtd51DfVg7xp/8T9NA==}
     dev: false
 
   /prelude-ls@1.2.1:
@@ -21249,8 +21249,8 @@ packages:
     resolution: {integrity: sha512-8Y75pvTYkLJW2hWQHXxoqRgV7qb9B+9vFEtidML+7koHUFapnVJAZ6cKs+Qjz5Aw3aZWHMC6u0wJE3At+nSGwA==}
     dev: false
 
-  /uglify-js@3.19.1:
-    resolution: {integrity: sha512-y/2wiW+ceTYR2TSSptAhfnEtpLaQ4Ups5zrjB2d3kuVxHj16j/QJwPl5PvuGy9uARb39J0+iKxcRPvtpsx4A4A==}
+  /uglify-js@3.19.2:
+    resolution: {integrity: sha512-S8KA6DDI47nQXJSi2ctQ629YzwOVs+bQML6DAtvy0wgNdpi+0ySpQK0g2pxBq2xfF2z3YCscu7NNA8nXT9PlIQ==}
     engines: {node: '>=0.8.0'}
     hasBin: true
     requiresBuild: true
