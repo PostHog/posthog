@@ -36,7 +36,9 @@ def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = Fals
         hog_functions: list[HogFunction] = []
 
         for hook in page.object_list:
-            hog_function = create_zapier_hog_function(hook, {"user": hook.user, "get_team": lambda: hook.team})
+            hog_function = create_zapier_hog_function(
+                hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}
+            )
             hog_functions.append(hog_function)
 
         if not dry_run:
