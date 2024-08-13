@@ -3,7 +3,6 @@ use std::{collections::HashMap, sync::Arc};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
@@ -115,6 +114,7 @@ impl FlagRequest {
             Ok(team) => Ok(team),
             Err(_) => match Team::from_pg(pg_client, token.clone()).await {
                 Ok(team) => {
+                    // If we have the team in postgres, but not redis, update redis so we're faster next time
                     if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
                         tracing::warn!("Failed to update Redis cache: {}", e);
                     }
@@ -148,8 +148,9 @@ impl FlagRequest {
             Ok(flags) => Ok(flags),
             Err(_) => match FeatureFlagList::from_pg(pg_client, team_id).await {
                 Ok(flags) => {
-                    // we have some counters in django for tracking these cache misses
-                    // we should probably do the same heres
+                    // If we have the flags in postgres, but not redis, update redis so we're faster next time
+                    // TODO: we have some counters in django for tracking these cache misses
+                    // we should probably do the same here
                     if let Err(e) =
                         FeatureFlagList::update_flags_in_redis(redis_client, team_id, &flags).await
                     {
@@ -163,20 +164,10 @@ impl FlagRequest {
     }
 }
 
-#[derive(Debug)]
-pub struct ProcessingContext {
-    pub lib_version: Option<String>,
-    pub sent_at: Option<OffsetDateTime>,
-    pub token: String,
-    pub now: String,
-    pub client_ip: String,
-    pub historical_migration: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use crate::api::FlagError;
-    // use crate::test_utils::{setup_pg_client, setup_redis_client};
+    use crate::test_utils::{insert_new_team_in_redis, setup_pg_client, setup_redis_client};
     use crate::v0_request::FlagRequest;
     use bytes::Bytes;
     use serde_json::json;
@@ -226,25 +217,28 @@ mod tests {
         };
     }
 
-    // #[tokio::test]
-    // // add test for token validation
-    // async fn token_is_returned_correctly() {
-    //     let json = json!({
-    //         "$distinct_id": "alakazam",
-    //         "token": "my_token1",
-    //     });
-    //     let bytes = Bytes::from(json.to_string());
+    #[tokio::test]
+    async fn token_is_returned_correctly() {
+        let redis_client = setup_redis_client(None);
+        let pg_client = setup_pg_client(None).await;
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("Failed to insert new team in Redis");
 
-    //     let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
-    //     let redis_client = setup_redis_client(None);
-    //     let pg_client = setup_pg_client(None).await;
+        let json = json!({
+            "$distinct_id": "alakazam",
+            "token": team.api_token,
+        });
+        let bytes = Bytes::from(json.to_string());
 
-    //     match flag_payload
-    //         .extract_and_verify_token(redis_client, pg_client)
-    //         .await
-    //     {
-    //         Ok(token) => assert_eq!(token, "my_token"),
-    //         _ => panic!("expected token"),
-    //     };
-    // }
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        match flag_payload
+            .extract_and_verify_token(redis_client, pg_client)
+            .await
+        {
+            Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
+            Err(e) => panic!("Failed to extract and verify token: {:?}", e),
+        };
+    }
 }

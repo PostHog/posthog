@@ -20,7 +20,7 @@ pub enum FlagValue {
     String(String),
 }
 
-// TODO the following two types are kinda general, maybe it belongs in a type utility or something
+// TODO the following two types are kinda general, maybe we should move them to a shared module
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum BooleanOrStringObject {

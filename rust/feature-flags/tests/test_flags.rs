@@ -49,12 +49,11 @@ async fn it_sends_flag_request() -> Result<()> {
         "distinct_id": distinct_id,
         "groups": {"group1": "group1"}
     });
+
     let res = server.send_flags_request(payload.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let json_data = res.json::<Value>().await?;
-    println!("Response: {:?}", json_data);
-
     assert_json_include!(
         actual: json_data,
         expected: json!({
