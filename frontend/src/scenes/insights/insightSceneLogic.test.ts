@@ -80,9 +80,9 @@ describe('insightSceneLogic', () => {
                 }),
             })
 
-        expect(
-            (logic.values.insightLogicRef?.logic.values.queryBasedInsight.query as InsightVizNode).source?.kind
-        ).toEqual('PathsQuery')
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
+            'PathsQuery'
+        )
     })
 
     it('persists edit mode in the url', async () => {
