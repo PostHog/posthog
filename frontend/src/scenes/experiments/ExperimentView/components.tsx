@@ -24,7 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { Experiment as ExperimentType, ExperimentResults, FilterType, InsightShortId, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -121,29 +121,27 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         properties: [],
     }
 
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: filtersToQueryNode(
+            transformResultFilters(
+                experimentResults?.filters
+                    ? { ...experimentResults.filters, explicit_date: true }
+                    : filtersFromExperiment
+            )
+        ),
+        showTable: true,
+        showLastComputation: true,
+        showLastComputationRefresh: false,
+    }
+
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
             size="small"
             type="primary"
             icon={icon}
-            to={urls.insightNew(
-                undefined,
-                undefined,
-                JSON.stringify({
-                    kind: NodeKind.InsightVizNode,
-                    source: filtersToQueryNode(
-                        transformResultFilters(
-                            experimentResults?.filters
-                                ? { ...experimentResults.filters, explicit_date: true }
-                                : filtersFromExperiment
-                        )
-                    ),
-                    showTable: true,
-                    showLastComputation: true,
-                    showLastComputationRefresh: false,
-                })
-            )}
+            to={urls.insightNew(undefined, undefined, query)}
         >
             Explore results
         </LemonButton>

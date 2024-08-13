@@ -361,7 +361,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     source,
                     full: true,
                 }
-                return urls.insightNew(undefined, undefined, JSON.stringify(query))
+                return urls.insightNew(undefined, undefined, query)
             },
         ],
     }),

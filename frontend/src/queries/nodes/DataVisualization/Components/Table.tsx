@@ -41,7 +41,7 @@ export const Table = (props: TableProps): JSX.Element => {
                         detail={props.context?.emptyStateDetail}
                     />
                 }
-                footer={<LoadNext query={props.query} />}
+                footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
                 rowClassName="DataVizRow"
             />
         </div>

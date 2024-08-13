@@ -3,6 +3,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -17,7 +18,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     return (
         <div className="flex items-start space-x-1.5 group">
             <LemonTableLink
-                title={record.exception_type || record.fingerprint}
+                title={record.exception_type || 'Unknown Type'}
                 description={
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
@@ -27,7 +28,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     </div>
                 }
                 className="flex-1"
-                to={urls.errorTrackingGroup(record.fingerprint)}
+                to={urls.errorTrackingGroup(stringifiedFingerprint(record.fingerprint))}
             />
         </div>
     )
