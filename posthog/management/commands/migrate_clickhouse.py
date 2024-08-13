@@ -16,6 +16,7 @@ from posthog.settings import (
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
+MIGRATION_TIMEOUT = 60 * 5  # 5 minutes
 
 
 class Command(BaseCommand):
@@ -61,6 +62,7 @@ class Command(BaseCommand):
             cluster=CLICKHOUSE_CLUSTER,
             verify_ssl_cert=False,
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
+            timeout=MIGRATION_TIMEOUT,
         )
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")
