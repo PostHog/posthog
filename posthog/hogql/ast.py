@@ -271,8 +271,12 @@ class SelectQueryType(Type):
         return field.resolve_constant_type(context)
 
     def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
-        # Used only for resolving the constant type of a `ast.Lambda` node or `SELECT 1` query
-        return UnknownType()
+        columns = list(self.columns.values())
+        if len(columns) == 1:
+            return columns[0].resolve_constant_type(context)
+        return TupleType(
+            item_types=[column.resolve_constant_type(context) for column in self.columns.values()],
+        )
 
 
 @dataclass(kw_only=True)
