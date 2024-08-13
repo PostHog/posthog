@@ -128,6 +128,7 @@ export function InsightVizDisplay({
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                         inCardView={embedded}
+                        inSharedMode={insightMode === ItemMode.Sharing}
                     />
                 )
             case InsightType.PATHS:
