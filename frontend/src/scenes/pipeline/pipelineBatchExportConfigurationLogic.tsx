@@ -13,6 +13,7 @@ import { BatchExportConfigurationForm } from './batch-exports/types'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
+import { humanizeBatchExportName } from './batch-exports/utils'
 
 export interface PipelineBatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
@@ -32,7 +33,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
 
 function getDefaultConfiguration(service: BatchExportService['type']): Record<string, any> {
     return {
-        name: service,
+        name: humanizeBatchExportName(service),
         destination: service,
         model: 'events',
         paused: true,

@@ -15,6 +15,7 @@ import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
 
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './batch-exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from './batch-exports/types'
+import { humanizeBatchExportName } from './batch-exports/utils'
 import { pipelineBatchExportConfigurationLogic } from './pipelineBatchExportConfigurationLogic'
 import { RenderBatchExportIcon } from './utils'
 
@@ -83,7 +84,9 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                 {configuration.destination ? (
                                     <>
                                         <RenderBatchExportIcon size="medium" type={configuration.destination} />
-                                        <div className="flex-1 font-semibold text-sm">{configuration.destination}</div>
+                                        <div className="flex-1 font-semibold text-sm">
+                                            {humanizeBatchExportName(configuration.destination)}
+                                        </div>
                                     </>
                                 ) : (
                                     <div className="flex-1" />

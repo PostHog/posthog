@@ -20,6 +20,7 @@ import {
     PluginType,
 } from '~/types'
 
+import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { PipelineBackend } from '../types'
 import { loadPluginsFromUrl, RenderApp, RenderBatchExportIcon } from '../utils'
@@ -146,7 +147,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
 
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
-                        name: service,
+                        name: humanizeBatchExportName(service),
                         description: `${service} batch export`,
                         backend: PipelineBackend.BatchExport,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
