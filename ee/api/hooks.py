@@ -19,6 +19,42 @@ def hog_functions_enabled(team: Team) -> bool:
     return "*" in enabled_teams or str(team.id) in enabled_teams
 
 
+def create_zapier_hog_function(hook: Hook, serializer_context: dict) -> HogFunction:
+    serializer = HogFunctionSerializer(
+        data={
+            "template_id": template_zapier.id,
+            "filters": {"actions": [{"id": str(hook.resource_id), "name": "", "type": "actions", "order": 0}]},
+            "inputs": {
+                "hook": {
+                    "value": hook.target.replace("https://hooks.zapier.com/", ""),
+                },
+                "body": {
+                    # NOTE: This is for backwards compatibility with the old webhook format
+                    "value": {
+                        "hook": {
+                            "id": "{eventUuid}",
+                            "event": "{event}",
+                            "target": "https://hooks.zapier.com/{inputs.hook}",
+                        },
+                        "data": {
+                            "eventUuid": "{event.uuid}",
+                            "event": "{event.name}",
+                            "teamId": "{project.id}",
+                            "distinctId": "{event.distinct_id}",
+                            "properties": "{event.properties}",
+                            "timestamp": "{event.timestamp}",
+                            "person": {"uuid": "{person.uuid}", "properties": "{person.properties}"},
+                        },
+                    }
+                },
+            },
+        },
+        context=serializer_context,
+    )
+    serializer.is_valid(raise_exception=True)
+    return HogFunction(**serializer.validated_data)
+
+
 class HookSerializer(serializers.ModelSerializer):
     class Meta:
         model = Hook
@@ -56,53 +92,16 @@ class HookViewSet(
     ordering = "-created_at"
     serializer_class = HookSerializer
 
-    def create_zapier_hog_function(self, validated_data: dict) -> HogFunctionSerializer:
-        action_id = validated_data["resource_id"]
-
-        serializer = HogFunctionSerializer(
-            data={
-                "template_id": template_zapier.id,
-                "filters": {"actions": [{"id": str(action_id), "name": "", "type": "actions", "order": 0}]},
-                "inputs": {
-                    "hook": {
-                        "value": validated_data["target"].replace("https://hooks.zapier.com/", ""),
-                    },
-                    "body": {
-                        # NOTE: This is for backwards compatibility with the old webhook format
-                        "value": {
-                            "hook": {
-                                "id": "{eventUuid}",
-                                "event": "{event}",
-                                "target": "https://hooks.zapier.com/{inputs.hook}",
-                            },
-                            "data": {
-                                "eventUuid": "{event.uuid}",
-                                "event": "{event.name}",
-                                "teamId": "{project.id}",
-                                "distinctId": "{event.distinct_id}",
-                                "properties": "{event.properties}",
-                                "timestamp": "{event.timestamp}",
-                                "person": {"uuid": "{person.uuid}", "properties": "{person.properties}"},
-                            },
-                        }
-                    },
-                },
-            },
-            context=self.get_serializer_context(),
-        )
-        serializer.is_valid(raise_exception=True)
-
-        return serializer
-
     def create(self, request, *args, **kwargs):
         if not hog_functions_enabled(self.team):
             return super().create(request, *args, **kwargs)
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        hog_function_serializer = self.create_zapier_hog_function(serializer.validated_data)
+        hook = Hook(**serializer.validated_data)
 
-        hog_function = hog_function_serializer.save()
+        hog_function = create_zapier_hog_function(hook, serializer_context=self.get_serializer_context())
+        hog_function.save()
 
         response_serializer = self.get_serializer(
             data={
