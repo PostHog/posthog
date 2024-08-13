@@ -22,8 +22,11 @@ impl AppContext {
     ) -> Result<Self, FetchError> {
         let concurrency_limit = Arc::new(Semaphore::new(config.concurrent_requests_limit as usize));
 
+        let resolver = Arc::new(common_dns::PublicIPv4Resolver {});
+
         let client = reqwest::Client::builder()
             .timeout(config.fetch_timeout.to_std().unwrap())
+            .dns_resolver(resolver)
             .build();
         let client = match client {
             Ok(c) => c,
