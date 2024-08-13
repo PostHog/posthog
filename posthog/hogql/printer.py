@@ -599,7 +599,6 @@ class _Printer(Visitor):
         return f"{self.visit(node.expr)} {node.order}"
 
     def get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
-        # XXX: `isNull`, `isNotNull` are not covered here
         # TODO: Performance could be slightly improved by doing some of the easy checks first (e.g. node.op
         # equality checks.)
 
@@ -855,7 +854,39 @@ class _Printer(Visitor):
         else:
             raise ImpossibleASTError(f"Unknown Type, can not print {type(node.type).__name__}")
 
+    def get_optimized_property_group_call(self, node: ast.Call) -> str | None:
+        # XXX: copy/paste from `get_optimized_property_group_compare_operation`
+        def resolve_field_type(expr: ast.Expr) -> ast.Expr:
+            expr_type = expr.type
+            while isinstance(expr_type, ast.FieldAliasType):
+                expr_type = expr_type.type
+            return expr_type
+
+        if node.name in ("isNull", "isNotNull"):
+            assert len(node.args) == 1, "expected unary call"
+            arg_type = resolve_field_type(node.args[0])
+            # TODO: can probably optimize chained operations, but will need more thought
+            if isinstance(arg_type, ast.PropertyType) and len(arg_type.chain) == 1:
+                property_source = self.__get_materialized_property_source(arg_type)
+                if not isinstance(property_source, MaterializedPropertyGroupItem):
+                    return
+
+                # XXX: This logic largely duplicates that of `get_optimized_property_group_compare_operation`
+                if node.name == "isNull":
+                    return f"not({property_source.printed_has_expr})"
+                elif node.name == "isNotNull":
+                    return property_source.printed_has_expr
+                else:
+                    raise ValueError("unexpected node name")
+
+        return  # nothing to optimize
+
     def visit_call(self, node: ast.Call):
+        # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
+        # skipping indexes can be used when possible.
+        if optimized_property_group_call := self.get_optimized_property_group_call(node):
+            return optimized_property_group_call
+
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
             if len(node.args) != 2:
