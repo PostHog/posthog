@@ -156,19 +156,35 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
     }
 
     const elementsChain = globals.event.properties['$elements_chain']
-
-    return {
+    const response = {
         event: globals.event.name,
         elements_chain: elementsChain,
-        elements_chain_href: elementsChain ? getElementsChainHref(elementsChain) : '',
-        elements_chain_texts: elementsChain ? getElementsChainTexts(elementsChain) : [],
-        elements_chain_ids: elementsChain ? getElementsChainIds(elementsChain) : [],
-        elements_chain_elements: elementsChain ? getElementsChainElements(elementsChain) : [],
+        elements_chain_href: '',
+        elements_chain_texts: [],
+        elements_chain_ids: [],
+        elements_chain_elements: [],
         timestamp: globals.event.timestamp,
         properties: globals.event.properties,
         person: globals.person ? { properties: globals.person.properties } : undefined,
         ...groups,
     }
+    if (elementsChain) {
+        Object.defineProperties(response, {
+            elements_chain_href: {
+                get: () => getElementsChainHref(elementsChain),
+            },
+            elements_chain_texts: {
+                get: () => getElementsChainTexts(elementsChain),
+            },
+            elements_chain_ids: {
+                get: () => getElementsChainIds(elementsChain),
+            },
+            elements_chain_elements: {
+                get: () => getElementsChainElements(elementsChain),
+            },
+        })
+    }
+    return response
 }
 
 export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Team): any => {
