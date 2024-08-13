@@ -420,21 +420,21 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         (session_recordings) = self._filter_recordings_by(
-            {"no_filter": None, "limit": 3, "offset": 0, "entity_order": "active_seconds"}
+            {"no_filter": None, "limit": 3, "offset": 0, "order": "active_seconds"}
         )
 
         ordered_by_activity = [(r["session_id"], r["active_seconds"]) for r in session_recordings.results]
         assert ordered_by_activity == [(session_id_two, 1.0), (session_id_one, 0.002)]
 
         (session_recordings) = self._filter_recordings_by(
-            {"no_filter": None, "limit": 3, "offset": 0, "entity_order": "console_error_count"}
+            {"no_filter": None, "limit": 3, "offset": 0, "order": "console_error_count"}
         )
 
         ordered_by_errors = [(r["session_id"], r["console_error_count"]) for r in session_recordings.results]
         assert ordered_by_errors == [(session_id_one, 1012), (session_id_two, 430)]
 
         (session_recordings) = self._filter_recordings_by(
-            {"no_filter": None, "limit": 3, "offset": 0, "entity_order": "start_time"}
+            {"no_filter": None, "limit": 3, "offset": 0, "order": "start_time"}
         )
 
         ordered_by_default = [(r["session_id"], r["start_time"]) for r in session_recordings.results]
