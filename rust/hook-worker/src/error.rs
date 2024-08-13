@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::time;
 
-use crate::dns::NoPublicIPv4Error;
+use common_dns::NoPublicIPv4Error;
 use hook_common::{pgqueue, webhook::WebhookJobError};
 use http::StatusCode;
 use thiserror::Error;

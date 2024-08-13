@@ -5,6 +5,7 @@ members = [
   "capture",
   "common/health",
   "common/metrics",
+  "common/dns",
   "feature-flags",
   "hook-api",
   "hook-common",
@@ -13,6 +14,7 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
+  "cyclotron-fetch",
 ]
 
 [workspace.lints.rust]

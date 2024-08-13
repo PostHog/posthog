@@ -23,11 +23,11 @@ use hook_common::{
     webhook::{HttpMethod, WebhookJobError, WebhookJobParameters},
 };
 
-use crate::dns::{NoPublicIPv4Error, PublicIPv4Resolver};
 use crate::error::{
     is_error_source, WebhookError, WebhookParseError, WebhookRequestError, WorkerError,
 };
 use crate::util::first_n_bytes_of_response;
+use common_dns::{NoPublicIPv4Error, PublicIPv4Resolver};
 
 // TODO: Either make this configurable or adjust it once we don't produce results to Kafka, where
 // our size limit is relatively low.

@@ -86,7 +86,7 @@ impl Resolve for PublicIPv4Resolver {
 
 #[cfg(test)]
 mod tests {
-    use crate::dns::{NoPublicIPv4Error, PublicIPv4Resolver};
+    use crate::{NoPublicIPv4Error, PublicIPv4Resolver};
     use reqwest::dns::{Name, Resolve};
     use std::str::FromStr;
 

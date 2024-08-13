@@ -702,6 +702,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-dns"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "reqwest 0.12.3",
+ "tokio",
+]
+
+[[package]]
 name = "common-metrics"
 version = "0.1.0"
 dependencies = [
@@ -841,6 +850,32 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "cyclotron-fetch"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "chrono",
+ "common-dns",
+ "common-metrics",
+ "cyclotron-core",
+ "envconfig",
+ "futures",
+ "health",
+ "http 1.1.0",
+ "metrics",
+ "rand",
+ "reqwest 0.12.3",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -1595,6 +1630,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
  "chrono",
+ "common-dns",
  "common-metrics",
  "envconfig",
  "futures",
