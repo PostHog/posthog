@@ -164,6 +164,7 @@ def calculate_for_query_based_insight(
         # Translating `QueryResponse` to legacy insights shape
         # The response may not be conformant with that, hence these are all `.get()`s
         result=response.get("results"),
+        has_more=response.get("hasMore"),
         columns=response.get("columns"),
         last_refresh=last_refresh,
         cache_key=cache_key,
