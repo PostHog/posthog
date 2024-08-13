@@ -424,7 +424,7 @@ class TrendsQueryRunner(QueryRunner):
 
         has_more = False
         if self.breakdown_enabled and any(item["label"] == BREAKDOWN_OTHER_STRING_LABEL for item in final_result):
-            if self.query.breakdownFilter.breakdown_hide_other_aggregation:
+            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_hide_other_aggregation:
                 final_result = [item for item in final_result if item["label"] != BREAKDOWN_OTHER_STRING_LABEL]
             has_more = True
 
