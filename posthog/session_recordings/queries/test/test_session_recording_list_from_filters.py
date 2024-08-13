@@ -1297,12 +1297,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}'}
+            {"having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]'}
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_two]
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"lt"}'}
+            {"having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"lt"}]'}
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
