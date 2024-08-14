@@ -2,6 +2,7 @@ import json
 from typing import Any, Optional
 from unittest.mock import ANY, patch
 
+from inline_snapshot import snapshot
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -167,6 +168,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {"bytecode": ["_h", 29]},
             "icon_url": None,
             "template": None,
+            "masking": None,
             "status": {"rating": 0, "state": 0, "tokens": 0},
         }
 
@@ -479,6 +481,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 2,
             ],
         }
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_saves_masking_config(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "masking": {"ttl": 60, "threshold": 20, "hash": "{person.properties.email}"},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["masking"] == snapshot(
+            {
+                "ttl": 60,
+                "threshold": 20,
+                "hash": "{person.properties.email}",
+                "bytecode": ["_h", 32, "email", 32, "properties", 32, "person", 1, 3],
+            }
+        )
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_loads_status_when_enabled_and_available(self, *args):
