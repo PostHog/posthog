@@ -2,11 +2,12 @@ import json
 from typing import Any, Optional
 from unittest.mock import ANY, patch
 
+from inline_snapshot import snapshot
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -167,7 +168,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {"bytecode": ["_h", 29]},
             "icon_url": None,
             "template": None,
-            "status": {"ratings": [], "state": 0, "states": []},
+            "masking": None,
+            "status": {"rating": 0, "state": 0, "tokens": 0},
         }
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
@@ -481,10 +483,29 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_saves_masking_config(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "masking": {"ttl": 60, "threshold": 20, "hash": "{person.properties.email}"},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["masking"] == snapshot(
+            {
+                "ttl": 60,
+                "threshold": 20,
+                "hash": "{person.properties.email}",
+                "bytecode": ["_h", 32, "email", 32, "properties", 32, "person", 1, 3],
+            }
+        )
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_loads_status_when_enabled_and_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             mock_get.return_value.status_code = status.HTTP_200_OK
-            mock_get.return_value.json.return_value = {"state": 1, "states": [], "ratings": []}
+            mock_get.return_value.json.return_value = {"state": 1, "tokens": 0, "rating": 0}
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
@@ -499,7 +520,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_201_CREATED, response.json()
 
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
-            assert response.json()["status"] == {"state": 1, "states": [], "ratings": []}
+            assert response.json()["status"] == {"state": 1, "tokens": 0, "rating": 0}
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_does_not_crash_when_status_not_available(self, *args):
@@ -519,14 +540,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
-            assert response.json()["status"] == {"ratings": [], "state": 0, "states": []}
+            assert response.json()["status"] == DEFAULT_STATE
 
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_patches_status_on_enabled_update(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
                 mock_get.return_value.status_code = status.HTTP_200_OK
-                mock_get.return_value.json.return_value = {"state": 4, "states": [], "ratings": []}
+                mock_get.return_value.json.return_value = {"state": 4, "tokens": 0, "rating": 0}
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",

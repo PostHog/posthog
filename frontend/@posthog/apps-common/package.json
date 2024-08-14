@@ -17,7 +17,6 @@
     },
     "peerDependencies": {
         "@posthog/lemon-ui": "*",
-        "antd": "*",
         "kea": "*",
         "kea-router": "*",
         "react": "*",

@@ -228,6 +228,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
 class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
+    hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -293,6 +294,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "cache_target_age",
             "next_allowed_client_refresh",
             "result",
+            "hasMore",
             "columns",
             "created_at",
             "created_by",
@@ -484,6 +486,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
+
+    def get_hasMore(self, insight: Insight):
+        return self.insight_result(insight).has_more
 
     def get_columns(self, insight: Insight):
         return self.insight_result(insight).columns
@@ -871,12 +876,12 @@ Using the correct cache and enriching the response with dashboard specific confi
                 export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
 
             response = HttpResponse(export)
-            response["Content-Disposition"] = (
-                'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
-                    name=slugify(request.GET.get("export_name", "export")),
-                    date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
-                    date_to=filter.date_to.strftime("%Y-%m-%d"),
-                )
+            response[
+                "Content-Disposition"
+            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
+                name=slugify(request.GET.get("export_name", "export")),
+                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
+                date_to=filter.date_to.strftime("%Y-%m-%d"),
             )
             return response
 
