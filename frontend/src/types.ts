@@ -1909,6 +1909,7 @@ export interface PluginConfigTypeNew {
     delivery_rate_24h?: number | null
     config: Record<string, any>
     filters?: PluginConfigFilters | null
+    hog_function_migration_available?: boolean
 }
 
 // subset of EntityFilter

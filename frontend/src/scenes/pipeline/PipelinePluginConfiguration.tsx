@@ -1,7 +1,9 @@
 import { IconLock } from '@posthog/icons'
 import { IconPencil } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonFileInput,
     LemonInput,
     LemonSelect,
@@ -47,6 +49,7 @@ export function PipelinePluginConfiguration({
 
     const {
         plugin,
+        pluginConfig,
         isNew,
         isConfigurationSubmitting,
         savedConfiguration,
@@ -56,7 +59,7 @@ export function PipelinePluginConfiguration({
         configurationChanged,
         pluginFilteringEnabled,
     } = useValues(logic)
-    const { submitConfiguration, resetConfiguration } = useActions(logic)
+    const { submitConfiguration, resetConfiguration, migrateToHogFunction } = useActions(logic)
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
@@ -138,6 +141,33 @@ export function PipelinePluginConfiguration({
     return (
         <div className="space-y-3">
             <PageHeader buttons={buttons} />
+
+            {pluginConfig?.hog_function_migration_available ? (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Upgrade to new version',
+                        onClick: () =>
+                            LemonDialog.open({
+                                title: 'Upgrade destination',
+                                description:
+                                    'This will create a new Destination in the upgraded system. The old destination will be disabled and can later be deleted. In addition there may be slight differences in the configuration options that you can choose to modify.',
+                                secondaryButton: {
+                                    type: 'secondary',
+                                    children: 'Cancel',
+                                },
+                                primaryButton: {
+                                    type: 'primary',
+                                    onClick: () => migrateToHogFunction(),
+                                    children: 'Upgrade',
+                                },
+                            }),
+                        disabled: loading,
+                    }}
+                >
+                    <b>New version available!</b> This destination is part of our legacy system. Click to upgrade.
+                </LemonBanner>
+            ) : null}
             <Form
                 logic={pipelinePluginConfigurationLogic}
                 props={logicProps}

@@ -20,9 +20,11 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import FiltersSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
+from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -588,6 +590,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
     plugin_info = serializers.SerializerMethodField()
+    hog_function_migration_available = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
 
@@ -611,6 +614,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "description",
             "deleted",
             "filters",
+            "hog_function_migration_available",
         ]
         read_only_fields = [
             "id",
@@ -619,6 +623,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "error",
             "delivery_rate_24h",
             "created_at",
+            "hog_function_migration_available",
         ]
 
     def get_config(self, plugin_config: PluginConfig):
@@ -666,6 +671,11 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             return PluginSerializer(instance=plugin_config.plugin).data
         else:
             return None
+
+    def get_hog_function_migration_available(self, plugin_config: PluginConfig):
+        if plugin_config.plugin:
+            return HOG_FUNCTION_MIGRATORS.get(plugin_config.plugin.url) is not None
+        return None
 
     def get_delivery_rate_24h(self, plugin_config: PluginConfig):
         if "delivery_rates_1d" in self.context:
@@ -904,6 +914,22 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], url_path="migrate", detail=True)
+    def migrate(self, request: request.Request, **kwargs):
+        obj = self.get_object()
+        migrater = HOG_FUNCTION_MIGRATORS.get(obj.plugin.url)
+
+        if not migrater:
+            raise ValidationError("No migration available for this plugin")
+
+        hog_function_serializer = HogFunctionSerializer(
+            data=migrater.migrate(obj), context=self.get_serializer_context()
+        )
+        hog_function_serializer.is_valid(raise_exception=True)
+        hog_function_serializer.save()
+
+        return Response(hog_function_serializer.data)
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
