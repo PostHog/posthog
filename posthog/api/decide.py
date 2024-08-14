@@ -1,5 +1,5 @@
 from random import random
-from typing import Union
+from typing import Union, cast
 
 import structlog
 from django.conf import settings
@@ -140,6 +140,7 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            token = cast(str, token)  # we know it's not None if we found a team
             structlog.contextvars.bind_contextvars(team_id=team.id)
 
             disable_flags = process_bool(data.get("disable_flags")) is True
