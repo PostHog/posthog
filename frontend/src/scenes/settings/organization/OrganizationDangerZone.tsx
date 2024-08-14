@@ -72,7 +72,7 @@ export function OrganizationDangerZone(): JSX.Element {
     return (
         <>
             <div className="text-danger">
-                {!isRestricted && (
+                {!restrictionReason && (
                     <p className="text-danger">
                         This is <b>irreversible</b>. Please be certain.
                     </p>
