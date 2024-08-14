@@ -1,4 +1,6 @@
 import * as React from 'react'
-// whatever else you need in here
+import failOnConsole from 'jest-fail-on-console'
 
 global.React = React
+
+failOnConsole()

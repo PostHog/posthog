@@ -211,6 +211,9 @@ dependencies:
   image-blob-reduce:
     specifier: ^4.1.0
     version: 4.1.0
+  jest-fail-on-console:
+    specifier: ^3.3.0
+    version: 3.3.0
   kea:
     specifier: ^3.1.5
     version: 3.1.5(react@18.2.0)
@@ -14620,6 +14623,10 @@ packages:
       jest-mock: 29.7.0
       jest-util: 29.7.0
     dev: true
+
+  /jest-fail-on-console@3.3.0:
+    resolution: {integrity: sha512-J9rnFQvQwkcGJw01zCEKe2Uag+E926lFgIyaQGep2LqhQH7OCRHyD+tm/jnNoKlSRnOBO60DmzMjeQAVI3f5cw==}
+    dev: false
 
   /jest-get-type@29.6.3:
     resolution: {integrity: sha512-zrteXnqYxfQh7l5FHyL38jL39di8H8rHoecLH3JNxH3BwOrBsNeabdap5e0I23lD4HHI8W5VFBZqG4Eaq5LNcw==}
