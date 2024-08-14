@@ -3861,15 +3861,7 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = [
-    'Stripe',
-    'Hubspot',
-    'Postgres',
-    'MySQL',
-    'Zendesk',
-    'Snowflake',
-    'Salesforce',
-] as const
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'MySQL', 'Zendesk', 'Snowflake'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
@@ -4042,7 +4034,14 @@ export type BatchExportServiceRedshift = {
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
 // and update batchExportServiceNames in pipelineNodeNewLogic
-export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
+export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    'S3',
+    'Snowflake',
+    'Postgres',
+    'BigQuery',
+    'Redshift',
+    'HTTP',
+]
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
