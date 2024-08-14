@@ -212,6 +212,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
+                        // Only add metadata when on an unchanged saved insight
+                        const queryMetadata = refreshArg ? props.queryMetadata : undefined
+
                         const response = await concurrencyController.run({
                             debugTag: props.query.kind,
                             abortController,
@@ -226,7 +229,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             methodOptions,
                                             refresh,
                                             queryId,
-                                            props.queryMetadata,
+                                            queryMetadata,
                                             actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now

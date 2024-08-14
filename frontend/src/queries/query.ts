@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QuerySchema, QueryStatus } from './schema'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode, isPersonsNode } from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
@@ -68,7 +68,7 @@ export async function pollForResults(
 /**
  * Execute a query node and return the response, use async query if enabled
  */
-async function executeQuery<N extends DataNode>(
+async function executeQuery<N extends QuerySchema>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -84,6 +84,9 @@ async function executeQuery<N extends DataNode>(
     const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
 
     const response = await api.query(queryNode, methodOptions, queryId, queryMetadata, refresh, isAsyncQuery)
+    if (!response) {
+        throw new Error('Query response is empty')
+    }
 
     if (!response.query_status?.query_async) {
         // Executed query synchronously or from cache
