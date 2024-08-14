@@ -1,8 +1,9 @@
 import pytest
+
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
+    filter_to_query,
     hidden_legend_keys_to_breakdowns,
     hidden_legend_keys_to_indexes,
-    filter_to_query,
 )
 from posthog.schema import (
     ActionsNode,
@@ -14,6 +15,7 @@ from posthog.schema import (
     BreakdownType,
     ChartDisplayType,
     CohortPropertyFilter,
+    CompareFilter,
     CountPerActorMathType,
     DataWarehouseNode,
     ElementPropertyFilter,
@@ -22,40 +24,38 @@ from posthog.schema import (
     FunnelConversionWindowTimeUnit,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
-    FunnelPathType,
     FunnelPathsFilter,
-    FunnelVizType,
+    FunnelPathType,
+    FunnelsFilter,
     FunnelsQuery,
+    FunnelVizType,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     InsightDateRange,
     Key,
+    LifecycleFilter,
     LifecycleQuery,
     LifecycleToggle,
     MathGroupTypeIndex,
     PathCleaningFilter,
-    PathType,
+    PathsFilter,
     PathsQuery,
+    PathType,
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
+    RetentionFilter,
     RetentionPeriod,
     RetentionQuery,
     RetentionType,
     SessionPropertyFilter,
     StepOrderValue,
+    StickinessFilter,
     StickinessQuery,
     TrendsFilter,
-    FunnelsFilter,
-    RetentionFilter,
-    PathsFilter,
-    StickinessFilter,
-    LifecycleFilter,
     TrendsQuery,
-    CompareFilter,
 )
 from posthog.test.base import BaseTest
-
 
 insight_0 = {
     "events": [{"id": "signed_up", "type": "events", "order": 0}],
@@ -1343,7 +1343,7 @@ class TestFilterToQuery(BaseTest):
         assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.breakdownFilter,
-            BreakdownFilter(breakdowns=[{"type": BreakdownType.EVENT, "value": "$browser"}]),
+            BreakdownFilter(breakdowns=[{"type": BreakdownType.EVENT, "property": "$browser"}]),
         )
 
         filter = {
@@ -1360,8 +1360,8 @@ class TestFilterToQuery(BaseTest):
             query.breakdownFilter,
             BreakdownFilter(
                 breakdowns=[
-                    {"type": BreakdownType.EVENT, "value": "$browser"},
-                    {"type": BreakdownType.SESSION, "value": "$session_duration"},
+                    {"type": BreakdownType.EVENT, "property": "$browser"},
+                    {"type": BreakdownType.SESSION, "property": "$session_duration"},
                 ]
             ),
         )
@@ -1504,6 +1504,7 @@ class TestFilterToQuery(BaseTest):
             "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
             "period": "Week",
             "show_mean": True,
+            "cumulative": True,
         }
 
         query = filter_to_query(filter)
@@ -1530,6 +1531,7 @@ class TestFilterToQuery(BaseTest):
                     "order": None,
                 },
                 showMean=True,
+                cumulative=True,
             ),
         )
 
@@ -1646,10 +1648,10 @@ class TestFilterToQuery(BaseTest):
     def test_multiple_breakdowns(self):
         filter = {
             "breakdowns": [
-                {"type": "event", "value": "$url", "normalize_url": True},
-                {"type": "group", "value": "$os", "group_type_index": 0},
-                {"type": "session", "value": "$session_duration", "histogram_bin_count": 10},
-                {"type": "person", "value": "extra_prop"},
+                {"type": "event", "property": "$url", "normalize_url": True},
+                {"type": "group", "property": "$os", "group_type_index": 0},
+                {"type": "session", "property": "$session_duration", "histogram_bin_count": 10},
+                {"type": "person", "property": "extra_prop"},
             ]
         }
 
@@ -1660,32 +1662,99 @@ class TestFilterToQuery(BaseTest):
             query.breakdownFilter,
             BreakdownFilter(
                 breakdowns=[
-                    Breakdown(type=BreakdownType.EVENT, value="$url", normalize_url=True),
-                    Breakdown(type=BreakdownType.GROUP, value="$os", group_type_index=0),
-                    Breakdown(type=BreakdownType.SESSION, value="$session_duration", histogram_bin_count=10),
+                    Breakdown(type=BreakdownType.EVENT, property="$url", normalize_url=True),
+                    Breakdown(type=BreakdownType.GROUP, property="$os", group_type_index=0),
+                    Breakdown(type=BreakdownType.SESSION, property="$session_duration", histogram_bin_count=10),
                 ]
             ),
         )
 
-    def test_legacy_multiple_breakdowns(self):
+    def test_funnels_multiple_breakdowns(self):
         filter = {
+            "insight": "FUNNELS",
             "breakdowns": [
-                {"type": "event", "property": "$url"},
                 {"type": "session", "property": "$session_duration"},
-            ]
+            ],
         }
 
         query = filter_to_query(filter)
 
-        assert isinstance(query, TrendsQuery)
+        assert isinstance(query, FunnelsQuery)
         self.assertEqual(
             query.breakdownFilter,
             BreakdownFilter(
-                breakdowns=[
-                    Breakdown(type=BreakdownType.EVENT, value="$url"),
-                    Breakdown(type=BreakdownType.SESSION, value="$session_duration"),
-                ]
+                breakdown="$session_duration",
+                breakdown_type=BreakdownType.SESSION,
             ),
+        )
+
+    def test_funnels_multiple_breakdowns_no_breakdown_type(self):
+        filter = {
+            "insight": "FUNNELS",
+            "breakdowns": [
+                {"property": "prop"},
+            ],
+        }
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, FunnelsQuery)
+        self.assertEqual(
+            query.breakdownFilter,
+            BreakdownFilter(
+                breakdown="prop",
+                breakdown_type=BreakdownType.EVENT,
+            ),
+        )
+
+    def test_funnels_use_first_time_for_user_math(self):
+        filter = {
+            "insight": "FUNNELS",
+            "events": [
+                {
+                    "id": "signed_up",
+                    "name": "signed_up",
+                    "type": "events",
+                    "order": 0,
+                    "math": BaseMathType.FIRST_TIME_FOR_USER,
+                },
+                {
+                    "id": "upgraded_plan",
+                    "name": "upgraded_plan",
+                    "type": "events",
+                    "order": 1,
+                    "math": BaseMathType.DAU,
+                },
+            ],
+            "actions": [
+                {
+                    "id": 1,
+                    "name": "Interacted with file",
+                    "type": "actions",
+                    "order": 2,
+                    "math": BaseMathType.FIRST_TIME_FOR_USER,
+                },
+                {
+                    "id": 1,
+                    "name": "Interacted with file",
+                    "type": "actions",
+                    "order": 3,
+                    "math": BaseMathType.DAU,
+                },
+            ],
+        }
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, FunnelsQuery)
+        self.assertEqual(
+            query.series,
+            [
+                EventsNode(event="signed_up", name="signed_up", math=BaseMathType.FIRST_TIME_FOR_USER),
+                EventsNode(event="upgraded_plan", name="upgraded_plan"),
+                ActionsNode(id=1, name="Interacted with file", math=BaseMathType.FIRST_TIME_FOR_USER),
+                ActionsNode(id=1, name="Interacted with file"),
+            ],
         )
 
 

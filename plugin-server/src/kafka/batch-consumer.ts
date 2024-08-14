@@ -76,6 +76,7 @@ export const startBatchConsumer = async ({
     fetchMinBytes,
     maxHealthHeartbeatIntervalMs = 60_000,
     autoOffsetStore = true,
+    topicMetadataRefreshInterval,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -97,6 +98,7 @@ export const startBatchConsumer = async ({
     debug?: string
     queuedMaxMessagesKBytes?: number
     fetchMinBytes?: number
+    topicMetadataRefreshInterval?: number
     /**
      * default to 0 which disables logging
      * granularity of 1000ms
@@ -183,6 +185,10 @@ export const startBatchConsumer = async ({
 
     if (kafkaStatisticIntervalMs) {
         consumerConfig['statistics.interval.ms'] = kafkaStatisticIntervalMs
+    }
+
+    if (topicMetadataRefreshInterval) {
+        consumerConfig['topic.metadata.refresh.interval.ms'] = topicMetadataRefreshInterval
     }
 
     if (debug) {
@@ -274,6 +280,8 @@ export const startBatchConsumer = async ({
                     consumerBatchSize.labels({ topic, groupId }).observe(0)
                     continue
                 }
+
+                gaugeBatchUtilization.labels({ groupId }).set(messages.length / fetchBatchSize)
 
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                 if (!messages.length && !callEachBatchWhenEmpty) {
@@ -405,4 +413,10 @@ const kafkaAbsolutePartitionCount = new Gauge({
     name: 'kafka_absolute_partition_count',
     help: 'Number of partitions assigned to this consumer. (Absolute value from the consumer state.)',
     labelNames: ['topic'],
+})
+
+const gaugeBatchUtilization = new Gauge({
+    name: 'consumer_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+    labelNames: ['groupId'],
 })

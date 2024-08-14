@@ -10,7 +10,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
@@ -20,8 +20,8 @@ import { urls } from 'scenes/urls'
 
 import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
-import { StatusTag } from './Experiment'
 import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
+import { StatusTag } from './ExperimentView/components'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -64,13 +64,14 @@ export function Experiments(): JSX.Element {
         },
         createdByColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         createdAtColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
+        atColumn('start_date', 'Started') as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         {
             title: 'Duration',
             key: 'duration',
             render: function Render(_, experiment: Experiment) {
                 const duration = getExperimentDuration(experiment)
 
-                return <div>{duration !== undefined ? `${duration} day${duration !== 1 ? 's' : ''}` : '--'}</div>
+                return <div>{duration !== undefined ? `${duration} day${duration !== 1 ? 's' : ''}` : '—'}</div>
             },
             sorter: (a, b) => {
                 const durationA = getExperimentDuration(a) ?? -1

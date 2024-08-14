@@ -31,6 +31,7 @@ import { importAppsLogic } from './importAppsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
+import { loadPluginsFromUrl } from './utils'
 
 export interface PipelinePluginConfigurationLogicProps {
     stage: PipelineStage | null
@@ -108,7 +109,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             teamLogic,
             ['currentTeamId'],
             pipelineTransformationsLogic,
-            ['nextAvailableOrder'],
+            ['plugins as transformationPlugins', 'nextAvailableOrder'],
             featureFlagLogic,
             ['featureFlags'],
             pipelineAccessLogic,
@@ -123,7 +124,18 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     if (!props.pluginId) {
                         return null
                     }
-                    return await api.get(`api/organizations/@current/plugins/${props.pluginId}`)
+
+                    let plugins: Record<number, PluginType> = {}
+
+                    // TRICKY: We load from the list as the permissions are a not quite right for getting one.
+                    // As we are moving away from plugins opting for this quick fix for now.
+                    if (props.stage === PipelineStage.Transformation) {
+                        plugins = await loadPluginsFromUrl('api/organizations/@current/pipeline_transformations')
+                    } else if (props.stage === PipelineStage.Destination) {
+                        plugins = await loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
+                    }
+
+                    return plugins[props.pluginId] || api.get(`api/organizations/@current/plugins/${props.pluginId}`)
                 },
             },
         ],
@@ -148,7 +160,8 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return values.pluginConfig
                     }
-                    const { enabled, order, name, description, filters, ...config } = formdata
+                    const { enabled, order, name, description, ...config } = formdata
+                    const { filters } = formdata // This is to make sure the config object includes the filters field
 
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
@@ -160,7 +173,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     formData.append('description', description)
 
                     const sanitizedFilters = sanitizeFilters(filters)
-                    if (filters) {
+                    if (filters && !formData.has('add_attachment[filters]')) {
                         formData.append('filters', sanitizedFilters ? JSON.stringify(sanitizedFilters) : '')
                     }
 

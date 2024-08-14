@@ -1,10 +1,9 @@
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { InsightModel, InsightType } from '~/types'
+import { InsightModel, QueryBasedInsightModel } from '~/types'
 
 import { INSIGHTS_PER_PAGE, InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 
@@ -187,35 +186,27 @@ describe('savedInsightsLogic', () => {
             })
     })
 
-    describe('redirects old /insights urls to the real URL', () => {
-        it('new mode with ?insight= and no hash params', async () => {
-            router.actions.push(combineUrl('/insights', cleanFilters({ insight: InsightType.FUNNELS })).url)
-            await expectLogic(router).toMatchValues({
-                location: partial({ pathname: urls.project(MOCK_TEAM_ID, urls.insightNew()) }),
-                hashParams: { filters: partial({ insight: InsightType.FUNNELS }) },
-            })
-        })
-    })
-
     it('can duplicate and does not use derived name for name', async () => {
-        const sourceInsight = createInsight(123, 'hello')
+        const sourceInsight = createInsight(123, 'hello') as QueryBasedInsightModel
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
         await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: '' })
+            expect.objectContaining({ name: '' }),
+            expect.objectContaining({})
         )
     })
 
     it('can duplicate using name', async () => {
-        const sourceInsight = createInsight(123, 'hello')
+        const sourceInsight = createInsight(123, 'hello') as QueryBasedInsightModel
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
         await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
             `api/projects/${MOCK_TEAM_ID}/insights`,
-            expect.objectContaining({ name: 'should be copied (copy)' })
+            expect.objectContaining({ name: 'should be copied (copy)' }),
+            expect.objectContaining({})
         )
     })
 

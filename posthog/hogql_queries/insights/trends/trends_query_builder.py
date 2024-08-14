@@ -1,6 +1,5 @@
 from typing import Optional, cast
 
-
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
@@ -13,8 +12,8 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_OTHER_STRING_LABEL,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
@@ -30,8 +29,8 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryModifiers,
     TrendsQuery,
-    Breakdown as BreakdownSchema,
 )
+from posthog.schema import Breakdown as BreakdownSchema
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
@@ -206,8 +205,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ) or no_modifications is True:
             return default_query
         # Both breakdowns and complex series aggregation
-        elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
-            orchestrator = self._aggregation_operation.get_query_orchestrator(
+        elif (
+            breakdown.enabled
+            and self._aggregation_operation.requires_query_orchestration()
+            and not self._aggregation_operation.is_first_time_ever_math()
+        ):
+            orchestrator = self._aggregation_operation.get_actors_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
             )
@@ -219,13 +222,22 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             orchestrator.inner_select_query_builder.extend_group_by(breakdown.field_exprs)
 
             orchestrator.parent_select_query_builder.extend_select(breakdown.alias_exprs)
-
             if (
                 self._aggregation_operation.is_total_value
                 and not self._aggregation_operation.is_count_per_actor_variant()
             ):
                 orchestrator.parent_select_query_builder.extend_group_by(breakdown.field_exprs)
 
+            return orchestrator.build()
+        elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
+            orchestrator = self._aggregation_operation.get_first_time_math_query_orchestrator(
+                events_where_clause=events_filter,
+                sample_value=self._sample_value(),
+                event_name_filter=self._event_or_action_where_expr(),
+            )
+            orchestrator.events_query_builder.extend_select(breakdown.column_exprs, aggregate=True)
+            orchestrator.parent_query_builder.extend_select(breakdown.alias_exprs)
+            orchestrator.parent_query_builder.extend_group_by(breakdown.field_exprs)
             return orchestrator.build()
         # Breakdowns and session duration math property
         elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
@@ -281,8 +293,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return wrapper
         # Just complex series aggregation
+        elif (
+            self._aggregation_operation.requires_query_orchestration()
+            and self._aggregation_operation.is_first_time_ever_math()
+        ):
+            return self._aggregation_operation.get_first_time_math_query_orchestrator(
+                events_where_clause=events_filter,
+                sample_value=self._sample_value(),
+                event_name_filter=self._event_or_action_where_expr(),
+            ).build()
         elif self._aggregation_operation.requires_query_orchestration():
-            return self._aggregation_operation.get_query_orchestrator(
+            return self._aggregation_operation.get_actors_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
             ).build()
@@ -660,14 +681,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ]
             )
 
-        # Series
-        if series_event_name(self.series) is not None:
-            filters.append(
-                parse_expr(
-                    "event = {event}",
-                    placeholders={"event": ast.Constant(value=series_event_name(self.series))},
-                )
-            )
+        # Filter by event or action name
+        if not self._aggregation_operation.is_first_time_ever_math():
+            event_or_action = self._event_or_action_where_expr()
+            if event_or_action is not None:
+                filters.append(event_or_action)
 
         # Filter Test Accounts
         if (
@@ -685,15 +703,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Series Filters
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
-
-        # Actions
-        if isinstance(series, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(series.id), team=self.team)
-                filters.append(action_to_expr(action))
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                filters.append(parse_expr("1 = 2"))
 
         # Breakdown
         if not ignore_breakdowns and breakdown is not None:
@@ -716,6 +725,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return ast.Constant(value=True)
 
         return ast.And(exprs=filters)
+
+    def _event_or_action_where_expr(self) -> ast.Expr | None:
+        # Event name
+        if series_event_name(self.series) is not None:
+            return parse_expr(
+                "event = {event}",
+                placeholders={"event": ast.Constant(value=series_event_name(self.series))},
+            )
+
+        # Actions
+        if isinstance(self.series, ActionsNode):
+            try:
+                action = Action.objects.get(pk=int(self.series.id), team=self.team)
+                return action_to_expr(action)
+            except Action.DoesNotExist:
+                # If an action doesn't exist, we want to return no events
+                return parse_expr("1 = 2")
+
+        return None
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:
@@ -781,9 +809,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _breakdown_outer_query_select(self, breakdown: Breakdown, breakdown_limit: int | None = None) -> ast.Expr:
         breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
-        other_label_expr = ast.Constant(
-            value=None if breakdown.hide_other_aggregation else BREAKDOWN_OTHER_STRING_LABEL
-        )
+        # We always add the "other" aggregation to tell if we truncated the results
+        # It is then removed later
+        other_label_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
 
         if breakdown.is_multiple_breakdown:
             return parse_expr(

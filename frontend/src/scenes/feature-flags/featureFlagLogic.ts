@@ -30,6 +30,7 @@ import {
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
     FeatureFlagType,
+    FilterLogicalOperator,
     FilterType,
     InsightModel,
     InsightType,
@@ -39,6 +40,7 @@ import {
     OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
+    RecordingUniversalFilters,
     RolloutConditionType,
     ScheduledChangeOperationType,
     ScheduledChangeType,
@@ -820,58 +822,64 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         recordingFilterForFlag: [
             (s) => [s.featureFlag],
-            (featureFlag) => {
+            (featureFlag): Partial<RecordingUniversalFilters> => {
                 const flagKey = featureFlag?.key
                 if (!flagKey) {
                     return {}
                 }
 
-                const defaultEntityFilterOnFlag: Partial<FilterType> = {
-                    events: [
-                        {
-                            id: '$feature_flag_called',
-                            name: '$feature_flag_called',
-                            type: 'events',
-                            properties: [
-                                {
-                                    key: '$feature/' + flagKey,
-                                    type: PropertyFilterType.Event,
-                                    value: ['false'],
-                                    operator: PropertyOperator.IsNot,
-                                },
-                                {
-                                    key: '$feature/' + flagKey,
-                                    type: PropertyFilterType.Event,
-                                    value: 'is_set',
-                                    operator: PropertyOperator.IsSet,
-                                },
-                                {
-                                    key: '$feature_flag',
-                                    type: PropertyFilterType.Event,
-                                    value: flagKey,
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                        },
-                    ],
-                }
-
-                if (featureFlag.has_enriched_analytics) {
-                    return {
-                        events: [
+                return {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
                             {
-                                id: '$feature_interaction',
-                                type: 'events',
-                                order: 0,
-                                name: '$feature_interaction',
-                                properties: [
-                                    { key: 'feature_flag', value: [flagKey], operator: 'exact', type: 'event' },
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    featureFlag.has_enriched_analytics
+                                        ? {
+                                              id: '$feature_interaction',
+                                              type: 'events',
+                                              order: 0,
+                                              name: '$feature_interaction',
+                                              properties: [
+                                                  {
+                                                      key: 'feature_flag',
+                                                      value: [flagKey],
+                                                      operator: PropertyOperator.Exact,
+                                                      type: PropertyFilterType.Event,
+                                                  },
+                                              ],
+                                          }
+                                        : {
+                                              id: '$feature_flag_called',
+                                              name: '$feature_flag_called',
+                                              type: 'events',
+                                              properties: [
+                                                  {
+                                                      key: '$feature/' + flagKey,
+                                                      type: PropertyFilterType.Event,
+                                                      value: ['false'],
+                                                      operator: PropertyOperator.IsNot,
+                                                  },
+                                                  {
+                                                      key: '$feature/' + flagKey,
+                                                      type: PropertyFilterType.Event,
+                                                      value: 'is_set',
+                                                      operator: PropertyOperator.IsSet,
+                                                  },
+                                                  {
+                                                      key: '$feature_flag',
+                                                      type: PropertyFilterType.Event,
+                                                      value: flagKey,
+                                                      operator: PropertyOperator.Exact,
+                                                  },
+                                              ],
+                                          },
                                 ],
                             },
                         ],
-                    }
+                    },
                 }
-                return defaultEntityFilterOnFlag
             },
         ],
         hasEarlyAccessFeatures: [

@@ -409,11 +409,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return state
                 },
-                [dashboardsModel.actionTypes.updateDashboardInsight]: (
-                    state,
-                    { insight, extraDashboardIds, updateTileOnDashboards }
-                ) => {
-                    const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { insight, extraDashboardIds }) => {
+                    const targetDashboards = (insight.dashboard_tiles || [])
+                        .map((tile) => tile.dashboard_id)
+                        .concat(extraDashboardIds || [])
                     if (!targetDashboards.includes(props.id)) {
                         // this update is not for this dashboard
                         return state
@@ -427,11 +426,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const newTiles = state.tiles.slice()
 
                         if (tileIndex >= 0) {
-                            if (insight.dashboards?.includes(props.id) && updateTileOnDashboards?.includes(props.id)) {
+                            if (insight.dashboards?.includes(props.id)) {
                                 newTiles[tileIndex] = {
                                     ...newTiles[tileIndex],
                                     insight: insight,
-                                    last_refresh: insight.last_refresh,
                                 }
                             } else if (!insight.dashboards?.includes(props.id)) {
                                 newTiles.splice(tileIndex, 1)
@@ -451,27 +449,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
-                },
-                [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (
-                    state,
-                    { shortId, refreshing, last_refresh }
-                ) => {
-                    // If not a dashboard item, don't do anything.
-                    if (!shortId) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        items: state?.tiles.map((t) =>
-                            !t.insight || t.insight.short_id === shortId
-                                ? {
-                                      ...t,
-                                      ...(refreshing != null ? { refreshing } : {}),
-                                      ...(last_refresh != null ? { last_refresh } : {}),
-                                  }
-                                : t
-                        ),
-                    } as DashboardType
                 },
                 [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }): DashboardType | null => {
                     const tileIndex = state?.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
@@ -686,7 +663,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return []
                 }
 
-                const validDates = insightTiles.map((i) => dayjs(i.last_refresh)).filter((date) => date.isValid())
+                const validDates = insightTiles
+                    .map((i) => dayjs(i.insight?.last_refresh))
+                    .filter((date) => date.isValid())
                 return sortDayJsDates(validDates)
             },
         ],
@@ -699,16 +678,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 return sortedDates[sortedDates.length - 1]
-            },
-        ],
-        oldestRefreshed: [
-            (s) => [s.sortedDates],
-            (sortedDates): Dayjs | null => {
-                if (!sortedDates.length) {
-                    return null
-                }
-
-                return sortedDates[0]
             },
         ],
         sortedClientRefreshAllowed: [
@@ -914,7 +883,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds }) => {
-            const targetDashboards = (insight.dashboards || []).concat(extraDashboardIds || [])
+            const targetDashboards = (insight.dashboard_tiles || [])
+                .map((tile) => tile.dashboard_id)
+                .concat(extraDashboardIds || [])
             if (!targetDashboards.includes(props.id)) {
                 // this update is not for this dashboard
                 return
@@ -1000,7 +971,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     uuid(),
                     'force_async'
                 )
-                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, [], props.id ? [props.id] : undefined)
+                dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                 // Start polling for results
                 tile.insight = refreshedInsight
                 actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
@@ -1060,14 +1031,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             insight,
                             dashboardId,
                             queryId,
-                            'async',
+                            'force_cache',
                             methodOptions
                         )
-                        dashboardsModel.actions.updateDashboardInsight(
-                            polledInsight,
-                            [],
-                            props.id ? [props.id] : undefined
-                        )
+                        dashboardsModel.actions.updateDashboardInsight(polledInsight)
                         actions.setRefreshStatus(insight.short_id)
                     }
                 } catch (e: any) {
@@ -1165,7 +1132,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const dashboard = values.dashboard
             const { action, dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
-            const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.last_refresh))
+            const lastRefresh = sortDates(dashboard.tiles.map((tile) => tile.insight?.last_refresh || null))
 
             const initialLoad = action === 'initial_load'
             const allLoaded = false // TODO: Check this

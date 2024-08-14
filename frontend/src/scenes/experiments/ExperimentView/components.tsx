@@ -6,6 +6,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonSkeleton,
     LemonTag,
     LemonTagType,
     Link,
@@ -23,11 +24,11 @@ import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
-import { ExperimentResults, FilterType, InsightShortId, InsightType } from '~/types'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { Experiment as ExperimentType, ExperimentResults, FilterType, InsightShortId, InsightType } from '~/types'
 
-import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour, transformResultFilters } from '../utils'
 
 export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element {
@@ -120,29 +121,27 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         properties: [],
     }
 
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: filtersToQueryNode(
+            transformResultFilters(
+                experimentResults?.filters
+                    ? { ...experimentResults.filters, explicit_date: true }
+                    : filtersFromExperiment
+            )
+        ),
+        showTable: true,
+        showLastComputation: true,
+        showLastComputationRefresh: false,
+    }
+
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
             size="small"
             type="primary"
             icon={icon}
-            to={urls.insightNew(
-                undefined,
-                undefined,
-                JSON.stringify({
-                    kind: NodeKind.InsightVizNode,
-                    source: filtersToQueryNode(
-                        transformResultFilters(
-                            experimentResults?.filters
-                                ? { ...experimentResults.filters, explicit_date: true }
-                                : filtersFromExperiment
-                        )
-                    ),
-                    showTable: true,
-                    showLastComputation: true,
-                    showLastComputationRefresh: false,
-                })
-            )}
+            to={urls.insightNew(undefined, undefined, query)}
         >
             Explore results
         </LemonButton>
@@ -634,4 +633,65 @@ export function ActionBanner(): JSX.Element {
     }
 
     return <></>
+}
+
+export const ResetButton = ({
+    experiment,
+    onConfirm,
+}: {
+    experiment: ExperimentType
+    onConfirm: () => void
+}): JSX.Element => {
+    const onClickReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset this experiment?',
+            content: (
+                <>
+                    <div className="text-sm text-muted">
+                        All collected data so far will be discarded and the experiment will go back to draft mode.
+                    </div>
+                    {experiment.archived && (
+                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                    )}
+                </>
+            ),
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                onClick: onConfirm,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    return (
+        <LemonButton type="secondary" onClick={onClickReset}>
+            Reset
+        </LemonButton>
+    )
+}
+
+export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
+    const status = getExperimentStatus(experiment)
+    return (
+        <LemonTag type={getExperimentStatusColor(status)}>
+            <b className="uppercase">{status}</b>
+        </LemonTag>
+    )
+}
+
+export function LoadingState(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/3 h-4" />
+            <LemonSkeleton />
+            <LemonSkeleton />
+            <LemonSkeleton className="w-2/3 h-4" />
+        </div>
+    )
 }

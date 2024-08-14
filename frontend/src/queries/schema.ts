@@ -255,6 +255,7 @@ export interface HogQueryResponse {
     bytecode?: any[]
     coloredBytecode?: any[]
     stdout?: string
+    query_status?: never
 }
 
 export interface HogQuery extends DataNode<HogQueryResponse> {
@@ -276,6 +277,7 @@ export interface HogQLMetadataResponse {
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
+    query_status?: never
 }
 
 export interface AutocompleteCompletionItem {
@@ -340,6 +342,7 @@ export interface HogQLAutocompleteResponse {
     incomplete_list: boolean
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    query_status?: never
 }
 
 export enum HogLanguage {
@@ -538,7 +541,6 @@ export interface DataTableNode
         | WebTopClicksQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -552,12 +554,45 @@ export interface GoalLine {
 
 export interface ChartAxis {
     column: string
+    settings?: {
+        formatting?: ChartSettingsFormatting
+        display?: ChartSettingsDisplay
+    }
 }
 
-interface ChartSettings {
+export interface ChartSettingsFormatting {
+    prefix?: string
+    suffix?: string
+    style?: 'none' | 'number' | 'percent'
+    decimalPlaces?: number
+}
+
+export interface ChartSettingsDisplay {
+    label?: string
+    trendLine?: boolean
+    yAxisPosition?: 'left' | 'right'
+    displayType?: 'auto' | 'line' | 'bar'
+}
+
+export interface YAxisSettings {
+    scale?: 'linear' | 'logarithmic'
+    /** Whether the Y axis should start at zero */
+    startAtZero?: boolean
+}
+export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
+    /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
+    yAxisAtZero?: boolean
+    leftYAxisSettings?: YAxisSettings
+    rightYAxisSettings?: YAxisSettings
+    /** Whether we fill the bars to 100% in stacked mode */
+    stackBars100?: boolean
+}
+
+export interface TableSettings {
+    columns?: ChartAxis[]
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -565,6 +600,7 @@ export interface DataVisualizationNode extends Node<never> {
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }
 
 interface DataTableNodeViewProps {
@@ -727,7 +763,10 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+    /** Wether more breakdown values are available. */
+    hasMore?: boolean
+}
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
@@ -837,6 +876,7 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
+    cumulative?: RetentionFilterLegacy['cumulative']
 }
 
 export interface RetentionValue {
@@ -1013,6 +1053,8 @@ export interface AnalyticsQueryResponseBase<T> {
     error?: string
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
 }
 
 interface CachedQueryResponseMixin {
@@ -1082,9 +1124,11 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     results?: any
-    /**  @format date-time */
+    /** When was the query execution task picked up by a worker. @format date-time */
+    pickup_time?: string
+    /** When was query execution task enqueued. @format date-time */
     start_time?: string
-    /**  @format date-time */
+    /** When did the query execution task finish (whether successfully or not). @format date-time */
     end_time?: string
     /**  @format date-time */
     expiration_time?: string
@@ -1169,6 +1213,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
@@ -1281,24 +1326,42 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    select: HogQLExpression[]
+    fingerprint?: string[]
+    select?: HogQLExpression[]
+    eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
-    // Optional as only used when loading a specific group
-    fingerprint?: string
     limit?: integer
     offset?: integer
 }
 
-export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<any[]> {
+export interface ErrorTrackingGroup {
+    fingerprint: string[]
+    exception_type: string | null
+    merged_fingerprints: string[][]
+    occurrences: number
+    sessions: number
+    users: number
+    description: string | null
+    /**  @format date-time */
+    first_seen: string
+    /**  @format date-time */
+    last_seen: string
+    // Sparkline data handled by the DataTable
+    volume?: any
+    assignee: number | null
+    status: 'archived' | 'active' | 'resolved' | 'pending_release'
+    events?: Record<string, any>[]
+}
+
+export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingGroup[]> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    columns?: unknown[]
+    columns?: string[]
 }
-
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
 export type InsightQueryNode =
@@ -1589,7 +1652,7 @@ export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
-    value: string
+    property: string
     normalize_url?: boolean
     group_type_index?: integer | null
     histogram_bin_count?: integer // trends breakdown histogram bin

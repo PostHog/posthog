@@ -20,10 +20,11 @@ import {
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
-    FilterType,
+    FilterLogicalOperator,
     PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
+    RecordingUniversalFilters,
     ReplayTabs,
 } from '~/types'
 
@@ -343,29 +344,41 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
-function featureFlagEnrolmentFilter(earlyAccessFeature: EarlyAccessFeatureType, optedIn: boolean): Partial<FilterType> {
+function featureFlagEnrolmentFilter(
+    earlyAccessFeature: EarlyAccessFeatureType,
+    optedIn: boolean
+): Partial<RecordingUniversalFilters> {
     return {
-        events: [
-            {
-                type: 'events',
-                order: 0,
-                name: '$feature_enrollment_update',
-                properties: [
-                    {
-                        key: '$feature_enrollment',
-                        value: [optedIn ? 'true' : 'false'],
-                        operator: 'exact',
-                        type: 'event',
-                    },
-                    {
-                        key: '$feature_flag',
-                        value: [earlyAccessFeature.feature_flag.key],
-                        operator: 'exact',
-                        type: 'event',
-                    },
-                ],
-            },
-        ],
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: 'events',
+                            order: 0,
+                            id: '$feature_enrollment_update',
+                            name: '$feature_enrollment_update',
+                            properties: [
+                                {
+                                    key: '$feature_enrollment',
+                                    value: [optedIn ? 'true' : 'false'],
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
+                                },
+                                {
+                                    key: '$feature_flag',
+                                    value: [earlyAccessFeature.feature_flag.key],
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
     }
 }
 
@@ -425,7 +438,7 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
 
 interface PersonsTableByFilterProps {
     properties: PersonPropertyFilter[]
-    recordingsFilters: Partial<FilterType>
+    recordingsFilters: Partial<RecordingUniversalFilters>
 }
 
 function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByFilterProps): JSX.Element {

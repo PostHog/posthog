@@ -28,6 +28,9 @@ pub struct Config {
     #[envconfig(default = "clickhouse_app_metrics")]
     pub app_metrics_topic: String,
 
+    #[envconfig(default = "clickhouse_app_metrics2")]
+    pub app_metrics2_topic: String,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 }

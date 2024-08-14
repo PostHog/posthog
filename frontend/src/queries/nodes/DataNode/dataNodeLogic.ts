@@ -130,9 +130,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (
+        const hasQueryChanged = !queryEqual(props.query, oldProps.query)
+        const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
+        if (hasQueryChanged && queryStatus?.complete === false) {
+            // If there is an incomplete query, load the data with the same query_id which should return its status
+            actions.loadData(undefined, queryStatus.id)
+        } else if (
+            hasQueryChanged &&
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
-            !queryEqual(props.query, oldProps.query) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {
@@ -143,7 +148,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
-        loadData: (refresh = false) => ({ refresh, queryId: uuid() }),
+        loadData: (refresh = false, queryId?: string) => ({ refresh, queryId: queryId || uuid() }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
@@ -155,6 +160,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
+        setLocalCache: (response: Record<string, any>) => response,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -168,9 +174,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return props.cachedResults
                     }
 
-                    if (props.cachedResults && !refresh) {
+                    const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
+                    if (props.cachedResults && !refresh && queryStatus?.complete !== false) {
                         if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
+                        }
+                    }
+
+                    // if query based and locally cached, return the cached results
+                    if ('query' in props.query) {
+                        const stringifiedQuery = JSON.stringify(props.query.query)
+                        if (cache.localResults[stringifiedQuery] && !refresh) {
+                            return cache.localResults[stringifiedQuery]
                         }
                     }
 
@@ -433,11 +448,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => null,
             },
         ],
+        localCache: [
+            {} as Record<string, any>,
+            {
+                setLocalCache: (state, response) => ({ ...state, ...response }),
+            },
+        ],
     })),
-    selectors({
+    selectors(({ cache }) => ({
         isShowingCachedResults: [
-            () => [(_, props) => props.cachedResults ?? null],
-            (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
+            () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
+            (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
+                return !!cachedResults || ('query' in query && JSON.stringify(query.query) in cache.localResults)
+            },
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
@@ -620,7 +643,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
-    }),
+    })),
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
@@ -645,6 +668,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadDataSuccess: ({ response }) => {
             props.onData?.(response)
             actions.collectionNodeLoadDataSuccess(props.key)
+            if ('query' in props.query) {
+                cache.localResults[JSON.stringify(props.query.query)] = response
+            }
         },
         loadDataFailure: () => {
             actions.collectionNodeLoadDataFailure(props.key)
@@ -672,7 +698,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.localResults = {}
         if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount

@@ -17,6 +17,7 @@ import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
+import { posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
@@ -28,6 +29,7 @@ import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { RustyHook } from '../worker/rusty-hook'
+import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
@@ -164,6 +166,7 @@ export async function startPluginsServer(
             stopSessionRecordingBlobOverflowConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
             ...shutdownCallbacks.map((cb) => cb()),
+            posthog.shutdownAsync(),
         ])
 
         if (piscina) {
@@ -437,6 +440,13 @@ export async function startPluginsServer(
             stopWebhooksHandlerConsumer = webhooksStopConsumer
 
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
+        }
+
+        if (capabilities.syncInlinePlugins) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            await syncInlinePlugins(hub)
         }
 
         if (hub && serverInstance) {

@@ -14,7 +14,11 @@ from posthog.api.geoip import get_geoip_properties
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import get_project_id, get_token, hostname_in_allowed_url_list, parse_domain
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import (
+    UnspecifiedCompressionFallbackParsingError,
+    RequestParsingError,
+    generate_exception_response,
+)
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
@@ -88,6 +92,15 @@ def get_decide(request: HttpRequest):
                 tags={"endpoint": "decide", "api_version_string": api_version_string},
             )
             api_version = 2
+        except UnspecifiedCompressionFallbackParsingError as error:
+            # Notably don't capture this exception as it's not caused by buggy behavior,
+            # it's just a fallback for when we can't parse the request due to a missing header
+            # that we attempted to kludge by manually setting the compression type to gzip
+            # If this kludge fails, though all we need to do is return a 400 and move on
+            return cors_response(
+                request,
+                generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
+            )
         except RequestParsingError as error:
             capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
             return cors_response(
@@ -318,8 +331,8 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
                     {
                         "recordCanvas": record_canvas,
                         # hard coded during beta while we decide on sensible values
-                        "canvasFps": 4 if record_canvas else None,
-                        "canvasQuality": "0.6" if record_canvas else None,
+                        "canvasFps": 3 if record_canvas else None,
+                        "canvasQuality": "0.4" if record_canvas else None,
                     }
                 )
     except Exception as e:

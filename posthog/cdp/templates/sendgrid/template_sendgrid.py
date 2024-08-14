@@ -3,14 +3,13 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 # Based off of https://www.twilio.com/docs/sendgrid/api-reference/contacts/add-or-update-a-contact
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     id="template-sendgrid",
     name="Update marketing contacts in Sendgrid",
     description="Update marketing contacts in Sendgrid",
     icon_url="/static/services/sendgrid.png",
     hog="""
 let email := inputs.email
-let properties := inputs.properties
 
 if (empty(email)) {
     print('`email` input is empty. Not updating contacts.')
@@ -21,7 +20,7 @@ let contact := {
   'email': email,
 }
 
-for (let key, value in properties) {
+for (let key, value in inputs.properties) {
     if (not empty(value)) {
         contact[key] := value
     }

@@ -46,6 +46,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_MECHANISM: undefined,
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
+        KAFKA_CLIENT_ID: undefined,
         KAFKA_CLIENT_RACK: undefined,
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
@@ -58,6 +59,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: 300_000,
         KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
+        KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: undefined,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
@@ -173,16 +175,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
         SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
         SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
-        SESSION_RECORDING_USE_OFFSET_STORE: false,
         // CDP
-        CDP_WATCHER_OBSERVATION_PERIOD: 10000,
-        CDP_WATCHER_DISABLED_PERIOD: 1000 * 60 * 10,
-        CDP_WATCHER_MAX_RECORDED_STATES: 10,
-        CDP_WATCHER_MAX_RECORDED_RATINGS: 10,
-        CDP_WATCHER_MAX_ALLOWED_TEMPORARY_DISABLED: 3,
-        CDP_WATCHER_MIN_OBSERVATIONS: 3,
-        CDP_WATCHER_OVERFLOW_RATING_THRESHOLD: 0.8,
-        CDP_WATCHER_DISABLED_RATING_THRESHOLD: 0.5,
+        CDP_WATCHER_COST_ERROR: 100,
+        CDP_WATCHER_COST_TIMING: 20,
+        CDP_WATCHER_COST_TIMING_LOWER_MS: 100,
+        CDP_WATCHER_COST_TIMING_UPPER_MS: 5000,
+        CDP_WATCHER_THRESHOLD_DEGRADED: 0.8,
+        CDP_WATCHER_BUCKET_SIZE: 10000,
+        CDP_WATCHER_DISABLED_TEMPORARY_TTL: 60 * 10, // 5 minutes
+        CDP_WATCHER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
+        CDP_WATCHER_REFILL_RATE: 10,
+        CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
     }
 }

@@ -434,9 +434,9 @@ export const supportLogic = kea<supportLogicType>([
                             `\n\n-----` +
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
-                            getCurrentLocationLink() +
-                            getSessionReplayLink() +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
+                            getSessionReplayLink() +
+                            getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,
                                 cloudRegion,

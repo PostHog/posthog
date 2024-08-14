@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   node-rdkafka@2.17.0:
-    hash: p4aetcvho53cvjti6c3zi7tfaq
+    hash: bugorwxdhlhl2utknko2c5ibqm
     path: patches/node-rdkafka@2.17.0.patch
 
 dependencies:
@@ -44,8 +44,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/hogvm':
-    specifier: ^1.0.27
-    version: 1.0.27(luxon@3.4.4)(re2@1.20.3)
+    specifier: ^1.0.32
+    version: 1.0.32(luxon@3.4.4)(re2@1.20.3)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -73,6 +73,9 @@ dependencies:
   aws-sdk:
     specifier: ^2.927.0
     version: 2.1366.0
+  detect-browser:
+    specifier: ^5.3.0
+    version: 5.3.0
   escape-string-regexp:
     specifier: ^4.0.0
     version: 4.0.0
@@ -114,7 +117,7 @@ dependencies:
     version: 2.6.9
   node-rdkafka:
     specifier: ^2.17.0
-    version: 2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq)
+    version: 2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm)
   node-schedule:
     specifier: ^2.1.0
     version: 2.1.1
@@ -3110,8 +3113,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.27(luxon@3.4.4)(re2@1.20.3):
-    resolution: {integrity: sha512-tTI+Xg/SAS1cqL0VR/XI0NWV7PzL9u5y1mCdla3251zWE4LwdDJp3RPpAnNC8LWXUXjkaCF3dugVCygqtji6hg==}
+  /@posthog/hogvm@1.0.32(luxon@3.4.4)(re2@1.20.3):
+    resolution: {integrity: sha512-OjgSzs4fZ1Q0KEiON34/dH9TybfVfallANcgoRiNhUd9KstSm55Ds5cpK6HjGMfRRPpPULuDQ77RH3DBjJ2CCA==}
     peerDependencies:
       luxon: ^3.4.4
       re2: ^1.21.3
@@ -5403,6 +5406,10 @@ packages:
   /destroy@1.2.0:
     resolution: {integrity: sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
+    dev: false
+
+  /detect-browser@5.3.0:
+    resolution: {integrity: sha512-53rsFbGdwMwlF7qvCt0ypLM5V5/Mbl0szB7GPN8y9NCcbknYOeVVXdrXEq+90IwAfrrzt6Hd+u2E2ntakICU8w==}
     dev: false
 
   /detect-libc@1.0.3:
@@ -8431,7 +8438,7 @@ packages:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
     dev: true
 
-  /node-rdkafka@2.17.0(patch_hash=p4aetcvho53cvjti6c3zi7tfaq):
+  /node-rdkafka@2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm):
     resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
     engines: {node: '>=6.0.0'}
     requiresBuild: true

@@ -38,39 +38,26 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     sparklineSelectedPeriod,
+    columns,
 }: {
     order: ErrorTrackingQuery['order']
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
+    columns?: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
 }): DataTableNode => {
-    const select = [
-        'any(properties) as "context.columns.error"',
-        'properties.$exception_fingerprint',
-        'count() as occurrences',
-        'count(distinct $session_id) as sessions',
-        'count(distinct distinct_id) as users',
-        'max(timestamp) as last_seen',
-        'min(timestamp) as first_seen',
-    ]
-
-    const columns = [
-        'context.columns.error',
-        'properties.$exception_fingerprint',
-        'occurrences',
-        'sessions',
-        'users',
-        'last_seen',
-        'first_seen',
-    ]
+    const select: string[] = []
+    if (!columns) {
+        columns = ['error', 'occurrences', 'sessions', 'users', 'assignee']
+    }
 
     if (sparklineSelectedPeriod) {
         const { value, displayAs, offsetHours } = parseSparklineSelection(sparklineSelectedPeriod)
         const { labels, data } = generateSparklineProps({ value, displayAs, offsetHours })
 
-        select.splice(2, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as "context.columns.volume"`)
-        columns.splice(2, 0, 'context.columns.volume')
+        select.splice(1, 0, `<Sparkline data={${data}} labels={[${labels.join(',')}]} /> as volume`)
+        columns.splice(1, 0, 'volume')
     }
 
     return {
@@ -83,7 +70,6 @@ export const errorTrackingQuery = ({
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
         },
-        hiddenColumns: ['properties.$exception_fingerprint', 'last_seen', 'first_seen'],
         showActions: false,
         showTimings: false,
         columns: columns,
@@ -130,14 +116,14 @@ export const errorTrackingGroupQuery = ({
     filterTestAccounts,
     filterGroup,
 }: {
-    fingerprint: string
+    fingerprint: string[]
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
-        select: ['uuid', 'properties', 'timestamp', 'person'],
+        eventColumns: ['uuid', 'properties', 'timestamp', 'person'],
         fingerprint: fingerprint,
         dateRange: dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,

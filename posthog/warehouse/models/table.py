@@ -13,6 +13,7 @@ from posthog.models.utils import (
     CreatedMetaFields,
     DeletedMetaFields,
     UUIDModel,
+    UpdatedMetaFields,
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
@@ -65,7 +66,7 @@ class DataWarehouseTableManager(models.Manager):
         )
 
 
-class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
     # loading external_data_source and credentials is easily N+1,
     # so we have a custom object manager meaning people can't forget to load them
     # this also means we _always_ have two joins whenever we load tables
@@ -77,6 +78,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         Parquet = "Parquet", "Parquet"
         JSON = "JSONEachRow", "JSON"
         Delta = "Delta", "Delta"
+        DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
     name: models.CharField = models.CharField(max_length=128)
     format: models.CharField = models.CharField(max_length=128, choices=TableFormat.choices)

@@ -82,7 +82,7 @@ export default function SurveyEdit(): JSX.Element {
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
         ? undefined
-        : 'Subscribe to surveys for repeating surveys over a duration of time'
+        : 'Upgrade your plan to use repeating surveys'
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
@@ -427,7 +427,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 disabledReason={
                                                     surveysMultipleQuestionsAvailable
                                                         ? null
-                                                        : 'Subscribe to surveys for multiple questions'
+                                                        : 'Upgrade your plan to get multiple questions'
                                                 }
                                                 onClick={() => {
                                                     setSurveyValue('questions', [
@@ -441,7 +441,7 @@ export default function SurveyEdit(): JSX.Element {
                                             </LemonButton>
                                             {!surveysMultipleQuestionsAvailable && (
                                                 <Link to="/organization/billing" target="_blank" targetBlankIcon>
-                                                    Subscribe
+                                                    Upgrade
                                                 </Link>
                                             )}
                                         </div>
@@ -606,7 +606,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Survey wait period"
-                                                            info="Note that this condition will only apply to one browser for a given non-anonymous user.  If the user switches browsers or uses an incognito session, they could see this survey again."
+                                                            info="Note that this condition will only apply reliably for identified users within a single browser session. Anonymous users or users who switch browsers, use incognito sessions, or log out and log back in may see the survey again. Additionally, responses submitted while a user is anonymous may be associated with their account if they log in during the same session."
                                                         >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 <LemonCheckbox

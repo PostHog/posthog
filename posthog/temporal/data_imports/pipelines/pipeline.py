@@ -10,6 +10,8 @@ from asgiref.sync import async_to_sync
 import asyncio
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
+from dlt.common.libs.deltalake import get_delta_tables
+from dlt.load.exceptions import LoadClientJobRetry
 from dlt.sources import DltSource
 from deltalake.exceptions import DeltaError
 from collections import Counter
@@ -116,7 +118,10 @@ class DataImportPipeline:
                     )
                 except PipelineStepFailed as e:
                     # Remove once DLT support writing empty Delta files
-                    if isinstance(e.exception, DeltaError):
+                    if isinstance(e.exception, LoadClientJobRetry):
+                        if "Generic S3 error" not in e.exception.retry_message:
+                            raise
+                    elif isinstance(e.exception, DeltaError):
                         if e.exception.args[0] != "Generic error: No data source supplied to write command.":
                             raise
                     else:
@@ -131,13 +136,24 @@ class DataImportPipeline:
                 counts = Counter(filtered_rows)
                 total_counts = counts + total_counts
 
-                async_to_sync(validate_schema_and_update_table)(
-                    run_id=self.inputs.run_id,
-                    team_id=self.inputs.team_id,
-                    schema_id=self.inputs.schema_id,
-                    table_schema=self.source.schema.tables,
-                    row_count=total_counts.total(),
-                )
+                if total_counts.total() > 0:
+                    delta_tables = get_delta_tables(pipeline)
+                    file_len = 0
+
+                    for table in delta_tables.values():
+                        # Compact doesn't work on single file tables, so we can't use the wrapper for these
+                        file_len = len(table.files())
+                        table.optimize.compact()
+                        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+                    async_to_sync(validate_schema_and_update_table)(
+                        run_id=self.inputs.run_id,
+                        team_id=self.inputs.team_id,
+                        schema_id=self.inputs.schema_id,
+                        table_schema=self.source.schema.tables,
+                        row_count=total_counts.total(),
+                        use_delta_wrapper=file_len != 1,
+                    )
 
                 pipeline_runs = pipeline_runs + 1
         else:
@@ -150,7 +166,10 @@ class DataImportPipeline:
                 )
             except PipelineStepFailed as e:
                 # Remove once DLT support writing empty Delta files
-                if isinstance(e.exception, DeltaError):
+                if isinstance(e.exception, LoadClientJobRetry):
+                    if "Generic S3 error" not in e.exception.retry_message:
+                        raise
+                elif isinstance(e.exception, DeltaError):
                     if e.exception.args[0] != "Generic error: No data source supplied to write command.":
                         raise
                 else:
@@ -165,13 +184,24 @@ class DataImportPipeline:
             counts = Counter(filtered_rows)
             total_counts = total_counts + counts
 
-            async_to_sync(validate_schema_and_update_table)(
-                run_id=self.inputs.run_id,
-                team_id=self.inputs.team_id,
-                schema_id=self.inputs.schema_id,
-                table_schema=self.source.schema.tables,
-                row_count=total_counts.total(),
-            )
+            if total_counts.total() > 0:
+                delta_tables = get_delta_tables(pipeline)
+                file_len = 0
+
+                for table in delta_tables.values():
+                    # Compact doesn't work on single file tables, so we can't use the wrapper for these
+                    file_len = len(table.files())
+                    table.optimize.compact()
+                    table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+                async_to_sync(validate_schema_and_update_table)(
+                    run_id=self.inputs.run_id,
+                    team_id=self.inputs.team_id,
+                    schema_id=self.inputs.schema_id,
+                    table_schema=self.source.schema.tables,
+                    row_count=total_counts.total(),
+                    use_delta_wrapper=file_len != 1,
+                )
 
         return dict(total_counts)
 

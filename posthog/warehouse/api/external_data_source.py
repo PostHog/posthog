@@ -1,3 +1,4 @@
+from dateutil import parser
 import uuid
 from typing import Any
 
@@ -21,18 +22,23 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
 from posthog.hogql.database.database import create_hogql_database
+from posthog.temporal.data_imports.pipelines.stripe import validate_credentials as validate_stripe_credentials
+from posthog.temporal.data_imports.pipelines.zendesk import validate_credentials as validate_zendesk_credentials
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
-    get_access_token_from_code,
+    get_hubspot_access_token_from_code,
+)
+from posthog.temporal.data_imports.pipelines.salesforce.auth import (
+    get_salesforce_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
-    get_postgres_schemas,
+    get_sql_schemas_for_source_type,
     get_snowflake_schemas,
 )
 
@@ -48,7 +54,16 @@ from django.db.models import Prefetch
 
 logger = structlog.get_logger(__name__)
 
-GenericPostgresError = "Could not connect to Postgres. Please check all connection details are valid."
+
+def get_generic_sql_error(source_type: ExternalDataSource.Type):
+    if source_type == ExternalDataSource.Type.MYSQL:
+        name = "MySQL"
+    else:
+        name = "Postgres"
+
+    return f"Could not connect to {name}. Please check all connection details are valid."
+
+
 GenericSnowflakeError = "Could not connect to Snowflake. Please check all connection details are valid."
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -246,9 +261,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.ZENDESK:
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
-        elif source_type == ExternalDataSource.Type.POSTGRES:
+        elif source_type == ExternalDataSource.Type.SALESFORCE:
+            new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
+        elif source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
             try:
-                new_source_model, postgres_schemas = self._handle_postgres_source(request, *args, **kwargs)
+                new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
             except InternalPostgresError:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST, data={"message": "Cannot use internal Postgres database"}
@@ -262,8 +279,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         payload = request.data["payload"]
         schemas = payload.get("schemas", None)
-        if source_type == ExternalDataSource.Type.POSTGRES:
-            default_schemas = postgres_schemas
+        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+            default_schemas = sql_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
         else:
@@ -335,7 +352,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         client_secret = payload.get("client_secret")
-        account_id = payload.get("account_id")
+        account_id = payload.get("account_id", None)
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -380,6 +397,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
+    def _handle_salesforce_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        code = payload.get("code")
+        redirect_uri = payload.get("redirect_uri")
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+        subdomain = payload.get("subdomain")
+
+        access_token, refresh_token = get_salesforce_access_token_from_code(code, redirect_uri=redirect_uri)
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "salesforce_access_token": access_token,
+                "salesforce_refresh_token": refresh_token,
+                "salesforce_subdomain": subdomain,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
     def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         code = payload.get("code")
@@ -387,7 +431,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        access_token, refresh_token = get_access_token_from_code(code, redirect_uri=redirect_uri)
+        access_token, refresh_token = get_hubspot_access_token_from_code(code, redirect_uri=redirect_uri)
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
@@ -406,9 +450,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
-    def _handle_postgres_source(
-        self, request: Request, *args: Any, **kwargs: Any
-    ) -> tuple[ExternalDataSource, list[Any]]:
+    def _handle_sql_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list[Any]]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -432,7 +474,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-        if not self._validate_postgres_host(host, self.team_id):
+        if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
             raise InternalPostgresError()
 
         new_source_model = ExternalDataSource.objects.create(
@@ -472,7 +514,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             private_key=ssh_tunnel_auth_type_private_key,
         )
 
-        schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+        schemas = get_sql_schemas_for_source_type(
+            source_type,
+            host,
+            port,
+            database,
+            user,
+            password,
+            schema,
+            ssh_tunnel,
+        )
 
         return new_source_model, schemas
 
@@ -588,7 +639,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Missing required parameter: source_type"},
             )
 
-        if source_type == ExternalDataSource.Type.POSTGRES:
+        # Validate sourced credentials
+        if source_type == ExternalDataSource.Type.STRIPE:
+            key = request.data.get("client_secret", "")
+            if not validate_stripe_credentials(api_key=key):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Stripe secret is incorrect"},
+                )
+        elif source_type == ExternalDataSource.Type.ZENDESK:
+            subdomain = request.data.get("subdomain", "")
+            api_key = request.data.get("api_key", "")
+            email_address = request.data.get("email_address", "")
+            if not validate_zendesk_credentials(subdomain=subdomain, api_key=api_key, email_address=email_address):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
+                )
+
+        # Get schemas and validate SQL credentials
+        if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
             host = request.data.get("host", None)
             port = request.data.get("port", None)
             database = request.data.get("dbname", None)
@@ -649,18 +719,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
 
             # Validate internal postgres
-            if not self._validate_postgres_host(host, self.team_id):
+            if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Cannot use internal Postgres database"},
+                    data={"message": "Cannot use internal database"},
                 )
 
             try:
-                result = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+                result = get_sql_schemas_for_source_type(
+                    source_type,
+                    host,
+                    port,
+                    database,
+                    user,
+                    password,
+                    schema,
+                    ssh_tunnel,
+                )
                 if len(result.keys()) == 0:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": "Postgres schema doesn't exist"},
+                        data={"message": "Schema doesn't exist"},
                     )
             except OperationalError as e:
                 exposed_error = self._expose_postgres_error(e)
@@ -670,12 +749,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": exposed_error or GenericPostgresError},
+                    data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": e.value or GenericPostgresError},
+                    data={"message": e.value or get_generic_sql_error(source_type)},
                 )
             except Exception as e:
                 capture_exception(e)
@@ -683,7 +762,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": GenericPostgresError},
+                    data={"message": get_generic_sql_error(source_type)},
                 )
 
             filtered_results = [
@@ -821,8 +900,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True)
     def jobs(self, request: Request, *arg: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
+        after = request.query_params.get("after", None)
+        before = request.query_params.get("before", None)
 
-        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at").all()
+        jobs = instance.jobs.prefetch_related("schema").order_by("-created_at")
+
+        if after:
+            after_date = parser.parse(after)
+            jobs = jobs.filter(created_at__gt=after_date)
+        if before:
+            before_date = parser.parse(before)
+            jobs = jobs.filter(created_at__lt=before_date)
+
+        jobs = jobs[:50]
 
         return Response(
             status=status.HTTP_200_OK,
@@ -847,7 +937,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return value
         return None
 
-    def _validate_postgres_host(self, host: str, team_id: int) -> bool:
+    def _validate_database_host(self, host: str, team_id: int, using_ssh_tunnel: bool) -> bool:
+        if using_ssh_tunnel:
+            return True
+
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):
             if is_cloud():
                 region = get_instance_region()

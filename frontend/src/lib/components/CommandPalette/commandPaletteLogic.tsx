@@ -174,8 +174,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
         setInput: (input: string) => ({ input }),
         onArrowUp: true,
         onArrowDown: (maxIndex: number) => ({ maxIndex }),
-        onMouseEnterResult: (index: number) => ({ index }),
-        onMouseLeaveResult: true,
         executeResult: (result: CommandResult) => ({ result }),
         activateFlow: (flow: CommandFlow | null) => ({ flow }),
         backFlow: true,
@@ -193,7 +191,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 togglePalette: (previousState) => !previousState,
             },
         ],
-        keyboardResultIndex: [
+        activeResultIndex: [
             0,
             {
                 setInput: () => 0,
@@ -202,17 +200,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 backFlow: () => 0,
                 onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
                 onArrowDown: (previousIndex, { maxIndex }) => (previousIndex < maxIndex ? previousIndex + 1 : maxIndex),
-            },
-        ],
-        hoverResultIndex: [
-            null as number | null,
-            {
-                activateFlow: () => null,
-                backFlow: () => null,
-                onMouseEnterResult: (_, { index }) => index,
-                onMouseLeaveResult: () => null,
-                onArrowUp: () => null,
-                onArrowDown: () => null,
             },
         ],
         input: [
@@ -250,12 +237,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             (selectors) => [selectors.input],
             (input: string) => {
                 return input.trim().toLowerCase() === 'squeak'
-            },
-        ],
-        activeResultIndex: [
-            (selectors) => [selectors.keyboardResultIndex, selectors.hoverResultIndex],
-            (keyboardResultIndex: number, hoverResultIndex: number | null) => {
-                return hoverResultIndex ?? keyboardResultIndex
             },
         ],
         regexpCommandPairs: [
@@ -450,7 +431,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Trend insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.TRENDS }))
+                            push(urls.insightNew(InsightType.TRENDS))
                         },
                     },
                     {
@@ -458,7 +439,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Funnel insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.FUNNELS }))
+                            push(urls.insightNew(InsightType.FUNNELS))
                         },
                     },
                     {
@@ -466,7 +447,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Retention insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.RETENTION }))
+                            push(urls.insightNew(InsightType.RETENTION))
                         },
                     },
                     {
@@ -474,7 +455,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Paths insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.PATHS }))
+                            push(urls.insightNew(InsightType.PATHS))
                         },
                     },
                     {
@@ -482,7 +463,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Stickiness insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.STICKINESS }))
+                            push(urls.insightNew(InsightType.STICKINESS))
                         },
                     },
                     {
@@ -490,7 +471,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Lifecycle insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew({ insight: InsightType.LIFECYCLE }))
+                            push(urls.insightNew(InsightType.LIFECYCLE))
                         },
                     },
                     {
@@ -625,7 +606,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Go to Data pipelines',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push(urls.projectApps())
+                            push(urls.pipeline())
                         },
                     },
                     {

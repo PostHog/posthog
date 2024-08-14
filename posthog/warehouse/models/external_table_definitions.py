@@ -252,6 +252,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "nickname": StringDatabaseField(name="nickname"),
         "recurring": StringJSONDatabaseField(name="recurring"),
         "tiers_mode": StringDatabaseField(name="tiers_mode"),
+        "tiers": StringArrayDatabaseField(name="tiers"),
         "unit_amount": IntegerDatabaseField(name="unit_amount"),
         "tax_behavior": StringDatabaseField(name="tax_behavior"),
         "billing_scheme": StringDatabaseField(name="billing_scheme"),

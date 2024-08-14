@@ -265,15 +265,28 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_direct_with_red_herring_utm_tags_is_direct(self):
+        self.assertEqual(
+            "Direct",
+            self._get_person_initial_channel_type(
+                {
+                    "$initial_referring_domain": "$direct",
+                    "$initial_utm_source": "what",
+                    "$initial_utm_medium": "who",
+                    "$initial_utm_campaign": "slim shady",
+                }
+            ),
+        )
+
     def test_no_info_is_unknown(self):
         self.assertEqual(
             "Unknown",
             self._get_person_initial_channel_type({}),
         )
 
-    def test_unknown_domain_is_unknown(self):
+    def test_unknown_domain_is_referral(self):
         self.assertEqual(
-            "Unknown",
+            "Referral",
             self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "some-unknown-domain.example.com",
@@ -283,7 +296,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
 
     def test_doesnt_fail_on_numbers(self):
         self.assertEqual(
-            "Unknown",
+            "Referral",
             self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "example.com",
@@ -582,25 +595,35 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
 
         # the customer also provided us with a list of urls that weren't attributing correctly, and we changed the
         # algorithm to give utm_medium priority over referring domain. This tests a few specific examples:
-        self.assertEqual(
-            "Email",
+        assert (
             self._get_session_channel_type(
                 {
                     "utm_source": "substack",
                     "utm_medium": "email",
                     "$referring_domain": "bing.com",
                 }
-            ),
+            )
+            == "Email"
         )
-        self.assertEqual(
-            "Affiliate",
+        assert (
             self._get_session_channel_type(
                 {
                     "utm_source": "Foo",
                     "utm_medium": "affiliate",
                     "$referring_domain": "bing.com",
                 }
-            ),
+            )
+            == "Affiliate"
+        )
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Foo",
+                    "utm_medium": "partnership",
+                    "$referring_domain": "foo.com",
+                }
+            )
+            == "Affiliate"
         )
 
     def test_hacker_news(self):
@@ -636,21 +659,32 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
 
     def test_google_plus(self):
         # plus.google.com is interesting because it should be social, but just google.com is search
-        self.assertEqual(
-            "Organic Social",
+        assert (
             self._get_session_channel_type(
                 {
                     "utm_source": "plus.google.com",
                     "$referring_domain": "$direct",
                 }
-            ),
+            )
+            == "Organic Social"
         )
 
-        self.assertEqual(
-            "Organic Social",
+        assert (
             self._get_session_channel_type(
                 {
                     "$referring_domain": "plus.google.com",
                 }
-            ),
+            )
+            == "Organic Social"
+        )
+
+    def test_gmail_app(self):
+        # plus.google.com is interesting because it should be social, but just google.com is search
+        assert (
+            self._get_session_channel_type(
+                {
+                    "$referring_domain": "com.google.android.gm",
+                }
+            )
+            == "Email"
         )

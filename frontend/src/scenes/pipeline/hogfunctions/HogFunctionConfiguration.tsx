@@ -15,6 +15,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -25,13 +27,15 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes } from '~/types'
+import { AvailableFeature, EntityTypes } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
+
+const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
 export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
     const logicProps = { templateId, id }
@@ -46,6 +50,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         hogFunction,
         willReEnableOnSave,
         exampleInvocationGlobalsWithInputs,
+        showPaygate,
+        hasAddon,
+        sparkline,
+        sparklineLoading,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -126,6 +134,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         </>
     )
 
+    if (showPaygate) {
+        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+    }
+
     return (
         <div className="space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
@@ -143,6 +155,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
+                {hogFunction?.filters?.bytecode_error ? (
+                    <div>
+                        <LemonBanner type="error">
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                        </LemonBanner>
+                    </div>
+                ) : null}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
@@ -157,7 +177,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         {({ value, onChange }) => (
                                             <HogFunctionIconEditable
                                                 logicKey={id ?? templateId ?? 'new'}
-                                                search={configuration.name}
                                                 src={value}
                                                 onChange={(val) => onChange(val)}
                                             />
@@ -237,7 +256,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filters by events and actions">
+                                <LemonField name="filters" label="Filters by events and actions" className="gap-2">
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch
@@ -286,6 +305,43 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 <p className="italic text-muted-alt">
                                     This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
+                            </div>
+                            <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                <LemonLabel>Expected volume</LemonLabel>
+                                {sparkline && !sparklineLoading ? (
+                                    <>
+                                        {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                                            <LemonBanner type="warning">
+                                                <b>Warning:</b> This destination would have triggered{' '}
+                                                <strong>
+                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                </strong>{' '}
+                                                in the last 7 days. Consider the impact of this function on your
+                                                destination.
+                                            </LemonBanner>
+                                        ) : (
+                                            <p>
+                                                This destination would have triggered{' '}
+                                                <strong>
+                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                </strong>{' '}
+                                                in the last 7 days.
+                                            </p>
+                                        )}
+                                        <Sparkline
+                                            type="bar"
+                                            className="w-full h-20"
+                                            data={sparkline.data}
+                                            labels={sparkline.labels}
+                                        />
+                                    </>
+                                ) : sparklineLoading ? (
+                                    <div className="min-h-20">
+                                        <SpinnerOverlay />
+                                    </div>
+                                ) : (
+                                    <p>The expected volume could not be calculated</p>
+                                )}
                             </div>
                         </div>
 
@@ -359,6 +415,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 size="xsmall"
                                                 type="secondary"
                                                 onClick={() => setShowSource(true)}
+                                                disabledReason={
+                                                    !hasAddon
+                                                        ? 'Editing the source code requires the Data Pipelines addon'
+                                                        : undefined
+                                                }
                                             >
                                                 Show function source code
                                             </LemonButton>
