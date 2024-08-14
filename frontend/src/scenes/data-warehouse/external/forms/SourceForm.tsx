@@ -6,6 +6,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SourceConfig, SourceFieldConfig } from '~/types'
 
 import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
+import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
 
 interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -13,14 +14,18 @@ interface SourceFormProps {
     showSourceFields?: boolean
 }
 
-const sourceFieldToElement = (field: SourceFieldConfig): JSX.Element => {
+const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig): JSX.Element => {
     if (field.type === 'switch-group') {
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
                 {({ value, onChange }) => (
                     <>
                         <LemonSwitch checked={value} onChange={onChange} />
-                        {value && <Group name={field.name}>{field.fields.map(sourceFieldToElement)}</Group>}
+                        {value && (
+                            <Group name={field.name}>
+                                {field.fields.map((field) => sourceFieldToElement(field, sourceConfig))}
+                            </Group>
+                        )}
                     </>
                 )}
             </LemonField>
@@ -42,7 +47,7 @@ const sourceFieldToElement = (field: SourceFieldConfig): JSX.Element => {
                         <Group name={field.name}>
                             {field.options
                                 .find((n) => n.value === (value ?? field.defaultValue))
-                                ?.fields?.map(sourceFieldToElement)}
+                                ?.fields?.map((field) => sourceFieldToElement(field, sourceConfig))}
                         </Group>
                     </>
                 )}
@@ -59,6 +64,21 @@ const sourceFieldToElement = (field: SourceFieldConfig): JSX.Element => {
                     placeholder={field.placeholder}
                     minRows={4}
                 />
+            </LemonField>
+        )
+    }
+
+    if (field.type === 'oauth') {
+        return (
+            <LemonField key={field.name} name={field.name} label={field.label}>
+                {({ value, onChange }) => (
+                    <DataWarehouseIntegrationChoice
+                        key={field.name}
+                        sourceConfig={sourceConfig}
+                        value={value}
+                        onChange={onChange}
+                    />
+                )}
             </LemonField>
         )
     }
@@ -88,7 +108,7 @@ export default function SourceForm({ sourceConfig }: SourceFormProps): JSX.Eleme
         <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" className="space-y-4" enableFormOnSubmit>
             {showSourceFields && (
                 <Group name="payload">
-                    {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => sourceFieldToElement(field))}
+                    {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => sourceFieldToElement(field, sourceConfig))}
                 </Group>
             )}
             {showPrefix && (
