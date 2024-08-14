@@ -79,7 +79,6 @@ export class HogMasker {
             return { masked: [], notMasked: invocations }
         }
 
-        // Load from redis returning the value - this allows us to compare - if the value is the same then we allow an invocation
         const result = await this.redis.usePipeline({ name: 'masker', failOpen: true }, (pipeline) => {
             Object.values(masks).forEach(({ hogFunctionId, hash, increment, ttl }) => {
                 pipeline.incrby(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, increment)
