@@ -67,7 +67,7 @@ export function DeleteOrganizationModal({
 export function OrganizationDangerZone(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
-    const isRestricted = !!useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     return (
         <>
@@ -83,7 +83,7 @@ export function OrganizationDangerZone(): JSX.Element {
                     onClick={() => setIsModalVisible(true)}
                     data-attr="delete-organization-button"
                     icon={<IconTrash />}
-                    disabledReason={isRestricted && 'Restricted action'}
+                    disabledReason={restrictionReason}
                 >
                     Delete {currentOrganization?.name || 'the current organization'}
                 </LemonButton>
