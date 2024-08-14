@@ -599,7 +599,7 @@ class _Printer(Visitor):
         return f"{self.visit(node.expr)} {node.order}"
 
     def get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
-        def resolve_field_type(expr: ast.Expr) -> ast.Expr:
+        def resolve_field_type(expr: ast.Expr) -> ast.Expr | None:
             expr_type = expr.type
             while isinstance(expr_type, ast.FieldAliasType):
                 expr_type = expr_type.type
@@ -626,6 +626,8 @@ class _Printer(Visitor):
             # TODO: can probably optimize some operations that use chaining, but will need more thought
             if property_type is None or len(property_type.chain) > 1:
                 return None
+            else:
+                assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
 
             property_source = self.__get_materialized_property_source(property_type)
             if not isinstance(property_source, MaterializedPropertyGroupItem):
@@ -888,7 +890,7 @@ class _Printer(Visitor):
 
     def get_optimized_property_group_call(self, node: ast.Call) -> str | None:
         # XXX: copy/paste from `get_optimized_property_group_compare_operation`
-        def resolve_field_type(expr: ast.Expr) -> ast.Expr:
+        def resolve_field_type(expr: ast.Expr) -> ast.Expr | None:
             expr_type = expr.type
             while isinstance(expr_type, ast.FieldAliasType):
                 expr_type = expr_type.type
