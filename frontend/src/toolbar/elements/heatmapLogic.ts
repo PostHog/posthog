@@ -438,9 +438,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (s) => [s.posthog],
             (posthog: PostHog): 'version' | 'disabled' | null => {
                 // Later SDKs have the version in the posthog object, but we need to check for the old way of doing it too
-                const posthogVersion =
+                const posthogVersion: string =
                     posthog.version ??
-                    (posthog as any)?._calculate_event_properties?.('test', {})?.['$lib_version'] ??
+                    (posthog as any)?._calculate_event_properties?.('test', {}, new Date())?.['$lib_version'] ??
                     '0.0.0'
                 const majorMinorVersion = posthogVersion.split('.')
                 const majorVersion = parseInt(majorMinorVersion[0], 10)
