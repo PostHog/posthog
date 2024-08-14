@@ -1933,6 +1933,11 @@ export interface PluginConfigFilters {
     filter_test_accounts?: boolean
 }
 
+export interface HogConfigFilters extends PluginConfigFilters {
+    bytecode?: any[]
+    bytecode_error?: string
+}
+
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
 export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
     plugin_info: PluginType
@@ -2961,6 +2966,9 @@ export interface PreflightStatus {
         hubspot: {
             client_id?: string
         }
+        salesforce: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
@@ -3853,7 +3861,15 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'MySQL', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = [
+    'Stripe',
+    'Hubspot',
+    'Postgres',
+    'MySQL',
+    'Zendesk',
+    'Snowflake',
+    'Salesforce',
+] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
@@ -4230,6 +4246,9 @@ export interface SourceConfig {
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
+    showPrefix?: (payload: Record<string, any>) => boolean
+    showSourceForm?: (payload: Record<string, any>) => boolean
+    oauthPayload?: string[]
 }
 
 export interface ProductPricingTierSubrows {
@@ -4308,7 +4327,7 @@ export type HogFunctionType = {
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
-    filters?: PluginConfigFilters | null
+    filters?: HogConfigFilters | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
 }
