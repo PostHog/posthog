@@ -42,7 +42,7 @@ RUN pnpm build
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:rust_1.80.1-node_18.19.1 AS cyclotron-node-build
+FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS cyclotron-node-build
 WORKDIR /code
 COPY ./rust ./rust
 RUN cd rust/cyclotron-node && \
