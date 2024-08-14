@@ -192,7 +192,6 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
-    PLUGINS_FILTERING: 'plugins-filtering', // owner: @benjackwhite
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     LIVE_EVENTS: 'live-events', // owner: @zach or @jams

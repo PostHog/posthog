@@ -34,7 +34,6 @@ import {
     PipelineStage,
     PipelineTab,
     PluginConfigFilters,
-    PluginConfigTypeNew,
     PropertyFilterType,
     PropertyGroupFilter,
 } from '~/types'
@@ -58,7 +57,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     status: 'stable',
 }
 
-function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
+function sanitizeFilters(filters?: FilterType): HogFunctionType['filters'] {
     if (!filters) {
         return null
     }
