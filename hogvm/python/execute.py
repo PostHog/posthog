@@ -186,7 +186,7 @@ def execute_bytecode(
                     push_stack(
                         {
                             "__hogCallable__": "stl",
-                            "argCount": 0,  # TODO
+                            "argCount": STL[chain[0]].maxArgs,
                             "ip": -1,
                             "name": chain[0],
                         }
