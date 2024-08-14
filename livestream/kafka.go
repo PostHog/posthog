@@ -45,6 +45,7 @@ type PostHogKafkaConsumer struct {
 	geolocator   GeoLocator
 	outgoingChan chan PostHogEvent
 	statsChan    chan PostHogEvent
+	counter      *SlidingWindowCounter
 }
 
 func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*PostHogKafkaConsumer, error) {
@@ -71,6 +72,10 @@ func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID st
 }
 
 func (c *PostHogKafkaConsumer) Consume() {
+	// We want to keep track of the number of events we've processed
+	// So we start our sliding windowed counter here
+	c.counter = NewSlidingWindowCounter(60)
+
 	err := c.consumer.SubscribeTopics([]string{c.topic}, nil)
 	if err != nil {
 		sentry.CaptureException(err)
@@ -84,6 +89,9 @@ func (c *PostHogKafkaConsumer) Consume() {
 			log.Printf("Error consuming message: %v", err)
 			continue
 		}
+
+		// increment our event count
+		c.counter.Increment()
 
 		var wrapperMessage PostHogEventWrapper
 		err = json.Unmarshal(msg.Value, &wrapperMessage)

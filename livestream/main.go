@@ -109,6 +109,8 @@ func main() {
 	// Routes
 	e.GET("/", index)
 
+	e.GET("/served", servedHandler(consumer))
+
 	e.GET("/stats", func(c echo.Context) error {
 
 		type stats struct {
