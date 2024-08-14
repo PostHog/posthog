@@ -3154,6 +3154,28 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
 
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_recordings_return_retry_after_header_when_enabled(
+        self, _kafka_produce, _fake_token_limiting
+    ) -> None:
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_SESSION_REPLAY_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            self._update_team(
+                {
+                    "session_recording_opt_in": True,
+                }
+            )
+
+            response = self._post_decide().json()
+            assert response["sessionRecording"] is False
+
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_when_enabled(self, *args):
         FeatureFlag.objects.create(
