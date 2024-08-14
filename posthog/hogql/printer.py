@@ -672,8 +672,15 @@ class _Printer(Visitor):
                 else:
                     return f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
-                # TODO: check to make sure all values are constants
-                return f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
+                default_value_expr: ast.Constant | None = None
+                for expr in node.right.exprs[:]:
+                    if isinstance(expr, ast.Constant) and expr.value == "":  # XXX: check type?
+                        default_value_expr = expr
+                        node.right.exprs.remove(expr)  # XXX: safe to mutate?
+                printed_expr = f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
+                if default_value_expr:
+                    printed_expr = f"or({printed_expr}, and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(default_value_expr)})))"
+                return printed_expr
             else:
                 return  # XXX: what about aliases?
 

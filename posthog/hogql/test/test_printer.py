@@ -460,7 +460,7 @@ class TestPrinter(BaseTest):
                     "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_3)s))"
                     ")"
                 ),
-                {"hogql_val_0": "key", "hogql_val_1": "", "hogql_val_2": "value"},
+                {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b", "hogql_val_3": ""},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
             PropertyGroupComparisonTestCase(
