@@ -908,17 +908,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     })
                     return
                 }
-                case 'salesforce': {
-                    actions.updateSource({
-                        source_type: 'Salesforce',
-                        payload: {
-                            code: searchParams.code,
-                            subdomain: searchParams.subdomain,
-                            redirect_uri: getSalesforceRedirectUri(),
-                        },
-                    })
-                    break
-                }
                 default:
                     lemonToast.error(`Something went wrong.`)
             }
@@ -975,14 +964,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setStep(2)
             }
-            if (searchParams.kind == 'salesforce' && searchParams.code) {
-                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
-                actions.handleRedirect(searchParams.kind, {
-                    code: searchParams.code,
-                    subdomain: searchParams.subdomain,
-                })
-                actions.setStep(2)
-            }
         },
     })),
     forms(({ actions, values }) => ({
@@ -1002,14 +983,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
-                    if (
-                        values.selectedConnector.name === 'Salesforce' &&
-                        (!values.source.payload.code || !values.source.payload.subdomain)
-                    ) {
-                        window.open(values.addToSalesforceButtonUrl(sourceValues.payload.subdomain) as string)
-                        return
-                    }
-
                     const payload = {
                         ...sourceValues,
                         source_type: values.selectedConnector.name,
@@ -1019,28 +992,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
 
-                        // salesforce doesn't need to store the payload. The relevant fielsd will already be handled from the URL
-                        // only update the prefix
-                        if (values.selectedConnector.name === 'Salesforce') {
-                            actions.updateSource({
-                                ...values.source,
-                                prefix: sourceValues.prefix,
-                            })
-                        } else {
-                            const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
+                        const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
 
-                            // Only store the keys of the source type we're using
-                            actions.updateSource({
-                                ...payload,
-                                payload: {
-                                    source_type: values.selectedConnector.name,
-                                    ...payloadKeys.reduce((acc, cur) => {
-                                        acc[cur] = payload['payload'][cur]
-                                        return acc
-                                    }, {} as Record<string, any>),
-                                },
-                            })
-                        }
+                        // Only store the keys of the source type we're using
+                        actions.updateSource({
+                            ...payload,
+                            payload: {
+                                source_type: values.selectedConnector.name,
+                                ...payloadKeys.reduce((acc, cur) => {
+                                    acc[cur] = payload['payload'][cur]
+                                    return acc
+                                }, {} as Record<string, any>),
+                            },
+                        })
 
                         actions.setIsLoading(false)
                     } catch (e: any) {
