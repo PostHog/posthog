@@ -424,22 +424,6 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
-    Salesforce: {
-        name: 'Salesforce',
-        fields: [
-            {
-                name: 'subdomain',
-                label: 'Salesforce subdomain',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-        ],
-        caption: 'Succesfully authenticated with Salesforce. Please continue here to complete the source setup',
-        showPrefix: (payload) => !!payload.code,
-        showSourceForm: (payload) => !payload.code,
-        oauthPayload: ['code', 'subdomain'],
-    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (
