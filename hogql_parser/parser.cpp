@@ -335,7 +335,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(Expression) {
-    return visit(ctx->columnExpr());
+    auto column_expr_ctx = ctx->columnExpr();
+    if (column_expr_ctx) {
+      return visit(column_expr_ctx);
+    }
+    auto column_lambda_expr_ctx = ctx->columnLambdaExpr();
+    if (column_lambda_expr_ctx) {
+      return visit(column_lambda_expr_ctx);
+    }
+    throw ParsingError("Expression must be either a columnExpr or a columnLambdaExpr");
   }
 
   VISIT(VarDecl) {

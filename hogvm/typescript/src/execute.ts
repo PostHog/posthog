@@ -12,7 +12,7 @@ import {
     setNestedValue,
     UncaughtHogVMException,
 } from './utils'
-import { isHogError } from './objects'
+import { HogCallable, isHogError } from './objects'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
@@ -310,7 +310,37 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
-                pushStack(options?.globals ? convertJSToHog(getNestedValue(options.globals, chain)) : null)
+
+                if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
+                    pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
+                } else if (
+                    options?.asyncFunctions &&
+                    chain.length == 1 &&
+                    Object.hasOwn(options.asyncFunctions, chain[0]) &&
+                    options.asyncFunctions[chain[0]]
+                ) {
+                    pushStack({
+                        __hogCallable__: 'async',
+                        name: chain[0],
+                        argCount: 0, // TODO
+                        ip: -1,
+                    } satisfies HogCallable)
+                } else if (chain.length == 1 && chain[0] in ASYNC_STL && Object.hasOwn(ASYNC_STL, chain[0])) {
+                    pushStack({
+                        __hogCallable__: 'async',
+                        argCount: 0, // TODO
+                        ip: -1,
+                    } satisfies HogCallable)
+                } else if (chain.length == 1 && chain[0] in STL && Object.hasOwn(STL, chain[0])) {
+                    pushStack({
+                        __hogCallable__: 'stl',
+                        argCount: 0, // TODO
+                        ip: -1,
+                        name: chain[0],
+                    } satisfies HogCallable)
+                } else {
+                    throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
+                }
                 break
             }
             case Operation.POP:
@@ -400,61 +430,74 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 ip += bodyLength
                 break
             }
+            case Operation.CALLABLE: {
+                const name = next() // TODO: do we need it?
+                const argCount = next()
+                const bodyLength = next()
+                const callable = {
+                    __hogCallable__: 'local',
+                    argCount,
+                    ip,
+                    name,
+                } satisfies HogCallable
+                // console.log({ callable })
+                pushStack(callable)
+                // declaredFunctions[name] = [ip, argCount]
+                ip += bodyLength
+                break
+            }
             case Operation.CALL: {
                 checkTimeout()
-                const name = next()
-                // excluding "toString" only because of JavaScript --> no, it's not declared, it's omnipresent! o_O
-                if (name in declaredFunctions && name !== 'toString') {
-                    const [funcIp, argLen] = declaredFunctions[name]
-                    callStack.push([ip + 1, stack.length - argLen, argLen])
-                    ip = funcIp
-                } else {
-                    temp = next() // args.length
-                    if (temp > stack.length) {
-                        throw new HogVMException('Not enough arguments on the stack')
-                    }
-                    if (temp > MAX_FUNCTION_ARGS_LENGTH) {
-                        throw new HogVMException('Too many arguments')
+                const callable = popStack()
+                if (!callable || !callable.__hogCallable__) {
+                    throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`)
+                }
+                temp = next() // args.length
+                if (temp > stack.length) {
+                    throw new HogVMException('Not enough arguments on the stack')
+                }
+                if (temp > MAX_FUNCTION_ARGS_LENGTH) {
+                    throw new HogVMException('Too many arguments')
+                }
+
+                if (callable.__hogCallable__ === 'local') {
+                    callStack.push([ip, stack.length - callable.argCount, callable.argCount])
+                    ip = callable.ip
+                } else if (callable.__hogCallable__ === 'stl') {
+                    if (!(callable.name in STL)) {
+                        throw new HogVMException(`Unsupported function call: ${callable.name}`)
                     }
                     const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
-                    if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
-                        pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
-                    } else if (
-                        name !== 'toString' &&
-                        ((options?.asyncFunctions &&
-                            Object.hasOwn(options.asyncFunctions, name) &&
-                            options.asyncFunctions[name]) ||
-                            name in ASYNC_STL)
-                    ) {
-                        if (asyncSteps >= maxAsyncSteps) {
-                            throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
-                        }
-
-                        return {
-                            result: undefined,
-                            finished: false,
-                            asyncFunctionName: name,
-                            asyncFunctionArgs: args,
-                            state: {
-                                bytecode,
-                                stack,
-                                callStack,
-                                throwStack,
-                                declaredFunctions,
-                                ip: ip + 1,
-                                ops,
-                                asyncSteps: asyncSteps + 1,
-                                syncDuration: syncDuration + (Date.now() - startTime),
-                                maxMemUsed,
-                            },
-                        } satisfies ExecResult
-                    } else if (name in STL) {
-                        pushStack(STL[name](args, name, timeout))
-                    } else {
-                        throw new HogVMException(`Unsupported function call: ${name}`)
+                    pushStack(STL[callable.name](args, callable.name, timeout))
+                } else if (callable.__hogCallable__ === 'async') {
+                    if (asyncSteps >= maxAsyncSteps) {
+                        throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
                     }
+                    const args = Array(temp)
+                        .fill(null)
+                        .map(() => popStack())
+                    return {
+                        result: undefined,
+                        finished: false,
+                        asyncFunctionName: callable.name,
+                        asyncFunctionArgs: args,
+                        state: {
+                            bytecode,
+                            stack,
+                            callStack,
+                            throwStack,
+                            declaredFunctions,
+                            ip: ip + 1,
+                            ops,
+                            asyncSteps: asyncSteps + 1,
+                            syncDuration: syncDuration + (Date.now() - startTime),
+                            maxMemUsed,
+                        },
+                    } satisfies ExecResult
+                } else {
+                    throw new HogVMException(`Unsupported function call: ${callable.name}`)
                 }
                 break
             }
@@ -490,9 +533,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         }
     }
 
-    if (stack.length > 1) {
-        throw new HogVMException('Invalid bytecode. More than one value left on stack')
-    }
+    // if (stack.length > 1) {
+    //     console.log({ stack, callStack })
+    //     throw new HogVMException('Invalid bytecode. More than one value left on stack')
+    // }
 
     if (stack.length === 0) {
         return { result: null, finished: true, state: getFinishedState() } satisfies ExecResult

@@ -19,6 +19,13 @@ export interface HogError {
     payload?: Record<string, any>
 }
 
+export interface HogCallable {
+    __hogCallable__: 'local' | 'stl' | 'async'
+    name?: string
+    argCount: number
+    ip: number
+}
+
 export function isHogDate(obj: any): obj is HogDate {
     return obj && typeof obj === 'object' && '__hogDate__' in obj && 'year' in obj && 'month' in obj && 'day' in obj
 }
@@ -38,4 +45,8 @@ export function newHogError(type: string, message: string, payload?: Record<stri
         message: message || 'An error occurred',
         payload,
     }
+}
+
+export function isHogCallable(obj: any): obj is HogCallable {
+    return obj && typeof obj === 'object' && '__hogCallable__' in obj && 'args' in obj && 'body' in obj
 }

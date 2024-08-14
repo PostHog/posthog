@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
+MAX_FUNCTION_ARGS_LENGTH = 300
 
 
 @dataclass
@@ -170,7 +171,64 @@ def execute_bytecode(
                 push_stack(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
-                push_stack(deepcopy(get_nested_value(globals, chain)))
+                # OLD
+                # push_stack(deepcopy(get_nested_value(globals, chain)))
+
+                # JS to translate
+                # if (options?.globals && chain[0] in options.globals) {
+                #                     pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
+                #                 } else if (
+                #                     options?.asyncFunctions &&
+                #                     chain.length == 1 &&
+                #                     Object.hasOwn(options.asyncFunctions, chain[0]) &&
+                #                     options.asyncFunctions[chain[0]]
+                #                 ) {
+                #                     pushStack({
+                #                         __hogCallable__: 'async',
+                #                         name: chain[0],
+                #                         argCount: 0, // TODO
+                #                         ip: -1,
+                #                     } satisfies HogCallable)
+                #                 } else if (chain.length == 1 && chain[0] in ASYNC_STL) {
+                #                     pushStack({
+                #                         __hogCallable__: 'async',
+                #                         argCount: 0, // TODO
+                #                         ip: -1,
+                #                     } satisfies HogCallable)
+                #                 } else if (chain.length == 1 && chain[0] in STL) {
+                #                     pushStack({
+                #                         __hogCallable__: 'stl',
+                #                         argCount: 0, // TODO
+                #                         ip: -1,
+                #                         name: chain[0],
+                #                     } satisfies HogCallable)
+                #                 } else {
+                #                     throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
+                #                 }
+
+                # NEW
+                if globals and chain[0] in globals:
+                    push_stack(deepcopy(get_nested_value(globals, chain)))
+                elif functions and chain[0] in functions:
+                    push_stack(
+                        {
+                            "__hogCallable__": "stl",
+                            "argCount": 0,  # TODO
+                            "ip": -1,
+                            "name": chain[0],
+                        }
+                    )
+                elif chain[0] in STL and len(chain) == 1:
+                    push_stack(
+                        {
+                            "__hogCallable__": "stl",
+                            "argCount": 0,  # TODO
+                            "ip": -1,
+                            "name": chain[0],
+                        }
+                    )
+                else:
+                    raise HogVMException(f"Global variable not found: {chain[0]}")
             case Operation.POP:
                 pop_stack()
             case Operation.RETURN:
@@ -252,24 +310,46 @@ def execute_bytecode(
                 body_len = next_token()
                 declared_functions[name] = (ip, arg_len)
                 ip += body_len
+            case Operation.CALLABLE:
+                name = next_token()
+                arg_count = next_token()
+                body_length = next_token()
+                callable = {
+                    "__hogCallable__": "local",
+                    "argCount": arg_count,
+                    "ip": ip,
+                    "name": name,
+                }
+                push_stack(callable)
+                ip += body_length
             case Operation.CALL:
                 check_timeout()
-                name = next_token()
-                if name in declared_functions:
-                    func_ip, arg_len = declared_functions[name]
-                    call_stack.append((ip + 1, len(stack) - arg_len, arg_len))
-                    ip = func_ip
+                callable = pop_stack()
+                if not isinstance(callable, dict) or callable.get("__hogCallable__") is None:
+                    raise HogVMException(f"Invalid callable: {callable}")
+
+                args_length = next_token()
+                if args_length > len(stack):
+                    raise HogVMException("Not enough arguments on the stack")
+                if args_length > MAX_FUNCTION_ARGS_LENGTH:
+                    raise HogVMException("Too many arguments")
+
+                if callable.get("__hogCallable__") == "local":
+                    call_stack.append((ip, len(stack) - callable["argCount"], callable["argCount"]))
+                    ip = callable["ip"]
+
+                elif callable.get("__hogCallable__") == "stl":
+                    if callable["name"] not in STL:
+                        raise HogVMException(f"Unsupported function call: {callable['name']}")
+                    args = [pop_stack() for _ in range(args_length)]
+                    push_stack(STL[callable["name"]](args, team, stdout, timeout.total_seconds()))
+
+                elif callable.get("__hogCallable__") == "async":
+                    raise HogVMException("Async functions are not supported")
+
                 else:
-                    args = [pop_stack() for _ in range(next_token())]
+                    raise HogVMException("Invalid callable")
 
-                    if functions is not None and name in functions:
-                        push_stack(functions[name](*args))
-                        continue
-
-                    if name not in STL:
-                        raise HogVMException(f"Unsupported function call: {name}")
-
-                    push_stack(STL[name](args, team, stdout, timeout.total_seconds()))
             case Operation.TRY:
                 throw_stack.append((len(call_stack), len(stack), ip + next_token()))
             case Operation.POP_TRY:
@@ -300,8 +380,8 @@ def execute_bytecode(
             break
     if debug:
         debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack, throw_stack)
-    if len(stack) > 1:
-        raise HogVMException("Invalid bytecode. More than one value left on stack")
+    # if len(stack) > 1:
+    #     raise HogVMException("Invalid bytecode. More than one value left on stack")
     if len(stack) == 1:
         result = pop_stack()
     return BytecodeResult(result=result, stdout=stdout, bytecode=bytecode)

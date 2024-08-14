@@ -1,0 +1,3 @@
+["_h", 52, "execFunction", 0, 11, 32, "execFunction", 32, "print", 1, 1, 2, 1, 35, 31, 38, 52, "execFunctionNested", 0,
+32, 52, "execFunction", 0, 11, 32, "execFunctionNew", 32, "print", 1, 1, 2, 1, 35, 31, 38, 32, "execFunctionNested", 32,
+"print", 1, 1, 2, 1, 35, 36, 0, 2, 0, 35, 31, 38, 35, 36, 0, 2, 0, 35, 36, 1, 2, 0, 35, 36, 0, 2, 0, 35, 35, 35]

@@ -4,7 +4,6 @@ from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, BytecodeResult
-from hogvm.python.stl import STL, MIN_ARGS_INCLUDING_OPTIONAL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
@@ -92,7 +91,7 @@ class BytecodeBuilder(Visitor):
         super().__init__()
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
-        self.functions: dict[str, HogFunction] = {}
+        # self.functions: dict[str, HogFunction] = {}
         self.scope_depth = 0
         self.args = args
         # we're in a function definition
@@ -270,28 +269,31 @@ class BytecodeBuilder(Visitor):
             response.extend(if_null)
             return response
 
-        if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
-            raise QueryError(f"Hog function `{node.name}` is not implemented")
-        if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
-            raise QueryError(
-                f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
-            )
+        # if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
+        #     raise QueryError(f"Hog function `{node.name}` is not implemented")
+        #
+        # if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
+        #     raise QueryError(
+        #         f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
+        #     )
         response = []
 
-        if node.name in MIN_ARGS_INCLUDING_OPTIONAL and len(node.args) < MIN_ARGS_INCLUDING_OPTIONAL[node.name]:
-            for _ in range(len(node.args), MIN_ARGS_INCLUDING_OPTIONAL[node.name]):
-                response.append(Operation.NULL)
+        # if node.name in MIN_ARGS_INCLUDING_OPTIONAL and len(node.args) < MIN_ARGS_INCLUDING_OPTIONAL[node.name]:
+        #     for _ in range(len(node.args), MIN_ARGS_INCLUDING_OPTIONAL[node.name]):
+        #         response.append(Operation.NULL)
 
         for expr in reversed(node.args):
             response.extend(self.visit(expr))
 
+        field = self.visit(ast.Field(chain=[node.name]))
+
         response.extend(
             [
+                *field,
                 Operation.CALL,
-                node.name,
-                len(node.args)
-                if node.name not in MIN_ARGS_INCLUDING_OPTIONAL
-                else MIN_ARGS_INCLUDING_OPTIONAL[node.name],
+                len(node.args),
+                # if node.name not in MIN_ARGS_INCLUDING_OPTIONAL
+                # else MIN_ARGS_INCLUDING_OPTIONAL[node.name],
             ]
         )
         return response
@@ -611,11 +613,6 @@ class BytecodeBuilder(Visitor):
         raise QueryError(f"Can not assign to this type of expression")
 
     def visit_function(self, node: ast.Function):
-        if node.name in self.functions:
-            raise QueryError(f"Function `{node.name}` already declared")
-        all_known_functions = self.supported_functions.union(set(self.functions.keys()))
-        all_known_functions.add(node.name)
-
         # add an implicit return if none at the end of the function
         body = node.body
         if isinstance(node.body, ast.Block):
@@ -624,9 +621,24 @@ class BytecodeBuilder(Visitor):
         elif not isinstance(node.body, ast.ReturnStatement):
             body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
 
-        bytecode = create_bytecode(body, all_known_functions, node.params, self.context)
-        self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
-        return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
+        bytecode = create_bytecode(body, None, node.params, self.context)
+        self._declare_local(node.name)
+        return [Operation.CALLABLE, node.name, len(node.params), len(bytecode), *bytecode]
+
+    def visit_lambda(self, node: ast.Lambda):
+        # add an implicit return if none at the end of the function
+        expr: ast.Expr | ast.Statement = node.expr
+        if isinstance(expr, ast.Block):
+            if len(expr.declarations) == 0 or not isinstance(expr.declarations[-1], ast.ReturnStatement):
+                expr = ast.Block(declarations=[*expr.declarations, ast.ReturnStatement(expr=None)])
+        elif not isinstance(expr, ast.ReturnStatement):
+            if isinstance(expr, ast.Statement):
+                expr = ast.Block(declarations=[expr, ast.ReturnStatement(expr=None)])
+            else:
+                expr = ast.ReturnStatement(expr=expr)
+
+        bytecode = create_bytecode(expr, None, node.args, self.context)
+        return [Operation.CALLABLE, "lambda", len(node.args), len(bytecode), *bytecode]
 
     def visit_dict(self, node: ast.Dict):
         response = []

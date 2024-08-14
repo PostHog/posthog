@@ -163,6 +163,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 )
             case Operation.DECLARE_FN:
                 return f"DECLARE_FN({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
+            case Operation.CALLABLE:
+                return f"CALLABLE({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
             case Operation.CALL:
                 return f"CALL({bytecode[ip+1]} {', '.join(str(stack[-i]) for i in range(bytecode[ip+2]))})"
             case Operation.TRY:
@@ -274,8 +276,10 @@ def color_bytecode(bytecode: list) -> list:
                 add = ["op.JUMP_IF_STACK_NOT_NULL", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
             case Operation.DECLARE_FN:
                 add = ["op.DECLARE_FN", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
+            case Operation.CALLABLE:
+                add = ["op.CALLABLE", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
             case Operation.CALL:
-                add = ["op.CALL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
+                add = ["op.CALL", f"args: {bytecode[ip+1]}"]
             case Operation.TRY:
                 add = ["op.TRY", f"catch: +{bytecode[ip+1]}"]
             case Operation.POP_TRY:

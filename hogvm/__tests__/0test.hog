@@ -1,0 +1,15 @@
+fn execFunction() {
+  print('execFunction')
+}
+
+fn execFunctionNested() {
+  fn execFunction() {
+    print('execFunctionNew')
+  }
+  print('execFunctionNested')
+  execFunction()
+}
+
+execFunction()
+execFunctionNested()
+execFunction()

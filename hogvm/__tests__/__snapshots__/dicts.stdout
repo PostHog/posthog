@@ -2,7 +2,6 @@
 {'key': 'value'}
 {'key': 'value', 'other': 'thing'}
 {'key': {'otherKey': 'value'}}
-{null: 'value'}
 {3: 'value'}
 value
 value

@@ -9,7 +9,7 @@ program: declaration* EOF;
 
 declaration: varDecl | statement ;
 
-expression: columnExpr;
+expression: columnExpr | columnLambdaExpr;
 
 varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
 identifierList: identifier (COMMA identifier)* COMMA?;

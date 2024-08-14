@@ -56,3 +56,4 @@ class Operation(int, Enum):
     THROW = 49
     TRY = 50
     POP_TRY = 51
+    CALLABLE = 52
