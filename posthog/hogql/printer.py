@@ -625,11 +625,11 @@ class _Printer(Visitor):
 
             # TODO: can probably optimize some operations that use chaining, but will need more thought
             if property_type is None or len(property_type.chain) > 1:
-                return
+                return None
 
             property_source = self.__get_materialized_property_source(property_type)
             if not isinstance(property_source, MaterializedPropertyGroupItem):
-                return
+                return None
 
             if node.op == ast.CompareOperationOp.Eq:
                 if constant_expr.value is None:
@@ -654,14 +654,14 @@ class _Printer(Visitor):
             # `IN`` is _not_ commutative, so we only need to check the left side operand (in contrast with above.)
             left_type = resolve_field_type(node.left)
             if not isinstance(left_type, ast.PropertyType):
-                return
+                return None
 
             if left_type is None or len(left_type.chain) > 1:
-                return
+                return None
 
             property_source = self.__get_materialized_property_source(left_type)
             if not isinstance(property_source, MaterializedPropertyGroupItem):
-                return
+                return None
 
             if isinstance(node.right, ast.Constant):
                 # TODO: what if the RHS is NULL?
@@ -680,9 +680,9 @@ class _Printer(Visitor):
                     printed_expr = f"or({printed_expr}, and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(default_value_expr)})))"
                 return printed_expr
             else:
-                return  # XXX: what about aliases?
+                return None  # XXX: what about aliases?
 
-        return  # nothing to optimize
+        return None  # nothing to optimize
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
@@ -901,7 +901,7 @@ class _Printer(Visitor):
             if isinstance(arg_type, ast.PropertyType) and len(arg_type.chain) == 1:
                 property_source = self.__get_materialized_property_source(arg_type)
                 if not isinstance(property_source, MaterializedPropertyGroupItem):
-                    return
+                    return None
 
                 # XXX: This logic largely duplicates that of `get_optimized_property_group_compare_operation`
                 if node.name == "isNull":
@@ -911,7 +911,7 @@ class _Printer(Visitor):
                 else:
                     raise ValueError("unexpected node name")
 
-        return  # nothing to optimize
+        return None  # nothing to optimize
 
     def visit_call(self, node: ast.Call):
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
