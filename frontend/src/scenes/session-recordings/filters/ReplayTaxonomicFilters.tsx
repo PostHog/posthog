@@ -24,22 +24,26 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)
     }
 
-    const recordingProperties = [
+    const properties = [
         {
             label: 'Visited page',
             key: 'visited_page',
+            propertyFilterType: PropertyFilterType.Recording,
         },
         {
             label: 'Platform',
             key: 'snapshot_source',
+            propertyFilterType: PropertyFilterType.Recording,
         },
         {
             label: 'Console log level',
             key: 'console_log_level',
+            propertyFilterType: PropertyFilterType.LogEntry,
         },
         {
             label: 'Console log text',
             key: 'console_log_query',
+            propertyFilterType: PropertyFilterType.LogEntry,
         },
     ]
 
@@ -48,12 +52,12 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
             <section>
                 <h5 className="mt-1 mb-0">Replay properties</h5>
                 <ul className="space-y-px">
-                    {recordingProperties.map(({ key, label }) => (
+                    {properties.map(({ key, label, propertyFilterType }) => (
                         <LemonButton
                             key={key}
                             size="small"
                             fullWidth
-                            onClick={() => onChange(key, {})}
+                            onClick={() => onChange(key, { propertyFilterType: propertyFilterType })}
                             disabledReason={hasFilter(key) ? `${label} filter already added` : undefined}
                         >
                             {label}

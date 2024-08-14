@@ -701,6 +701,7 @@ export enum PropertyFilterType {
     Session = 'session',
     Cohort = 'cohort',
     Recording = 'recording',
+    LogEntry = 'log_entry',
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
@@ -788,6 +789,7 @@ export type AnyPropertyFilter =
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingPropertyFilter
+    | LogEntryPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -958,7 +960,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source' | 'visited_page'
+    key: DurationType | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -967,16 +969,20 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
     value: number
 }
 
-export interface RecordingConsoleLogLevelFilter extends RecordingPropertyFilter {
-    key: 'console_log_level'
+export interface LogEntryPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
+
+export interface LogEntryLevelFilter extends LogEntryPropertyFilter {
+    key: 'level'
     value: FilterableLogLevel[]
 }
-export interface RecordingConsoleQueryFilter extends RecordingPropertyFilter {
-    key: 'console_log_query'
+export interface LogEntryMessageFilter extends LogEntryPropertyFilter {
+    key: 'message'
     value: string
 }
 
-export type RecordingConsoleFilter = RecordingConsoleLogLevelFilter | RecordingConsoleQueryFilter
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 
@@ -989,8 +995,8 @@ export interface LegacyRecordingFilters {
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     snapshot_source?: AnyPropertyFilter | null
-    console_search_query?: string
-    console_logs?: FilterableLogLevel[]
+    console_search_query?: LogEntryMessageFilter['value']
+    console_logs?: LogEntryLevelFilter['value']
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator
 }

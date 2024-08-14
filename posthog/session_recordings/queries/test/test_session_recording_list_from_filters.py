@@ -2781,8 +2781,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # there are 5 warn and 4 error logs, message 4 matches in both
-                "console_logs": ["warn", "error"],
-                "console_search_query": "message 4",
+                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 4", "operator": "exact", "type": "log_entry"}]',
+                "operand": "OR",
             }
         )
 
@@ -2797,22 +2797,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # there are 5 warn and 4 error logs, message 5 matches only matches in warn
-                "console_logs": ["warn", "error"],
-                "console_search_query": "message 5",
-            }
-        )
-
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
-            [
-                with_warns_session_id,
-            ]
-        )
-
-        (session_recordings, _, _) = self._filter_recordings_by(
-            {
-                # match is case-insensitive
-                "console_logs": ["warn", "error"],
-                "console_search_query": "MESSAGE 5",
+                "console_log_filters": '[{"key": "level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
+                "operand": "AND",
             }
         )
 
@@ -2825,12 +2811,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _, _) = self._filter_recordings_by(
             {
                 # message 5 does not match log level "info"
-                "console_logs": ["info"],
-                "console_search_query": "message 5",
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "message 5", "operator": "icontains", "type": "log_entry"}]',
+                "operand": "AND",
             }
         )
 
-        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted([])
+        assert sorted([sr["session_id"] for sr in session_recordings]) == []
 
     @snapshot_clickhouse_queries
     def test_filter_for_recordings_by_snapshot_source(self):

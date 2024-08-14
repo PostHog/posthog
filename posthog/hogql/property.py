@@ -37,6 +37,7 @@ from posthog.schema import (
     SessionPropertyFilter,
     CohortPropertyFilter,
     RecordingPropertyFilter,
+    LogEntryPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
     HogQLPropertyFilter,
@@ -265,6 +266,7 @@ def property_to_expr(
         | SessionPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
+        | LogEntryPropertyFilter
         | GroupPropertyFilter
         | FeaturePropertyFilter
         | HogQLPropertyFilter
@@ -273,7 +275,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity", "replay_pdi"] = "event",
+    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -344,6 +346,7 @@ def property_to_expr(
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
         or property.type == "recording"
+        or property.type == "log_entry"
     ):
         if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
@@ -365,24 +368,20 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type == "data_warehouse":
-            chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
-        elif property.type == "recording":
+        elif property.type in ["recording", "data_warehouse", "log_entry"]:
             chain = []
         else:
             chain = ["properties"]
 
         field = ast.Field(chain=[*chain, property.key])
+        expr: ast.Expr = field
 
-        expr = (
-            ast.Call(name="argMinMerge", args=[ast.Field(chain=["s", "snapshot_source"])])
-            if property.key == "snapshot_source"
-            else field
-        )
+        if property.type == "recording" and property.key == "snapshot_source":
+            expr = ast.Call(name="argMinMerge", args=[field])
 
         if isinstance(value, list):
             if len(value) == 0:

@@ -289,6 +289,9 @@
                     "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/LogEntryPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/GroupPropertyFilter"
                 },
                 {
@@ -3926,10 +3929,6 @@
             "enum": ["AND", "OR"],
             "type": "string"
         },
-        "FilterableLogLevel": {
-            "enum": ["info", "warn", "error"],
-            "type": "string"
-        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -5903,6 +5902,29 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "LogEntryPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "log_entry",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "MatchedRecording": {
             "additionalProperties": false,
             "properties": {
@@ -6359,6 +6381,7 @@
                 "session",
                 "cohort",
                 "recording",
+                "log_entry",
                 "group",
                 "hogql",
                 "data_warehouse",
@@ -8067,67 +8090,6 @@
             "required": ["k", "t"],
             "type": "object"
         },
-        "RecordingConsoleFilter": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/RecordingConsoleLogLevelFilter"
-                },
-                {
-                    "$ref": "#/definitions/RecordingConsoleQueryFilter"
-                }
-            ]
-        },
-        "RecordingConsoleLogLevelFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "const": "console_log_level",
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
-                },
-                "type": {
-                    "const": "recording",
-                    "type": "string"
-                },
-                "value": {
-                    "items": {
-                        "$ref": "#/definitions/FilterableLogLevel"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["key", "operator", "type", "value"],
-            "type": "object"
-        },
-        "RecordingConsoleQueryFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "const": "console_log_query",
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
-                },
-                "type": {
-                    "const": "recording",
-                    "type": "string"
-                },
-                "value": {
-                    "type": "string"
-                }
-            },
-            "required": ["key", "operator", "type", "value"],
-            "type": "object"
-        },
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -8135,14 +8097,6 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/DurationType"
-                        },
-                        {
-                            "const": "console_log_level",
-                            "type": "string"
-                        },
-                        {
-                            "const": "console_log_query",
-                            "type": "string"
                         },
                         {
                             "const": "snapshot_source",
@@ -8182,7 +8136,7 @@
                 },
                 "console_log_filters": {
                     "items": {
-                        "$ref": "#/definitions/RecordingConsoleFilter"
+                        "$ref": "#/definitions/LogEntryPropertyFilter"
                     },
                     "type": "array"
                 },

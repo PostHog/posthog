@@ -22,11 +22,11 @@ import {
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
+    LogEntryPropertyFilter,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyMathType,
-    RecordingConsoleFilter,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -280,7 +280,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    console_log_filters?: RecordingConsoleFilter[]
+    console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     filter_test_accounts?: boolean
     operand?: FilterLogicalOperator

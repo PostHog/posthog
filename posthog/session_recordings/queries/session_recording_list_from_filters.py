@@ -112,8 +112,6 @@ class SessionRecordingListFromFilters:
     def run(self) -> SessionRecordingQueryResult:
         query = self.get_query()
 
-        print(query)
-
         paginated_response = self._paginator.execute_hogql_query(
             # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
             query=cast(ast.SelectQuery, query),
@@ -122,7 +120,7 @@ class SessionRecordingListFromFilters:
             modifiers=self._hogql_query_modifiers,
         )
 
-        print(paginated_response.hogql)
+        # print(paginated_response.hogql)
 
         return SessionRecordingQueryResult(
             results=(self._data_to_return(self._paginator.results)),
@@ -227,21 +225,22 @@ class SessionRecordingListFromFilters:
         #     )
 
         # if self._filter.console_search_query:
-        #     console_logs_predicates.append(
-        #         ast.CompareOperation(
-        #             op=ast.CompareOperationOp.Gt,
-        #             left=ast.Call(
-        #                 name="positionCaseInsensitive",
-        #                 args=[
-        #                     ast.Field(chain=["message"]),
-        #                     ast.Constant(value=self._filter.console_search_query),
-        #                 ],
-        #             ),
-        #             right=ast.Constant(value=0),
-        #         )
+        # console_logs_predicates.append(
+        #     ast.CompareOperation(
+        #         op=ast.CompareOperationOp.Gt,
+        #         left=ast.Call(
+        #             name="positionCaseInsensitive",
+        #             args=[
+        #                 ast.Field(chain=["message"]),
+        #                 ast.Constant(value=self._filter.console_search_query),
+        #             ],
+        #         ),
+        #         right=ast.Constant(value=0),
         #     )
+        # )
 
         if self._filter.console_log_filters.values:
+            # print(self._filter.console_log_filters.type)
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
@@ -358,7 +357,7 @@ class PersonsPropertiesSubQuery:
     @cached_property
     def _where_predicates(self) -> ast.Expr:
         return (
-            property_to_expr(self.person_properties, team=self._team, scope="replay_pdi")
+            property_to_expr(self.person_properties, team=self._team)
             if self.person_properties
             else ast.Constant(value=True)
         )

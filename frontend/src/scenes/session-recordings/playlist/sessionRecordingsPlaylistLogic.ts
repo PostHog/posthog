@@ -9,7 +9,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import {
     isActionFilter,
     isEventFilter,
-    isRecordingConsoleFilter,
+    isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,10 +23,10 @@ import {
     FilterLogicalOperator,
     FilterType,
     LegacyRecordingFilters,
+    LogEntryPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
-    RecordingPropertyFilter,
     RecordingUniversalFilters,
     SessionRecordingId,
     SessionRecordingType,
@@ -128,11 +128,11 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
             events.push(f)
         } else if (isActionFilter(f)) {
             actions.push(f)
+        } else if (isLogEntryPropertyFilter(f)) {
+            console_log_filters.push(f)
         } else if (isAnyPropertyfilter(f)) {
             if (isRecordingPropertyFilter(f)) {
-                if (isRecordingConsoleFilter(f)) {
-                    console_log_filters.push(f)
-                } else if (f.key === 'visited_page') {
+                if (f.key === 'visited_page') {
                     events.push({
                         id: '$pageview',
                         name: '$pageview',
@@ -179,24 +179,24 @@ export function convertLegacyFiltersToUniversalFilters(
     const events = filters.events ?? []
     const actions = filters.actions ?? []
     const properties = filters.properties ?? []
-    const logLevelFilters: RecordingPropertyFilter[] =
+    const logLevelFilters: LogEntryPropertyFilter[] =
         filters.console_logs && filters.console_logs.length > 0
             ? [
                   {
-                      key: 'console_log_level',
+                      key: 'level',
                       value: filters.console_logs,
                       operator: PropertyOperator.Exact,
-                      type: PropertyFilterType.Recording,
+                      type: PropertyFilterType.LogEntry,
                   },
               ]
             : []
-    const logQueryFilters: RecordingPropertyFilter[] = filters.console_search_query
+    const logQueryFilters: LogEntryPropertyFilter[] = filters.console_search_query
         ? [
               {
-                  key: 'console_log_query',
+                  key: 'message',
                   value: [filters.console_search_query],
                   operator: PropertyOperator.Exact,
-                  type: PropertyFilterType.Recording,
+                  type: PropertyFilterType.LogEntry,
               },
           ]
         : []
