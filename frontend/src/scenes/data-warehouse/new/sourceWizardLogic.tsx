@@ -435,7 +435,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '',
             },
         ],
-        caption: 'Succesfully authenticated with Salesforce. Please continue here to complete the source setup',
+        caption: '',
         showPrefix: (payload) => !!payload.code,
         showSourceForm: (payload) => !payload.code,
         oauthPayload: ['code', 'subdomain'],
