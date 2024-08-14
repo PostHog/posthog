@@ -214,16 +214,16 @@ class MaterializedPropertyGroupItem:
         return f"{self.printed_has_expr} ? {self.printed_value_expr} : null"
 
     @property
-    def printed_qualified_column(self) -> str:
+    def __printed_qualified_column(self) -> str:
         return f"{self.printed_table}.{self.printed_column}"
 
     @property
     def printed_has_expr(self) -> str:
-        return f"has({self.printed_table}.{self.printed_column}, {self.printed_property_name})"
+        return f"has({self.__printed_qualified_column}, {self.printed_property_name})"
 
     @property
     def printed_value_expr(self) -> str:
-        return f"{self.printed_qualified_column}[{self.printed_property_name}]"
+        return f"{self.__printed_qualified_column}[{self.printed_property_name}]"
 
 
 class _Printer(Visitor):
@@ -598,19 +598,31 @@ class _Printer(Visitor):
     def visit_order_expr(self, node: ast.OrderExpr):
         return f"{self.visit(node.expr)} {node.order}"
 
-    def get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
+    def __get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns a printed expression corresponding to the provided compare operation, if one of the operands is part of
+        a property group value and: the comparison can be rewritten so that it can be eligible for use by one or more
+        the property group's bloom filter data skipping indices, or the expression can be optimized to avoid reading the
+        property group's map ``values`` subcolumn when doing comparisons to NULL values.
+        """
+
         def resolve_field_type(expr: ast.Expr) -> ast.Expr | None:
             expr_type = expr.type
             while isinstance(expr_type, ast.FieldAliasType):
                 expr_type = expr_type.type
             return expr_type
 
-        property_type: ast.PropertyType | None = None
-        constant_expr: ast.Constant | None = None
-
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             # For commutative operations, we can rewrite the expression with parameters in either order without
             # affecting the result.
+            # NOTE: For now, this only works with comparisons to constant values directly, but this could be improved so
+            # that any expression that doesn't reference a field as part of the expression (and therefore can be
+            # resolved to a constant value during the initial stages of query execution, e.g. ``lower(concat('X','Y'))``
+            # and similar) is supported to improve the usefulness of the index. (The same applies to ``In`` comparisons
+            # below, too.)
+            property_type: ast.PropertyType | None = None
+            constant_expr: ast.Constant | None = None
+
             # XXX: This needs to handle aliasing for the constant operand, probably?
             if isinstance(node.right, ast.Constant):
                 left_type = resolve_field_type(node.left)
@@ -623,7 +635,7 @@ class _Printer(Visitor):
                     property_type = right_type
                     constant_expr = node.left
 
-            # TODO: can probably optimize some operations that use chaining, but will need more thought
+            # TODO: Chained properties could likely be supported here to at least use the keys index.
             if property_type is None or len(property_type.chain) > 1:
                 return None
             else:
@@ -635,29 +647,33 @@ class _Printer(Visitor):
 
             if node.op == ast.CompareOperationOp.Eq:
                 if constant_expr.value is None:
-                    # "IS NULL" can be interpreted as "does not exist in the map".
+                    # "IS NULL" can be interpreted as "does not exist in the map" -- this avoids unnecessarily reading
+                    # the ``values`` subcolumn of the map.
                     return f"not({property_source.printed_has_expr})"
 
                 printed_expr = f"equals({property_source.printed_value_expr}, {self.visit(constant_expr)})"
                 if constant_expr.value == "":  # TODO: check type?
                     # If we're comparing to an empty string literal, we need to disambiguate this from the default value
                     # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
-                    # the property key is present in the map.
+                    # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
+                    # still use the data skipping index on keys, even though the values index cannot be used.
                     printed_expr = f"and({property_source.printed_has_expr}, {printed_expr})"
 
                 return printed_expr
 
             elif node.op == ast.CompareOperationOp.NotEq:
                 if constant_expr.value is None:
-                    # "IS NOT NULL" can be interpreted as "does exist in the map".
+                    # "IS NOT NULL" can be interpreted as "does exist in the map" -- this avoids unnecessarily reading
+                    # the ``values`` subcolumn of the map, and also allows us to use the data skipping index on keys.
                     return property_source.printed_has_expr
 
         elif node.op in (ast.CompareOperationOp.In):
-            # `IN`` is _not_ commutative, so we only need to check the left side operand (in contrast with above.)
+            # ``IN`` is _not_ commutative, so we only need to check the left side operand (in contrast with above.)
             left_type = resolve_field_type(node.left)
             if not isinstance(left_type, ast.PropertyType):
                 return None
 
+            # TODO: Chained properties could likely be supported here to at least use the keys index.
             if left_type is None or len(left_type.chain) > 1:
                 return None
 
@@ -666,15 +682,20 @@ class _Printer(Visitor):
                 return None
 
             if isinstance(node.right, ast.Constant):
-                # TODO: what if the RHS is NULL?
+                # TODO: What if the RHS is NULL? What is the expected behavior here?
                 if node.right.value == "":
+                    # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(node.right)}))"
                 else:
                     return f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
+                # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
+                # value for missing keys -- everything else can be passed through as-is.
                 default_value_expr: ast.Constant | None = None
                 for expr in node.right.exprs[:]:
-                    if isinstance(expr, ast.Constant) and expr.value == "":  # XXX: check type?
+                    if not isinstance(expr, ast.Constant):
+                        return None  # only optimize constants for now, see above
+                    elif expr.value == "":  # XXX: check type?
                         default_value_expr = expr
                         node.right.exprs.remove(expr)  # XXX: safe to mutate?
                 printed_expr = f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
@@ -689,7 +710,7 @@ class _Printer(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
-        if optimized_property_group_compare_operation := self.get_optimized_property_group_compare_operation(node):
+        if optimized_property_group_compare_operation := self.__get_optimized_property_group_compare_operation(node):
             return optimized_property_group_compare_operation
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
@@ -888,8 +909,16 @@ class _Printer(Visitor):
         else:
             raise ImpossibleASTError(f"Unknown Type, can not print {type(node.type).__name__}")
 
-    def get_optimized_property_group_call(self, node: ast.Call) -> str | None:
-        # XXX: copy/paste from `get_optimized_property_group_compare_operation`
+    def __get_optimized_property_group_call(self, node: ast.Call) -> str | None:
+        """
+        Returns a printed expression corresponding to the provided call, if the function is being applied to a property
+        group value and the function can be rewritten so that it can be eligible for use by the property group's map's
+        key bloom filter index, or can be optimized to avoid reading the property group's map ``values`` subcolumn.
+        """
+
+        # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
+        # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
+        # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
         def resolve_field_type(expr: ast.Expr) -> ast.Expr | None:
             expr_type = expr.type
             while isinstance(expr_type, ast.FieldAliasType):
@@ -905,7 +934,6 @@ class _Printer(Visitor):
                 if not isinstance(property_source, MaterializedPropertyGroupItem):
                     return None
 
-                # XXX: This logic largely duplicates that of `get_optimized_property_group_compare_operation`
                 if node.name == "isNull":
                     return f"not({property_source.printed_has_expr})"
                 elif node.name == "isNotNull":
@@ -918,7 +946,7 @@ class _Printer(Visitor):
     def visit_call(self, node: ast.Call):
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
         # skipping indexes can be used when possible.
-        if optimized_property_group_call := self.get_optimized_property_group_call(node):
+        if optimized_property_group_call := self.__get_optimized_property_group_call(node):
             return optimized_property_group_call
 
         if node.name in HOGQL_COMPARISON_MAPPING:
