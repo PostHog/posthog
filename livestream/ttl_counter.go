@@ -12,10 +12,24 @@ type SlidingWindowCounter struct {
 }
 
 func NewSlidingWindowCounter(windowSize time.Duration) *SlidingWindowCounter {
-	return &SlidingWindowCounter{
+	swc := &SlidingWindowCounter{
 		events:     make([]time.Time, 0),
 		windowSize: windowSize,
 	}
+
+	// Start a goroutine to periodically remove old events
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			swc.mu.Lock()
+			swc.removeOldEvents(time.Now())
+			swc.mu.Unlock()
+		}
+	}()
+
+	return swc
 }
 
 func (swc *SlidingWindowCounter) Increment() {
@@ -24,7 +38,6 @@ func (swc *SlidingWindowCounter) Increment() {
 
 	now := time.Now()
 	swc.events = append(swc.events, now)
-	swc.removeOldEvents(now)
 }
 
 func (swc *SlidingWindowCounter) Count() int {

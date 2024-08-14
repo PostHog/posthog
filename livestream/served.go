@@ -10,8 +10,8 @@ import (
 )
 
 type Counter struct {
-	EventCount uint32
-	UserCount  uint32
+	EventCount int
+	UserCount  int
 }
 
 func servedHandler(stats *Stats) func(c echo.Context) error {
@@ -19,8 +19,8 @@ func servedHandler(stats *Stats) func(c echo.Context) error {
 		userCount := stats.GlobalStore.Len()
 		count := stats.Counter.Count()
 		resp := Counter{
-			EventCount: uint32(count),
-			UserCount:  uint32(userCount),
+			EventCount: count,
+			UserCount:  userCount,
 		}
 		return c.JSON(http.StatusOK, resp)
 	}
