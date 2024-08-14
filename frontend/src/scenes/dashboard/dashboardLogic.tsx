@@ -135,13 +135,15 @@ async function getSingleInsight(
     dashboardId: number,
     queryId: string,
     refresh: RefreshType,
-    methodOptions?: ApiMethodOptions
+    methodOptions?: ApiMethodOptions,
+    filters_override?: DashboardFilter
 ): Promise<InsightModel> {
     const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
         refresh,
         from_dashboard: dashboardId, // needed to load insight in correct context
         client_query_id: queryId,
         session_id: currentSessionId(),
+        ...(filters_override ? { filters_override } : {}),
     })}`
     const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
     return await getJSONOrNull(insightResponse)
@@ -166,8 +168,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
     actions({
         loadDashboard: (payload: {
             refresh?: RefreshType
-            action: 'initial_load' | 'update' | 'refresh' | 'load_missing' | 'refresh_insights_on_filters_updated'
-            preview?: boolean
+            action:
+                | 'initial_load'
+                | 'update'
+                | 'refresh'
+                | 'load_missing'
+                | 'refresh_insights_on_filters_updated'
+                | 'preview'
         }) => payload,
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
@@ -178,7 +185,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         removeTile: (tile: DashboardTile) => ({ tile }),
         refreshDashboardItem: (payload: { tile: DashboardTile }) => payload,
-        updateInsightResults: (payload: {
+        refreshAllDashboardItems: (payload: {
             tiles?: DashboardTile[]
             action: string
             initialLoad?: boolean
@@ -232,13 +239,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboard: [
             null as DashboardType | null,
             {
-                loadDashboard: async ({ refresh, action, preview }, breakpoint) => {
+                loadDashboard: async ({ refresh, action }, breakpoint) => {
                     const dashboardQueryId = uuid()
                     actions.loadingDashboardItemsStarted(action, dashboardQueryId)
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl(refresh || 'async', preview ? values.temporaryFilters : undefined)
+                        const apiUrl = values.apiUrl(
+                            refresh || 'async',
+                            action === 'preview' ? values.temporaryFilters : undefined
+                        )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType = await getJSONOrNull(dashboardResponse)
 
@@ -363,7 +373,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...state,
                               // don't update temporary filters if we're previewing
                               // TODO: should the backend return filter_overrides as an extra field?
-                              ...(payload?.preview
+                              ...(payload?.action === 'preview'
                                   ? {}
                                   : {
                                         date_from: dashboard?.filters.date_from || null,
@@ -523,7 +533,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     [shortId]: { error: true, timer: state[shortId]?.timer || null },
                 }),
-                updateInsightResults: () => ({}),
+                refreshAllDashboardItems: () => ({}),
                 abortQuery: () => ({}),
             },
         ],
@@ -986,17 +996,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                 // Start polling for results
                 tile.insight = refreshedInsight
-                actions.updateInsightResults({ tiles: [tile], action: 'refresh' })
+                actions.refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })
             } catch (e: any) {
                 actions.setRefreshError(insight.short_id)
             }
         },
-        /**
-         * Only refreshes the required insight results, not their metadata
-         * The metadata for each insight is updated before calling this through
-         * either a dashboard or insight refresh
-         */
-        updateInsightResults: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
+        refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             const dashboardId: number = props.id
 
             const insightsToRefresh = (tiles || values.insightTiles || [])
@@ -1042,10 +1047,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 try {
                     breakpoint()
                     if (queryId) {
-                        const statusResponse = await pollForResults(queryId, false, methodOptions)
-                        // retain existing metadata but update result
-                        const updatedInsight = { ...insight, result: statusResponse.results?.results }
-                        dashboardsModel.actions.updateDashboardInsight(updatedInsight)
+                        await pollForResults(queryId, false, methodOptions)
+                        const currentTeamId = values.currentTeamId
+                        // TODO: Check and remove - We get the insight again here to get everything in the right format (e.g. because of result vs results)
+                        const polledInsight = await getSingleInsight(
+                            currentTeamId,
+                            insight,
+                            dashboardId,
+                            queryId,
+                            'force_cache',
+                            methodOptions,
+                            action === 'preview' ? values.temporaryFilters : undefined
+                        )
+
+                        if (action === 'preview' && polledInsight.dashboard_tiles) {
+                            // if we're previewing, only update the insight on this dashboard
+                            polledInsight.dashboards = [dashboardId]
+                        }
+                        dashboardsModel.actions.updateDashboardInsight(polledInsight)
                         actions.setRefreshStatus(insight.short_id)
                     }
                 } catch (e: any) {
@@ -1148,7 +1167,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const initialLoad = action === 'initial_load'
             const allLoaded = false // TODO: Check this
 
-            actions.updateInsightResults({ action: 'refresh', initialLoad, dashboardQueryId })
+            actions.refreshAllDashboardItems({ action, initialLoad, dashboardQueryId })
 
             const payload: TimeToSeeDataPayload = {
                 type: 'dashboard_load',
@@ -1230,10 +1249,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setProperties(values.dashboard?.filters.properties ?? null)
         },
         setProperties: () => {
-            actions.loadDashboard({ action: 'update', preview: true })
+            actions.loadDashboard({ action: 'preview' })
         },
         setDates: () => {
-            actions.loadDashboard({ action: 'update', preview: true })
+            actions.loadDashboard({ action: 'preview' })
         },
     })),
 

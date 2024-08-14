@@ -140,7 +140,9 @@ def calculate_for_query_based_insight(
     response = process_response = process_query_dict(
         insight.team,
         insight.query,
-        dashboard_filters_json=filters_override or dashboard.filters if dashboard is not None else None,
+        dashboard_filters_json=(
+            filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
+        ),
         execution_mode=execution_mode,
         user=user,
         insight_id=insight.pk,
