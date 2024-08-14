@@ -668,7 +668,7 @@ class _Printer(Visitor):
 
             if isinstance(node.right, ast.Constant):
                 if node.right.value == "":
-                    raise NotImplementedError
+                    return f"and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(node.right)}))"
                 else:
                     return f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
