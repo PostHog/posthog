@@ -667,6 +667,7 @@ class _Printer(Visitor):
                 return
 
             if isinstance(node.right, ast.Constant):
+                # TODO: what if the RHS is NULL?
                 if node.right.value == "":
                     return f"and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(node.right)}))"
                 else:
