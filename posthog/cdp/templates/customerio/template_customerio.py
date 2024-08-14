@@ -27,8 +27,7 @@ if (action == 'automatic') {
     }
 }
 
-let attributes := inputs.include_all_properties ? event.properties : {}
-
+let attributes := inputs.include_all_properties ? action == 'identify' ? person.properties : event.properties : {}
 let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 
 for (let key, value in inputs.attributes) {
