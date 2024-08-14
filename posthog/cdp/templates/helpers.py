@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, Optional, cast
 from unittest.mock import MagicMock
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.cdp.validation import compile_hog
@@ -62,19 +62,26 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
         return data
 
-    def run_function(self, inputs: dict, globals=None):
+    def run_function(self, inputs: dict, globals=None, functions: Optional[dict] = None):
+        self.mock_fetch.reset_mock()
+        self.mock_print.reset_mock()
         # Create the globals object
         globals = self.createHogGlobals(globals)
         globals["inputs"] = inputs
 
         # Run the function
 
+        final_functions: dict = {
+            "fetch": self.mock_fetch,
+            "print": self.mock_print,
+            "postHogCapture": self.mock_posthog_capture,
+        }
+
+        if functions:
+            final_functions.update(functions)
+
         return execute_bytecode(
             self.compiled_hog,
             globals,
-            functions={
-                "fetch": self.mock_fetch,
-                "print": self.mock_print,
-                "postHogCapture": self.mock_posthog_capture,
-            },
+            functions=final_functions,
         )

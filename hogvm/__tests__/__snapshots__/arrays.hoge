@@ -21,4 +21,7 @@
 36, 2, 2, "arrayPushFront", 2, 35, 36, 2, 2, "print", 1, 35, 36, 2, 2, "arrayPopBack", 1, 35, 36, 2, 2, "print", 1, 35,
 36, 2, 2, "arrayPopFront", 1, 35, 36, 2, 2, "print", 1, 35, 36, 2, 2, "arraySort", 1, 35, 36, 2, 2, "print", 1, 35, 36,
 2, 2, "arrayReverse", 1, 35, 36, 2, 2, "print", 1, 35, 36, 2, 2, "arrayReverseSort", 1, 35, 36, 2, 2, "print", 1, 35,
-35, 35, 35]
+32, "------", 2, "print", 1, 35, 33, 0, 36, 2, 2, "has", 2, 2, "print", 1, 35, 33, 2, 36, 2, 2, "has", 2, 2, "print", 1,
+35, 32, "banana", 36, 2, 2, "has", 2, 2, "print", 1, 35, 32, "banana", 32, "banananas", 2, "has", 2, 2, "print", 1, 35,
+32, "foo", 32, "banananas", 2, "has", 2, 2, "print", 1, 35, 32, "1", 32, "1", 32, "2", 43, 2, 2, "has", 2, 2, "print",
+1, 35, 35, 35, 35]

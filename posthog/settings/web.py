@@ -380,3 +380,6 @@ PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
+
+# disables frontend side navigation hooks to make hot-reload work seamlessly
+DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)

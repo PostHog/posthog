@@ -5,6 +5,7 @@ import time
 from typing import Optional
 from unittest.mock import patch
 
+from django.http import HttpRequest
 import pytest
 from django.conf import settings
 from django.core.cache import cache
@@ -16,9 +17,10 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog import redis
-from posthog.api.decide import label_for_team_id_to_track
+from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.database_healthcheck import postgres_healthcheck
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import (
     FeatureFlag,
     GroupTypeMapping,
@@ -5267,3 +5269,31 @@ class TestDecideMetricLabel(TestCase):
             self.assertEqual(label_for_team_id_to_track(20), "20")
             self.assertEqual(label_for_team_id_to_track(25), "unknown")
             self.assertEqual(label_for_team_id_to_track(31), "31")
+
+
+class TestDecideExceptions(TestCase):
+    @patch("posthog.api.decide.capture_exception")
+    @patch("posthog.api.decide.load_data_from_request")
+    def test_unspecified_compression_fallback_parsing_error(self, mock_load_data, mock_capture_exception):
+        mock_load_data.side_effect = UnspecifiedCompressionFallbackParsingError("Test error")
+
+        request = HttpRequest()
+        request.method = "POST"
+
+        response = get_decide(request)
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthog.api.decide.capture_exception")
+    @patch("posthog.api.decide.load_data_from_request")
+    def test_request_parsing_error(self, mock_load_data, mock_capture_exception):
+        mock_load_data.side_effect = RequestParsingError("Test error")
+
+        request = HttpRequest()
+        request.method = "POST"
+
+        response = get_decide(request)
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture_exception.assert_called_once()

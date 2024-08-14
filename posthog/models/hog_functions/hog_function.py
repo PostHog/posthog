@@ -16,11 +16,8 @@ from posthog.plugins.plugin_server_api import (
     reload_hog_functions_on_workers,
 )
 
-DEFAULT_STATE = {
-    "state": 0,
-    "ratings": [],
-    "states": [],
-}
+DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
+
 
 logger = structlog.get_logger(__name__)
 
@@ -28,7 +25,7 @@ logger = structlog.get_logger(__name__)
 class HogFunctionState(enum.Enum):
     UNKNOWN = 0
     HEALTHY = 1
-    OVERFLOWED = 2
+    DEGRADED = 2
     DISABLED_TEMPORARILY = 3
     DISABLED_PERMANENTLY = 4
 

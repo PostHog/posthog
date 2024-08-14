@@ -9,7 +9,6 @@ import {
     LemonSwitch,
     LemonTextArea,
     Link,
-    Spinner,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -156,6 +155,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
+                {hogFunction?.filters?.bytecode_error ? (
+                    <div>
+                        <LemonBanner type="error">
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                        </LemonBanner>
+                    </div>
+                ) : null}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
@@ -249,7 +256,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filters by events and actions">
+                                <LemonField name="filters" label="Filters by events and actions" className="gap-2">
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch
@@ -299,9 +306,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                     This destination will be triggered if <b>any of</b> the above filters match.
                                 </p>
                             </div>
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
+                            <div className="relative border bg-bg-light rounded p-3 space-y-2">
                                 <LemonLabel>Expected volume</LemonLabel>
-                                {sparkline ? (
+                                {sparkline && !sparklineLoading ? (
                                     <>
                                         {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
                                             <LemonBanner type="warning">
@@ -321,21 +328,20 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 in the last 7 days.
                                             </p>
                                         )}
-                                        <div className="relative">
-                                            {sparklineLoading ? <Spinner className="absolute bottom-0 left-0" /> : null}
-                                            <Sparkline
-                                                type="bar"
-                                                className="w-full"
-                                                data={[{ name: 'Matching events', values: sparkline.data }]}
-                                                labels={sparkline.labels}
-                                            />
-                                        </div>
+                                        <Sparkline
+                                            type="bar"
+                                            className="w-full h-20"
+                                            data={sparkline.data}
+                                            labels={sparkline.labels}
+                                        />
                                     </>
                                 ) : sparklineLoading ? (
-                                    <div>
-                                        <Spinner />
+                                    <div className="min-h-20">
+                                        <SpinnerOverlay />
                                     </div>
-                                ) : null}
+                                ) : (
+                                    <p>The expected volume could not be calculated</p>
+                                )}
                             </div>
                         </div>
 

@@ -77,7 +77,7 @@ export function LemonInputSelect({
 
         // We show the input value if custom values are allowed and it's not in the list
         if (allowCustomValues && inputValue && !values.includes(inputValue)) {
-            customValues.unshift(inputValue.replace('\\,', ',')) // Transform escaped commas to plain commas
+            res.push({ key: inputValue.replace('\\,', ','), label: inputValue.replace('\\,', ',') }) // Transform escaped commas to plain commas
         }
 
         options.forEach((option) => {
@@ -94,13 +94,14 @@ export function LemonInputSelect({
             res.push(option)
         })
 
-        // Custom values are always shown before the list
+        // Custom values are now added after the input value but before other options
         if (customValues.length) {
             customValues.forEach((value) => {
-                res.unshift({ key: value, label: value })
+                if (value !== inputValue) {
+                    res.splice(1, 0, { key: value, label: value })
+                }
             })
         }
-
         // :HACKY: This is a quick fix to make the select dropdown work for large values,
         // as it was getting slow when we'd load more than ~10k entries. Ideally we'd
         // make this a virtualized list.
@@ -251,7 +252,7 @@ export function LemonInputSelect({
                                 key={value}
                                 title={
                                     <>
-                                        <KeyboardShortcut option /> + click to edit
+                                        <KeyboardShortcut option /> + click to edit, click to remove
                                     </>
                                 }
                             >
