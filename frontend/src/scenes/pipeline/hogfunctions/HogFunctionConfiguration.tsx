@@ -17,6 +17,7 @@ import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -28,7 +29,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { AvailableFeature, EntityTypes } from '~/types'
+import { AnyPropertyFilter, AvailableFeature, EntityTypes } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
@@ -257,15 +258,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField
-                                    name="filters"
-                                    label="Filters"
-                                    help={
-                                        <>
-                                            This destination will be triggered if <b>any of</b> the above filters match.
-                                        </>
-                                    }
-                                >
+                                <LemonField name="filters" label="Filters">
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch
@@ -273,13 +266,36 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
                                                 fullWidth
                                             />
+                                            <PropertyFilters
+                                                propertyFilters={value.properties ?? []}
+                                                taxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.EventProperties,
+                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                                    TaxonomicFilterGroupType.Elements,
+                                                    TaxonomicFilterGroupType.HogQLExpression,
+                                                ]}
+                                                onChange={(value: AnyPropertyFilter[]) => {
+                                                    onChange({
+                                                        ...value,
+                                                        properties: value,
+                                                    })
+                                                }}
+                                                pageKey={`HogFunctionPropertyFilters.${id}`}
+                                            />
+
+                                            <LemonLabel>Match event and actions</LemonLabel>
+                                            <p className="mb-0 text-muted-alt text-xs">
+                                                If set, the destination will only run if the <b>event matches any</b> of
+                                                the below.
+                                            </p>
                                             <ActionFilter
                                                 bordered
                                                 filters={value ?? {}}
                                                 setFilters={(payload) => {
                                                     onChange({
+                                                        ...value,
                                                         ...payload,
-                                                        filter_test_accounts: value?.filter_test_accounts,
                                                     })
                                                 }}
                                                 typeKey="plugin-filters"
@@ -305,7 +321,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                     name: '$pageview',
                                                     type: EntityTypes.EVENTS,
                                                 }}
-                                                buttonCopy="Add event filter"
+                                                buttonCopy="Add event matcher"
                                             />
                                         </>
                                     )}
