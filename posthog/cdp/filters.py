@@ -14,6 +14,8 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     all_filters = filters.get("events", []) + filters.get("actions", [])
     all_filters_exprs: list[ast.Expr] = []
 
+    # TODO: Add support for filter.properties
+
     if not all_filters and test_account_filters_exprs:
         # Always return test filters if set and no other filters
         return ast.And(exprs=test_account_filters_exprs)
