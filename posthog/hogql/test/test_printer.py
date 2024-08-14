@@ -391,10 +391,16 @@ class TestPrinter(BaseTest):
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
             ),
-            # NOTE: We'll want to actually support this type of expression at some point, but for right now we only want
-            # to optimize comparisons to constant values.
+            # NOTE: We'll want to actually support this type of expression where the right hand side is trivially
+            # resolved to a constant value at some point, but for right now we only want to optimize comparisons to
+            # constant values directly for simplicity.
             PropertyGroupComparisonTestCase(
-                "equals(properties.key, lower('value'))",
+                "properties.key = lower('value')",
+                None,
+            ),
+            # Comparisons to non-constant values can't utilize the data skipping indexes anyway, so leave them alone.
+            PropertyGroupComparisonTestCase(
+                "properties.key1 = properties.key2",
                 None,
             ),
             # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we
@@ -480,6 +486,24 @@ class TestPrinter(BaseTest):
                 "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
                 {"hogql_val_0": "key", "hogql_val_1": ""},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            ),
+            # Leave NULL values alone when used with the ``IN`` operator as their expected behavior is not clear.
+            PropertyGroupComparisonTestCase(
+                "properties.key in NULL",
+                None,
+            ),
+            PropertyGroupComparisonTestCase(
+                "properties.key in (NULL)",
+                None,
+            ),
+            # Only direct constant comparison is supported for now -- see above.
+            PropertyGroupComparisonTestCase(
+                "properties.key in lower('value')",
+                None,
+            ),
+            PropertyGroupComparisonTestCase(
+                "properties.key in (lower('a'), lower('b'))",
+                None,
             ),
         ]
 
