@@ -34,9 +34,9 @@ import { insightsApi, InsightsApiOptions } from './utils/api'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 export const createEmptyInsight = (
-    insightId: InsightShortId | `new-${string}` | 'new'
+    shortId: InsightShortId | `new-${string}` | 'new'
 ): Partial<QueryBasedInsightModel> => ({
-    short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
+    short_id: shortId !== 'new' && !shortId.startsWith('new-') ? (shortId as InsightShortId) : undefined,
     name: '',
     description: '',
     tags: [],
