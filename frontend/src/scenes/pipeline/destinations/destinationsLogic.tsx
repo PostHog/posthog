@@ -4,6 +4,8 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
@@ -58,6 +60,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             ['user', 'hasAvailableFeature'],
             pipelineAccessLogic,
             ['canEnableDestination'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     }),
     actions({
@@ -242,11 +246,14 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionsLoading,
         ],
         destinations: [
-            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user],
-            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user): Destination[] => {
+            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user, s.featureFlags],
+            (pluginConfigs, plugins, batchExportConfigs, hogFunctions, user, featureFlags): Destination[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
-                const rawBatchExports = Object.values(batchExportConfigs).filter(
-                    (config) => config.destination.type !== 'HTTP' || user?.is_impersonated
+                const httpEnabled =
+                    featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
+
+                const rawBatchExports = Object.values(batchExportConfigs).filter((config) =>
+                    httpEnabled ? true : config.destination.type !== ('HTTP' as const)
                 )
 
                 const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =

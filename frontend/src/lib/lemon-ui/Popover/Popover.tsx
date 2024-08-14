@@ -47,9 +47,7 @@ export interface PopoverProps {
     /** Whether default box padding should be applies. @default true */
     padded?: boolean
     middleware?: Middleware[]
-    /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers.
-     * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
-     * **/
+    /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers. */
     additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
     referenceRef?: UseFloatingReturn['refs']['reference']
     floatingRef?: UseFloatingReturn['refs']['floating']
