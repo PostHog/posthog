@@ -18,7 +18,7 @@ import { convertToHogFunctionFilterGlobal } from './utils'
 const MAX_ASYNC_STEPS = 2
 const MAX_HOG_LOGS = 10
 const MAX_LOG_LENGTH = 10000
-const DEFAULT_TIMEOUT_MS = 100
+export const DEFAULT_TIMEOUT_MS = 100
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
