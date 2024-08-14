@@ -28,6 +28,7 @@ export function DashboardItems(): JSX.Element {
         refreshStatus,
         canEditDashboard,
         stale,
+        itemsLoading,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -148,6 +149,7 @@ export function DashboardItems(): JSX.Element {
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
                                     refresh={() => refreshDashboardItem({ tile })}
+                                    refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
                                     showDetailsControls={placement != DashboardPlacement.Export}
