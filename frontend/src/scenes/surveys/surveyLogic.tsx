@@ -11,9 +11,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import {
+    BaseMathType,
     Breadcrumb,
     FeatureFlagFilters,
     MultipleSurveyQuestion,
@@ -38,7 +39,7 @@ export enum SurveyEditSection {
     Presentation = 'presentation',
     Appearance = 'appearance',
     Customization = 'customization',
-    Targeting = 'targeting',
+    DisplayConditions = 'DisplayConditions',
     Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
 }
@@ -613,7 +614,7 @@ export const surveyLogic = kea<surveyLogicType>([
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
             if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
-                actions.setSelectedSection(SurveyEditSection.Targeting)
+                actions.setSelectedSection(SurveyEditSection.DisplayConditions)
             } else {
                 actions.setSelectedSection(SurveyEditSection.Steps)
             }
@@ -1115,6 +1116,47 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey) =>
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
+        surveyAsInsightURL: [
+            (s) => [s.survey],
+            (survey) => {
+                const query: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        properties: [
+                            {
+                                key: '$survey_id',
+                                value: survey.id,
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey sent',
+                                name: 'survey sent',
+                                math: BaseMathType.TotalCount,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey shown',
+                                name: 'survey shown',
+                                math: BaseMathType.TotalCount,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'survey dismissed',
+                                name: 'survey dismissed',
+                                math: BaseMathType.TotalCount,
+                            },
+                        ],
+                    },
+                }
+
+                return urls.insightNew(undefined, undefined, query)
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {
@@ -1123,15 +1165,33 @@ export const surveyLogic = kea<surveyLogicType>([
                 // NOTE: When more validation errors are added, the submitSurveyFailure listener should be updated
                 // to scroll to the right error section
                 name: !name && 'Please enter a name.',
-                questions: questions.map((question) => ({
-                    question: !question.question && 'Please enter a question.',
-                    ...(question.type === SurveyQuestionType.Rating
-                        ? {
-                              display: !question.display && 'Please choose a display type.',
-                              scale: !question.scale && 'Please choose a scale.',
-                          }
-                        : {}),
-                })),
+                questions: questions.map((question) => {
+                    const questionErrors = {
+                        question: !question.question && 'Please enter a question label.',
+                    }
+
+                    if (question.type === SurveyQuestionType.Rating) {
+                        return {
+                            ...questionErrors,
+                            display: !question.display && 'Please choose a display type.',
+                            scale: !question.scale && 'Please choose a scale.',
+                            lowerBoundLabel: !question.lowerBoundLabel && 'Please enter a lower bound label.',
+                            upperBoundLabel: !question.upperBoundLabel && 'Please enter an upper bound label.',
+                        }
+                    } else if (
+                        question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice
+                    ) {
+                        return {
+                            ...questionErrors,
+                            choices: question.choices.some((choice) => !choice.trim())
+                                ? 'Please ensure all choices are non-empty.'
+                                : undefined,
+                        }
+                    }
+
+                    return questionErrors
+                }),
                 // release conditions controlled using a PureField in the form
                 targeting_flag_filters: values.flagPropertyErrors,
                 // controlled using a PureField in the form

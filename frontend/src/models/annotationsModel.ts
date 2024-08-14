@@ -105,7 +105,7 @@ export const annotationsModel = kea<annotationsModelType>([
     selectors({
         annotations: [
             (s) => [s.rawAnnotations, s.timezone],
-            (rawAnnotations, timezone) => {
+            (rawAnnotations, timezone): AnnotationType[] => {
                 return rawAnnotations.map((annotation): AnnotationType => deserializeAnnotation(annotation, timezone))
             },
         ],

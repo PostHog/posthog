@@ -83,7 +83,8 @@ def get_bigquery_fields_from_record_schema(
         elif pa.types.is_binary(pa_field.type):
             bq_type = "BYTES"
 
-        elif pa.types.is_signed_integer(pa_field.type):
+        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
+            # The latter comparison is hoping we don't overflow, but BigQuery doesn't have an uint64 type.
             bq_type = "INT64"
 
         elif pa.types.is_floating(pa_field.type):
@@ -199,14 +200,15 @@ class BigQueryClient(bigquery.Client):
             if delete is True:
                 await self.adelete_table(project_id, dataset_id, table_id, table_schema, not_found_ok)
 
-    async def amerge_identical_tables(
+    async def amerge_person_tables(
         self,
         final_table: bigquery.Table,
         stage_table: bigquery.Table,
         merge_key: collections.abc.Iterable[bigquery.SchemaField],
-        version_key: str = "version",
+        person_version_key: str = "person_version",
+        person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
-        """Merge two identical tables in BigQuery."""
+        """Merge two identical person model tables in BigQuery."""
         job_config = bigquery.QueryJobConfig()
 
         merge_condition = "ON "
@@ -234,7 +236,7 @@ class BigQueryClient(bigquery.Client):
         USING `{stage_table.full_table_id.replace(":", ".", 1)}` stage
         {merge_condition}
 
-        WHEN MATCHED AND stage.{version_key} > final.{version_key} THEN
+        WHEN MATCHED AND (stage.`{person_version_key}` > final.`{person_version_key}` OR stage.`{person_distinct_id_version_key}` > final.`{person_distinct_id_version_key}`) THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED BY TARGET THEN
@@ -403,7 +405,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stage_table_name = f"stage_{inputs.table_id}" if requires_merge else inputs.table_id
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}" if requires_merge else inputs.table_id
 
         with bigquery_client(inputs) as bq_client:
             async with (
@@ -426,11 +429,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
                 async def flush_to_bigquery(
                     local_results_file,
-                    records_since_last_flush,
-                    bytes_since_last_flush,
+                    records_since_last_flush: int,
+                    bytes_since_last_flush: int,
                     flush_counter: int,
                     last_inserted_at,
-                    last,
+                    last: bool,
+                    error: Exception | None,
                 ):
                     logger.debug(
                         "Loading %s records of size %s bytes",
@@ -473,7 +477,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         bigquery.SchemaField("team_id", "INT64"),
                         bigquery.SchemaField("distinct_id", "STRING"),
                     )
-                    await bq_client.amerge_identical_tables(
+                    await bq_client.amerge_person_tables(
                         final_table=bigquery_table,
                         stage_table=bigquery_stage_table,
                         merge_key=merge_key,
@@ -504,7 +508,7 @@ def get_batch_export_writer(
     return writer
 
 
-@workflow.defn(name="bigquery-export")
+@workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
 class BigQueryBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into BigQuery.
 

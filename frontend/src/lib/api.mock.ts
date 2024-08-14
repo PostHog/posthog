@@ -105,6 +105,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     metadata: {},
     available_product_features: [],
     member_count: 2,
+    logo_media_id: null,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -139,6 +140,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         name,
         slug,
         membership_level,
+        logo_media_id: null,
     })),
     events_column_config: {
         active: 'DEFAULT',

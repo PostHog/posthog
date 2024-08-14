@@ -29,9 +29,6 @@ class Insight(models.Model):
     reports or part of a dashboard.
     """
 
-    objects = InsightManager()
-    objects_including_soft_deleted = models.Manager()
-
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -98,6 +95,13 @@ class Insight(models.Model):
 
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
+    objects = InsightManager()
+    objects_including_soft_deleted: models.Manager["Insight"] = models.Manager()
+
+    class Meta:
+        db_table = "posthog_dashboarditem"
+        unique_together = ("team", "short_id")
+
     def __str__(self):
         return self.name or self.derived_name or self.short_id
 
@@ -123,10 +127,6 @@ class Insight(models.Model):
             return {"kind": "InsightVizNode", "source": filter_to_query(self.filters).model_dump(), "full": True}
         except Exception as e:
             capture_exception(e)
-
-    class Meta:
-        db_table = "posthog_dashboarditem"
-        unique_together = ("team", "short_id")
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
         # query date range is set in a different function, see dashboard_query
@@ -162,7 +162,9 @@ class Insight(models.Model):
                             {"type": "AND", "values": dashboard_properties},
                         ],
                     }
-                elif self.filters.get("properties", {}).get("type"):
+                elif not self.filters.get("properties"):
+                    filters["properties"] = dashboard_properties
+                elif self.filters.get("properties").get("type"):
                     filters["properties"] = {
                         "type": "AND",
                         "values": [
@@ -170,8 +172,6 @@ class Insight(models.Model):
                             {"type": "AND", "values": dashboard_properties},
                         ],
                     }
-                elif not self.filters.get("properties"):
-                    filters["properties"] = dashboard_properties
                 else:
                     raise ValidationError("Unrecognized property format: ", self.filters["properties"])
             elif self.filters.get("properties"):

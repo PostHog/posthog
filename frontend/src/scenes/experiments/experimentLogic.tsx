@@ -581,6 +581,10 @@ export const experimentLogic = kea<experimentLogicType>([
             if (values.changingSecondaryMetrics) {
                 actions.loadSecondaryMetricResults()
             }
+
+            if (values.experiment?.start_date) {
+                actions.loadExperimentResults()
+            }
         },
         setExperiment: async ({ experiment }) => {
             const experimentEntitiesChanged =
@@ -856,7 +860,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
                 },
         ],
-        // TODO: unify naming (Minimum detectable change/Minimum detectable effect/Minimum acceptable improvement)
         minimumDetectableEffect: [
             (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
             (newExperiment, experimentInsightType, conversionMetrics, trendResults): number => {
@@ -1048,20 +1051,21 @@ export const experimentLogic = kea<experimentLogicType>([
         conversionRateForVariant: [
             () => [],
             () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): string => {
-                    const errorResult = '--'
+                (experimentResults: Partial<ExperimentResults['result']> | null, variantKey: string): number | null => {
                     if (!experimentResults || !experimentResults.insight) {
-                        return errorResult
+                        return null
                     }
                     const variantResults = (experimentResults.insight as FunnelStep[][]).find(
-                        (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                        (variantFunnel: FunnelStep[]) => {
+                            const breakdownValue = variantFunnel[0]?.breakdown_value
+                            return Array.isArray(breakdownValue) && breakdownValue[0] === variantKey
+                        }
                     )
+
                     if (!variantResults) {
-                        return errorResult
+                        return null
                     }
-                    return ((variantResults[variantResults.length - 1].count / variantResults[0].count) * 100).toFixed(
-                        1
-                    )
+                    return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
                 },
         ],
         getIndexForVariant: [
@@ -1282,7 +1286,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (
                 experimentResults,
                 conversionRateForVariant
-            ): { key: string; winProbability: number; conversionRate: number }[] => {
+            ): { key: string; winProbability: number; conversionRate: number | null }[] => {
                 if (!experimentResults) {
                     return []
                 }
@@ -1291,7 +1295,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     .map((key) => ({
                         key,
                         winProbability: experimentResults.probability[key],
-                        conversionRate: parseFloat(conversionRateForVariant(experimentResults, key)),
+                        conversionRate: conversionRateForVariant(experimentResults, key),
                     }))
                     .sort((a, b) => b.winProbability - a.winProbability)
             },

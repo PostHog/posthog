@@ -90,13 +90,13 @@ multiIf(
     ),
     coalesce(
         hogql_lookupPaidSourceType({source}),
-        hogql_lookupPaidDomainType({referring_domain}),
         if(
             match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
             NULL
         ),
         hogql_lookupPaidMediumType({medium}),
+        hogql_lookupPaidSourceType({referring_domain}),
         multiIf (
             {gad_source} = '1',
             'Paid Search',
@@ -111,25 +111,31 @@ multiIf(
     (
         {referring_domain} = '$direct'
         AND ({medium} IS NULL)
-        AND ({source} IS NULL OR {source} IN ('(direct)', 'direct'))
+        AND ({source} IS NULL OR {source} IN ('(direct)', 'direct', '$direct'))
     ),
     'Direct',
 
     coalesce(
         hogql_lookupOrganicSourceType({source}),
-        hogql_lookupOrganicDomainType({referring_domain}),
         if(
             match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
             NULL
         ),
         hogql_lookupOrganicMediumType({medium}),
+        hogql_lookupOrganicSourceType({referring_domain}),
         multiIf(
             match({campaign}, '^(.*video.*)$'),
             'Organic Video',
 
             match({medium}, 'push$'),
             'Push',
+
+            {referring_domain} == '$direct',
+            'Direct',
+
+            {referring_domain} IS NOT NULL,
+            'Referral',
 
             'Unknown'
         )
@@ -150,11 +156,13 @@ multiIf(
 POSSIBLE_CHANNEL_TYPES = [
     "Cross Network",
     "Paid Search",
+    "Paid Social",
     "Paid Video",
     "Paid Shopping",
     "Paid Unknown",
     "Direct",
     "Organic Search",
+    "Organic Social",
     "Organic Video",
     "Organic Shopping",
     "Push",

@@ -6,6 +6,7 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
+    LemonSelect,
     LemonSwitch,
     LemonTextArea,
     Link,
@@ -15,6 +16,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -25,13 +28,15 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes } from '~/types'
+import { AvailableFeature, EntityTypes } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
+
+const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
 export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
     const logicProps = { templateId, id }
@@ -45,6 +50,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         loaded,
         hogFunction,
         willReEnableOnSave,
+        exampleInvocationGlobalsWithInputs,
+        showPaygate,
+        hasAddon,
+        sparkline,
+        sparklineLoading,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -125,6 +135,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         </>
     )
 
+    if (showPaygate) {
+        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+    }
+
     return (
         <div className="space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
@@ -142,6 +156,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
+                {hogFunction?.filters?.bytecode_error ? (
+                    <div>
+                        <LemonBanner type="error">
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                        </LemonBanner>
+                    </div>
+                ) : null}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
@@ -156,7 +178,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         {({ value, onChange }) => (
                                             <HogFunctionIconEditable
                                                 logicKey={id ?? templateId ?? 'new'}
-                                                search={configuration.name}
                                                 src={value}
                                                 onChange={(val) => onChange(val)}
                                             />
@@ -236,7 +257,15 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filters by events and actions">
+                                <LemonField
+                                    name="filters"
+                                    label="Filters"
+                                    help={
+                                        <>
+                                            This destination will be triggered if <b>any of</b> the above filters match.
+                                        </>
+                                    }
+                                >
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch
@@ -282,9 +311,150 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                     )}
                                 </LemonField>
 
-                                <p className="italic text-muted-alt">
-                                    This destination will be triggered if <b>any of</b> the above filters match.
-                                </p>
+                                <LemonField name="masking" label="Trigger options">
+                                    {({ value, onChange }) => (
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                            <LemonSelect
+                                                options={[
+                                                    {
+                                                        value: null,
+                                                        label: 'Run every time',
+                                                    },
+                                                    {
+                                                        value: 'all',
+                                                        label: 'Run once per interval',
+                                                    },
+                                                    {
+                                                        value: '{person.uuid}',
+                                                        label: 'Run once per person per interval',
+                                                    },
+                                                ]}
+                                                value={value?.hash ?? null}
+                                                onChange={(val) =>
+                                                    onChange({
+                                                        hash: val,
+                                                        ttl: value?.ttl ?? 60 * 30,
+                                                    })
+                                                }
+                                            />
+                                            {configuration.masking?.hash ? (
+                                                <>
+                                                    <div className="flex items-center gap-1 flex-wrap">
+                                                        <span>of</span>
+                                                        <LemonSelect
+                                                            value={value?.ttl}
+                                                            onChange={(val) => onChange({ ...value, ttl: val })}
+                                                            options={[
+                                                                {
+                                                                    value: 5 * 60,
+                                                                    label: '5 minutes',
+                                                                },
+                                                                {
+                                                                    value: 15 * 60,
+                                                                    label: '15 minutes',
+                                                                },
+                                                                {
+                                                                    value: 30 * 60,
+                                                                    label: '30 minutes',
+                                                                },
+                                                                {
+                                                                    value: 60 * 60,
+                                                                    label: '1 hour',
+                                                                },
+                                                                {
+                                                                    value: 2 * 60 * 60,
+                                                                    label: '2 hours',
+                                                                },
+                                                                {
+                                                                    value: 4 * 60 * 60,
+                                                                    label: '4 hours',
+                                                                },
+                                                                {
+                                                                    value: 8 * 60 * 60,
+                                                                    label: '8 hours',
+                                                                },
+                                                                {
+                                                                    value: 12 * 60 * 60,
+                                                                    label: '12 hours',
+                                                                },
+                                                                {
+                                                                    value: 24 * 60 * 60,
+                                                                    label: '24 hours',
+                                                                },
+                                                            ]}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center gap-1 flex-wrap">
+                                                        <span>or until</span>
+                                                        <LemonSelect
+                                                            value={value?.threshold}
+                                                            onChange={(val) => onChange({ ...value, threshold: val })}
+                                                            options={[
+                                                                {
+                                                                    value: null,
+                                                                    label: 'Not set',
+                                                                },
+                                                                {
+                                                                    value: 1000,
+                                                                    label: '1000 events',
+                                                                },
+                                                                {
+                                                                    value: 10000,
+                                                                    label: '10,000 events',
+                                                                },
+                                                                {
+                                                                    value: 100000,
+                                                                    label: '100,000 events',
+                                                                },
+                                                                {
+                                                                    value: 1000000,
+                                                                    label: '1,000,000 events',
+                                                                },
+                                                            ]}
+                                                        />
+                                                    </div>
+                                                </>
+                                            ) : null}
+                                        </div>
+                                    )}
+                                </LemonField>
+                            </div>
+                            <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                <LemonLabel>Expected volume</LemonLabel>
+                                {sparkline && !sparklineLoading ? (
+                                    <>
+                                        {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                                            <LemonBanner type="warning">
+                                                <b>Warning:</b> This destination would have triggered{' '}
+                                                <strong>
+                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                </strong>{' '}
+                                                in the last 7 days. Consider the impact of this function on your
+                                                destination.
+                                            </LemonBanner>
+                                        ) : (
+                                            <p>
+                                                This destination would have triggered{' '}
+                                                <strong>
+                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                </strong>{' '}
+                                                in the last 7 days.
+                                            </p>
+                                        )}
+                                        <Sparkline
+                                            type="bar"
+                                            className="w-full h-20"
+                                            data={sparkline.data}
+                                            labels={sparkline.labels}
+                                        />
+                                    </>
+                                ) : sparklineLoading ? (
+                                    <div className="min-h-20">
+                                        <SpinnerOverlay />
+                                    </div>
+                                ) : (
+                                    <p>The expected volume could not be calculated</p>
+                                )}
                             </div>
                         </div>
 
@@ -333,6 +503,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                             language="hog"
                                                             value={value ?? ''}
                                                             onChange={(v) => onChange(v ?? '')}
+                                                            globals={exampleInvocationGlobalsWithInputs}
                                                             options={{
                                                                 minimap: {
                                                                     enabled: false,
@@ -357,6 +528,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 size="xsmall"
                                                 type="secondary"
                                                 onClick={() => setShowSource(true)}
+                                                disabledReason={
+                                                    !hasAddon
+                                                        ? 'Editing the source code requires the Data Pipelines addon'
+                                                        : undefined
+                                                }
                                             >
                                                 Show function source code
                                             </LemonButton>

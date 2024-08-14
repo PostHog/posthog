@@ -35,7 +35,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     return (
         <>
-            <div className="flex flex-col">
+            <div className="flex flex-col font-semibold">
                 {!surveysStylingAvailable && (
                     <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
                         <></>
@@ -66,7 +66,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                     disabledReason={
                                         surveysStylingAvailable
                                             ? null
-                                            : 'Subscribe to surveys to customize survey position.'
+                                            : 'Upgrade your plan to customize survey position.'
                                     }
                                 >
                                     {position}
@@ -99,9 +99,15 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
                     disabled={!surveysStylingAvailable}
                 />
+                <div className="mt-2">Button text color</div>
+                <LemonInput
+                    value={appearance?.submitButtonTextColor}
+                    onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
+                    disabled={!surveysStylingAvailable}
+                />
                 {surveyQuestionItem.type === SurveyQuestionType.Open && (
                     <>
-                        <div className="mt-2">Placeholder</div>
+                        <div className="mt-2">Placeholder text</div>
                         <LemonInput
                             value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
                             onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
@@ -109,7 +115,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         />
                     </>
                 )}
-                <div className="mt-2">
+                <div className="mt-4">
                     <LemonCheckbox
                         label={
                             <div className="flex items-center">

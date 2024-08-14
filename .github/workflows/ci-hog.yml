@@ -22,8 +22,7 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
-        name: Determine need to run hog checks
+        name: Determine need to run Hog checks
         # Set job outputs to values from filter step
         outputs:
             hog: ${{ steps.filter.outputs.hog }}

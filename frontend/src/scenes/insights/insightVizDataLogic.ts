@@ -1,6 +1,9 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
+import {
+    DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
+    DISPLAY_TYPES_WITHOUT_LEGEND,
+} from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -179,7 +182,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
             (series, breakdownFilter, properties) => {
-                const using_session_breakdown = breakdownFilter?.breakdown_type === 'session'
+                const using_session_breakdown =
+                    breakdownFilter?.breakdown_type === 'session' ||
+                    breakdownFilter?.breakdowns?.find((breakdown) => breakdown.type === 'session')
                 const using_session_math = series?.some((entity) => entity.math === 'unique_session')
                 const using_session_property_math = series?.some((entity) => {
                     // Should be made more generic is we ever add more session properties
@@ -271,6 +276,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (isTrends, isStickiness, isLifecycle, display) =>
                 (isTrends || isStickiness || isLifecycle) &&
                 !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
+        ],
+
+        hasDetailedResultsTable: [
+            (s) => [s.isTrends, s.display],
+            (isTrends, display) => isTrends && !(display && DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(display)),
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
@@ -598,6 +608,11 @@ const handleQuerySourceUpdateSideEffects = (
         mergedUpdate['properties'] = []
     }
 
+    // Remove breakdown filter if display type is BoldNumber because it is not supported
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        mergedUpdate['breakdownFilter'] = null
+    }
+
     // Don't allow minutes on anything other than Trends
     if (
         currentState.kind == NodeKind.TrendsQuery &&
@@ -637,7 +652,7 @@ const handleQuerySourceUpdateSideEffects = (
             (mergedUpdate as TrendsQuery).interval !== interval
         ) {
             ;(mergedUpdate as TrendsQuery).trendsFilter = {
-                ...(mergedUpdate as TrendsQuery).trendsFilter,
+                ...(currentState as TrendsQuery).trendsFilter,
                 smoothingIntervals: undefined,
             }
         }

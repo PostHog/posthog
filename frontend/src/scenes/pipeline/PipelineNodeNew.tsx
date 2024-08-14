@@ -1,28 +1,28 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { useEffect } from 'react'
+import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, BatchExportService, HogFunctionTemplateType, PipelineStage, PluginType } from '~/types'
+import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { DestinationOptionsTable } from './destinations/NewDestinations'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { HogFunctionConfiguration } from './hogfunctions/HogFunctionConfiguration'
-import { HogFunctionIcon } from './hogfunctions/HogFunctionIcon'
 import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { PipelineBackend } from './types'
-import { getBatchExportUrl, RenderApp, RenderBatchExportIcon } from './utils'
+import { RenderApp } from './utils'
 
 const paramsToProps = ({
     params: { stage, id },
@@ -70,27 +70,6 @@ function convertPluginToTableEntry(plugin: PluginType): TableEntry {
     }
 }
 
-function convertBatchExportToTableEntry(service: BatchExportService['type']): TableEntry {
-    return {
-        backend: PipelineBackend.BatchExport,
-        id: service as string,
-        name: service,
-        description: `${service} batch export`,
-        icon: <RenderBatchExportIcon type={service} />,
-        url: getBatchExportUrl(service),
-    }
-}
-
-function convertHogFunctionToTableEntry(hogFunction: HogFunctionTemplateType): TableEntry {
-    return {
-        backend: PipelineBackend.HogFunction,
-        id: `hog-${hogFunction.id}`, // TODO: This weird identifier thing isn't great
-        name: hogFunction.name,
-        description: hogFunction.description,
-        icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
-    }
-}
-
 export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, pluginId, batchExportDestination, hogFunctionId } = paramsToProps({ params })
 
@@ -118,23 +97,17 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     }
 
     if (hogFunctionId) {
-        const res = <HogFunctionConfiguration templateId={hogFunctionId} />
-        if (stage === PipelineStage.Destination) {
-            return <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>{res}</PayGateMini>
-        }
-        return res
+        return <HogFunctionConfiguration templateId={hogFunctionId} />
     }
 
     if (stage === PipelineStage.Transformation) {
         return <TransformationOptionsTable />
     } else if (stage === PipelineStage.Destination) {
-        return (
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
-                <DestinationOptionsTable />
-            </PayGateMini>
-        )
+        return <DestinationOptionsTable />
     } else if (stage === PipelineStage.SiteApp) {
         return <SiteAppOptionsTable />
+    } else if (stage === PipelineStage.Source) {
+        return <NewSourceWizardScene />
     }
     return <NotFound object="pipeline new options" />
 }
@@ -143,19 +116,6 @@ function TransformationOptionsTable(): JSX.Element {
     const { plugins, loading } = useValues(pipelineTransformationsLogic)
     const targets = Object.values(plugins).map(convertPluginToTableEntry)
     return <NodeOptionsTable stage={PipelineStage.Transformation} targets={targets} loading={loading} />
-}
-
-function DestinationOptionsTable(): JSX.Element {
-    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { batchExportServiceNames } = useValues(pipelineNodeNewLogic)
-    const { plugins, loading, hogFunctionTemplates } = useValues(pipelineDestinationsLogic)
-    const pluginTargets = Object.values(plugins).map(convertPluginToTableEntry)
-    const batchExportTargets = Object.values(batchExportServiceNames).map(convertBatchExportToTableEntry)
-    const hogFunctionTargets = hogFunctionsEnabled
-        ? Object.values(hogFunctionTemplates).map(convertHogFunctionToTableEntry)
-        : []
-    const targets = [...hogFunctionTargets, ...batchExportTargets, ...pluginTargets]
-    return <NodeOptionsTable stage={PipelineStage.Destination} targets={targets} loading={loading} />
 }
 
 function SiteAppOptionsTable(): JSX.Element {
@@ -174,6 +134,12 @@ function NodeOptionsTable({
     loading: boolean
 }): JSX.Element {
     const { hashParams } = useValues(router)
+    const { loadPlugins } = useActions(pipelineNodeNewLogic)
+
+    useEffect(() => {
+        loadPlugins()
+    }, [])
+
     return (
         <>
             <LemonTable

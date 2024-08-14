@@ -607,3 +607,27 @@ class TestResolver(BaseTest):
         with self.assertRaises(QueryError) as ctx:
             node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
         self.assertEqual(str(ctx.exception), "Cannot resolve field: globalVar.nested")
+
+    def test_property_access_with_arrays_zero_index_error(self):
+        query = f"SELECT properties.something[0] FROM events"
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        with self.assertRaisesMessage(
+            QueryError,
+            "SQL indexes start from one, not from zero. E.g: array[1]",
+        ):
+            node: ast.SelectQuery = self._select(query)
+            resolve_types(node, context, dialect="clickhouse")
+
+    def test_property_access_with_tuples_zero_index_error(self):
+        query = f"SELECT properties.something.0 FROM events"
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        with self.assertRaisesMessage(
+            QueryError,
+            "SQL indexes start from one, not from zero. E.g: array.1",
+        ):
+            node: ast.SelectQuery = self._select(query)
+            resolve_types(node, context, dialect="clickhouse")

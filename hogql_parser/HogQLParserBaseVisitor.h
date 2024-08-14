@@ -43,6 +43,18 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitThrowStmt(HogQLParser::ThrowStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitCatchBlock(HogQLParser::CatchBlockContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTryCatchStmt(HogQLParser::TryCatchStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitIfStmt(HogQLParser::IfStmtContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -52,6 +64,10 @@ public:
   }
 
   virtual std::any visitForStmt(HogQLParser::ForStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitForInStmt(HogQLParser::ForInStmtContext *ctx) override {
     return visitChildren(ctx);
   }
 

@@ -1,58 +1,24 @@
-from typing import Optional, cast, Union
+from typing import Optional, Union, cast
+
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql_queries.insights.data_warehouse_mixin import (
+    DataWarehouseInsightQueryMixin,
+)
+from posthog.hogql_queries.insights.utils.aggregations import (
+    FirstTimeForUserEventsQueryAlternator,
+    QueryAlternator,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
-from posthog.schema import BaseMathType, ChartDisplayType, EventsNode, ActionsNode, DataWarehouseNode
-from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
-
-
-class QueryAlternator:
-    """Allows query_builder to modify the query without having to expost the whole AST interface"""
-
-    _query: ast.SelectQuery
-    _selects: list[ast.Expr]
-    _group_bys: list[ast.Expr]
-    _select_from: ast.JoinExpr | None
-
-    def __init__(self, query: ast.SelectQuery | ast.SelectUnionQuery):
-        assert isinstance(query, ast.SelectQuery)
-
-        self._query = query
-        self._selects = []
-        self._group_bys = []
-        self._select_from = None
-
-    def build(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        if len(self._selects) > 0:
-            self._query.select.extend(self._selects)
-
-        if len(self._group_bys) > 0:
-            if self._query.group_by is None:
-                self._query.group_by = self._group_bys
-            else:
-                self._query.group_by.extend(self._group_bys)
-
-        if self._select_from is not None:
-            self._query.select_from = self._select_from
-
-        return self._query
-
-    def append_select(self, expr: ast.Expr) -> None:
-        self._selects.append(expr)
-
-    def extend_select(self, exprs: list[ast.Expr]) -> None:
-        self._selects.extend(exprs)
-
-    def append_group_by(self, expr: ast.Expr) -> None:
-        self._group_bys.append(expr)
-
-    def extend_group_by(self, exprs: list[ast.Expr]) -> None:
-        self._group_bys.extend(exprs)
-
-    def replace_select_from(self, join_expr: ast.JoinExpr) -> None:
-        self._select_from = join_expr
+from posthog.schema import (
+    ActionsNode,
+    BaseMathType,
+    ChartDisplayType,
+    DataWarehouseNode,
+    EventsNode,
+)
 
 
 class AggregationOperations(DataWarehouseInsightQueryMixin):
@@ -79,15 +45,15 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
             return parse_expr(self.series.math_hogql)
-        elif self.series.math == "total":
+        elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")
         elif self.series.math == "dau":
             actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
             return parse_expr(f"count(DISTINCT {actor})")
         elif self.series.math == "weekly_active":
-            return ast.Placeholder(field="replaced")  # This gets replaced when doing query orchestration
+            return ast.Placeholder(chain=["replaced"])  # This gets replaced when doing query orchestration
         elif self.series.math == "monthly_active":
-            return ast.Placeholder(field="replaced")  # This gets replaced when doing query orchestration
+            return ast.Placeholder(chain=["replaced"])  # This gets replaced when doing query orchestration
         elif self.series.math == "unique_session":
             return parse_expr('count(DISTINCT e."$session_id")')
         elif self.series.math == "unique_group" and self.series.math_group_type_index is not None:
@@ -121,6 +87,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         math_to_return_true = [
             "weekly_active",
             "monthly_active",
+            "first_time_for_user",
         ]
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
@@ -141,6 +108,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def is_active_users_math(self):
         return self.series.math in ["weekly_active", "monthly_active"]
+
+    def is_first_time_ever_math(self):
+        return self.series.math == "first_time_for_user"
 
     def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
@@ -195,7 +165,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=0)]),
         }
 
-    def _parent_select_query(
+    @property
+    def _interval_function_name(self) -> str:
+        return f"toStartOf{self.query_date_range.interval_name.title()}"
+
+    def _actors_parent_select_query(
         self, inner_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.is_count_per_actor_variant():
@@ -211,9 +185,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         day_start = ast.Alias(
             alias="day_start",
-            expr=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
-            ),
+            expr=ast.Call(name=self._interval_function_name, args=[ast.Field(chain=["timestamp"])]),
         )
 
         query = cast(
@@ -242,7 +214,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _inner_select_query(
+    def _actors_inner_select_query(
         self, cross_join_select_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.is_count_per_actor_variant():
@@ -317,7 +289,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _events_query(
+    def _actors_events_query(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         date_from_with_lookback = "{date_from} - {inclusive_lookback}"
@@ -354,7 +326,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             day_start = ast.Alias(
                 alias="day_start",
                 expr=ast.Call(
-                    name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                    name=self._interval_function_name,
                     args=[ast.Field(chain=["timestamp"])],
                 ),
             )
@@ -416,10 +388,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             },
         )
 
-    def get_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
-        events_query = cast(ast.SelectQuery, self._events_query(events_where_clause, sample_value))
-        inner_select = cast(ast.SelectQuery, self._inner_select_query(events_query))
-        parent_select = cast(ast.SelectQuery, self._parent_select_query(inner_select))
+    def get_actors_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
+        events_query = cast(ast.SelectQuery, self._actors_events_query(events_where_clause, sample_value))
+        inner_select = cast(ast.SelectQuery, self._actors_inner_select_query(events_query))
+        parent_select = cast(ast.SelectQuery, self._actors_parent_select_query(inner_select))
 
         class QueryOrchestrator:
             events_query_builder: QueryAlternator
@@ -434,8 +406,67 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             def build(self):
                 self.events_query_builder.build()
                 self.inner_select_query_builder.build()
-                self.parent_select_query_builder.build()
+                return self.parent_select_query_builder.build()
 
-                return parent_select
+        return QueryOrchestrator()
+
+    def _first_time_parent_query(self, inner_query: ast.SelectQuery):
+        aggregation_type = self.select_aggregation()
+        query = ast.SelectQuery(
+            select=[
+                ast.Alias(expr=aggregation_type, alias="total"),
+            ],
+            select_from=ast.JoinExpr(table=inner_query),
+        )
+        query.group_by = []
+
+        if not self.is_total_value:
+            query.select.append(
+                ast.Alias(
+                    expr=ast.Call(
+                        name=self._interval_function_name,
+                        args=[ast.Field(chain=["min_timestamp"])],
+                    ),
+                    alias="day_start",
+                )
+            )
+            query.group_by.append(ast.Field(chain=["day_start"]))
+
+        return query
+
+    def get_first_time_math_query_orchestrator(
+        self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr, event_name_filter: ast.Expr | None = None
+    ):
+        date_placeholders = self.query_date_range.to_placeholders()
+        date_from = parse_expr(
+            "timestamp >= {date_from_with_adjusted_start_of_interval}",
+            placeholders=date_placeholders,
+        )
+        date_to = parse_expr(
+            "timestamp <= {date_to}",
+            placeholders=date_placeholders,
+        )
+
+        events_query = ast.SelectQuery(select=[])
+        parent_select = self._first_time_parent_query(events_query)
+
+        class QueryOrchestrator:
+            events_query_builder: FirstTimeForUserEventsQueryAlternator
+            parent_query_builder: QueryAlternator
+
+            def __init__(self):
+                self.events_query_builder = FirstTimeForUserEventsQueryAlternator(
+                    events_query,
+                    date_from,
+                    date_to,
+                    filters=events_where_clause,
+                    event_or_action_filter=event_name_filter,
+                    ratio=sample_value,
+                )
+                self.parent_query_builder = QueryAlternator(parent_select)
+
+            def build(self):
+                self.events_query_builder.build()
+                return self.parent_query_builder.build()
 
         return QueryOrchestrator()

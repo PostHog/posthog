@@ -4,18 +4,14 @@ import { ProducerRecord } from 'kafkajs'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { ONE_HOUR } from '../../config/constants'
-import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
-import { InternalPerson, Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
+import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
-import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
+import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
-import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
-import { castTimestampOrNow } from '../../utils/utils'
 import { uuidFromDistinctId } from './person-uuid'
 import { captureIngestionWarning } from './utils'
 
@@ -27,13 +23,13 @@ export const mergeFinalFailuresCounter = new Counter({
 export const mergeTxnAttemptCounter = new Counter({
     name: 'person_merge_txn_attempt_total',
     help: 'Number of person merge attempts.',
-    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
 })
 
 export const mergeTxnSuccessCounter = new Counter({
     name: 'person_merge_txn_success_total',
     help: 'Number of person merges that succeeded.',
-    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
 })
 
 export const personPropertyKeyUpdateCounter = new Counter({
@@ -113,8 +109,7 @@ export class PersonState {
         private distinctId: string,
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
-        private db: DB,
-        private personOverrideWriter?: DeferredPersonOverrideWriter
+        private db: DB
     ) {
         this.eventProperties = event.properties!
 
@@ -714,7 +709,6 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
 
@@ -762,13 +756,6 @@ export class PersonState {
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
-                if (this.personOverrideWriter) {
-                    await this.personOverrideWriter.addPersonOverride(
-                        tx,
-                        getPersonOverrideDetails(this.teamId, otherPerson, mergeInto)
-                    )
-                }
-
                 return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
             }
         )
@@ -778,7 +765,6 @@ export class PersonState {
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
                 oldPersonIdentified: String(otherPerson.is_identified),
                 newPersonIdentified: String(mergeInto.is_identified),
-                poEEmbraceJoin: String(!!this.personOverrideWriter),
             })
             .inc()
 
@@ -786,284 +772,4 @@ export class PersonState {
 
         return [mergedPerson, kafkaAck]
     }
-}
-
-/**
- * A record of a merge operation occurring.
- *
- * These property names need to be kept in sync with the ``PersonOverride``
- * Django model (and ``posthog_personoverride`` table schema) as defined in
- * ``posthog/models/person/person.py``.
- */
-type PersonOverrideDetails = {
-    team_id: number
-    old_person_id: string
-    override_person_id: string
-    oldest_event: DateTime
-}
-
-function getPersonOverrideDetails(
-    teamId: number,
-    oldPerson: InternalPerson,
-    overridePerson: InternalPerson
-): PersonOverrideDetails {
-    if (teamId != oldPerson.team_id || teamId != overridePerson.team_id) {
-        throw new Error('cannot merge persons across different teams')
-    }
-    return {
-        team_id: teamId,
-        old_person_id: oldPerson.uuid,
-        override_person_id: overridePerson.uuid,
-        oldest_event: overridePerson.created_at,
-    }
-}
-
-export class FlatPersonOverrideWriter {
-    constructor(private postgres: PostgresRouter) {}
-
-    public async addPersonOverride(
-        tx: TransactionClient,
-        overrideDetails: PersonOverrideDetails
-    ): Promise<ProducerRecord[]> {
-        const mergedAt = DateTime.now()
-
-        await this.postgres.query(
-            tx,
-            SQL`
-                INSERT INTO posthog_flatpersonoverride (
-                    team_id,
-                    old_person_id,
-                    override_person_id,
-                    oldest_event,
-                    version
-                ) VALUES (
-                    ${overrideDetails.team_id},
-                    ${overrideDetails.old_person_id},
-                    ${overrideDetails.override_person_id},
-                    ${overrideDetails.oldest_event},
-                    0
-                )
-            `,
-            undefined,
-            'personOverride'
-        )
-
-        const { rows: transitiveUpdates } = await this.postgres.query(
-            tx,
-            SQL`
-                UPDATE
-                    posthog_flatpersonoverride
-                SET
-                    override_person_id = ${overrideDetails.override_person_id},
-                    version = COALESCE(version, 0)::numeric + 1
-                WHERE
-                    team_id = ${overrideDetails.team_id} AND override_person_id = ${overrideDetails.old_person_id}
-                RETURNING
-                    old_person_id,
-                    version,
-                    oldest_event
-            `,
-            undefined,
-            'transitivePersonOverrides'
-        )
-
-        status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
-
-        const personOverrideMessages: ProducerRecord[] = [
-            {
-                topic: KAFKA_PERSON_OVERRIDE,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            team_id: overrideDetails.team_id,
-                            old_person_id: overrideDetails.old_person_id,
-                            override_person_id: overrideDetails.override_person_id,
-                            oldest_event: castTimestampOrNow(overrideDetails.oldest_event, TimestampFormat.ClickHouse),
-                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
-                            version: 0,
-                        }),
-                    },
-                    ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
-                        value: JSON.stringify({
-                            team_id: overrideDetails.team_id,
-                            old_person_id: old_person_id,
-                            override_person_id: overrideDetails.override_person_id,
-                            oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
-                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
-                            version: version,
-                        }),
-                    })),
-                ],
-            },
-        ]
-
-        return personOverrideMessages
-    }
-
-    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
-        const { rows } = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            SQL`
-                SELECT
-                    team_id,
-                    old_person_id,
-                    override_person_id,
-                    oldest_event
-                FROM posthog_flatpersonoverride
-                WHERE team_id = ${teamId}
-            `,
-            undefined,
-            'getPersonOverrides'
-        )
-        return rows.map((row) => ({
-            ...row,
-            team_id: parseInt(row.team_id), // XXX: pg returns bigint as str (reasonably so)
-            oldest_event: DateTime.fromISO(row.oldest_event),
-        }))
-    }
-}
-
-const deferredPersonOverridesWrittenCounter = new Counter({
-    name: 'deferred_person_overrides_written',
-    help: 'Number of person overrides that have been written as pending',
-})
-export class DeferredPersonOverrideWriter {
-    constructor(private postgres: PostgresRouter) {}
-
-    /**
-     * Enqueue an override for deferred processing.
-     */
-    public async addPersonOverride(tx: TransactionClient, overrideDetails: PersonOverrideDetails): Promise<void> {
-        await this.postgres.query(
-            tx,
-            SQL`
-            INSERT INTO posthog_pendingpersonoverride (
-                team_id,
-                old_person_id,
-                override_person_id,
-                oldest_event
-            ) VALUES (
-                ${overrideDetails.team_id},
-                ${overrideDetails.old_person_id},
-                ${overrideDetails.override_person_id},
-                ${overrideDetails.oldest_event}
-            )`,
-            undefined,
-            'pendingPersonOverride'
-        )
-        deferredPersonOverridesWrittenCounter.inc()
-    }
-}
-
-const deferredPersonOverridesProcessedCounter = new Counter({
-    name: 'deferred_person_overrides_processed',
-    help: 'Number of pending person overrides that have been successfully processed',
-})
-
-export class DeferredPersonOverrideWorker {
-    // This lock ID is used as an advisory lock identifier/key for a lock that
-    // ensures only one worker is able to update the overrides table at a time.
-    // (We do this to make it simpler to ensure that we maintain the consistency
-    // of transitive updates.) There isn't any special significance to this
-    // particular value (other than Postgres requires it to be a numeric one),
-    // it just needs to be consistent across all processes.
-    public readonly lockId = 567
-
-    constructor(
-        private postgres: PostgresRouter,
-        private kafkaProducer: KafkaProducerWrapper,
-        private writer: FlatPersonOverrideWriter
-    ) {}
-
-    /**
-     * Process all (or up to the given limit) pending overrides.
-     *
-     * An advisory lock is acquired prior to processing to ensure that this
-     * function has exclusive access to the pending overrides during the update
-     * process.
-     *
-     * @returns the number of overrides processed
-     */
-    public async processPendingOverrides(limit?: number): Promise<number> {
-        const overridesCount = await this.postgres.transaction(
-            PostgresUse.COMMON_WRITE,
-            'processPendingOverrides',
-            async (tx) => {
-                const {
-                    rows: [{ acquired }],
-                } = await this.postgres.query(
-                    tx,
-                    SQL`SELECT pg_try_advisory_xact_lock(${this.lockId}) as acquired`,
-                    undefined,
-                    'processPendingOverrides'
-                )
-                if (!acquired) {
-                    throw new Error('could not acquire lock')
-                }
-
-                // n.b.: Ordering by id ensures we are processing in (roughly) FIFO order
-                const { rows } = await this.postgres.query(
-                    tx,
-                    `SELECT * FROM posthog_pendingpersonoverride ORDER BY id` +
-                        (limit !== undefined ? ` LIMIT ${limit}` : ''),
-                    undefined,
-                    'processPendingOverrides'
-                )
-
-                const messages: ProducerRecord[] = []
-                for (const { id, ...mergeOperation } of rows) {
-                    messages.push(...(await this.writer.addPersonOverride(tx, mergeOperation)))
-                    await this.postgres.query(
-                        tx,
-                        SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
-                        undefined,
-                        'processPendingOverrides'
-                    )
-                }
-
-                // n.b.: We publish the messages here (and wait for acks) to ensure
-                // that all of our override updates are sent to Kafka prior to
-                // committing the transaction. If we're unable to publish, we should
-                // discard updates and try again later when it's available -- not
-                // doing so would cause the copy of this data in ClickHouse to
-                // slowly drift out of sync with the copy in Postgres. This write is
-                // safe to retry if we write to Kafka but then fail to commit to
-                // Postgres for some reason -- the same row state should be
-                // generated each call, and the receiving ReplacingMergeTree will
-                // ensure we keep only the latest version after all writes settle.)
-                await this.kafkaProducer.queueMessages({ kafkaMessages: messages, waitForAck: true })
-
-                return rows.length
-            }
-        )
-
-        deferredPersonOverridesProcessedCounter.inc(overridesCount)
-
-        return overridesCount
-    }
-
-    public runTask(intervalMs: number): PeriodicTask {
-        return new PeriodicTask(
-            'processPendingOverrides',
-            async () => {
-                status.debug('👥', 'Processing pending overrides...')
-                const overridesCount = await this.processPendingOverrides(5000)
-                ;(overridesCount > 0 ? status.info : status.debug)(
-                    '👥',
-                    `Processed ${overridesCount} pending overrides.`
-                )
-            },
-            intervalMs
-        )
-    }
-}
-
-function SQL(sqlParts: TemplateStringsArray, ...args: any[]): { text: string; values: any[] } {
-    // Generates a node-pq compatible query object given a tagged
-    // template literal. The intention is to remove the need to match up
-    // the positional arguments with the $1, $2, etc. placeholders in
-    // the query string.
-    const text = sqlParts.reduce((acc, part, i) => acc + '$' + i + part)
-    const values = args
-    return { text, values }
 }

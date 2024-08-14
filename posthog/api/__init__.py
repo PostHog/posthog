@@ -3,7 +3,13 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import external_data_source, saved_query, table, view_link, external_data_schema
+from posthog.warehouse.api import (
+    external_data_source,
+    saved_query,
+    table,
+    view_link,
+    external_data_schema,
+)
 from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
 from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -17,6 +23,7 @@ from . import (
     comments,
     dead_letter_queue,
     early_access_feature,
+    error_tracking,
     event_definition,
     exports,
     feature_flag,
@@ -126,7 +133,7 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["team_id"],
 )
-project_surveys_router = projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
+projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
 
 projects_router.register(
     r"dashboard_templates",
@@ -174,19 +181,6 @@ batch_exports_router = projects_router.register(
 )
 batch_export_runs_router = batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"]
-)
-batch_exports_router.register(
-    r"logs",
-    batch_exports.BatchExportLogViewSet,
-    "batch_export_run_logs",
-    ["team_id", "batch_export_id"],
-)
-
-batch_export_runs_router.register(
-    r"logs",
-    batch_exports.BatchExportLogViewSet,
-    "batch_export_logs",
-    ["team_id", "batch_export_id", "run_id"],
 )
 
 projects_router.register(r"warehouse_tables", table.TableViewSet, "project_warehouse_tables", ["team_id"])
@@ -400,6 +394,13 @@ projects_router.register(
     r"notebooks",
     notebook.NotebookViewSet,
     "project_notebooks",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"error_tracking",
+    error_tracking.ErrorTrackingGroupViewSet,
+    "project_error_tracking",
     ["team_id"],
 )
 

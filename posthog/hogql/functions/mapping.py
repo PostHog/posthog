@@ -394,9 +394,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
-        2,
+        1,
         overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
-        tz_aware=True,
     ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
@@ -496,7 +495,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "subtractSeconds": HogQLFunctionMeta("subtractSeconds", 2, 2),
     "subtractQuarters": HogQLFunctionMeta("subtractQuarters", 2, 2),
     "timeSlots": HogQLFunctionMeta("timeSlots", 2, 3),
-    "formatDateTime": HogQLFunctionMeta("formatDateTime", 2, 2),
+    "formatDateTime": HogQLFunctionMeta("formatDateTime", 2, 3),
     "dateName": HogQLFunctionMeta("dateName", 2, 2),
     "monthName": HogQLFunctionMeta("monthName", 1, 1),
     "fromUnixTimestamp": HogQLFunctionMeta(
@@ -744,6 +743,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "JSONLength": HogQLFunctionMeta("JSONLength", 1, None),
     "JSONArrayLength": HogQLFunctionMeta("JSONArrayLength", 1, None),
     "JSONType": HogQLFunctionMeta("JSONType", 1, None),
+    "JSONExtract": HogQLFunctionMeta("JSONExtract", 2, None),
     "JSONExtractUInt": HogQLFunctionMeta("JSONExtractUInt", 1, None),
     "JSONExtractInt": HogQLFunctionMeta("JSONExtractInt", 1, None),
     "JSONExtractFloat": HogQLFunctionMeta("JSONExtractFloat", 1, None),
@@ -832,6 +832,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
     "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
+    # table functions
+    "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
     ## UDFS
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
     "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
@@ -946,6 +948,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqHLL12If": HogQLFunctionMeta("uniqHLL12If", 2, None, aggregate=True),
     "uniqTheta": HogQLFunctionMeta("uniqTheta", 1, None, aggregate=True),
     "uniqThetaIf": HogQLFunctionMeta("uniqThetaIf", 2, None, aggregate=True),
+    "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, None, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
     "medianIf": HogQLFunctionMeta("medianIf", 2, 2, aggregate=True),
     "medianExact": HogQLFunctionMeta("medianExact", 1, 1, aggregate=True),
@@ -1019,10 +1022,8 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
-    "hogql_lookupPaidDomainType": HogQLFunctionMeta("hogql_lookupPaidDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
     "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
-    "hogql_lookupOrganicDomainType": HogQLFunctionMeta("hogql_lookupOrganicDomainType", 1, 1),
     "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
 }

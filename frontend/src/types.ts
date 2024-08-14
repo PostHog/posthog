@@ -28,7 +28,6 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -94,6 +93,7 @@ export enum AvailableFeature {
     SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
     SURVEYS_RECURRING = 'surveys_recurring',
     SURVEYS_EVENTS = 'surveys_events',
+    SURVEYS_ACTIONS = 'surveys_actions',
     TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
@@ -153,7 +153,7 @@ export enum AvailableFeature {
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
-    CUSTOMM_MSA = 'custom_msa',
+    CUSTOM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
@@ -333,6 +333,7 @@ export interface OrganizationBasicType {
     id: string
     name: string
     slug: string
+    logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
 }
 
@@ -657,17 +658,18 @@ export enum PipelineTab {
     Transformations = 'transformations',
     Destinations = 'destinations',
     SiteApps = 'site-apps',
-    DataImport = 'data-import',
+    Sources = 'sources',
     ImportApps = 'legacy-sources',
     AppsManagement = 'apps-management',
+    History = 'history',
 }
 
 export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
+    Source = 'source',
     SiteApp = 'site-app',
     ImportApp = 'legacy-source',
-    DataImport = 'data source',
 }
 
 export enum PipelineNodeTab {
@@ -676,6 +678,8 @@ export enum PipelineNodeTab {
     Logs = 'logs',
     Metrics = 'metrics',
     History = 'history',
+    Schemas = 'schemas',
+    Syncs = 'syncs',
 }
 
 export enum ProgressStatus {
@@ -913,8 +917,8 @@ export interface SessionPlayerData {
     bufferedToTime: number | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
     durationMs: number
-    start?: Dayjs
-    end?: Dayjs
+    start: Dayjs | null
+    end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
 }
@@ -954,7 +958,7 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source'
+    key: DurationType | 'console_log_level' | 'console_log_query' | 'snapshot_source' | 'visited_page'
     operator: PropertyOperator
 }
 
@@ -1584,7 +1588,7 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | null | undefined
+        [key: string]: string | number | null | undefined
     }
     billing_period?: {
         current_period_start: Dayjs
@@ -1658,7 +1662,7 @@ export interface Tileable {
     color: InsightColor | null
 }
 
-export interface DashboardTile extends Tileable, Cacheable {
+export interface DashboardTile extends Tileable {
     id: number
     insight?: InsightModel
     text?: TextModel
@@ -1814,6 +1818,7 @@ export enum PluginInstallationType {
     Custom = 'custom',
     Repository = 'repository',
     Source = 'source',
+    Inline = 'inline',
 }
 
 export interface PluginType {
@@ -1928,6 +1933,11 @@ export interface PluginConfigFilters {
     filter_test_accounts?: boolean
 }
 
+export interface HogConfigFilters extends PluginConfigFilters {
+    bytecode?: any[]
+    bytecode_error?: string
+}
+
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
 export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
     plugin_info: PluginType
@@ -1941,21 +1951,25 @@ export interface PluginErrorType {
     event?: Record<string, any>
 }
 
+export type LogEntryLevel = 'DEBUG' | 'LOG' | 'INFO' | 'WARN' | 'WARNING' | 'ERROR'
+
 // The general log entry format that eventually everything should match
 export type LogEntry = {
     log_source_id: string
     instance_id: string
     timestamp: string
-    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    level: LogEntryLevel
     message: string
 }
 
-export enum PluginLogEntryType {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warn = 'WARN',
-    Error = 'ERROR',
+export type LogEntryRequestParams = {
+    limit?: number
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    level?: string
+    search?: string
+    instance_id?: string
 }
 
 export interface PluginLogEntry {
@@ -1964,23 +1978,16 @@ export interface PluginLogEntry {
     plugin_id: number
     plugin_config_id: number
     timestamp: string
-    type: PluginLogEntryType
+    source: string
+    type: LogEntryLevel
     is_system: boolean
     message: string
     instance_id: string
 }
 
-export interface BatchExportLogEntry {
-    team_id: number
-    batch_export_id: number
-    run_id: number
-    timestamp: string
-    level: PipelineLogLevel
-    message: string
-}
-
 export enum AnnotationScope {
     Insight = 'dashboard_item',
+    Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
 }
@@ -1996,6 +2003,9 @@ export interface RawAnnotationType {
     dashboard_item?: number | null
     insight_short_id?: InsightModel['short_id'] | null
     insight_name?: InsightModel['name'] | null
+    insight_derived_name?: InsightModel['derived_name'] | null
+    dashboard_id?: DashboardBasicType['id'] | null
+    dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
 }
@@ -2012,6 +2022,7 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
     ActionsBar = 'ActionsBar',
+    ActionsStackedBar = 'ActionsStackedBar',
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
@@ -2080,10 +2091,15 @@ export enum RetentionPeriod {
 
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
+/**
+ * Legacy breakdown.
+ */
 export interface Breakdown {
     property: string | number
     type: BreakdownType
     normalize_url?: boolean
+    histogram_bin_count?: number
+    group_type_index?: number
 }
 
 export interface FilterType {
@@ -2258,6 +2274,7 @@ export interface RetentionFilterType extends FilterType {
 
     //frontend only
     show_mean?: boolean
+    cumulative?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2595,6 +2612,12 @@ export interface Survey {
         selector: string
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
+        actions: {
+            values: {
+                id: number
+                name: string
+            }[]
+        } | null
         events: {
             repeatedActivation?: boolean
             values: {
@@ -2642,6 +2665,7 @@ export interface SurveyAppearance {
     submitButtonColor?: string
     // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
+    submitButtonTextColor?: string
     ratingButtonColor?: string
     ratingButtonActiveColor?: string
     borderColor?: string
@@ -2942,6 +2966,9 @@ export interface PreflightStatus {
         hubspot: {
             client_id?: string
         }
+        salesforce: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
@@ -2952,6 +2979,7 @@ export interface PreflightStatus {
     buffer_conversion_seconds?: number
     object_storage: boolean
     public_egress_ip_addresses?: string[]
+    dev_disable_navigation_hooks?: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -3157,6 +3185,7 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
@@ -3164,6 +3193,7 @@ export interface _FunnelExperimentResults extends BaseExperimentResults {
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface TrendsExperimentResults {
@@ -3297,26 +3327,34 @@ export interface DateMappingOption {
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
     key: string | number | [scene: Scene, key: string | number]
-    /** Name to display. */
-    name: string | null | undefined
-    /** Symbol, e.g. a lettermark or a profile picture. */
-    symbol?: React.ReactNode
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     /** Path to link to. */
     path?: string
     onRename?: never
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
+    /** Name to display. */
+    name: string | null | undefined
+    symbol?: never
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
     onRename?: (newName: string) => Promise<void>
     /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
     forceEditMode?: boolean
 }
-export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
+interface SymbolBreadcrumb extends BreadcrumbBase {
+    name?: never
+    /** Symbol, e.g. a lettermark or a profile picture. */
+    symbol: React.ReactElement
+    path?: never
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb
 
 export enum GraphType {
     Bar = 'bar',
@@ -3406,6 +3444,7 @@ export enum BaseMathType {
     WeeklyActiveUsers = 'weekly_active',
     MonthlyActiveUsers = 'monthly_active',
     UniqueSessions = 'unique_session',
+    FirstTimeForUser = 'first_time_for_user',
 }
 
 export enum PropertyMathType {
@@ -3482,6 +3521,12 @@ export enum DateOperatorType {
     IsNotSet = 'is_not_set',
 }
 
+export enum SingleFieldDateType {
+    IsDateExact = 'is_date_exact',
+    IsDateBefore = 'is_date_before',
+    IsDateAfter = 'is_date_after',
+}
+
 export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
@@ -3523,12 +3568,17 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot'
+
 export interface IntegrationType {
     id: number
-    kind: 'slack'
+    kind: IntegrationKind
+    display_name: string
+    icon_url: string
     config: any
     created_by?: UserBasicType | null
     created_at: string
+    errors?: string
 }
 
 export interface SlackChannelType {
@@ -3808,14 +3858,14 @@ export interface DataWarehouseViewLink {
 
 export enum DataWarehouseSettingsTab {
     Managed = 'managed',
-    SelfManaged = 'self_managed',
+    SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'MySQL', 'Zendesk', 'Snowflake'] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2']
+export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
@@ -3868,6 +3918,17 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     status?: string
     incremental_field: string | null
     incremental_field_type: string | null
+    sync_frequency: DataWarehouseSyncInterval
+}
+
+export interface ExternalDataJob {
+    id: string
+    created_at: string
+    status: 'Running' | 'Failed' | 'Completed' | 'Cancelled'
+    schema: SimpleExternalDataSourceSchema
+    rows_synced: number
+    latest_error: string
+    workflow_run_id?: string
 }
 
 export interface SimpleDataWarehouseTable {
@@ -3973,7 +4034,14 @@ export type BatchExportServiceRedshift = {
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
 // and update batchExportServiceNames in pipelineNodeNewLogic
-export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
+export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    'S3',
+    'Snowflake',
+    'Postgres',
+    'BigQuery',
+    'Redshift',
+    'HTTP',
+]
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
@@ -3984,7 +4052,7 @@ export type BatchExportService =
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
-export type DataWarehouseSyncInterval = 'day' | 'week' | 'month'
+export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -4000,6 +4068,24 @@ export type BatchExportConfiguration = {
     paused: boolean
     model: string
     latest_runs?: BatchExportRun[]
+}
+
+export type RawBatchExportRun = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at: string
+    data_interval_start: string
+    data_interval_end: string
+    last_updated_at?: string
 }
 
 export type BatchExportRun = {
@@ -4056,11 +4142,13 @@ export enum SDKKey {
     GATSBY = 'gatsby',
     GO = 'go',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
+    HELICONE = 'helicone',
     HTML_SNIPPET = 'html',
     IOS = 'ios',
     JAVA = 'java',
     JS_WEB = 'javascript_web',
     LARAVEL = 'laravel',
+    LANGFUSE = 'langfuse',
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
@@ -4077,6 +4165,7 @@ export enum SDKKey {
     SENTRY = 'sentry',
     SHOPIFY = 'shopify',
     SVELTE = 'svelte',
+    TRACELOOP = 'traceloop',
     VUE_JS = 'vuejs',
     WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
@@ -4088,6 +4177,7 @@ export enum SDKTag {
     SERVER = 'Server',
     INTEGRATION = 'Integration',
     RECOMMENDED = 'Recommended',
+    LLM = 'LLM',
     OTHER = 'Other',
 }
 
@@ -4155,6 +4245,9 @@ export interface SourceConfig {
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
+    showPrefix?: (payload: Record<string, any>) => boolean
+    showSourceForm?: (payload: Record<string, any>) => boolean
+    oauthPayload?: string[]
 }
 
 export interface ProductPricingTierSubrows {
@@ -4184,7 +4277,11 @@ export type AvailableOnboardingProducts = Pick<
     {
         [key in ProductKey]: OnboardingProduct
     },
-    ProductKey.PRODUCT_ANALYTICS | ProductKey.SESSION_REPLAY | ProductKey.FEATURE_FLAGS | ProductKey.SURVEYS
+    | ProductKey.PRODUCT_ANALYTICS
+    | ProductKey.SESSION_REPLAY
+    | ProductKey.FEATURE_FLAGS
+    | ProductKey.SURVEYS
+    | ProductKey.DATA_WAREHOUSE
 >
 
 export type OnboardingProduct = {
@@ -4197,7 +4294,7 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field'
+    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4208,6 +4305,19 @@ export type HogFunctionInputSchemaType = {
     integration?: string
     integration_key?: string
     integration_field?: 'slack_channel'
+}
+
+export type HogFunctionInputType = {
+    value: any
+    secret?: boolean
+    bytecode?: any
+}
+
+export type HogFunctionFiltersMasking = {
+    ttl: number | null
+    threshold?: number | null
+    hash: string
+    bytecode?: any
 }
 
 export type HogFunctionType = {
@@ -4222,25 +4332,25 @@ export type HogFunctionType = {
     hog: string
 
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<
-        string,
-        {
-            value: any
-            bytecode?: any
-        }
-    >
-    filters?: PluginConfigFilters | null
+    inputs?: Record<string, HogFunctionInputType>
+    masking?: HogFunctionFiltersMasking | null
+    filters?: HogConfigFilters | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
 }
 
-export type HogFunctionConfigurationType = Omit<HogFunctionType, 'created_at' | 'created_by' | 'updated_at' | 'status'>
+export type HogFunctionConfigurationType = Omit<
+    HogFunctionType,
+    'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
+> & {
+    hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
+}
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
     'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
 > & {
-    status: 'alpha' | 'beta' | 'stable'
+    status: 'alpha' | 'beta' | 'stable' | 'free'
 }
 
 export type HogFunctionIconResponse = {
@@ -4258,14 +4368,44 @@ export enum HogWatcherState {
 
 export type HogFunctionStatus = {
     state: HogWatcherState
-    states: {
-        timestamp: number
-        state: HogWatcherState
-    }[]
-    ratings: {
-        timestamp: number
-        rating: number
-    }[]
+    rating: number
+    tokens: number
+}
+
+export type HogFunctionInvocationGlobals = {
+    project: {
+        id: number
+        name: string
+        url: string
+    }
+    source?: {
+        name: string
+        url: string
+    }
+    event: {
+        uuid: string
+        name: string
+        distinct_id: string
+        properties: Record<string, any>
+        timestamp: string
+        url: string
+    }
+    person?: {
+        uuid: string
+        name: string
+        url: string
+        properties: Record<string, any>
+    }
+    groups?: Record<
+        string,
+        {
+            id: string // the "key" of the group
+            type: string
+            index: number
+            url: string
+            properties: Record<string, any>
+        }
+    >
 }
 
 export interface AnomalyCondition {
@@ -4281,4 +4421,26 @@ export interface AlertType {
     insight?: number
     target_value: string
     anomaly_condition: AnomalyCondition
+}
+
+export type AppMetricsV2Response = {
+    labels: string[]
+    series: {
+        name: string
+        values: number[]
+    }[]
+}
+
+export type AppMetricsTotalsV2Response = {
+    totals: Record<string, number>
+}
+
+export type AppMetricsV2RequestParams = {
+    after?: string
+    before?: string
+    // Comma separated list of log levels
+    name?: string
+    kind?: string
+    interval?: 'hour' | 'day' | 'week'
+    breakdown_by?: 'name' | 'kind'
 }

@@ -15,7 +15,9 @@ health = { path = "../common/health" }
 hook-common = { path = "../hook-common" }
 http = { workspace = true }
 metrics = { workspace = true }
+rdkafka = { workspace = true }
 reqwest = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
@@ -23,3 +25,6 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { version = "2.2" }
+
+[dev-dependencies]
+httpmock = { workspace = true }

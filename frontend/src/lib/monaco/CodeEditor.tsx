@@ -1,6 +1,6 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { type EditorProps, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, loader, Monaco } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -9,19 +9,25 @@ import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/mona
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 import * as hog from 'lib/monaco/languages/hog'
+import * as hogJson from 'lib/monaco/languages/hogJson'
 import * as hogQL from 'lib/monaco/languages/hogQL'
 import * as hogTemplate from 'lib/monaco/languages/hogTemplate'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
+import * as monaco from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage } from '~/queries/schema'
 
+if (loader) {
+    loader.config({ monaco })
+}
+
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string
     autocompleteContext?: string
-    onPressCmdEnter?: (value: string) => void
+    onPressCmdEnter?: (value: string, selectionType: 'selection' | 'full') => void
     autoFocus?: boolean
     sourceQuery?: AnyDataNode
     globals?: Record<string, any>
@@ -83,6 +89,18 @@ function initEditor(
                 hogQLAutocompleteProvider(HogLanguage.hogTemplate)
             )
             monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
+        }
+    }
+    if (editorProps?.language === 'hogJson') {
+        if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogJson')) {
+            monaco.languages.register({
+                id: 'hogJson',
+                mimetypes: ['application/hog+json'],
+            })
+            monaco.languages.setLanguageConfiguration('hogJson', hogJson.conf())
+            monaco.languages.setMonarchTokensProvider('hogJson', hogJson.language())
+            monaco.languages.registerCompletionItemProvider('hogJson', hogQLAutocompleteProvider(HogLanguage.hogJson))
+            monaco.languages.registerCodeActionProvider('hogJson', hogQLMetadataProvider())
         }
     }
     if (options.tabFocusMode) {
@@ -202,6 +220,7 @@ export function CodeEditor({
 
     return (
         <MonacoEditor // eslint-disable-line react/forbid-elements
+            key={queryKey}
             theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
             loading={<Spinner />}
             options={{
@@ -239,7 +258,17 @@ export function CodeEditor({
                             id: 'saveAndRunPostHog',
                             label: 'Save and run query',
                             keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                            run: () => onPressCmdEnter(editor.getValue()),
+                            run: () => {
+                                const selection = editor.getSelection()
+                                const model = editor.getModel()
+                                if (selection && model) {
+                                    const highlightedText = model.getValueInRange(selection)
+                                    onPressCmdEnter(highlightedText, 'selection')
+                                    return
+                                }
+
+                                onPressCmdEnter(editor.getValue(), 'full')
+                            },
                         })
                     )
                 }

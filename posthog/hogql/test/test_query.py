@@ -8,7 +8,7 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
-from posthog.hogql.errors import SyntaxError, QueryError
+from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
@@ -1015,21 +1015,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=2000000, max_expanded_ast_elements=2000000, max_query_size=1048576, max_bytes_before_external_group_by=0",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
                 response.clickhouse,
             )
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
 
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"
-        with self.assertRaises(SyntaxError) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
 
         query = f"SELECT properties.something.0 FROM events"
-        with self.assertRaises(SyntaxError) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
-        self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
+        self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array.1")
 
     def test_time_window_functions(self):
         query = """

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 from django.db import models
 from django.db import transaction
 from django.core.validators import MinLengthValidator
@@ -13,9 +13,9 @@ class ProjectManager(models.Manager):
     def create_with_team(self, team_fields: Optional[dict] = None, **kwargs) -> tuple["Project", "Team"]:
         from .team import Team
 
-        with transaction.atomic():
+        with transaction.atomic(using=self.db):
             common_id = Team.objects.increment_id_sequence()
-            project = self.create(id=common_id, **kwargs)
+            project = cast("Project", self.create(id=common_id, **kwargs))
             team = Team.objects.create(
                 id=common_id, organization=project.organization, project=project, **(team_fields or {})
             )

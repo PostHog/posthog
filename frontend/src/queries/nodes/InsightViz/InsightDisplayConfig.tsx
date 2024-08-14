@@ -17,6 +17,7 @@ import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
+import { RetentionCumulativeCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
 import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
 import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -28,6 +29,7 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
@@ -62,7 +64,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
-        isTrends && !breakdownFilter?.breakdown_type && (!display || display === ChartDisplayType.ActionsLineGraph)
+        isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
@@ -145,6 +147,7 @@ export function InsightDisplayConfig(): JSX.Element {
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
                         <RetentionMeanCheckbox />
+                        <RetentionCumulativeCheckbox />
                     </ConfigFilter>
                 )}
 
