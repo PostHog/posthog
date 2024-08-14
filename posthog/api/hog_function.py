@@ -134,16 +134,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             attrs["inputs_schema"] = template.inputs_schema
             attrs["hog"] = template.hog
 
-        if "inputs_schema" in attrs:
-            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
-
         if self.context.get("view") and self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
             attrs["filters"] = attrs.get("filters", {})
             attrs["inputs_schema"] = attrs.get("inputs_schema", [])
             attrs["inputs"] = attrs.get("inputs", {})
 
-        attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
+        if "inputs_schema" in attrs:
+            attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
+
+        if "filters" in attrs:
+            attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
 
         if "inputs" in attrs:
             # If we are updating, we check all input values with secret: true and instead
