@@ -14,7 +14,7 @@
         "cross": "npm run cross-build -- --release"
     },
     "author": "",
-    "license": "ISC",
+    "license": "MIT",
     "devDependencies": {
         "@neon-rs/cli": "0.1.73"
     }

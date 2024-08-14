@@ -1,4 +1,4 @@
-FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.77-bookworm AS chef
+FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.80.1-bookworm AS chef
 ARG BIN
 WORKDIR /app
 

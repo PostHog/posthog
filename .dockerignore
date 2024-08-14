@@ -39,3 +39,8 @@
 !test-runner-jest.config.js
 !test-runner-jest-environment.js
 !patches
+!rust
+rust/.env
+rust/.github
+rust/docker
+rust/target
