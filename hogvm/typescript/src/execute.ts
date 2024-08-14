@@ -440,9 +440,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     ip,
                     name,
                 } satisfies HogCallable
-                // console.log({ callable })
                 pushStack(callable)
-                // declaredFunctions[name] = [ip, argCount]
                 ip += bodyLength
                 break
             }

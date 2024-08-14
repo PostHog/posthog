@@ -1,0 +1,15 @@
+-- test while loop --
+1
+2
+3
+3
+-- test for loop --
+0
+1
+2
+-- test emptier for loop --
+woo
+woo
+woo
+hoo
+-- for in loop with arrays --

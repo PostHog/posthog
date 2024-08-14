@@ -171,42 +171,6 @@ def execute_bytecode(
                 push_stack(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
-                # OLD
-                # push_stack(deepcopy(get_nested_value(globals, chain)))
-
-                # JS to translate
-                # if (options?.globals && chain[0] in options.globals) {
-                #                     pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
-                #                 } else if (
-                #                     options?.asyncFunctions &&
-                #                     chain.length == 1 &&
-                #                     Object.hasOwn(options.asyncFunctions, chain[0]) &&
-                #                     options.asyncFunctions[chain[0]]
-                #                 ) {
-                #                     pushStack({
-                #                         __hogCallable__: 'async',
-                #                         name: chain[0],
-                #                         argCount: 0, // TODO
-                #                         ip: -1,
-                #                     } satisfies HogCallable)
-                #                 } else if (chain.length == 1 && chain[0] in ASYNC_STL) {
-                #                     pushStack({
-                #                         __hogCallable__: 'async',
-                #                         argCount: 0, // TODO
-                #                         ip: -1,
-                #                     } satisfies HogCallable)
-                #                 } else if (chain.length == 1 && chain[0] in STL) {
-                #                     pushStack({
-                #                         __hogCallable__: 'stl',
-                #                         argCount: 0, // TODO
-                #                         ip: -1,
-                #                         name: chain[0],
-                #                     } satisfies HogCallable)
-                #                 } else {
-                #                     throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
-                #                 }
-
-                # NEW
                 if globals and chain[0] in globals:
                     push_stack(deepcopy(get_nested_value(globals, chain)))
                 elif functions and chain[0] in functions:
