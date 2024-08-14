@@ -28,16 +28,13 @@ func newStatsKeeper() *Stats {
 func (ts *Stats) keepStats(statsChan chan PostHogEvent) {
 	log.Println("starting stats keeper...")
 
-	for { // ignore the range warning here - it's wrong
-		select {
-		case event := <-statsChan:
-			ts.Counter.Increment()
-			token := event.Token
-			if _, ok := ts.Store[token]; !ok {
-				ts.Store[token] = expirable.NewLRU[string, string](0, nil, COUNTER_TTL)
-			}
-			ts.Store[token].Add(event.DistinctId, "1")
-			ts.GlobalStore.Add(event.DistinctId, "1")
+	for event := range statsChan {
+		ts.Counter.Increment()
+		token := event.Token
+		if _, ok := ts.Store[token]; !ok {
+			ts.Store[token] = expirable.NewLRU[string, string](0, nil, COUNTER_TTL)
 		}
+		ts.Store[token].Add(event.DistinctId, "1")
+		ts.GlobalStore.Add(event.DistinctId, "1")
 	}
 }
