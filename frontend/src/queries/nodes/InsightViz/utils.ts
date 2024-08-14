@@ -106,7 +106,7 @@ export const getQueryBasedDashboard = (
             (tile) =>
                 ({
                     ...tile,
-                    insight: tile.insight != null ? getQueryBasedInsightModel(tile.insight) : null,
+                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
                 } as DashboardTile<QueryBasedInsightModel>)
         ),
     }
