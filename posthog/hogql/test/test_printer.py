@@ -365,8 +365,8 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used: set[str] = field(default_factory=set)
 
         cases = [
-            # common case: comparing against a (non-empty) string value doesn't require checking if the key exists or
-            # not, which lets us use the bloom filter index on both keys and values for the property group
+            # Comparing against a (non-empty) string value lets us avoid checking if the key exists or not, and lets us
+            # use the bloom filter indices on both keys and values to optimize the comparison operation.
             PropertyGroupComparisonTestCase(
                 "properties.key = 'value'",
                 "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
@@ -385,9 +385,10 @@ class TestPrinter(BaseTest):
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
             ),
-            # special case: keys that don't exist in a map return default values for the type, so we need to check
-            # whether or not the key exists in the map (to utilize the bloom filter index on keys) as well as perform
-            # the comparison
+            # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we
+            # need to check whether or not the key exists in the map *and* compare the value in the map is the empty
+            # string or not. We can still utilize the bloom filter index on keys, but the empty string isn't stored in
+            # the bloom filter so it won't be used here.
             PropertyGroupComparisonTestCase(
                 "properties.key = ''",
                 "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
@@ -400,8 +401,8 @@ class TestPrinter(BaseTest):
                 {"hogql_val_0": "key", "hogql_val_1": ""},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
-            # special case: not null comparisons should check to see if the key exists within the map (and should use
-            # the bloom filter as an optimization), but do not need to actually get the value
+            # NOT NULL comparisons should check to see if the key exists within the map (and should use the bloom filter
+            # to optimize the check), but do not need to load the values subcolumn.
             PropertyGroupComparisonTestCase(
                 "properties.key is not null",
                 "has(events.properties_group_custom, %(hogql_val_0)s)",
@@ -420,9 +421,8 @@ class TestPrinter(BaseTest):
                 {"hogql_val_0": "key"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
-            # special case: null comparisons don't really benefit from the bloom filter index (even though it still
-            # reports its used in the query plan?), but rewriting to only check if the key exists avoids naively reading
-            # the the values column unnecessarily
+            # NULL comparisons don't really benefit from the bloom filter index like NOT NULL comparisons do, but like
+            # above, only need to check the keys subcolumn and not the values subcolumn.
             PropertyGroupComparisonTestCase(
                 "properties.key is null",
                 "not(has(events.properties_group_custom, %(hogql_val_0)s))",
@@ -438,7 +438,8 @@ class TestPrinter(BaseTest):
                 "not(has(events.properties_group_custom, %(hogql_val_0)s))",
                 {"hogql_val_0": "key"},
             ),
-            # IN operator works much like equality, but it also needs to handle the empty string special case
+            # The IN operator works much like equality when the right hand side of the expression is all constants. Like
+            # equality, it also needs to handle the empty string special case.
             PropertyGroupComparisonTestCase(
                 "properties.key IN ('a', 'b')",
                 "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s))",
@@ -454,7 +455,7 @@ class TestPrinter(BaseTest):
                     ")"
                 ),
                 {"hogql_val_0": "key", "hogql_val_1": "", "hogql_val_2": "value"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
         ]
 
