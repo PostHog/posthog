@@ -115,7 +115,7 @@ export function SummaryTable(): JSX.Element {
                     return <em>Baseline</em>
                 }
 
-                const controlVariant = experimentResults.variants.find(
+                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
                     ({ key }) => key === 'control'
                 ) as TrendExperimentVariant
 
@@ -177,7 +177,7 @@ export function SummaryTable(): JSX.Element {
                     return <>—</>
                 }
 
-                const controlVariant = experimentResults.variants.find(
+                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
                     ({ key }) => key === 'control'
                 ) as TrendExperimentVariant
                 const controlMean = controlVariant.count / controlVariant.absolute_exposure
