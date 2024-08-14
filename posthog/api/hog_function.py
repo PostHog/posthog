@@ -17,6 +17,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from posthog.cdp.filters import compile_filters_bytecode
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, validate_inputs, validate_inputs_schema
@@ -136,11 +137,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if "inputs_schema" in attrs:
             attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
 
-        if self.context["view"].action == "create":
+        if self.context.get("view") and self.context["view"].action == "create":
             # Ensure we have sensible defaults when created
             attrs["filters"] = attrs.get("filters", {})
             attrs["inputs_schema"] = attrs.get("inputs_schema", [])
             attrs["inputs"] = attrs.get("inputs", {})
+
+        attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
 
         if "inputs" in attrs:
             # If we are updating, we check all input values with secret: true and instead
