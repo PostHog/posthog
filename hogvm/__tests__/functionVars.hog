@@ -1,0 +1,37 @@
+fn execFunction() {
+  print('execFunction')
+}
+
+fn execFunctionNested() {
+  fn execFunction() {
+    print('execFunctionNew')
+  }
+  print('execFunctionNested')
+  execFunction()
+}
+
+execFunction()
+execFunctionNested()
+execFunction()
+
+//print('--------')
+//
+//fn secondExecFunction() {
+//  print('secondExecFunction')
+//}
+//
+//fn secondExecFunctionNested() {
+//  print('secondExecFunctionNested')
+//  secondExecFunction()
+//}
+//
+//secondExecFunction()
+//secondExecFunctionNested()
+//secondExecFunction()
+
+print('--------')
+
+let b := x -> x * 2
+print(b)
+print(b(2))
+print(b(8))

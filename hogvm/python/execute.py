@@ -341,8 +341,17 @@ def execute_bytecode(
                 elif callable.get("__hogCallable__") == "stl":
                     if callable["name"] not in STL:
                         raise HogVMException(f"Unsupported function call: {callable['name']}")
+                    stl_fn = STL[callable["name"]]
+                    if stl_fn.minArgs is not None and args_length < stl_fn.minArgs:
+                        raise HogVMException(
+                            f"Function {callable['name']} requires at least {stl_fn.minArgs} arguments"
+                        )
+                    if stl_fn.maxArgs is not None and args_length > stl_fn.maxArgs:
+                        raise HogVMException(f"Function {callable['name']} requires at most {stl_fn.maxArgs} arguments")
                     args = [pop_stack() for _ in range(args_length)]
-                    push_stack(STL[callable["name"]](args, team, stdout, timeout.total_seconds()))
+                    if stl_fn.maxArgs is not None and len(args) < stl_fn.maxArgs:
+                        args += [None] * (stl_fn.maxArgs - len(args))
+                    push_stack(stl_fn.fn(args, team, stdout, timeout.total_seconds()))
 
                 elif callable.get("__hogCallable__") == "async":
                     raise HogVMException("Async functions are not supported")

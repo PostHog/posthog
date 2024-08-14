@@ -1,1 +1,17 @@
-["_h"]
+["_h", 50, 58, 50, 15, 32, "You forgot to feed your fish", 32, "FishError", 32, "HogError", 1, 1, 2, 2, 49, 51, 39, 38,
+36, 0, 32, "type", 45, 32, "FoodError", 36, 1, 11, 40, 22, 36, 0, 32, "message", 45, 32, "Problem with your food: ", 32,
+"concat", 1, 1, 2, 2, 32, "print", 1, 1, 2, 1, 35, 39, 2, 35, 49, 35, 35, 51, 39, 60, 36, 0, 32, "type", 45, 32,
+"FishError", 36, 1, 11, 40, 22, 36, 0, 32, "message", 45, 32, "FishError: ", 32, "concat", 1, 1, 2, 2, 32, "print", 1,
+1, 2, 1, 35, 39, 24, 36, 0, 32, "message", 45, 32, "Error: ", 32, "concat", 1, 1, 2, 2, 32, "print", 1, 1, 2, 1, 35, 39,
+2, 35, 49, 35, 35, 50, 58, 50, 15, 32, "You forgot to feed your fish", 32, "FunkyError", 32, "HogError", 1, 1, 2, 2, 49,
+51, 39, 38, 36, 0, 32, "type", 45, 32, "FoodError", 36, 1, 11, 40, 22, 36, 0, 32, "message", 45, 32,
+"Problem with your food: ", 32, "concat", 1, 1, 2, 2, 32, "print", 1, 1, 2, 1, 35, 39, 2, 35, 49, 35, 35, 51, 39, 67,
+36, 0, 32, "type", 45, 32, "FishError", 36, 1, 11, 40, 22, 36, 0, 32, "message", 45, 32, "FishError: ", 32, "concat", 1,
+1, 2, 2, 32, "print", 1, 1, 2, 1, 35, 39, 31, 36, 0, 32, "message", 45, 32, ": ", 36, 0, 32, "name", 45, 32,
+"Error of type ", 32, "concat", 1, 1, 2, 4, 32, "print", 1, 1, 2, 1, 35, 39, 2, 35, 49, 35, 35, 50, 58, 50, 15, 32,
+"You forgot to feed your fish", 32, "FishError", 32, "HogError", 1, 1, 2, 2, 49, 51, 39, 38, 36, 0, 32, "type", 45, 32,
+"FoodError", 36, 1, 11, 40, 22, 36, 0, 32, "message", 45, 32, "Problem with your food: ", 32, "concat", 1, 1, 2, 2, 32,
+"print", 1, 1, 2, 1, 35, 39, 2, 35, 49, 35, 35, 51, 39, 67, 36, 0, 32, "type", 45, 36, 0, 32, "message", 45, 32, ": ",
+36, 0, 32, "name", 45, 32, "Error of type ", 32, "concat", 1, 1, 2, 4, 32, "print", 1, 1, 2, 1, 35, 39, 31, 32,
+"FishError", 36, 1, 11, 40, 22, 36, 0, 32, "message", 45, 32, "FishError: ", 32, "concat", 1, 1, 2, 2, 32, "print", 1,
+1, 2, 1, 35, 39, 2, 35, 49, 35, 35]

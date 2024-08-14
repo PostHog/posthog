@@ -1,0 +1,7 @@
+execFunction
+execFunctionNested
+execFunctionNew
+execFunction
+{'__hogCallable__': 'local', 'argCount': 1, 'ip': 70, 'name': 'lambda'}
+4
+16

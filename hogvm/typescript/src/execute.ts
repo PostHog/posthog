@@ -467,10 +467,26 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     if (!(callable.name in STL)) {
                         throw new HogVMException(`Unsupported function call: ${callable.name}`)
                     }
+                    const stlFn = STL[callable.name]
+                    if (stlFn.minArgs !== undefined && temp < stlFn.minArgs) {
+                        throw new HogVMException(
+                            `Function ${callable.name} requires at least ${stlFn.minArgs} arguments`
+                        )
+                    }
+                    if (stlFn.maxArgs !== undefined && temp > stlFn.maxArgs) {
+                        throw new HogVMException(
+                            `Function ${callable.name} requires at most ${stlFn.maxArgs} arguments`
+                        )
+                    }
                     const args = Array(temp)
                         .fill(null)
                         .map(() => popStack())
-                    pushStack(STL[callable.name](args, callable.name, timeout))
+                    if (stlFn.maxArgs !== undefined && args.length < stlFn.maxArgs) {
+                        for (let i = args.length; i < stlFn.maxArgs; i++) {
+                            args.push(null)
+                        }
+                    }
+                    pushStack(stlFn.fn(args, callable.name, timeout))
                 } else if (callable.__hogCallable__ === 'async') {
                     if (asyncSteps >= maxAsyncSteps) {
                         throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
