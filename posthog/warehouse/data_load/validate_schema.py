@@ -72,7 +72,6 @@ async def validate_schema_and_update_table(
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
     row_count: int,
-    use_delta_wrapper: bool,
 ) -> None:
     """
 
@@ -85,7 +84,6 @@ async def validate_schema_and_update_table(
         schema_id: The schema for which the data job relates to
         table_schema: The DLT schema from the data load stage
         table_row_counts: The count of synced rows from DLT
-        use_delta_wrapper: Whether we wanna use the S3 wrapper for Delta tables
     """
 
     logger = await bind_temporal_worker_logger(team_id=team_id)
@@ -119,9 +117,7 @@ async def validate_schema_and_update_table(
         table_params = {
             "credential": credential,
             "name": table_name,
-            "format": DataWarehouseTable.TableFormat.DeltaS3Wrapper
-            if use_delta_wrapper
-            else DataWarehouseTable.TableFormat.Delta,
+            "format": DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             "url_pattern": new_url_pattern,
             "team_id": team_id,
             "row_count": row_count,
