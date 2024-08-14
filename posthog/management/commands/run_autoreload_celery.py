@@ -1,4 +1,5 @@
 from typing import Literal
+
 import django
 from django.core.management.base import BaseCommand
 
@@ -41,4 +42,7 @@ class Command(BaseCommand):
             ]
         )
 
-        celery_app.worker_main(args)
+        if type == "worker":
+            celery_app.worker_main(args)
+        else:
+            celery_app.start(args)
