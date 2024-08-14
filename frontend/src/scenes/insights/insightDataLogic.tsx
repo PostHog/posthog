@@ -159,7 +159,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
         isDataWarehouseQuery: [
             () => [(_, props) => props],
-            (props: InsightLogicProps) => props.dashboardItemId?.startsWith(DATAWAREHOUSE_EDITOR_ITEM_ID),
+            (props: InsightLogicProps) => !!props.dashboardItemId?.startsWith(DATAWAREHOUSE_EDITOR_ITEM_ID),
         ],
 
         propsQuery: [
