@@ -26,6 +26,7 @@ import {
     FilterLogicalOperator,
     FilterType,
     HogFunctionConfigurationType,
+    HogFunctionFilters,
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionTemplateType,
@@ -33,7 +34,6 @@ import {
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
-    PluginConfigFilters,
     PropertyFilterType,
     PropertyGroupFilter,
 } from '~/types'
@@ -61,7 +61,7 @@ function sanitizeFilters(filters?: FilterType): HogFunctionType['filters'] {
     if (!filters) {
         return null
     }
-    const sanitized: PluginConfigFilters = {}
+    const sanitized: HogFunctionFilters = {}
 
     if (filters.events) {
         sanitized.events = filters.events.map((f) => ({
