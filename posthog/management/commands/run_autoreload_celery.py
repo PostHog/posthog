@@ -24,25 +24,20 @@ class Command(BaseCommand):
     def run_celery_worker(type: Literal["worker", "beat"]):
         from posthog.celery import app as celery_app
 
-        args = (
-            [
-                "-A",
-                "posthog",
-                "worker",
-                "--pool=threads",
-                f"--queues={','.join(q.value for q in CeleryQueue)}",
-            ]
-            if type == "worker"
-            else [
-                "-A",
-                "posthog",
+        if type == "beat":
+            args = [
                 "beat",
                 "--scheduler",
                 "redbeat.RedBeatScheduler",
             ]
-        )
+            celery_app.start(argv=args)
+            return
 
-        if type == "worker":
-            celery_app.worker_main(args)
-        else:
-            celery_app.start(args)
+        args = [
+            "-A",
+            "posthog",
+            "worker",
+            "--pool=threads",
+            f"--queues={','.join(q.value for q in CeleryQueue)}",
+        ]
+        celery_app.worker_main(args)
