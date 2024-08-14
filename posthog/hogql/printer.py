@@ -599,9 +599,6 @@ class _Printer(Visitor):
         return f"{self.visit(node.expr)} {node.order}"
 
     def get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
-        # TODO: Performance could be slightly improved by doing some of the easy checks first (e.g. node.op
-        # equality checks.)
-
         def resolve_field_type(expr: ast.Expr) -> ast.Expr:
             expr_type = expr.type
             while isinstance(expr_type, ast.FieldAliasType):
