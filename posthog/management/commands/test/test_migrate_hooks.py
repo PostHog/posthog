@@ -39,7 +39,7 @@ class TestMigrateHooks(BaseTest):
         assert HogFunction.objects.exists()
 
     def test_only_specified_hooks(self):
-        migrate_hooks(hook_ids=[9999], team_ids=[])
+        migrate_hooks(hook_ids=["9999"], team_ids=[])
         assert not HogFunction.objects.exists()
         migrate_hooks(hook_ids=[self.hook.id], team_ids=[])
         assert HogFunction.objects.exists()
@@ -64,82 +64,3 @@ class TestMigrateHooks(BaseTest):
         assert hog_function.icon_url == template_zapier.icon_url
 
         assert Hook.objects.count() == 0
-
-
-#     def test_migrates_message_format(self):
-#         migrate_hooks(hook_ids=[], team_ids=[], dry_run=False)
-#         hog_function = HogFunction.objects.all()[0]
-
-#         assert hog_function.inputs["url"]["value"] == "https://webhooks.slack.com/123"
-#         assert hog_function.inputs["method"]["value"] == "POST"
-#         assert hog_function.inputs["body"]["value"] == snapshot(
-#             {
-#                 "text": "{event.name} triggered by {person.name}",
-#                 "blocks": [
-#                     {
-#                         "text": {
-#                             "text": "<{event.url}|{event.name}> triggered by <{person.url}|{person.name}>",
-#                             "type": "mrkdwn",
-#                         },
-#                         "type": "section",
-#                     }
-#                 ],
-#             }
-#         )
-
-#     def test_migrates_message_format_not_slack(self):
-#         self.team.slack_incoming_webhook = "https://webhooks.other.com/123"
-#         self.team.save()
-#         migrate_hooks(hook_ids=[], team_ids=[], dry_run=False)
-#         hog_function = HogFunction.objects.all()[0]
-
-#         assert hog_function.inputs["url"]["value"] == "https://webhooks.other.com/123"
-#         assert hog_function.inputs["body"]["value"] == snapshot(
-#             {"text": "[{event.name}]({event.url}) triggered by [{person.name}]({person.url})"}
-#         )
-
-#     def test_migrates_advanced_message_format(self):
-#         self.action.slack_message_format = advanced_message_format
-#         self.action.save()
-#         migrate_hooks(hook_ids=[], team_ids=[], dry_run=False)
-#         hog_function = HogFunction.objects.all()[0]
-
-#         assert (
-#             hog_function.inputs["body"]["value"]["text"]
-#             == """Event: {event.name} {event.event} {event.link} {event.uuid}
-# Person: {person.name} {person.link} {person.properties.foo.bar}
-# Groups: {groups.organization.url}  {groups.organization.properties.foo.bar}
-# Action: Test Action {project.url}/data-management/actions/1""".replace("1", str(self.action.id))
-#         )
-
-#         assert hog_function.inputs["body"]["value"]["blocks"] == [
-#             {
-#                 "text": {
-#                     "text": """Event: <{event.url}|{event.name}> {event.event} {event.link} {event.uuid}
-# Person: <{person.url}|{person.name}> {person.link} {person.properties.foo.bar}
-# Groups: {groups.organization.url}  {groups.organization.properties.foo.bar}
-# Action: <{project.url}/data-management/actions/1|Test Action> {project.url}/data-management/actions/1""".replace(
-#                         "1", str(self.action.id)
-#                     ),
-#                     "type": "mrkdwn",
-#                 },
-#                 "type": "section",
-#             }
-#         ]
-
-#     def test_migrates_advanced_message_format_not_slack(self):
-#         self.action.slack_message_format = advanced_message_format
-#         self.action.save()
-#         self.team.slack_incoming_webhook = "https://webhooks.other.com/123"
-#         self.team.save()
-#         migrate_hooks(hook_ids=[], team_ids=[], dry_run=False)
-#         hog_function = HogFunction.objects.all()[0]
-
-#         assert hog_function.inputs["body"]["value"] == {
-#             "text": """\
-# Event: [{event.name}]({event.url}) {event.event} {event.link} {event.uuid}
-# Person: [{person.name}]({person.url}) {person.link} {person.properties.foo.bar}
-# Groups: {groups.organization.url}  {groups.organization.properties.foo.bar}
-# Action: [Test Action]({project.url}/data-management/actions/1) {project.url}/data-management/actions/1\
-# """.replace("1", str(self.action.id))
-#         }
