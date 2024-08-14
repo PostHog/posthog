@@ -45,7 +45,6 @@ type PostHogKafkaConsumer struct {
 	geolocator   GeoLocator
 	outgoingChan chan PostHogEvent
 	statsChan    chan PostHogEvent
-	counter      *SlidingWindowCounter
 }
 
 func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*PostHogKafkaConsumer, error) {
