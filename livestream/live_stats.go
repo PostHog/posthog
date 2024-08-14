@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	COUNTER_TTL = time.Second * 60
+	COUNTER_TTL = 60
 )
 
 type Stats struct {
@@ -20,8 +20,8 @@ type Stats struct {
 func newStatsKeeper() *Stats {
 	return &Stats{
 		Store:       make(map[string]*expirable.LRU[string, string]),
-		GlobalStore: expirable.NewLRU[string, string](0, nil, COUNTER_TTL),
-		Counter:     NewSlidingWindowCounter(60),
+		GlobalStore: expirable.NewLRU[string, string](0, nil, time.Second*COUNTER_TTL),
+		Counter:     NewSlidingWindowCounter(COUNTER_TTL),
 	}
 }
 
@@ -34,7 +34,7 @@ func (ts *Stats) keepStats(statsChan chan PostHogEvent) {
 			ts.Counter.Increment()
 			token := event.Token
 			if _, ok := ts.Store[token]; !ok {
-				ts.Store[token] = expirable.NewLRU[string, string](0, nil, COUNTER_TTL)
+				ts.Store[token] = expirable.NewLRU[string, string](0, nil, time.Second*COUNTER_TTL)
 			}
 			ts.Store[token].Add(event.DistinctId, "1")
 			ts.GlobalStore.Add(event.DistinctId, "1")
