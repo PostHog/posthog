@@ -447,14 +447,26 @@ class TestPrinter(BaseTest):
                 expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
             ),
             PropertyGroupComparisonTestCase(
+                "properties.key IN 'a'",  # strange, but syntactically valid
+                "in(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+                {"hogql_val_0": "key", "hogql_val_1": "a"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+            ),
+            PropertyGroupComparisonTestCase(
                 "properties.key IN ('a', 'b', '')",
                 (
                     "or("
                     "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)), "
-                    "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_3)s], %(hogql_val_4)s))"
+                    "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_3)s))"
                     ")"
                 ),
                 {"hogql_val_0": "key", "hogql_val_1": "", "hogql_val_2": "value"},
+                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            ),
+            PropertyGroupComparisonTestCase(
+                "properties.key IN ''",  # strange, but syntactically valid
+                "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
+                {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": ""},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             ),
         ]

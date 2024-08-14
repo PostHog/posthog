@@ -611,44 +611,71 @@ class _Printer(Visitor):
         property_type: ast.PropertyType | None = None
         constant_expr: ast.Constant | None = None
 
-        # XXX: This needs to handle aliasing for the constant operand, probably?
-        if isinstance(node.right, ast.Constant):
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            # For commutative operations, we can rewrite the expression with parameters in either order without
+            # affecting the result.
+            # XXX: This needs to handle aliasing for the constant operand, probably?
+            if isinstance(node.right, ast.Constant):
+                left_type = resolve_field_type(node.left)
+                if isinstance(left_type, ast.PropertyType):
+                    property_type = left_type
+                    constant_expr = node.right
+            elif isinstance(node.left, ast.Constant):
+                right_type = resolve_field_type(node.right)
+                if isinstance(right_type, ast.PropertyType):
+                    property_type = right_type
+                    constant_expr = node.left
+
+            # TODO: can probably optimize some operations that use chaining, but will need more thought
+            if property_type is None or len(property_type.chain) > 1:
+                return
+
+            property_source = self.__get_materialized_property_source(property_type)
+            if not isinstance(property_source, MaterializedPropertyGroupItem):
+                return
+
+            if node.op == ast.CompareOperationOp.Eq:
+                if constant_expr.value is None:
+                    # "IS NULL" can be interpreted as "does not exist in the map".
+                    return f"not({property_source.printed_has_expr})"
+
+                printed_expr = f"equals({property_source.printed_value_expr}, {self.visit(constant_expr)})"
+                if constant_expr.value == "":  # TODO: check type?
+                    # If we're comparing to an empty string literal, we need to disambiguate this from the default value
+                    # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
+                    # the property key is present in the map.
+                    printed_expr = f"and({property_source.printed_has_expr}, {printed_expr})"
+
+                return printed_expr
+
+            elif node.op == ast.CompareOperationOp.NotEq:
+                if constant_expr.value is None:
+                    # "IS NOT NULL" can be interpreted as "does exist in the map".
+                    return property_source.printed_has_expr
+
+        elif node.op in (ast.CompareOperationOp.In):
+            # `IN`` is _not_ commutative, so we only need to check the left side operand (in contrast with above.)
             left_type = resolve_field_type(node.left)
-            if isinstance(left_type, ast.PropertyType):
-                property_type = left_type
-                constant_expr = node.right
-        elif isinstance(node.left, ast.Constant):
-            right_type = resolve_field_type(node.right)
-            if isinstance(right_type, ast.PropertyType):
-                property_type = right_type
-                constant_expr = node.left
+            if not isinstance(left_type, ast.PropertyType):
+                return
 
-        # TODO: can probably optimize some operations that use chaining, but will need more thought
-        if property_type is None or len(property_type.chain) > 1:
-            return
+            if left_type is None or len(left_type.chain) > 1:
+                return
 
-        property_source = self.__get_materialized_property_source(property_type)
-        if not isinstance(property_source, MaterializedPropertyGroupItem):
-            return
+            property_source = self.__get_materialized_property_source(left_type)
+            if not isinstance(property_source, MaterializedPropertyGroupItem):
+                return
 
-        if node.op == ast.CompareOperationOp.Eq:
-            if constant_expr.value is None:
-                # "IS NULL" can be interpreted as "does not exist in the map".
-                return f"not({property_source.printed_has_expr})"
-
-            printed_expr = f"equals({property_source.printed_value_expr}, {self.visit(constant_expr)})"
-            if constant_expr.value == "":  # TODO: check type?
-                # If we're comparing to an empty string literal, we need to disambiguate this from the default value for
-                # the ``Map(String, String)`` type used for storing property group values by also ensuring that the
-                # property key is present in the map.
-                printed_expr = f"and({property_source.printed_has_expr}, {printed_expr})"
-
-            return printed_expr
-
-        elif node.op == ast.CompareOperationOp.NotEq:
-            if constant_expr.value is None:
-                # "IS NOT NULL" can be interpreted as "does exist in the map".
-                return property_source.printed_has_expr
+            if isinstance(node.right, ast.Constant):
+                if node.right.value == "":
+                    raise NotImplementedError
+                else:
+                    return f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
+            elif isinstance(node.right, ast.Tuple):
+                # TODO: check to make sure all values are constants
+                return f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
+            else:
+                return  # XXX: what about aliases?
 
         return  # nothing to optimize
 
