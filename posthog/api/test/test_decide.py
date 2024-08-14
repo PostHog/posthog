@@ -3173,6 +3173,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide().json()
             assert response["sessionRecording"] is False
+            self.assertEqual(response["quotaLimited"], ["sessionRecording"])
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
     def test_quota_limited_recordings_other_token(self, _fake_token_limiting, *args):
