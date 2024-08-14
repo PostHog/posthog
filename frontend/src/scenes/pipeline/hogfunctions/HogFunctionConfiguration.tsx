@@ -6,6 +6,7 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
+    LemonSelect,
     LemonSwitch,
     LemonTextArea,
     Link,
@@ -155,6 +156,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
+                {hogFunction?.filters?.bytecode_error ? (
+                    <div>
+                        <LemonBanner type="error">
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                        </LemonBanner>
+                    </div>
+                ) : null}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
@@ -248,7 +257,15 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             </div>
 
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filters by events and actions" className="gap-2">
+                                <LemonField
+                                    name="filters"
+                                    label="Filters"
+                                    help={
+                                        <>
+                                            This destination will be triggered if <b>any of</b> the above filters match.
+                                        </>
+                                    }
+                                >
                                     {({ value, onChange }) => (
                                         <>
                                             <TestAccountFilterSwitch
@@ -294,9 +311,113 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                     )}
                                 </LemonField>
 
-                                <p className="italic text-muted-alt">
-                                    This destination will be triggered if <b>any of</b> the above filters match.
-                                </p>
+                                <LemonField name="masking" label="Trigger options">
+                                    {({ value, onChange }) => (
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                            <LemonSelect
+                                                options={[
+                                                    {
+                                                        value: null,
+                                                        label: 'Run every time',
+                                                    },
+                                                    {
+                                                        value: 'all',
+                                                        label: 'Run once per interval',
+                                                    },
+                                                    {
+                                                        value: '{person.uuid}',
+                                                        label: 'Run once per person per interval',
+                                                    },
+                                                ]}
+                                                value={value?.hash ?? null}
+                                                onChange={(val) =>
+                                                    onChange({
+                                                        hash: val,
+                                                        ttl: value?.ttl ?? 60 * 30,
+                                                    })
+                                                }
+                                            />
+                                            {configuration.masking?.hash ? (
+                                                <>
+                                                    <div className="flex items-center gap-1 flex-wrap">
+                                                        <span>of</span>
+                                                        <LemonSelect
+                                                            value={value?.ttl}
+                                                            onChange={(val) => onChange({ ...value, ttl: val })}
+                                                            options={[
+                                                                {
+                                                                    value: 5 * 60,
+                                                                    label: '5 minutes',
+                                                                },
+                                                                {
+                                                                    value: 15 * 60,
+                                                                    label: '15 minutes',
+                                                                },
+                                                                {
+                                                                    value: 30 * 60,
+                                                                    label: '30 minutes',
+                                                                },
+                                                                {
+                                                                    value: 60 * 60,
+                                                                    label: '1 hour',
+                                                                },
+                                                                {
+                                                                    value: 2 * 60 * 60,
+                                                                    label: '2 hours',
+                                                                },
+                                                                {
+                                                                    value: 4 * 60 * 60,
+                                                                    label: '4 hours',
+                                                                },
+                                                                {
+                                                                    value: 8 * 60 * 60,
+                                                                    label: '8 hours',
+                                                                },
+                                                                {
+                                                                    value: 12 * 60 * 60,
+                                                                    label: '12 hours',
+                                                                },
+                                                                {
+                                                                    value: 24 * 60 * 60,
+                                                                    label: '24 hours',
+                                                                },
+                                                            ]}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center gap-1 flex-wrap">
+                                                        <span>or until</span>
+                                                        <LemonSelect
+                                                            value={value?.threshold}
+                                                            onChange={(val) => onChange({ ...value, threshold: val })}
+                                                            options={[
+                                                                {
+                                                                    value: null,
+                                                                    label: 'Not set',
+                                                                },
+                                                                {
+                                                                    value: 1000,
+                                                                    label: '1000 events',
+                                                                },
+                                                                {
+                                                                    value: 10000,
+                                                                    label: '10,000 events',
+                                                                },
+                                                                {
+                                                                    value: 100000,
+                                                                    label: '100,000 events',
+                                                                },
+                                                                {
+                                                                    value: 1000000,
+                                                                    label: '1,000,000 events',
+                                                                },
+                                                            ]}
+                                                        />
+                                                    </div>
+                                                </>
+                                            ) : null}
+                                        </div>
+                                    )}
+                                </LemonField>
                             </div>
                             <div className="relative border bg-bg-light rounded p-3 space-y-2">
                                 <LemonLabel>Expected volume</LemonLabel>

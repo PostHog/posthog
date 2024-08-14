@@ -52,6 +52,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     removeFromDashboard?: () => void
     deleteWithUndo?: () => Promise<void>
     refresh?: () => void
+    refreshEnabled?: boolean
     rename?: () => void
     duplicate?: () => void
     moveToDashboard?: (dashboard: DashboardBasicType) => void
@@ -82,6 +83,7 @@ function InsightCardInternal(
         removeFromDashboard,
         deleteWithUndo,
         refresh,
+        refreshEnabled,
         rename,
         duplicate,
         moveToDashboard,
@@ -132,6 +134,7 @@ function InsightCardInternal(
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
                         refresh={refresh}
+                        refreshEnabled={refreshEnabled}
                         loading={loadingQueued || loading}
                         rename={rename}
                         duplicate={duplicate}

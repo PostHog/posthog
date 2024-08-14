@@ -27,8 +27,7 @@ if (action == 'automatic') {
     }
 }
 
-let attributes := inputs.include_all_properties ? event.properties : {}
-
+let attributes := inputs.include_all_properties ? action == 'identify' ? person.properties : event.properties : {}
 let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 
 for (let key, value in inputs.attributes) {
@@ -142,7 +141,7 @@ if (res.status >= 400) {
             "key": "include_all_properties",
             "type": "boolean",
             "label": "Include all properties as attributes",
-            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below.",
+            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below. For identify events the Person properties will be used.",
             "default": False,
             "secret": False,
             "required": True,
