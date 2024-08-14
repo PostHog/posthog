@@ -72,7 +72,6 @@ func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID st
 }
 
 func (c *PostHogKafkaConsumer) Consume() {
-
 	err := c.consumer.SubscribeTopics([]string{c.topic}, nil)
 	if err != nil {
 		sentry.CaptureException(err)
