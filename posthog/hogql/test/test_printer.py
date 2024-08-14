@@ -14,7 +14,7 @@ from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_p
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgMaxVersion, PersonsOnEventsMode
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, cleanup_materialized_columns
 
 
 class TestPrinter(BaseTest):
@@ -332,6 +332,8 @@ class TestPrinter(BaseTest):
             ),
         )
 
+        cleanup_materialized_columns()
+
         self.assertEqual(
             self._expr("properties['foo']", context),
             "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null",
@@ -344,12 +346,10 @@ class TestPrinter(BaseTest):
             return
 
         # Properties that are materialized as columns should take precedence over the values in the group's map column.
-        # NOTE: Ideally this would test the same property key before and after materialization, but that state currently
-        # leaks over test runs - this is easier for now.
-        materialize("events", "foo_materialized")
+        materialize("events", "foo")
         self.assertEqual(
-            self._expr("properties['foo_materialized']", context),
-            "nullIf(nullIf(events.mat_foo_materialized, ''), 'null')",
+            self._expr("properties['foo']", context),
+            "nullIf(nullIf(events.mat_foo, ''), 'null')",
         )
 
     def test_methods(self):
