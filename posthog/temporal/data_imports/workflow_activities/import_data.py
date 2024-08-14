@@ -243,7 +243,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
         salesforce_access_token = integration.access_token
 
         if not salesforce_access_token:
-            salesforce_access_token = salesforce_refresh_access_token(refresh_token)
+            salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token)
 
         salesforce_instance_url = integration.config.get("instance_url")
 
