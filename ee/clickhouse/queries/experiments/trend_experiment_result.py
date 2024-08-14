@@ -36,7 +36,7 @@ Probability = float
 P_VALUE_SIGNIFICANCE_LEVEL = 0.05
 
 
-@dataclass
+@dataclass(frozen=True)
 class Variant:
     key: str
     count: int
