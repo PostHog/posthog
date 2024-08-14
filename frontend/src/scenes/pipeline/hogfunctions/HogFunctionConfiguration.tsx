@@ -263,7 +263,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         <>
                                             <TestAccountFilterSwitch
                                                 checked={value?.filter_test_accounts ?? false}
-                                                onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
+                                                onChange={(filter_test_accounts) =>
+                                                    onChange({ ...value, filter_test_accounts })
+                                                }
                                                 fullWidth
                                             />
                                             <PropertyFilters
@@ -275,10 +277,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                     TaxonomicFilterGroupType.Elements,
                                                     TaxonomicFilterGroupType.HogQLExpression,
                                                 ]}
-                                                onChange={(value: AnyPropertyFilter[]) => {
+                                                onChange={(properties: AnyPropertyFilter[]) => {
                                                     onChange({
                                                         ...value,
-                                                        properties: value,
+                                                        properties,
                                                     })
                                                 }}
                                                 pageKey={`HogFunctionPropertyFilters.${id}`}
