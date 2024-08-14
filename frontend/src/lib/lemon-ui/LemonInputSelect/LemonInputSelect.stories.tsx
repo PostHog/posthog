@@ -5,7 +5,24 @@ import { useState } from 'react'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonInputSelect, LemonInputSelectProps } from './LemonInputSelect'
 
-const names = ['ben', 'marius', 'paul', 'tiina', 'tim', 'james', 'neil', 'tom', 'annika', 'thomas']
+const names = [
+    'ben',
+    'marius',
+    'paul',
+    'tiina',
+    'tim',
+    'james',
+    'neil',
+    'tom',
+    'annika',
+    'thomas',
+    'eric',
+    'yakko',
+    'manoel',
+    'leon',
+    'lottie',
+    'charles',
+]
 
 type Story = StoryObj<typeof LemonInputSelect>
 const meta: Meta<typeof LemonInputSelect> = {
@@ -28,7 +45,7 @@ const meta: Meta<typeof LemonInputSelect> = {
                     </span>
                 </span>
             ),
-            label: `${x} ${x}@posthog.com>`,
+            label: `${capitalizeFirstLetter(x)} <${x}@posthog.com>`,
         })),
     },
     tags: ['autodocs'],
@@ -48,13 +65,13 @@ Default.args = {
 
 export const MultipleSelect: Story = Template.bind({})
 MultipleSelect.args = {
-    placeholder: 'Enter emails...',
+    placeholder: 'Pick email addresses',
     mode: 'multiple',
 }
 
 export const MultipleSelectWithCustom: Story = Template.bind({})
 MultipleSelectWithCustom.args = {
-    placeholder: 'Pick a url...',
+    placeholder: 'Enter URLs',
     mode: 'multiple',
     allowCustomValues: true,
     options: [
@@ -84,11 +101,23 @@ Disabled.args = {
 export const Loading: Story = Template.bind({})
 Loading.args = {
     mode: 'single',
-    placeholder: 'Loading...',
-    options: [],
+    placeholder: 'Loading with options...',
     loading: true,
 }
 Loading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const EmptyLoading: Story = Template.bind({})
+EmptyLoading.args = {
+    mode: 'single',
+    placeholder: 'Loading without options...',
+    options: [],
+    loading: true,
+}
+EmptyLoading.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
