@@ -2966,6 +2966,9 @@ export interface PreflightStatus {
         hubspot: {
             client_id?: string
         }
+        salesforce: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
@@ -4030,7 +4033,14 @@ export type BatchExportServiceRedshift = {
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
 // and update batchExportServiceNames in pipelineNodeNewLogic
-export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
+export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    'S3',
+    'Snowflake',
+    'Postgres',
+    'BigQuery',
+    'Redshift',
+    'HTTP',
+]
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
@@ -4234,6 +4244,9 @@ export interface SourceConfig {
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
+    showPrefix?: (payload: Record<string, any>) => boolean
+    showSourceForm?: (payload: Record<string, any>) => boolean
+    oauthPayload?: string[]
 }
 
 export interface ProductPricingTierSubrows {
