@@ -851,7 +851,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "duration",
                 "events": [
                     {
                         "id": "$pageview",
@@ -860,7 +859,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                         "name": "$pageview",
                     }
                 ],
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
             }
         )
 
@@ -870,7 +869,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "duration_type_filter": "active_seconds",
                 "events": [
                     {
                         "id": "$pageview",
@@ -879,7 +877,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                         "name": "$pageview",
                     }
                 ],
-                "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
+                "having_predicates": '[{"type":"recording","key":"active_seconds","value":60,"operator":"gt"}]',
             }
         )
 
@@ -2857,14 +2855,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "snapshot_source": '{"key": "snapshot_source", "value": ["web"], "operator": "exact", "type": "recording"}'
+                "having_predicates": '[{"key": "snapshot_source", "value": ["web"], "operator": "exact", "type": "recording"}]'
             }
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
         (session_recordings, _, _) = self._filter_recordings_by(
             {
-                "snapshot_source": '{"key": "snapshot_source", "value": ["mobile"], "operator": "exact", "type": "recording"}'
+                "having_predicates": '[{"key": "snapshot_source", "value": ["mobile"], "operator": "exact", "type": "recording"}]'
             }
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_two]
