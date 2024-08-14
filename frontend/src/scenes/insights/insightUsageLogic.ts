@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -74,6 +75,9 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
     })),
     subscriptions(({ actions }) => ({
         query: (query, oldQuery) => {
+            if (objectsEqual(query, oldQuery)) {
+                return
+            }
             actions.onQueryChange(query, oldQuery)
         },
     })),
