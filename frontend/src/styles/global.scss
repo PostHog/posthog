@@ -442,12 +442,12 @@ body {
     .LemonButton,
     .Link {
         .text-link {
-            color: var(--text-3000);
+            color: var(--text-3000) !important;
         }
 
         &:hover {
             .text-link {
-                color: var(--primary-3000);
+                color: var(--primary-3000) !important;
             }
         }
     }

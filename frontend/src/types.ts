@@ -3189,6 +3189,7 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
     last_refresh?: string | null
+    credible_intervals: { [key: string]: [number, number] }
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
@@ -4316,6 +4317,13 @@ export type HogFunctionInputType = {
     bytecode?: any
 }
 
+export type HogFunctionFiltersMasking = {
+    ttl: number | null
+    threshold?: number | null
+    hash: string
+    bytecode?: any
+}
+
 export type HogFunctionType = {
     id: string
     icon_url?: string
@@ -4329,6 +4337,7 @@ export type HogFunctionType = {
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
+    masking?: HogFunctionFiltersMasking | null
     filters?: HogConfigFilters | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
