@@ -24,9 +24,7 @@ import {
     BaseMathType,
     ChartDisplayType,
     FilterLogicalOperator,
-    FilterType,
     HogFunctionConfigurationType,
-    HogFunctionFilters,
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionTemplateType,
@@ -55,39 +53,6 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     inputs_schema: [],
     hog: "print('Hello, world!');",
     status: 'stable',
-}
-
-function sanitizeFilters(filters?: FilterType): HogFunctionType['filters'] {
-    if (!filters) {
-        return null
-    }
-    const sanitized: HogFunctionFilters = {}
-
-    if (filters.events) {
-        sanitized.events = filters.events.map((f) => ({
-            id: f.id,
-            type: 'events',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.actions) {
-        sanitized.actions = filters.actions.map((f) => ({
-            id: f.id,
-            type: 'actions',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.filter_test_accounts) {
-        sanitized.filter_test_accounts = filters.filter_test_accounts
-    }
-
-    return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -122,7 +87,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
     const payload: HogFunctionConfigurationType = {
         ...data,
-        filters: data.filters ? sanitizeFilters(data.filters) : null,
+        filters: data.filters,
         inputs: sanitizedInputs,
         masking: data.masking?.hash ? data.masking : null,
         icon_url: data.icon_url,

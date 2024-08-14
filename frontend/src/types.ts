@@ -4317,7 +4317,7 @@ export type HogFunctionFilterPropertyFilter = (
     | HogQLPropertyFilter
 )[]
 
-export interface HogFunctionFilters {
+export interface HogFunctionFiltersType {
     events?: HogFunctionFilterEvents[]
     actions?: HogFunctionFilterActions[]
     properties?: HogFunctionFilterPropertyFilter[]
@@ -4340,7 +4340,7 @@ export type HogFunctionType = {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
     masking?: HogFunctionMasking | null
-    filters?: HogFunctionFilters | null
+    filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
 }
