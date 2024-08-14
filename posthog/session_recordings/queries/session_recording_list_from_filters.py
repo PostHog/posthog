@@ -112,6 +112,8 @@ class SessionRecordingListFromFilters:
     def run(self) -> SessionRecordingQueryResult:
         query = self.get_query()
 
+        print(query)
+
         paginated_response = self._paginator.execute_hogql_query(
             # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
             query=cast(ast.SelectQuery, query),
@@ -120,7 +122,7 @@ class SessionRecordingListFromFilters:
             modifiers=self._hogql_query_modifiers,
         )
 
-        # print(paginated_response.hogql)
+        print(paginated_response.hogql)
 
         return SessionRecordingQueryResult(
             results=(self._data_to_return(self._paginator.results)),
