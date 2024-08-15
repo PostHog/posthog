@@ -15,7 +15,8 @@ interface PoolConfig {
     idleTimeoutSeconds?: number
 }
 
-interface PoolConfigInternal {
+// Type as expected by Cyclotron.
+interface InternalPoolConfig {
     db_url: string
     max_connections?: number
     min_connections?: number
@@ -28,8 +29,9 @@ interface ManagerConfig {
     shards: PoolConfig[]
 }
 
-interface ManagerConfigInternal {
-    shards: PoolConfigInternal[]
+// Type as expected by Cyclotron.
+interface InternalManagerConfig {
+    shards: InternalPoolConfig[]
 }
 
 interface JobInit {
@@ -43,7 +45,8 @@ interface JobInit {
     metadata?: string
 }
 
-interface JobInitInternal {
+// Type as expected by Cyclotron.
+interface InternalJobInit {
     team_id: number
     function_id: string
     queue_name: string
@@ -56,8 +59,47 @@ interface JobInitInternal {
 
 type JobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
 
+interface Job {
+    id: string
+    teamId: number
+    functionId: string | null
+    created: Date
+    lockId: string | null
+    lastHeartbeat: Date | null
+    janitorTouchCount: number
+    transitionCount: number
+    lastTransition: Date
+    queueName: string
+    state: JobState
+    priority: number
+    scheduled: Date
+    vmState: string | null
+    metadata: string | null
+    parameters: string | null
+}
+
+// Type as returned by Cyclotron.
+interface InternalJob {
+    id: string
+    team_id: number
+    function_id: string | null
+    created: string
+    lock_id: string | null
+    last_heartbeat: string | null
+    janitor_touch_count: number
+    transition_count: number
+    last_transition: string
+    queue_name: string
+    state: JobState
+    priority: number
+    scheduled: string
+    vm_state: string | null
+    metadata: string | null
+    parameters: string | null
+}
+
 export async function initWorker(poolConfig: PoolConfig) {
-    const initWorkerInternal: PoolConfigInternal = {
+    const initWorkerInternal: InternalPoolConfig = {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
         min_connections: poolConfig.minConnections,
@@ -69,7 +111,7 @@ export async function initWorker(poolConfig: PoolConfig) {
 }
 
 export async function initManager(managerConfig: ManagerConfig) {
-    const managerConfigInternal: ManagerConfigInternal = {
+    const managerConfigInternal: InternalManagerConfig = {
         shards: managerConfig.shards.map((shard) => ({
             db_url: shard.dbUrl,
             max_connections: shard.maxConnections,
@@ -83,7 +125,7 @@ export async function initManager(managerConfig: ManagerConfig) {
 }
 
 export async function maybeInitWorker(poolConfig: PoolConfig) {
-    const initWorkerInternal: PoolConfigInternal = {
+    const initWorkerInternal: InternalPoolConfig = {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
         min_connections: poolConfig.minConnections,
@@ -95,7 +137,7 @@ export async function maybeInitWorker(poolConfig: PoolConfig) {
 }
 
 export async function maybeInitManager(managerConfig: ManagerConfig) {
-    const managerConfigInternal: ManagerConfigInternal = {
+    const managerConfigInternal: InternalManagerConfig = {
         shards: managerConfig.shards.map((shard) => ({
             db_url: shard.dbUrl,
             max_connections: shard.maxConnections,
@@ -112,7 +154,7 @@ export async function createJob(job: JobInit) {
     job.priority ??= 1
     job.scheduled ??= new Date()
 
-    const jobInitInternal: JobInitInternal = {
+    const jobInitInternal: InternalJobInit = {
         team_id: job.teamId,
         function_id: job.functionId,
         queue_name: job.queueName,
@@ -125,32 +167,56 @@ export async function createJob(job: JobInit) {
     return await cyclotron.createJob(JSON.stringify(jobInitInternal))
 }
 
-export async function dequeueJobs(queueName: string, limit: number) {
-    return await cyclotron.dequeueJobs(queueName, limit)
+function convertInternalJobToJob(jobInternal: InternalJob): Job {
+    return {
+        id: jobInternal.id,
+        teamId: jobInternal.team_id,
+        functionId: jobInternal.function_id,
+        created: new Date(jobInternal.created),
+        lockId: jobInternal.lock_id,
+        lastHeartbeat: jobInternal.last_heartbeat ? new Date(jobInternal.last_heartbeat) : null,
+        janitorTouchCount: jobInternal.janitor_touch_count,
+        transitionCount: jobInternal.transition_count,
+        lastTransition: new Date(jobInternal.last_transition),
+        queueName: jobInternal.queue_name,
+        state: jobInternal.state,
+        priority: jobInternal.priority,
+        scheduled: new Date(jobInternal.scheduled),
+        vmState: jobInternal.vm_state,
+        metadata: jobInternal.metadata,
+        parameters: jobInternal.parameters,
+    }
 }
 
-export async function dequeueWithVmState(queueName: string, limit: number) {
-    return await cyclotron.dequeueWithVmState(queueName, limit)
+export async function dequeueJobs(queueName: string, limit: number): Promise<Job[]> {
+    const jobsStr = await cyclotron.dequeueJobs(queueName, limit)
+    const jobs: InternalJob[] = JSON.parse(jobsStr)
+    return jobs.map(convertInternalJobToJob)
+}
+export async function dequeueJobsWithVmState(queueName: string, limit: number): Promise<Job[]> {
+    const jobsStr = await cyclotron.dequeueJobsWithVmState(queueName, limit)
+    const jobs: InternalJob[] = JSON.parse(jobsStr)
+    return jobs.map(convertInternalJobToJob)
 }
 
 export async function flushJob(jobId: string) {
     return await cyclotron.flushJob(jobId)
 }
 
-export async function setState(jobId: string, jobState: JobState) {
-    return await cyclotron.setState(jobId, jobState)
+export function setState(jobId: string, jobState: JobState) {
+    return cyclotron.setState(jobId, jobState)
 }
 
-export async function setQueue(jobId: string, queueName: string) {
-    return await cyclotron.setQueue(jobId, queueName)
+export function setQueue(jobId: string, queueName: string) {
+    return cyclotron.setQueue(jobId, queueName)
 }
 
-export async function setPriority(jobId: string, priority: number) {
-    return await cyclotron.setPriority(jobId, priority)
+export function setPriority(jobId: string, priority: number) {
+    return cyclotron.setPriority(jobId, priority)
 }
 
-export async function setScheduledAt(jobId: string, scheduledAt: Date) {
-    return await cyclotron.setScheduledAt(jobId, scheduledAt.toISOString())
+export function setScheduledAt(jobId: string, scheduledAt: Date) {
+    return cyclotron.setScheduledAt(jobId, scheduledAt.toISOString())
 }
 
 function serializeObject(name: string, obj: Record<string, any> | null): string | null {
@@ -163,17 +229,17 @@ function serializeObject(name: string, obj: Record<string, any> | null): string 
     }
 }
 
-export async function setVmState(jobId: string, vmState: Record<string, any> | null) {
+export function setVmState(jobId: string, vmState: Record<string, any> | null) {
     const serialized = serializeObject('vmState', vmState)
-    return await cyclotron.setVmState(jobId, serialized)
+    return cyclotron.setVmState(jobId, serialized)
 }
 
-export async function setMetadata(jobId: string, metadata: Record<string, any> | null) {
+export function setMetadata(jobId: string, metadata: Record<string, any> | null) {
     const serialized = serializeObject('metadata', metadata)
-    return await cyclotron.setMetadata(jobId, serialized)
+    return cyclotron.setMetadata(jobId, serialized)
 }
 
-export async function setParameters(jobId: string, parameters: Record<string, any> | null) {
+export function setParameters(jobId: string, parameters: Record<string, any> | null) {
     const serialized = serializeObject('parameters', parameters)
-    return await cyclotron.setParameters(jobId, serialized)
+    return cyclotron.setParameters(jobId, serialized)
 }

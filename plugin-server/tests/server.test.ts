@@ -97,6 +97,7 @@ describe('server', () => {
                 cdpProcessedEvents: true,
                 cdpFunctionCallbacks: true,
                 cdpFunctionOverflow: true,
+                cdpCyclotronConsumer: true,
                 syncInlinePlugins: true,
             }
         )

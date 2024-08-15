@@ -436,7 +436,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("maybeInitManager", maybe_init_manager)?;
     cx.export_function("createJob", create_job)?;
     cx.export_function("dequeueJobs", dequeue_jobs)?;
-    cx.export_function("dequeueWithVmState", dequeue_with_vm_state)?;
+    cx.export_function("dequeueJobsWithVmState", dequeue_with_vm_state)?;
     cx.export_function("flushJob", flush_job)?;
     cx.export_function("setState", set_state)?;
     cx.export_function("setQueue", set_queue)?;

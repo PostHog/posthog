@@ -581,6 +581,22 @@ export async function startPluginsServer(
             healthChecks['cdp-overflow'] = () => consumer.isHealthy() ?? false
         }
 
+        if (capabilities.cdpCyclotronConsumer) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            if (hub.CYCLOTRON_DATABASE_URL) {
+                await cyclotron.initManager({ shards: [{ dbUrl: hub.CYCLOTRON_DATABASE_URL }] })
+                await cyclotron.initWorker({ dbUrl: hub.CYCLOTRON_DATABASE_URL })
+            }
+
+            const limit = 100
+            while (true) {
+                const jobs = await cyclotron.dequeueJobsWithVmState('fetch', limit)
+                for (const job of jobs) {
+                    console.log(job.id)
+                }
+            }
+        }
+
         if (capabilities.http) {
             const app = setupCommonRoutes(healthChecks, analyticsEventsIngestionConsumer)
 
