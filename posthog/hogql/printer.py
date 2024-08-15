@@ -608,7 +608,7 @@ class _Printer(Visitor):
         if not self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.OPTIMIZED:
             return None
 
-        def resolve_field_type(expr: ast.Expr) -> ast.Expr | None:
+        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
             expr_type = expr.type
             while isinstance(expr_type, ast.FieldAliasType):
                 expr_type = expr_type.type
@@ -923,7 +923,7 @@ class _Printer(Visitor):
         # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
         # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
         # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
-        def resolve_field_type(expr: ast.Expr) -> ast.Expr | None:
+        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
             expr_type = expr.type
             while isinstance(expr_type, ast.FieldAliasType):
                 expr_type = expr_type.type
