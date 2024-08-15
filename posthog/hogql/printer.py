@@ -620,8 +620,8 @@ class _Printer(Visitor):
             # NOTE: For now, this only works with comparisons to constant values directly, but this could be improved so
             # that any expression that doesn't reference a field as part of the expression (and therefore can be
             # resolved to a constant value during the initial stages of query execution, e.g. ``lower(concat('X','Y'))``
-            # and similar) is supported to improve the usefulness of the index. (The same applies to ``In`` comparisons
-            # below, too.)
+            # and similar) is supported to improve the usefulness of the index -- but we'll need to take care to handle
+            # expressions that return NULL values or empty strings. (The same applies to ``In`` comparisons below, too.)
             property_type: ast.PropertyType | None = None
             constant_expr: ast.Constant | None = None
 
