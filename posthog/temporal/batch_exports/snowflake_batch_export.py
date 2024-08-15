@@ -758,6 +758,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 "ProgrammingError",
                 # Raised by Snowflake with an incorrect account name.
                 "ForbiddenError",
+                # Seems to be raised when we can't connect to Snowflake due to invalid parameters like
+                # an invalid account.
+                "OperationalError",
             ],
             finish_inputs=finish_inputs,
         )
