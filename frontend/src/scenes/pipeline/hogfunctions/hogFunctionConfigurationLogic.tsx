@@ -627,6 +627,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     description: values.configuration.description,
                     inputs,
                 })
+
+                lemonToast.success('Template updates applied but not saved.')
             }
         },
         setConfigurationValue: () => {
