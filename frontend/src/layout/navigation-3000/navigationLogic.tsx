@@ -493,6 +493,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
+                        !hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.DataWarehouse,
+                                  label: 'Data warehouse',
+                                  icon: <IconServer />,
+                                  to: isUsingSidebar ? undefined : urls.dataWarehouse(),
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,
