@@ -26,7 +26,6 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -35,18 +34,11 @@ import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { SurveyQuestionLabel } from './constants'
 import { openSurveysSettingsDialog } from './SurveySettings'
-import { getSurveyStatus, surveysLogic } from './surveysLogic'
+import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
-}
-
-export enum SurveysTabs {
-    Active = 'active',
-    Yours = 'yours',
-    Archived = 'archived',
-    History = 'history',
 }
 
 export function Surveys(): JSX.Element {
@@ -59,13 +51,13 @@ export function Surveys(): JSX.Element {
         searchTerm,
         filters,
         showSurveysDisabledBanner,
+        tab,
     } = useValues(surveysLogic)
 
-    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters } = useActions(surveysLogic)
+    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
 
-    const [tab, setSurveyTab] = useState(filters.archived ? SurveysTabs.Archived : SurveysTabs.Active)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
 
     return (
@@ -112,10 +104,7 @@ export function Surveys(): JSX.Element {
             />
             <LemonTabs
                 activeKey={tab}
-                onChange={(newTab) => {
-                    setSurveyTab(newTab)
-                    setSurveysFilters({ ...filters, archived: newTab === SurveysTabs.Archived })
-                }}
+                onChange={(newTab) => setTab(newTab as SurveysTabs)}
                 tabs={[
                     { key: SurveysTabs.Active, label: 'Active' },
                     { key: SurveysTabs.Archived, label: 'Archived' },

@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,6 +12,13 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
+
+export enum SurveysTabs {
+    Active = 'active',
+    Yours = 'yours',
+    Archived = 'archived',
+    History = 'history',
+}
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -37,6 +44,7 @@ export const surveysLogic = kea<surveysLogicType>([
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
+        setTab: (tab: SurveysTabs) => ({ tab }),
     }),
     loaders(({ values }) => ({
         surveys: {
@@ -63,6 +71,12 @@ export const surveysLogic = kea<surveysLogicType>([
         },
     })),
     reducers({
+        tab: [
+            SurveysTabs.Active,
+            {
+                setTab: (_, { tab }) => tab,
+            },
+        ],
         searchTerm: {
             setSearchTerm: (_, { searchTerm }) => searchTerm,
         },
@@ -79,7 +93,7 @@ export const surveysLogic = kea<surveysLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         deleteSurveySuccess: () => {
             lemonToast.success('Survey deleted')
             router.actions.push(urls.surveys())
@@ -94,6 +108,9 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
+        },
+        setTab: ({ newTab }) => {
+            actions.setSurveysFilters({ ...values.filters, archived: newTab === SurveysTabs.Archived })
         },
     })),
     selectors({
@@ -179,6 +196,20 @@ export const surveysLogic = kea<surveysLogicType>([
             },
         ],
     }),
+    actionToUrl(({ values, props }) => ({
+        setTab: () => {
+            console.log('HERE!=!=!', values.tab)
+            const tab = values.tab
+            return [router.values.location.pathname, { ...router.values.searchParams, tab }]
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        [urls.surveys()]: (_, { tab }) => {
+            if (tab) {
+                actions.setTab(tab)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadSurveys()
         actions.loadResponsesCount()
