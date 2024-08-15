@@ -23,9 +23,10 @@ export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !embedded
 
-    const { display, series, breakdownFilter, loadMoreBreakdownUrl, hasBreakdownOther, breakdownValuesLoading } =
-        useValues(trendsDataLogic(insightProps))
-    const { loadMoreBreakdownValues, updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
+    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading } = useValues(
+        trendsDataLogic(insightProps)
+    )
+    const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -72,27 +73,25 @@ export function TrendInsight({ view, context, embedded }: Props): JSX.Element {
             {!embedded &&
                 display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdownFilter &&
-                (hasBreakdownOther || loadMoreBreakdownUrl) && (
-                    <div className="my-4 flex flex-col items-center px-2">
-                        <div className="text-muted text-center mb-2">
-                            For readability, <b>not all breakdown values are displayed</b>. Click below to load more.
+                hasBreakdownMore && (
+                    <div className="p-4">
+                        <div className="text-muted">
+                            Breakdown limited to {breakdownFilter.breakdown_limit || 25} - more available
+                            <LemonButton
+                                onClick={() =>
+                                    updateBreakdownFilter({
+                                        ...breakdownFilter,
+                                        breakdown_limit: (breakdownFilter.breakdown_limit || 25) * 2,
+                                    })
+                                }
+                                loading={breakdownValuesLoading}
+                                size="xsmall"
+                                type="secondary"
+                                className="inline-block ml-2"
+                            >
+                                Set to {(breakdownFilter.breakdown_limit || 25) * 2}
+                            </LemonButton>
                         </div>
-                        <LemonButton
-                            onClick={
-                                hasBreakdownOther
-                                    ? () =>
-                                          updateBreakdownFilter({
-                                              ...breakdownFilter,
-                                              breakdown_limit: (breakdownFilter.breakdown_limit || 25) * 2,
-                                          })
-                                    : loadMoreBreakdownValues
-                            }
-                            loading={breakdownValuesLoading}
-                            size="small"
-                            type="secondary"
-                        >
-                            Load more breakdown values
-                        </LemonButton>
                     </div>
                 )}
         </>
