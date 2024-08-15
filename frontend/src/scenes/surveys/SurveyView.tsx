@@ -13,6 +13,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { ConnectedDestinations } from 'scenes/pipeline/destinations/ConnectedDestinations'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
@@ -391,6 +392,40 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 ),
                                 key: 'overview',
                                 label: 'Overview',
+                            },
+                            {
+                                key: 'notifications',
+                                label: 'Notifications',
+                                content: (
+                                    <div>
+                                        <p>Get notified whenever a survey result is submitted</p>
+                                        <ConnectedDestinations
+                                            filters={{
+                                                events: [
+                                                    {
+                                                        id: 'survey sent',
+                                                        type: 'events',
+                                                        order: 0,
+                                                        properties: [
+                                                            {
+                                                                key: '$survey_response',
+                                                                type: PropertyFilterType.Event,
+                                                                value: 'is_set',
+                                                                operator: PropertyOperator.IsSet,
+                                                            },
+                                                            {
+                                                                key: '$survey_id',
+                                                                type: PropertyFilterType.Event,
+                                                                value: id,
+                                                                operator: PropertyOperator.Exact,
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            }}
+                                        />
+                                    </div>
+                                ),
                             },
                             {
                                 label: 'History',
