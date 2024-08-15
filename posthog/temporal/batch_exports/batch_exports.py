@@ -174,11 +174,12 @@ async def iter_records_from_model_view(
     team_id: int,
     interval_start: str,
     interval_end: str,
+    fields: list[BatchExportField],
     **parameters,
 ) -> AsyncRecordsGenerator:
     if model_name == "persons":
         view = SELECT_FROM_PERSONS_VIEW
-    elif team_id not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
+    elif str(team_id) not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
         # TODO: Let this model be exported by `astream_query_as_arrow`.
         # Just to reduce risk, I don't want to change the function that runs 100% of the exports
         # without battle testing it first.
@@ -192,24 +193,50 @@ async def iter_records_from_model_view(
             is_backfill=is_backfill,
             interval_start=interval_start,
             interval_end=interval_end,
+            fields=fields,
             **parameters,
         ):
             yield record_batch
         return
     else:
-        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            view = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
-        elif is_backfill:
-            view = SELECT_FROM_EVENTS_VIEW_BACKFILL
+        if parameters["exclude_events"]:
+            parameters["exclude_events"] = list(parameters["exclude_events"])
         else:
-            view = SELECT_FROM_EVENTS_VIEW
+            parameters["exclude_events"] = []
+
+        if parameters["include_events"]:
+            parameters["include_events"] = list(parameters["include_events"])
+        else:
+            parameters["include_events"] = []
+
+        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+            query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+        elif is_backfill:
+            query = SELECT_FROM_EVENTS_VIEW_BACKFILL
+        else:
+            query = SELECT_FROM_EVENTS_VIEW
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
+
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        else:
+            control_fields = []
+
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+
+        view = query.substitute(fields=query_fields)
 
     parameters["team_id"] = team_id
     parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-    async for record_batch in client.astream_query_as_arrow(view, query_parameters=parameters):
+    extra_query_parameters = parameters.pop("extra_query_parameters") or {}
+    parameters = {**parameters, **extra_query_parameters}
+
+    async for record_batch in client.astream_query_as_arrow(
+        query=view,
+        query_parameters=parameters,
+    ):
         yield record_batch
 
 
