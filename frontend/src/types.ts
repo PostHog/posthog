@@ -33,6 +33,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { QueryContext } from '~/queries/types'
 
 import type {
+    AnomalyCondition,
     DashboardFilter,
     DatabaseSchemaField,
     HogQLQuery,
@@ -4406,13 +4407,6 @@ export type HogFunctionInvocationGlobals = {
             properties: Record<string, any>
         }
     >
-}
-
-export interface AnomalyCondition {
-    absoluteThreshold: {
-        lower?: number
-        upper?: number
-    }
 }
 
 export interface AlertType {
