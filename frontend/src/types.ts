@@ -4308,9 +4308,19 @@ export interface HogFunctionFilterActions extends HogFunctionFilterBase {
     type: 'actions'
 }
 
-export interface HogFunctionFilters {
+export type HogFunctionFilterPropertyFilter = (
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+    | HogQLPropertyFilter
+)[]
+
+export interface HogFunctionFiltersType {
     events?: HogFunctionFilterEvents[]
     actions?: HogFunctionFilterActions[]
+    properties?: HogFunctionFilterPropertyFilter[]
     filter_test_accounts?: boolean
     bytecode?: any[]
     bytecode_error?: string
@@ -4330,7 +4340,7 @@ export type HogFunctionType = {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
     masking?: HogFunctionMasking | null
-    filters?: HogFunctionFilters | null
+    filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
 }
