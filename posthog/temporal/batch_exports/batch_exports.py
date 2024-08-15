@@ -84,7 +84,6 @@ SELECT
 FROM
     events_batch_export_unbounded(
         team_id={team_id},
-        lookback_days={lookback_days},
         interval_start={interval_start},
         interval_end={interval_end},
         include_events={include_events}::Array(String),
