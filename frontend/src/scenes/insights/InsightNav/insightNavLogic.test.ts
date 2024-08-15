@@ -110,9 +110,9 @@ describe('insightNavLogic', () => {
                 expect(builtInsightNavLogicForTheCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
             })
 
-            it('does set view from setInsight if filters are overriding', async () => {
+            it('does set view from setInsight when overriding the query', async () => {
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight({ query: examples.FunnelsQuery }, { overrideQuery: true })
+                    builtInsightLogic.actions.setInsight({ query: examples.InsightFunnels }, { overrideQuery: true })
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
                 })
