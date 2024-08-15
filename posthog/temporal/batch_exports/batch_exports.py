@@ -210,11 +210,11 @@ async def iter_records_from_model_view(
             parameters["include_events"] = []
 
         if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+            query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
         elif is_backfill:
-            query = SELECT_FROM_EVENTS_VIEW_BACKFILL
+            query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
         else:
-            query = SELECT_FROM_EVENTS_VIEW
+            query_template = SELECT_FROM_EVENTS_VIEW
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
@@ -225,7 +225,7 @@ async def iter_records_from_model_view(
 
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-        view = query.substitute(fields=query_fields)
+        view = query_template.substitute(fields=query_fields)
 
     parameters["team_id"] = team_id
     parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
