@@ -748,6 +748,34 @@ class TestSurvey(APIBaseTest):
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
 
+    def test_survey_targeting_flag_numeric_validation(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with numeric targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "$browser_version",
+                                    "value": "10",
+                                    "operator": "gt",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": ""},
+            },
+            format="json",
+        )
+        assert survey_with_targeting.status_code == status.HTTP_201_CREATED
+
     def test_updating_survey_to_send_none_linked_flag_removes_linking(self):
         linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
 

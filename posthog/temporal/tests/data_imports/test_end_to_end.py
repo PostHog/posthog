@@ -1,5 +1,7 @@
 from typing import Any, Optional
 from unittest import mock
+import aioboto3
+import functools
 import uuid
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -28,6 +30,8 @@ from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 
 
 BUCKET_NAME = "test-pipeline"
+SESSION = aioboto3.Session()
+create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
 
 @pytest.fixture
@@ -55,6 +59,26 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     yield connection
 
     await connection.close()
+
+
+@pytest_asyncio.fixture
+async def minio_client():
+    """Manage an S3 client to interact with a MinIO bucket.
+
+    Yields the client after creating a bucket. Upon resuming, we delete
+    the contents and the bucket itself.
+    """
+    async with create_test_client(
+        "s3",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    ) as minio_client:
+        try:
+            await minio_client.head_bucket(Bucket=BUCKET_NAME)
+        except:
+            await minio_client.create_bucket(Bucket=BUCKET_NAME)
+
+        yield minio_client
 
 
 async def _run(
@@ -504,3 +528,35 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
     assert columns[0] == "id"
     assert columns[1] == "_dlt_id"
     assert columns[2] == "_dlt_load_id"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_wrapper_files(team, stripe_balance_transaction, minio_client):
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_balance_transaction["data"],
+    )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    latest_job = jobs[0]
+    folder_path = await sync_to_async(latest_job.folder_path)()
+
+    s3_objects = await minio_client.list_objects_v2(
+        Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
+    )
+
+    assert len(s3_objects["Contents"]) != 0
