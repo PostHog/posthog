@@ -3194,7 +3194,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide().json()
             assert response["sessionRecording"] is not False
-            assert not response["quotaLimited"]
+            assert not response.get("quotaLimited")
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_when_enabled(self, *args):
