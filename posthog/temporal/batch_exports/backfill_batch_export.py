@@ -170,7 +170,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             if description.schedule.spec.time_zone_name is None
             else zoneinfo.ZoneInfo(description.schedule.spec.time_zone_name)
         )
-        start_at = start_at.astimezone(required_timezone)
+        start_at = start_at.replace(tzinfo=required_timezone)
 
     if end_at is not None and description.schedule.spec.time_zone_name != end_at.tzname():
         required_timezone = (
@@ -178,7 +178,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             if description.schedule.spec.time_zone_name is None
             else zoneinfo.ZoneInfo(description.schedule.spec.time_zone_name)
         )
-        end_at = end_at.astimezone(required_timezone)
+        end_at = end_at.replace(tzinfo=required_timezone)
 
     frequency = dt.timedelta(seconds=inputs.frequency_seconds)
     full_backfill_range = backfill_range(start_at, end_at, frequency)

@@ -48,7 +48,7 @@ from posthog.utils import relative_date_parse
 logger = structlog.get_logger(__name__)
 
 
-def validate_date_input(date_input: Any, team: Team) -> dt.datetime:
+def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetime:
     """Parse any datetime input as a proper dt.datetime.
 
     Args:
@@ -72,7 +72,8 @@ def validate_date_input(date_input: Any, team: Team) -> dt.datetime:
     if parsed.tzinfo is None:
         raise ValidationError(f"Input {date_input} is naive.")
     else:
-        parsed = parsed.astimezone(team.timezone_info)
+        if team is not None:
+            parsed = parsed.astimezone(team.timezone_info)
 
     return parsed
 
