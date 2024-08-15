@@ -28,7 +28,7 @@ export function Overview(): JSX.Element {
                 comparisonVariant = sortedWinProbabilities.find(({ key }) => key === 'control')
             }
 
-            if (!comparisonVariant) {
+            if (!winningVariant?.conversionRate || !comparisonVariant?.conversionRate) {
                 return <></>
             }
 

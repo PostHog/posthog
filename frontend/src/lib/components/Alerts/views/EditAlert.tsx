@@ -6,44 +6,34 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { InsightShortId } from '~/types'
-
-import { alertLogic } from '../alertLogic'
+import { alertLogic, AlertLogicProps } from '../alertLogic'
 import { alertsLogic } from '../alertsLogic'
 
-interface EditAlertProps {
-    id: number | 'new'
-    insightShortId: InsightShortId
+interface EditAlertProps extends AlertLogicProps {
     onCancel: () => void
     onDelete: () => void
 }
 
-export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertProps): JSX.Element {
-    const logicProps = {
-        id,
-        insightShortId,
-    }
-    const logic = alertLogic(logicProps)
-    const alertslogic = alertsLogic({
-        id,
-        insightShortId,
-    })
+export function EditAlert(props: EditAlertProps): JSX.Element {
+    const logic = alertLogic(props)
+    const alertslogic = alertsLogic(props)
 
     const { alert, isAlertSubmitting, alertChanged } = useValues(logic)
     const { deleteAlert } = useActions(alertslogic)
+    const id = props.id
 
     const _onDelete = (): void => {
         if (id !== 'new') {
             deleteAlert(id)
-            onDelete()
+            props.onDelete()
         }
     }
 
     return (
-        <Form logic={alertLogic} props={logicProps} formKey="alert" enableFormOnSubmit className="LemonModal__layout">
+        <Form logic={alertLogic} props={props} formKey="alert" enableFormOnSubmit className="LemonModal__layout">
             <LemonModal.Header>
                 <div className="flex items-center gap-2">
-                    <LemonButton icon={<IconChevronLeft />} onClick={onCancel} size="xsmall" />
+                    <LemonButton icon={<IconChevronLeft />} onClick={props.onCancel} size="xsmall" />
 
                     <h3>{id === 'new' ? 'New' : 'Edit '} Alert</h3>
                 </div>
@@ -70,10 +60,18 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                         </LemonField>
                         <Group name={['anomaly_condition', 'absoluteThreshold']}>
                             <span className="flex gap-10">
-                                <LemonField name="lower" label="Lower threshold">
+                                <LemonField
+                                    name="lower"
+                                    label="Lower threshold"
+                                    help="Notify if the value is strictly below"
+                                >
                                     <LemonInput type="number" className="w-20" data-attr="alert-lower-threshold" />
                                 </LemonField>
-                                <LemonField name="upper" label="Upper threshold">
+                                <LemonField
+                                    name="upper"
+                                    label="Upper threshold"
+                                    help="Notify if the value is strictly above"
+                                >
                                     <LemonInput type="number" className="w-20" data-attr="alert-upper-threshold" />
                                 </LemonField>
                             </span>
@@ -90,7 +88,7 @@ export function EditAlert({ id, insightShortId, onCancel, onDelete }: EditAlertP
                         </LemonButton>
                     )}
                 </div>
-                <LemonButton type="secondary" onClick={onCancel}>
+                <LemonButton type="secondary" onClick={props.onCancel}>
                     Cancel
                 </LemonButton>
                 <LemonButton type="primary" htmlType="submit" loading={isAlertSubmitting} disabled={!alertChanged}>

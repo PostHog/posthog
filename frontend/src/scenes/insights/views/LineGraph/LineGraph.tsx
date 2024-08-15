@@ -318,7 +318,11 @@ export function LineGraph_({
 
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getTrendLikeSeriesColor(dataset?.colorIndex ?? dataset.seriesIndex, isPrevious && !isArea)
+            : getTrendLikeSeriesColor(
+                  // colorIndex is set for trends, seriesIndex is used for stickiness, index is used for retention
+                  dataset?.colorIndex ?? dataset.seriesIndex ?? dataset.index,
+                  isPrevious && !isArea
+              )
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
         const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)

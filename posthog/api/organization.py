@@ -18,6 +18,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_METHODS,
     APIScopePermission,
@@ -69,6 +70,9 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
+    logo_media_id = serializers.PrimaryKeyRelatedField(
+        queryset=UploadedMedia.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = Organization
@@ -76,6 +80,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "id",
             "name",
             "slug",
+            "logo_media_id",
             "created_at",
             "updated_at",
             "membership_level",
@@ -111,7 +116,6 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
-
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:

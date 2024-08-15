@@ -135,7 +135,7 @@ function SidebarSearchBar({
     return (
         <div>
             <LemonInput
-                ref={inputElementRef}
+                inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}
                 onChange={(value) => {

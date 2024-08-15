@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react'
 
 import { HogFunctionInputSchemaType, HogFunctionInputType } from '~/types'
 
+import { EmailTemplater } from './email-templater/EmailTemplater'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
@@ -38,7 +39,7 @@ export type HogFunctionInputWithSchemaProps = {
     schema: HogFunctionInputSchemaType
 }
 
-const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration'] as const
+const typeList = ['string', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 function JsonConfigField(props: {
     onChange?: (value: string) => void
@@ -64,6 +65,22 @@ function JsonConfigField(props: {
             }}
             globals={exampleInvocationGlobalsWithInputs}
         />
+    )
+}
+
+function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }): JSX.Element {
+    const { exampleInvocationGlobalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
+
+    return (
+        <>
+            <EmailTemplater
+                formLogic={hogFunctionConfigurationLogic}
+                formLogicProps={logicProps}
+                formKey="configuration"
+                formFieldsPrefix={`inputs.${schema.key}.value`}
+                globals={exampleInvocationGlobalsWithInputs}
+            />
+        </>
     )
 }
 
@@ -97,7 +114,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                     />
 
                     <HogFunctionTemplateInput
-                        className="flex-2 max-w-full"
+                        className="flex-2 overflow-hidden"
                         value={val}
                         language="hogTemplate"
                         onChange={(val) => {
@@ -165,6 +182,8 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
             return <HogFunctionInputIntegration schema={schema} value={value} onChange={onChange} />
         case 'integration_field':
             return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
+        case 'email':
+            return <EmailTemplateField schema={schema} />
         default:
             return (
                 <strong className="text-danger">

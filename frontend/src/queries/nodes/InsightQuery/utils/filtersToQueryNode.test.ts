@@ -81,6 +81,44 @@ describe('actionsAndEventsToSeries', () => {
 
         expect(result[0].kind).toEqual(NodeKind.EventsNode)
     })
+
+    it('converts funnels math types', () => {
+        const actions: ActionFilter[] = [
+            { type: 'actions', id: '1', order: 0, name: 'item1', math: 'total' },
+            { type: 'actions', id: '1', order: 1, name: 'item2', math: 'first_time_for_user' },
+        ]
+        const events: ActionFilter[] = [
+            { id: '$pageview', type: 'events', order: 2, name: 'item3', math: 'total' },
+            { id: '$autocapture', type: 'events', order: 3, name: 'item4', math: 'first_time_for_user' },
+        ]
+
+        const result = actionsAndEventsToSeries({ events, actions }, false, MathAvailability.FunnelsOnly)
+
+        expect(result).toEqual([
+            {
+                kind: NodeKind.ActionsNode,
+                id: '1',
+                name: 'item1',
+            },
+            {
+                kind: NodeKind.ActionsNode,
+                id: '1',
+                name: 'item2',
+                math: BaseMathType.FirstTimeForUser,
+            },
+            {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: 'item3',
+            },
+            {
+                kind: NodeKind.EventsNode,
+                event: '$autocapture',
+                name: 'item4',
+                math: BaseMathType.FirstTimeForUser,
+            },
+        ])
+    })
 })
 
 describe('hiddenLegendKeysToIndexes', () => {
@@ -595,6 +633,27 @@ describe('filtersToQueryNode', () => {
                     hiddenLegendBreakdowns: ['Chrome', 'Safari'],
                 },
                 series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('converts math type', () => {
+            const filters: Partial<FunnelsFilterType> = {
+                events: [{ id: '$pageview', type: 'events', order: 0, math: BaseMathType.FirstTimeForUser }],
+                insight: InsightType.FUNNELS,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        math: BaseMathType.FirstTimeForUser,
+                    },
+                ],
             }
             expect(result).toEqual(query)
         })

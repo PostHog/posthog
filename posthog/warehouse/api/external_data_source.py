@@ -30,7 +30,7 @@ from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
-    get_access_token_from_code,
+    get_hubspot_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
     filter_postgres_incremental_fields,
@@ -210,27 +210,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.prefetch_related(
-            "created_by",
-            Prefetch(
-                "jobs",
-                queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
-                to_attr="ordered_jobs",
-            ),
-            Prefetch(
-                "schemas",
-                queryset=ExternalDataSchema.objects.select_related(
-                    "table__credential", "table__external_data_source"
-                ).order_by("name"),
-            ),
-            Prefetch(
-                "schemas",
-                queryset=ExternalDataSchema.objects.filter(should_sync=True).select_related(
-                    "source", "table__credential", "table__external_data_source"
+        return (
+            queryset.exclude(deleted=True)
+            .prefetch_related(
+                "created_by",
+                Prefetch(
+                    "jobs",
+                    queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
+                    to_attr="ordered_jobs",
                 ),
-                to_attr="active_schemas",
-            ),
-        ).order_by(self.ordering)
+                Prefetch(
+                    "schemas",
+                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    .select_related("table__credential", "table__external_data_source")
+                    .order_by("name"),
+                ),
+                Prefetch(
+                    "schemas",
+                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    .filter(should_sync=True)
+                    .select_related("source", "table__credential", "table__external_data_source"),
+                    to_attr="active_schemas",
+                ),
+            )
+            .order_by(self.ordering)
+        )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
@@ -258,6 +262,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.ZENDESK:
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.SALESFORCE:
+            new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
         elif source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
             try:
                 new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
@@ -392,6 +398,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
+    def _handle_salesforce_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+        integration_id = payload.get("integration_id")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "salesforce_integration_id": integration_id,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
     def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         code = payload.get("code")
@@ -399,7 +426,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        access_token, refresh_token = get_access_token_from_code(code, redirect_uri=redirect_uri)
+        access_token, refresh_token = get_hubspot_access_token_from_code(code, redirect_uri=redirect_uri)
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
@@ -534,17 +561,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return new_source_model, schemas
 
     def prefix_required(self, source_type: str) -> bool:
-        source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()
+        source_type_exists = (
+            ExternalDataSource.objects.exclude(deleted=True)
+            .filter(team_id=self.team.pk, source_type=source_type)
+            .exists()
+        )
         return source_type_exists
 
     def prefix_exists(self, source_type: str, prefix: str) -> bool:
-        prefix_exists = ExternalDataSource.objects.filter(
-            team_id=self.team.pk, source_type=source_type, prefix=prefix
-        ).exists()
+        prefix_exists = (
+            ExternalDataSource.objects.exclude(deleted=True)
+            .filter(team_id=self.team.pk, source_type=source_type, prefix=prefix)
+            .exists()
+        )
         return prefix_exists
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
+        instance: ExternalDataSource = self.get_object()
 
         latest_running_job = (
             ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
@@ -564,13 +597,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
                 pass
 
-        for schema in ExternalDataSchema.objects.filter(
-            team_id=self.team_id, source_id=instance.id, should_sync=True
-        ).all():
+        for schema in (
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
+            .all()
+        ):
             delete_external_data_schedule(str(schema.id))
 
         delete_external_data_schedule(str(instance.id))
-        return super().destroy(request, *args, **kwargs)
+
+        for schema in instance.schemas.all():
+            if schema.table:
+                schema.table.soft_delete()
+            schema.soft_delete()
+        instance.soft_delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):

@@ -198,7 +198,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.prefetch_related("created_by").order_by(self.ordering)
+        return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+
+        if instance.table:
+            instance.table.soft_delete()
+        instance.soft_delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
