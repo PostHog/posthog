@@ -430,21 +430,21 @@ fn set_parameters(mut cx: FunctionContext) -> JsResult<JsNull> {
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("hello", hello)?;
-    cx.export_function("init_worker", init_worker)?;
-    cx.export_function("init_manager", init_manager)?;
-    cx.export_function("maybe_init_worker", maybe_init_worker)?;
-    cx.export_function("maybe_init_manager", maybe_init_manager)?;
-    cx.export_function("create_job", create_job)?;
-    cx.export_function("dequeue_jobs", dequeue_jobs)?;
-    cx.export_function("dequeue_with_vm_state", dequeue_with_vm_state)?;
-    cx.export_function("flush_job", flush_job)?;
-    cx.export_function("set_state", set_state)?;
-    cx.export_function("set_queue", set_queue)?;
-    cx.export_function("set_priority", set_priority)?;
-    cx.export_function("set_scheduled_at", set_scheduled_at)?;
-    cx.export_function("set_vm_state", set_vm_state)?;
-    cx.export_function("set_metadata", set_metadata)?;
-    cx.export_function("set_parameters", set_parameters)?;
+    cx.export_function("initWorker", init_worker)?;
+    cx.export_function("initManager", init_manager)?;
+    cx.export_function("maybeInitWorker", maybe_init_worker)?;
+    cx.export_function("maybeInitManager", maybe_init_manager)?;
+    cx.export_function("createJob", create_job)?;
+    cx.export_function("dequeueJobs", dequeue_jobs)?;
+    cx.export_function("dequeueWithVmState", dequeue_with_vm_state)?;
+    cx.export_function("flushJob", flush_job)?;
+    cx.export_function("setState", set_state)?;
+    cx.export_function("setQueue", set_queue)?;
+    cx.export_function("setPriority", set_priority)?;
+    cx.export_function("setScheduledAt", set_scheduled_at)?;
+    cx.export_function("setVmState", set_vm_state)?;
+    cx.export_function("setMetadata", set_metadata)?;
+    cx.export_function("setParameters", set_parameters)?;
 
     Ok(())
 }
