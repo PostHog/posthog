@@ -12,6 +12,19 @@ template: HogFunctionTemplate = HogFunctionTemplate(
 let action := inputs.action
 let name := event.name
 
+let hasIdentifier := false
+
+for (let key, value in inputs.identifiers) {
+    if (not empty(value)) {
+        hasIdentifier := true
+    }
+}
+
+if (not hasIdentifier) {
+    print('No identifier set. Skipping as at least 1 identifier is needed.')
+    return
+}
+
 if (action == 'automatic') {
     if (event.name == '$identify') {
         action := 'identify'
