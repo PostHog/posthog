@@ -3173,7 +3173,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide().json()
             assert response["sessionRecording"] is False
-            self.assertEqual(response["quotaLimited"], ["sessionRecording"])
+            assert response["quotaLimited"] == ["recordings"]
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
     def test_quota_limited_recordings_other_token(self, _fake_token_limiting, *args):
@@ -3194,6 +3194,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide().json()
             assert response["sessionRecording"] is not False
+            assert not response["quotaLimited"]
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_when_enabled(self, *args):

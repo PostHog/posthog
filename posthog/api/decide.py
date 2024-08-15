@@ -248,7 +248,7 @@ def get_decide(request: HttpRequest):
 
             response["sessionRecording"] = _session_recording_config_response(request, team, token)
 
-            if response["sessionRecording"] and settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
+            if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
                 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
                 limited_tokens_recordings = list_limited_team_attributes(
@@ -256,7 +256,7 @@ def get_decide(request: HttpRequest):
                 )
 
                 if token in limited_tokens_recordings:
-                    response["quotaLimited"] = ["sessionRecording"]
+                    response["quotaLimited"] = ["recordings"]
                     response["sessionRecording"] = False
 
             response["surveys"] = True if team.surveys_opt_in else False
