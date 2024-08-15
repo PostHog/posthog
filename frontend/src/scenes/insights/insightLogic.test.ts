@@ -523,7 +523,7 @@ describe('insightLogic', () => {
         await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
 
         logic.actions.updateInsight({ name: 'my new name' })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.setInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.updateInsight])
     })
 
     test('saveInsight updates dashboards', async () => {

@@ -85,7 +85,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             redirectToInsight,
         }),
         loadInsights: (debounce: boolean = true) => ({ debounce }),
-        setInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+        updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
     }),
     loaders(({ values }) => ({
@@ -157,7 +157,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
     })),
     reducers({
         insights: {
-            setInsight: (state, { insight }) => ({
+            updateInsight: (state, { insight }) => ({
                 ...state,
                 results: state.results.map((i) => (i.short_id === insight.short_id ? insight : i)),
             }),
@@ -298,12 +298,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             actions.loadInsights()
         },
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
-            actions.setInsight(item)
+            actions.updateInsight(item)
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
             const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
             if (matchingInsightIndex >= 0) {
-                actions.setInsight(insight)
+                actions.updateInsight(insight)
             } else {
                 actions.addInsight(insight)
             }
