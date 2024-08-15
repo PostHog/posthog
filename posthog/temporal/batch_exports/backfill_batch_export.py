@@ -4,6 +4,7 @@ import dataclasses
 import datetime as dt
 import json
 import typing
+import zoneinfo
 
 import temporalio
 import temporalio.activity
@@ -163,6 +164,22 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
     description = await schedule_handle.describe()
 
+    if description.schedule.spec.time_zone_name != start_at.tzname():
+        required_timezone = (
+            zoneinfo.ZoneInfo("UTC")
+            if description.schedule.spec.time_zone_name is None
+            else zoneinfo.ZoneInfo(description.schedule.spec.time_zone_name)
+        )
+        start_at = start_at.astimezone(required_timezone)
+
+    if end_at is not None and description.schedule.spec.time_zone_name != end_at.tzname():
+        required_timezone = (
+            zoneinfo.ZoneInfo("UTC")
+            if description.schedule.spec.time_zone_name is None
+            else zoneinfo.ZoneInfo(description.schedule.spec.time_zone_name)
+        )
+        end_at = end_at.astimezone(required_timezone)
+
     frequency = dt.timedelta(seconds=inputs.frequency_seconds)
     full_backfill_range = backfill_range(start_at, end_at, frequency)
 
@@ -171,6 +188,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             raise TemporalScheduleNotFoundError(description.id)
 
         utcnow = get_utcnow()
+        backfill_end_at = backfill_end_at.astimezone(dt.UTC)
 
         if end_at is None and backfill_end_at >= utcnow:
             # This backfill (with no `end_at`) has caught up with real time and should unpause the
