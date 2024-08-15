@@ -215,6 +215,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
+    [Scene.DataModel]: {
+        projectBased: true,
+        name: 'Data model',
+        defaultDocsPath: '/docs/data-datawarehouse',
+    },
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data warehouse',
@@ -504,6 +509,7 @@ export const routes: Record<string, Scene> = {
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
+    [urls.dataModel()]: Scene.DataModel,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
