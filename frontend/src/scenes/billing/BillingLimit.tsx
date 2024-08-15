@@ -82,7 +82,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                     <Tooltip title={error}>
                                         <div className="max-w-36">
                                             <LemonInput
-                                                ref={limitInputRef}
+                                                inputRef={limitInputRef}
                                                 type="number"
                                                 fullWidth={false}
                                                 status={error ? 'danger' : 'default'}

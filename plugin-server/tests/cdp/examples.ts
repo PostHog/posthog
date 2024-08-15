@@ -415,3 +415,22 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
         },
     },
 }
+
+export const HOG_MASK_EXAMPLES: Record<string, Pick<HogFunctionType, 'masking'>> = {
+    all: {
+        masking: {
+            ttl: 30,
+            hash: 'all',
+            bytecode: ['_h', 32, 'all'],
+            threshold: null,
+        },
+    },
+    person: {
+        masking: {
+            ttl: 30,
+            hash: '{person.uuid}',
+            bytecode: ['_h', 32, 'uuid', 32, 'person', 1, 2],
+            threshold: null,
+        },
+    },
+}

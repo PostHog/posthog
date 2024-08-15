@@ -4,11 +4,12 @@ jest.mock('../../src/utils/now', () => {
     }
 })
 import { BASE_REDIS_KEY, HogWatcher, HogWatcherState } from '../../src/cdp/hog-watcher'
+import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
 import { HogFunctionInvocationResult } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
-import { deleteKeysWithPrefix } from '../helpers/redis'
+import { deleteKeysWithPrefix } from './helpers/redis'
 
 const mockNow: jest.Mock = require('../../src/utils/now').now as any
 
@@ -44,6 +45,7 @@ describe('HogWatcher', () => {
         let closeHub: () => Promise<void>
         let watcher: HogWatcher
         let mockStateChangeCallback: jest.Mock
+        let redis: CdpRedis
 
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub()
@@ -52,14 +54,20 @@ describe('HogWatcher', () => {
             mockNow.mockReturnValue(now)
             mockStateChangeCallback = jest.fn()
 
-            await deleteKeysWithPrefix(hub.redisPool, BASE_REDIS_KEY)
+            redis = createCdpRedisPool(hub)
+            await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
-            watcher = new HogWatcher(hub, mockStateChangeCallback)
+            watcher = new HogWatcher(hub, redis, mockStateChangeCallback)
         })
 
         const advanceTime = (ms: number) => {
             now += ms
             mockNow.mockReturnValue(now)
+        }
+
+        const reallyAdvanceTime = async (ms: number) => {
+            advanceTime(ms)
+            await delay(ms)
         }
 
         afterEach(async () => {
@@ -252,11 +260,6 @@ describe('HogWatcher', () => {
                 hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL = 1 // Shorter ttl to help with testing
                 hub.CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT = 3
             })
-
-            const reallyAdvanceTime = async (ms: number) => {
-                advanceTime(ms)
-                await delay(ms)
-            }
 
             it('count the number of times it has been disabled', async () => {
                 // Trigger the temporary disabled state 3 times

@@ -1,6 +1,5 @@
 import json
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_delete, post_save
@@ -9,6 +8,9 @@ from django.dispatch.dispatcher import receiver
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import generate_random_token
 from posthog.redis import get_client
+
+
+HOOK_EVENTS = ["action_performed"]
 
 
 class Hook(models.Model):
@@ -23,7 +25,7 @@ class Hook(models.Model):
 
     def clean(self):
         """Validation for events."""
-        if self.event not in settings.HOOK_EVENTS.keys():
+        if self.event not in HOOK_EVENTS:
             raise ValidationError("Invalid hook event {evt}.".format(evt=self.event))
 
 
