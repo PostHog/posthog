@@ -876,6 +876,7 @@ Using the correct cache and enriching the response with dashboard specific confi
                 export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
 
             response = HttpResponse(export)
+
             response[
                 "Content-Disposition"
             ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
