@@ -379,12 +379,17 @@ class TestPrinter(BaseTest):
 
         context = build_context(PropertyGroupsMode.OPTIMIZED)
         printed_expr = self._expr(input_expression, context)
-        self.assertEqual(
-            printed_expr,
-            expected_optimized_query
-            if expected_optimized_query is not None
-            else self._expr(input_expression, build_context(PropertyGroupsMode.ENABLED)),
-        )
+        if expected_optimized_query is not None:
+            self.assertEqual(printed_expr, expected_optimized_query)
+        else:
+            unoptimized_context = build_context(PropertyGroupsMode.ENABLED)
+            unoptimized_expr = self._expr(input_expression, unoptimized_context)
+            # XXX: The placeholders used in the printed expression can vary between the direct and optimized variants,
+            # so we string format the context values back into the expression template. This isn't necessarily going to
+            # yield a valid ClickHouse expression, but it should generally be good enough to ensure the two expressions
+            # are the same.
+            self.assertEqual(printed_expr % context.values, unoptimized_expr % unoptimized_context.values)
+
         if expected_context_values is not None:
             self.assertDictContainsSubset(expected_context_values, context.values)
 
@@ -561,10 +566,8 @@ class TestPrinter(BaseTest):
         )
 
         # Only direct constant comparison is supported for now -- see above.
-        # XXX: These tests currently fail because of mismatched parameter placeholder values (the property group key
-        # gets added to the context but never printed.)
-        # self._test_property_group_comparison("properties.key in lower('value')", None)
-        # self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
+        self._test_property_group_comparison("properties.key in lower('value')", None)
+        self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
 
     def test_property_groups_select_with_aliases(self):
         context = HogQLContext(
