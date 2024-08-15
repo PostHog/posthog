@@ -6,7 +6,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
-    LemonSelect,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -19,20 +18,14 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { Sparkline } from 'lib/components/Sparkline'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { groupsModel } from '~/models/groupsModel'
-import { AvailableFeature, EntityTypes, SidePanelTab } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { DestinationTag } from '../destinations/DestinationTag'
+import { HogFunctionFilters } from './filters/HogFunctionFilters'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
@@ -72,31 +65,12 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         deleteHogFunction,
     } = useActions(logic)
 
-    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-
     if (loading && !loaded) {
         return <SpinnerOverlay />
     }
 
     if (!loaded) {
         return <NotFound object="Hog function" />
-    }
-
-    if (!hogFunctionsEnabled && !id) {
-        return (
-            <div className="space-y-3">
-                <div className="border flex flex-col items-center rounded p-4">
-                    <h2>Feature not enabled</h2>
-                    <p>Pipeline destinations 3000 is in feature preview</p>
-
-                    <LemonButton type="primary" onClick={() => openSidePanel(SidePanelTab.FeaturePreviews)}>
-                        Join the feature preview
-                    </LemonButton>
-                </div>
-            </div>
-        )
     }
 
     const headerButtons = (
@@ -162,7 +136,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                 />
 
                 <LemonBanner type="info">
-                    Hog Functions are in <b>alpha</b> and are the next generation of our data pipeline destinations. You
+                    Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations. You
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
@@ -270,169 +244,8 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 ) : null}
                             </div>
 
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField
-                                    name="filters"
-                                    label="Filters"
-                                    help={
-                                        <>
-                                            This destination will be triggered if <b>any of</b> the above filters match.
-                                        </>
-                                    }
-                                >
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <TestAccountFilterSwitch
-                                                checked={value?.filter_test_accounts ?? false}
-                                                onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
-                                                fullWidth
-                                            />
-                                            <ActionFilter
-                                                bordered
-                                                filters={value ?? {}}
-                                                setFilters={(payload) => {
-                                                    onChange({
-                                                        ...payload,
-                                                        filter_test_accounts: value?.filter_test_accounts,
-                                                    })
-                                                }}
-                                                typeKey="plugin-filters"
-                                                mathAvailability={MathAvailability.None}
-                                                hideRename
-                                                hideDuplicate
-                                                showNestedArrow={false}
-                                                actionsTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.Events,
-                                                    TaxonomicFilterGroupType.Actions,
-                                                ]}
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.HogQLExpression,
-                                                    ...groupsTaxonomicTypes,
-                                                ]}
-                                                propertyFiltersPopover
-                                                addFilterDefaultOptions={{
-                                                    id: '$pageview',
-                                                    name: '$pageview',
-                                                    type: EntityTypes.EVENTS,
-                                                }}
-                                                buttonCopy="Add event filter"
-                                            />
-                                        </>
-                                    )}
-                                </LemonField>
+                            <HogFunctionFilters />
 
-                                <LemonField name="masking" label="Trigger options">
-                                    {({ value, onChange }) => (
-                                        <div className="flex items-center gap-1 flex-wrap">
-                                            <LemonSelect
-                                                options={[
-                                                    {
-                                                        value: null,
-                                                        label: 'Run every time',
-                                                    },
-                                                    {
-                                                        value: 'all',
-                                                        label: 'Run once per interval',
-                                                    },
-                                                    {
-                                                        value: '{person.uuid}',
-                                                        label: 'Run once per person per interval',
-                                                    },
-                                                ]}
-                                                value={value?.hash ?? null}
-                                                onChange={(val) =>
-                                                    onChange({
-                                                        hash: val,
-                                                        ttl: value?.ttl ?? 60 * 30,
-                                                    })
-                                                }
-                                            />
-                                            {configuration.masking?.hash ? (
-                                                <>
-                                                    <div className="flex items-center gap-1 flex-wrap">
-                                                        <span>of</span>
-                                                        <LemonSelect
-                                                            value={value?.ttl}
-                                                            onChange={(val) => onChange({ ...value, ttl: val })}
-                                                            options={[
-                                                                {
-                                                                    value: 5 * 60,
-                                                                    label: '5 minutes',
-                                                                },
-                                                                {
-                                                                    value: 15 * 60,
-                                                                    label: '15 minutes',
-                                                                },
-                                                                {
-                                                                    value: 30 * 60,
-                                                                    label: '30 minutes',
-                                                                },
-                                                                {
-                                                                    value: 60 * 60,
-                                                                    label: '1 hour',
-                                                                },
-                                                                {
-                                                                    value: 2 * 60 * 60,
-                                                                    label: '2 hours',
-                                                                },
-                                                                {
-                                                                    value: 4 * 60 * 60,
-                                                                    label: '4 hours',
-                                                                },
-                                                                {
-                                                                    value: 8 * 60 * 60,
-                                                                    label: '8 hours',
-                                                                },
-                                                                {
-                                                                    value: 12 * 60 * 60,
-                                                                    label: '12 hours',
-                                                                },
-                                                                {
-                                                                    value: 24 * 60 * 60,
-                                                                    label: '24 hours',
-                                                                },
-                                                            ]}
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center gap-1 flex-wrap">
-                                                        <span>or until</span>
-                                                        <LemonSelect
-                                                            value={value?.threshold}
-                                                            onChange={(val) => onChange({ ...value, threshold: val })}
-                                                            options={[
-                                                                {
-                                                                    value: null,
-                                                                    label: 'Not set',
-                                                                },
-                                                                {
-                                                                    value: 1000,
-                                                                    label: '1000 events',
-                                                                },
-                                                                {
-                                                                    value: 10000,
-                                                                    label: '10,000 events',
-                                                                },
-                                                                {
-                                                                    value: 100000,
-                                                                    label: '100,000 events',
-                                                                },
-                                                                {
-                                                                    value: 1000000,
-                                                                    label: '1,000,000 events',
-                                                                },
-                                                            ]}
-                                                        />
-                                                    </div>
-                                                </>
-                                            ) : null}
-                                        </div>
-                                    )}
-                                </LemonField>
-                            </div>
                             <div className="relative border bg-bg-light rounded p-3 space-y-2">
                                 <LemonLabel>Expected volume</LemonLabel>
                                 {sparkline && !sparklineLoading ? (
