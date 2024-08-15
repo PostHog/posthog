@@ -17,13 +17,13 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { Sparkline } from 'lib/components/Sparkline'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { AvailableFeature } from '~/types'
 
+import { DestinationTag } from '../destinations/DestinationTag'
 import { HogFunctionFilters } from './filters/HogFunctionFilters'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
@@ -50,6 +50,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         hasAddon,
         sparkline,
         sparklineLoading,
+        template,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -62,25 +63,12 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         deleteHogFunction,
     } = useActions(logic)
 
-    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-
     if (loading && !loaded) {
         return <SpinnerOverlay />
     }
 
     if (!loaded) {
         return <NotFound object="Hog function" />
-    }
-
-    if (!hogFunctionsEnabled && !id) {
-        return (
-            <div className="space-y-3">
-                <div className="border rounded text-center p-4">
-                    <h2>Feature not enabled</h2>
-                    <p>Hog functions are not enabled for you yet. If you think they should be, contact support.</p>
-                </div>
-            </div>
-        )
     }
 
     const headerButtons = (
@@ -146,7 +134,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                 />
 
                 <LemonBanner type="info">
-                    Hog Functions are in <b>alpha</b> and are the next generation of our data pipeline destinations. You
+                    Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations. You
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
@@ -178,8 +166,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         )}
                                     </LemonField>
 
-                                    <div className="flex flex-col py-1 flex-1 justify-start">
+                                    <div className="flex flex-col items-start py-1 flex-1 justify-start">
                                         <span className="font-semibold">{configuration.name}</span>
+                                        {template && <DestinationTag status={template.status} />}
                                     </div>
 
                                     <HogFunctionStatusIndicator />
@@ -196,11 +185,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         )}
                                     </LemonField>
                                 </div>
-                                <LemonField
-                                    name="name"
-                                    label="Name"
-                                    info="Customising the name can be useful if multiple instances of the same type are used."
-                                >
+                                <LemonField name="name" label="Name">
                                     <LemonInput type="text" disabled={loading} />
                                 </LemonField>
                                 <LemonField
@@ -212,41 +197,42 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 </LemonField>
 
                                 {hogFunction?.template ? (
-                                    <p className="border border-dashed rounded text-muted-alt p-2">
-                                        Built from template:{' '}
-                                        <LemonDropdown
-                                            showArrow
-                                            overlay={
-                                                <div className="max-w-120 p-1">
-                                                    <p>
-                                                        This function was built from the template{' '}
-                                                        <b>{hogFunction.template.name}</b>. If the template is updated,
-                                                        this function is not affected unless you choose to update it.
-                                                    </p>
+                                    <LemonDropdown
+                                        showArrow
+                                        overlay={
+                                            <div className="max-w-120 p-1">
+                                                <p>
+                                                    This function was built from the template{' '}
+                                                    <b>{hogFunction.template.name}</b>. If the template is updated, this
+                                                    function is not affected unless you choose to update it.
+                                                </p>
 
-                                                    <div className="flex flex-1 gap-2 items-center border-t pt-2">
-                                                        <div className="flex-1">
-                                                            <LemonButton>Close</LemonButton>
-                                                        </div>
-                                                        <LemonButton onClick={() => resetToTemplate()}>
-                                                            Reset to template
-                                                        </LemonButton>
-
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            onClick={() => duplicateFromTemplate()}
-                                                        >
-                                                            New function from template
-                                                        </LemonButton>
+                                                <div className="flex flex-1 gap-2 items-center border-t pt-2">
+                                                    <div className="flex-1">
+                                                        <LemonButton>Close</LemonButton>
                                                     </div>
+                                                    <LemonButton onClick={() => resetToTemplate()}>
+                                                        Reset to template
+                                                    </LemonButton>
+
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => duplicateFromTemplate()}
+                                                    >
+                                                        New function from template
+                                                    </LemonButton>
                                                 </div>
-                                            }
-                                        >
-                                            <Link subtle className="font-semibold">
-                                                {hogFunction?.template.name} <IconInfo />
+                                            </div>
+                                        }
+                                    >
+                                        <div className="border border-dashed rounded text-muted-alt text-xs">
+                                            <Link subtle className="flex items-center gap-1 flex-wrap p-2">
+                                                Built from template:
+                                                <span className="font-semibold">{hogFunction?.template.name}</span>
+                                                <DestinationTag status={hogFunction.template.status} /> <IconInfo />
                                             </Link>
-                                        </LemonDropdown>
-                                    </p>
+                                        </div>
+                                    </LemonDropdown>
                                 ) : null}
                             </div>
 
