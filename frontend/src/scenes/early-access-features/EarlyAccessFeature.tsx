@@ -11,10 +11,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
-import {
-    ConnectedDestinations,
-    NewConnectedDestinationButton,
-} from 'scenes/pipeline/destinations/ConnectedDestinations'
+import { ConnectedDestinations } from 'scenes/pipeline/destinations/ConnectedDestinations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -329,8 +326,8 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 {destinationFilters && (
                     <>
                         <LemonDivider className="my-8" />
-                        <h3>Connected destinations</h3>
-                        <p>Get notified when people opt in to your feature</p>
+                        <h3>Notifications</h3>
+                        <p>Get notified when people opt in or out of your feature.</p>
                         <ConnectedDestinations filters={destinationFilters} />
                     </>
                 )}
