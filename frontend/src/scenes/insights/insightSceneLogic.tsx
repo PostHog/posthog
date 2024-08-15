@@ -1,7 +1,6 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
-import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -16,16 +15,13 @@ import { urls } from 'scenes/urls'
 import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Node } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
 import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { getDefaultQuery, insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { summarizeInsight } from './summarizeInsight'
-import { compareFilters } from './utils/compareFilters'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -284,9 +280,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightMode: actionToUrl,
         }
     }),
-    beforeUnload(({ values, props }) => ({
+    beforeUnload(({ values }) => ({
         enabled: (newLocation?: CombinedLocation) => {
-            // safeguard against running this check on other scenes
+            // Don't run this check on other scenes
             if (values.activeScene !== Scene.Insight) {
                 return false
             }
@@ -307,42 +303,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
-            let newInsightEdited = false
-            if (props.dashboardItemId === 'new') {
-                const startingQuery =
-                    values.openedWithQuery || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
-                const currentQuery = values.insightDataLogicRef?.logic.values.query
+            const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
+            const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
 
-                if (isInsightVizNode(startingQuery) && isInsightVizNode(currentQuery)) {
-                    // TODO: This shouldn't be necessary after we have removed the `cleanFilters` function.
-                    // Currently this causes "default" properties to be set on the query.
-                    const startingFilters = queryNodeToFilter(startingQuery.source)
-                    const currentFilters = queryNodeToFilter(currentQuery.source)
-
-                    if (
-                        currentFilters.filter_test_accounts === false &&
-                        currentFilters.filter_test_accounts === values.filterTestAccountsDefault
-                    ) {
-                        delete currentFilters.filter_test_accounts
-                    }
-
-                    newInsightEdited = !compareFilters(
-                        startingFilters,
-                        currentFilters,
-                        values.filterTestAccountsDefault
-                    )
-                } else if (!isInsightVizNode(startingQuery) && !isInsightVizNode(currentQuery)) {
-                    newInsightEdited = !objectsEqual(startingQuery, currentQuery)
-                } else {
-                    newInsightEdited = true
-                }
-            }
-
-            const insightMetadataEdited = !!values.insightLogicRef?.logic.values.insightChanged
-            const savedInsightEdited =
-                props.dashboardItemId !== 'new' && !!values.insightDataLogicRef?.logic.values.queryChanged
-
-            return insightMetadataEdited || savedInsightEdited || newInsightEdited
+            return metadataChanged || queryChanged
         },
         message: 'Leave insight?\nChanges you made will be discarded.',
         onConfirm: () => {

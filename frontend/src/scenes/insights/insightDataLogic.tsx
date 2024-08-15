@@ -5,13 +5,12 @@ import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { examples } from '~/queries/examples'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import {
@@ -30,8 +29,7 @@ import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
 import { insightUsageLogic } from './insightUsageLogic'
-import { setTestAccountFilterForNewInsight } from './utils/cleanFilters'
-import { compareFilters } from './utils/compareFilters'
+import { compareQuery } from './utils/queryUtils'
 
 export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -98,8 +96,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
-            teamLogic,
-            ['currentTeam'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -190,35 +186,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.query, s.savedInsight, s.currentTeam],
-            (query, savedInsight, currentTeam) => {
-                if (savedInsight.query && !isInsightVizNode(savedInsight.query)) {
-                    // saved non-insight query
-                    return !objectsEqual(query, savedInsight.query)
-                } else if (savedInsight.query && isInsightVizNode(savedInsight.query)) {
-                    // saved insight query
-                    if (!isInsightVizNode(query)) {
-                        return true
-                    }
-
-                    const currentFilters = queryNodeToFilter(query.source)
-                    const savedFilters = queryNodeToFilter(savedInsight.query.source)
-
-                    return !compareFilters(currentFilters, savedFilters)
-                }
-
-                // new insight
-                if (!isInsightVizNode(query)) {
+            (s) => [s.query, s.savedInsight, s.filterTestAccountsDefault],
+            (query, savedInsight, filterTestAccountsDefault) => {
+                if (savedInsight.query == null) {
                     return true
                 }
 
-                const currentFilters = queryNodeToFilter(query.source)
-                const savedFilters = queryNodeToFilter(
-                    insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
-                )
-                setTestAccountFilterForNewInsight(savedFilters, currentTeam?.test_account_filters_default_checked)
-
-                return !compareFilters(currentFilters, savedFilters, currentTeam?.test_account_filters_default_checked)
+                const savedQuery = savedInsight.query as InsightVizNode | DataVisualizationNode
+                const currentQuery =
+                    query ||
+                    getDefaultQuery(
+                        insightMap[savedQuery.source?.kind || NodeKind.TrendsQuery],
+                        filterTestAccountsDefault
+                    )
+                return !compareQuery(savedInsight.query, currentQuery)
             },
         ],
 
