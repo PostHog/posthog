@@ -395,3 +395,33 @@ export function getHeatMapHue(count: number, maxCount: number): number {
     }
     return 60 - (count / maxCount) * 40
 }
+
+/**
+ * Calculates the initial drag position of the toolbar to the bottom center of the window.
+ * Ensures the toolbar is positioned correctly even if the dimensions change.
+ *
+ * @param element - The toolbar element for which the initial position is calculated.
+ * @returns An object containing the x and y coordinates of the initial position, or null if the element or its dimensions are invalid.
+ */
+export function calculateInitialDragPosition(element: HTMLElement | null): { x: number; y: number } | null {
+    // Ensure the toolbar element exists
+    if (!element) {
+        console.error('Toolbar element not found')
+        return null
+    }
+
+    // Get the toolbar's dimensions
+    const { width: toolbarWidth, height: toolbarHeight } = element.getBoundingClientRect()
+
+    // Ensure toolbar dimensions are valid
+    if (toolbarWidth <= 0 || toolbarHeight <= 0) {
+        console.error('Invalid toolbar dimensions')
+        return null
+    }
+
+    // Calculate the initial position: bottom center of the window
+    const initialX = (window.innerWidth - toolbarWidth) / 2
+    const initialY = window.innerHeight - toolbarHeight
+
+    return { x: initialX, y: initialY }
+}

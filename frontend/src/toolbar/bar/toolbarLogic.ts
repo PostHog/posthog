@@ -7,7 +7,7 @@ import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { inBounds, TOOLBAR_ID } from '~/toolbar/utils'
+import { calculateInitialDragPosition, inBounds, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
@@ -54,6 +54,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setMenu: (element: HTMLElement | null) => ({ element }),
         setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
         setIsEmbeddedInApp: (isEmbedded: boolean) => ({ isEmbedded }),
+        setInitialLoad: (isInitialLoad: boolean) => ({ isInitialLoad }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -138,6 +139,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 setIsEmbeddedInApp: (_, { isEmbedded }) => isEmbedded,
             },
         ],
+        isInitialLoad: [
+            true,
+            { persist: true },
+            {
+                setInitialLoad: (_, { isInitialLoad }) => isInitialLoad,
+            },
+        ],
     })),
     selectors({
         dragPosition: [
@@ -194,6 +202,17 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setElement: ({ element }) => {
+            if (element instanceof HTMLElement && values.isInitialLoad) {
+                const initialPosition: { x: number; y: number } | null = calculateInitialDragPosition(element)
+
+                if (initialPosition) {
+                    actions.setDragPosition(initialPosition.x, initialPosition.y)
+                    actions.setInitialLoad(false)
+                }
+            }
+        },
+
         setVisibleMenu: ({ visibleMenu }) => {
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
