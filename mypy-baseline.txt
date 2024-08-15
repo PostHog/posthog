@@ -71,6 +71,7 @@ posthog/utils.py:0: error: Import cycle from Django settings module prevents typ
 posthog/models/dashboard.py:0: error: Need type annotation for "insights"  [var-annotated]
 posthog/tasks/tasks.py:0: error: Import cycle from Django settings module prevents type inference for 'INGESTION_LAG_METRIC_TEAM_IDS'  [misc]
 posthog/tasks/tasks.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
+posthog/warehouse/s3.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENDPOINT'  [misc]
 posthog/settings/data_stores.py:0: error: Incompatible types in assignment (expression has type "str | None", variable has type "str")  [assignment]
 posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on line 0  [no-redef]
 posthog/models/filters/mixins/simplify.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]

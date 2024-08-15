@@ -102,3 +102,11 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
 
             assert self.get_mock_fetch_calls()[0][1]["body"]["action"] == "event"
             assert self.get_mock_fetch_calls()[0][1]["body"]["name"] == event_name
+
+    def test_function_requires_identifier(self):
+        self.run_function(inputs=create_inputs(identifiers={"email": None, "id": ""}))
+
+        assert not self.get_mock_fetch_calls()
+        assert self.get_mock_print_calls() == snapshot(
+            [("No identifier set. Skipping as at least 1 identifier is needed.",)]
+        )
