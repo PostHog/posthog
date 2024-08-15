@@ -79,7 +79,7 @@ export function Exporter(props: ExportedData): JSX.Element {
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
-                    dashboard={getQueryBasedDashboard(dashboard)}
+                    dashboard={getQueryBasedDashboard(dashboard)!}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
             ) : recording ? (
