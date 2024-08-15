@@ -20,16 +20,14 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { AvailableFeature, EntityTypes, SidePanelTab } from '~/types'
+import { AvailableFeature, EntityTypes } from '~/types'
 
 import { DestinationTag } from '../destinations/DestinationTag'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
@@ -70,9 +68,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         deleteHogFunction,
     } = useActions(logic)
 
-    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -80,21 +76,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
 
     if (!loaded) {
         return <NotFound object="Hog function" />
-    }
-
-    if (!hogFunctionsEnabled && !id) {
-        return (
-            <div className="space-y-3">
-                <div className="border flex flex-col items-center rounded p-4">
-                    <h2>Feature not enabled</h2>
-                    <p>Pipeline destinations 3000 is in feature preview</p>
-
-                    <LemonButton type="primary" onClick={() => openSidePanel(SidePanelTab.FeaturePreviews)}>
-                        Join the feature preview
-                    </LemonButton>
-                </div>
-            </div>
-        )
     }
 
     const headerButtons = (
@@ -160,7 +141,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                 />
 
                 <LemonBanner type="info">
-                    Hog Functions are in <b>alpha</b> and are the next generation of our data pipeline destinations. You
+                    Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations. You
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
