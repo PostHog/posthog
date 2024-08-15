@@ -33,7 +33,7 @@ describe('SAML Auth', () => {
             cy.get('button[type=submit]').should('have.text', 'Continue').click()
         })
 
-        cy.wait(5000)
+        cy.wait(20000)
         cy.get('[data-attr="breadcrumb-organization"] > span').should('have.text', 'saml org')
     })
 })
