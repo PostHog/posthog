@@ -178,12 +178,14 @@ async def iter_records_from_model_view(
 ) -> AsyncRecordsGenerator:
     if model_name == "persons":
         view = SELECT_FROM_PERSONS_VIEW
-    else:
+    elif team_id not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
         # TODO: Let this model be exported by `astream_query_as_arrow`.
         # Just to reduce risk, I don't want to change the function that runs 100% of the exports
         # without battle testing it first.
         # There are already changes going out to the queries themselves that will impact events in a
         # positive way. So, we can come back later and drop this block.
+        # UPDATE: Will start moving teams over to `astream_query_as_arrow` by setting their ids
+        # in `ASYNC_ARROW_STREAMING_TEAM_IDS`. If testing goes well, we'll remove this block.
         for record_batch in iter_records(
             client,
             team_id=team_id,
@@ -194,6 +196,15 @@ async def iter_records_from_model_view(
         ):
             yield record_batch
         return
+    else:
+        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+            view = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+        elif is_backfill:
+            view = SELECT_FROM_EVENTS_VIEW_BACKFILL
+        else:
+            view = SELECT_FROM_EVENTS_VIEW
+            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+            parameters["lookback_days"] = lookback_days
 
     parameters["team_id"] = team_id
     parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
@@ -252,7 +263,13 @@ def iter_records(
 
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-    lookback_days = 4
+    base_query_parameters = {
+        "team_id": team_id,
+        "interval_start": data_interval_start_ch,
+        "interval_end": data_interval_end_ch,
+        "exclude_events": events_to_exclude_array,
+        "include_events": events_to_include_array,
+    }
     if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     elif is_backfill:
@@ -260,16 +277,9 @@ def iter_records(
     else:
         query = SELECT_FROM_EVENTS_VIEW
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+        base_query_parameters["lookback_days"] = lookback_days
 
     query_str = query.substitute(fields=query_fields)
-    base_query_parameters = {
-        "team_id": team_id,
-        "interval_start": data_interval_start_ch,
-        "interval_end": data_interval_end_ch,
-        "exclude_events": events_to_exclude_array,
-        "include_events": events_to_include_array,
-        "lookback_days": lookback_days,
-    }
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters
