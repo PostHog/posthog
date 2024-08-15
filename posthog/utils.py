@@ -6,7 +6,6 @@ import datetime as dt
 import gzip
 import hashlib
 import json
-from operator import itemgetter
 import os
 import re
 import secrets
@@ -14,16 +13,11 @@ import string
 import time
 import uuid
 import zlib
+from collections.abc import Generator, Mapping
 from enum import Enum
 from functools import lru_cache, wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    Union,
-    cast,
-)
-from collections.abc import Generator, Mapping
+from operator import itemgetter
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -49,7 +43,10 @@ from sentry_sdk.api import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import UnspecifiedCompressionFallbackParsingError, RequestParsingError
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+)
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -315,7 +312,7 @@ def render_template(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     elif settings.SELF_CAPTURE:
@@ -326,7 +323,7 @@ def render_template(
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA

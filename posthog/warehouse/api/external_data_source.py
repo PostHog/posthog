@@ -30,7 +30,7 @@ from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
-    get_access_token_from_code,
+    get_hubspot_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
     filter_postgres_incremental_fields,
@@ -258,6 +258,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.ZENDESK:
             new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.SALESFORCE:
+            new_source_model = self._handle_salesforce_source(request, *args, **kwargs)
         elif source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
             try:
                 new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
@@ -392,6 +394,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
+    def _handle_salesforce_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+        integration_id = payload.get("integration_id")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "salesforce_integration_id": integration_id,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
     def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         code = payload.get("code")
@@ -399,7 +422,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        access_token, refresh_token = get_access_token_from_code(code, redirect_uri=redirect_uri)
+        access_token, refresh_token = get_hubspot_access_token_from_code(code, redirect_uri=redirect_uri)
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(

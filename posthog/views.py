@@ -101,6 +101,7 @@ def security_txt(request):
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
+    salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
     response = {
         "django": True,
@@ -122,7 +123,10 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
         },
-        "data_warehouse_integrations": {"hubspot": {"client_id": hubspot_client_id}},
+        "data_warehouse_integrations": {
+            "hubspot": {"client_id": hubspot_client_id},
+            "salesforce": {"client_id": salesforce_client_id},
+        },
         "object_storage": is_cloud() or is_object_storage_available(),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
     }

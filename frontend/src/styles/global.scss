@@ -32,6 +32,7 @@ body strong {
 // Disable default styling for ul
 ul {
     padding-left: 0;
+    margin-top: 0;
     margin-bottom: 0;
     list-style: none;
 }
@@ -40,6 +41,7 @@ ul {
 *,
 *::before,
 *::after {
+    box-sizing: border-box;
     border-color: var(--border);
     border-style: solid;
     border-width: 0;
@@ -49,6 +51,15 @@ input[type='radio'] {
     accent-color: var(--primary-3000);
 }
 
+input[type='search'] {
+    &::-webkit-search-decoration,
+    &::-webkit-search-cancel-button,
+    &::-webkit-search-results-button,
+    &::-webkit-search-results-decoration {
+        display: none;
+    }
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
@@ -56,10 +67,6 @@ input[type='radio'] {
     align-items: center;
     min-height: 2.5rem;
     margin: 1rem 0 0.25rem;
-
-    .ant-form-item {
-        margin-bottom: 0 !important;
-    }
 
     @include screen($md) {
         flex-wrap: nowrap;
@@ -339,7 +346,10 @@ input::-ms-clear {
     }
 }
 
-// AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
+html {
+    text-size-adjust: 100%;
+}
+
 body {
     // Remove below once we're using Tailwind's base
     --tw-content: '';
@@ -355,6 +365,13 @@ body {
     --tw-scale-x: 1;
     --tw-scale-y: 1;
 
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    font-size: 14px;
+    font-variant: tabular-nums;
+    line-height: 1.5715;
+    color: var(--text-3000);
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
     background: var(--bg-3000);
 
@@ -391,7 +408,10 @@ body {
     h3,
     h4,
     h5 {
+        margin-top: 0;
+        margin-bottom: 0.5em;
         font-family: var(--font-title);
+        font-weight: 500;
     }
 
     h1,
@@ -411,6 +431,10 @@ body {
         letter-spacing: 0.075em;
     }
 
+    small {
+        font-size: 80%;
+    }
+
     pre,
     code,
     kbd,
@@ -418,113 +442,61 @@ body {
         font-family: var(--font-mono);
     }
 
-    a {
-        color: var(--link);
+    pre {
+        margin-top: 0;
+        margin-bottom: 1em;
+        overflow: auto;
     }
 
     .LemonButton,
     .Link {
         .text-link {
-            color: var(--text-3000);
+            color: var(--text-3000) !important;
         }
 
         &:hover {
             .text-link {
-                color: var(--primary-3000);
+                color: var(--primary-3000) !important;
             }
-        }
-    }
-
-    // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
-    .ant-tabs-top,
-    .ant-tabs-bottom {
-        &,
-        & > div {
-            & > .ant-tabs-nav::before {
-                border-bottom-color: var(--border);
-            }
-        }
-    }
-
-    .ant-dropdown {
-        color: var(--text-3000);
-        border-radius: var(--radius);
-    }
-
-    .ant-dropdown-menu {
-        border-radius: var(--radius);
-    }
-
-    .ant-modal-content {
-        box-shadow: var(--shadow-elevation-3000);
-    }
-
-    .ant-modal-mask {
-        z-index: var(--z-ant-modal-mask);
-    }
-
-    .ant-modal-wrap {
-        z-index: var(--z-ant-modal-wrap);
-    }
-
-    .ant-message {
-        z-index: var(--z-ant-message);
-    }
-
-    .ant-select-dropdown {
-        z-index: var(--z-ant-select-dropdown);
-        background-color: var(--bg-3000);
-
-        .ant-select-item.ant-select-item-option {
-            background-color: var(--bg-3000);
-
-            &.ant-select-item-option-active {
-                background-color: var(--border-3000);
-            }
-        }
-    }
-
-    .ant-input-number:hover,
-    .ant-input-number-focused {
-        border-color: var(--border-bold);
-    }
-
-    .ant-input-number-group-addon {
-        background: var(--bg-3000);
-    }
-
-    .ant-picker-dropdown {
-        z-index: var(--z-ant-select-dropdown);
-    }
-
-    .ant-card-bordered {
-        border-color: var(--border);
-    }
-
-    .ant-card-body > :first-child {
-        margin-top: 0;
-    }
-
-    .ant-form-item-label {
-        > label {
-            font-weight: 600;
-
-            .ant-form-item-optional {
-                font-weight: 400;
-                color: var(--muted);
-            }
-        }
-    }
-
-    .ant-form-item {
-        margin-bottom: 1rem;
-
-        &:last-child {
-            margin-bottom: 0;
         }
     }
 
     @include common-variables;
+}
+
+a {
+    color: var(--link);
+    text-decoration: none;
+}
+
+p {
+    margin-top: 0;
+    margin-bottom: 1em;
+}
+
+table {
+    border-collapse: collapse;
+}
+
+img {
+    vertical-align: middle;
+    border-style: none;
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+    margin: 0;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+}
+
+[tabindex='-1']:focus {
+    outline: none !important;
 }
 
 .storybook-test-runner {
@@ -550,9 +522,13 @@ body {
     }
 
     // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar, * > ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
-    .LemonTabs__bar::after, // Active tab slider
-    .scrollable::after, // Scrollability indicators
+    ::-webkit-scrollbar,
+    *> ::-webkit-scrollbar,
+    // Scrollbar in WebKit/Blink browsers
+    .LemonTabs__bar::after,
+    // Active tab slider
+    .scrollable::after,
+    // Scrollability indicators
     .scrollable::before {
         display: none;
     }
@@ -566,11 +542,6 @@ body {
         // Fix for stories of fixed modals - otherwise body would be zero-sized
         position: static !important;
     }
-}
-
-.ant-radio-button-wrapper {
-    background: var(--secondary-3000);
-    border-color: transparent;
 }
 
 .ligatures-none {
