@@ -62,6 +62,12 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             {"$current_url": "https://example.com", "name": "example"}
         )
 
+        self.run_function(inputs=create_inputs(include_all_properties=True, action="identify"))
+
+        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == snapshot(
+            {"email": "example@posthog.com", "name": "example"}
+        )
+
     def test_automatic_action_mapping(self):
         for event_name, expected_action in [
             ("$identify", "identify"),

@@ -39,7 +39,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         <LemonButton
                             type="primary"
                             data-attr="save-exploration"
-                            onClick={() => saveAs(true)}
+                            onClick={() => saveAs(true, false)}
                             loading={insightSaving}
                         >
                             Save as insight

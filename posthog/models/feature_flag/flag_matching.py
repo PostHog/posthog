@@ -503,10 +503,7 @@ class FeatureFlagMatcher:
                             # in properties_to_q, in empty_or_null_with_value_q
                             # These need to come in before the expr so they're available to use inside the expr.
                             # Same holds for the group queries below.
-                            type_property_annotations = {
-                                prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
-                                for prop_key, prop_field in properties_with_math_operators
-                            }
+                            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
                             person_query = person_query.annotate(
                                 **type_property_annotations,
                                 **{
@@ -525,10 +522,7 @@ class FeatureFlagMatcher:
                                 group_query,
                                 group_fields,
                             ) = group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index]
-                            type_property_annotations = {
-                                prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
-                                for prop_key, prop_field in properties_with_math_operators
-                            }
+                            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
                             group_query = group_query.annotate(
                                 **type_property_annotations,
                                 **{
@@ -1096,15 +1090,25 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int) -
             team_id,
             property_list,
         )
+        properties_with_math_operators = get_all_properties_with_math_operators(property_list, {}, team_id)
+        type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
         base_query = base_query.annotate(
+            **type_property_annotations,
             **{
                 key: ExpressionWrapper(
                     expr if expr else RawSQL("true", []),
                     output_field=BooleanField(),
                 ),
-            }
+            },
         )
         query_fields.append(key)
 
     values = base_query.values(*query_fields)[:10]
     return len(values) > 0
+
+
+def _get_property_type_annotations(properties_with_math_operators):
+    return {
+        prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
+        for prop_key, prop_field in properties_with_math_operators
+    }
