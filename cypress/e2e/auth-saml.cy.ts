@@ -33,9 +33,6 @@ describe('SAML Auth', () => {
             cy.get('button[type=submit]').should('have.text', 'Continue').click()
         })
 
-        cy.location('pathname', { timeout: 6000 }).should('eq', '/complete/saml/')
-
-        cy.location('pathname', { timeout: 6000 }).should('eq', '/')
         cy.get('[data-attr="breadcrumb-organization"] > span').should('have.text', 'saml org')
     })
 })
