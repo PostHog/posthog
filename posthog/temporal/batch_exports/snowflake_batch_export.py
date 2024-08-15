@@ -12,6 +12,7 @@ import pyarrow as pa
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
+from snowflake.connector.errors import OperationalError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -196,6 +197,8 @@ class SnowflakeClient:
         try:
             yield self
 
+        except OperationalError as err:
+            raise SnowflakeConnectionError("Could not connect to Snowflake") from err
         finally:
             self._connection = None
             await asyncio.to_thread(connection.close)
@@ -758,9 +761,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 "ProgrammingError",
                 # Raised by Snowflake with an incorrect account name.
                 "ForbiddenError",
-                # Seems to be raised when we can't connect to Snowflake due to invalid parameters like
-                # an invalid account.
-                "OperationalError",
+                # Our own exception when we can't connect to Snowflake, usually due to invalid parameters.
+                "SnowflakeConnectionError",
             ],
             finish_inputs=finish_inputs,
         )
