@@ -2685,7 +2685,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         }
 
         earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.created_at = datetime.now() - timedelta(days=101)
+        earliest_survey.start_date = datetime.now() - timedelta(days=101)
         earliest_survey.save()
 
         for survey_id, count in survey_counts.items():
