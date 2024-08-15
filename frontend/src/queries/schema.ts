@@ -1711,3 +1711,12 @@ export interface DashboardFilter {
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
 }
+
+export interface AbsoluteThreshold {
+    lower?: number | null
+    upper?: number | null
+}
+
+export interface AnomalyCondition {
+    absoluteThreshold: AbsoluteThreshold
+}

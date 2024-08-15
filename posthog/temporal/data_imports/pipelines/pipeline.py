@@ -11,13 +11,17 @@ import asyncio
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.common.libs.deltalake import get_delta_tables
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.load.exceptions import LoadClientJobRetry
 from dlt.sources import DltSource
 from deltalake.exceptions import DeltaError
 from collections import Counter
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
+from posthog.warehouse.models.external_data_job import ExternalDataJob, get_external_data_job
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.s3 import get_s3_client
 
 
 @dataclass
@@ -93,6 +97,23 @@ class DataImportPipeline:
             dataset_name=self.inputs.dataset_name,
         )
 
+    async def _prepare_s3_files_for_querying(self, file_uris: list[str]):
+        s3 = get_s3_client()
+        job: ExternalDataJob = await get_external_data_job(job_id=self.inputs.run_id)
+        schema: ExternalDataSchema = await aget_schema_by_id(self.inputs.schema_id, self.inputs.team_id)
+
+        normalized_schema_name = NamingConvention().normalize_identifier(schema.name)
+        s3_folder_for_job = f"{settings.BUCKET_URL}/{job.folder_path()}"
+        s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_schema_name}"
+        s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_schema_name}__query"
+
+        if s3.exists(s3_folder_for_querying):
+            s3.delete(s3_folder_for_querying, recursive=True)
+
+        for file in file_uris:
+            file_name = file.replace(f"{s3_folder_for_schema}/", "")
+            s3.copy(file, f"{s3_folder_for_querying}/{file_name}")
+
     def _run(self) -> dict[str, int]:
         if self.refresh_dlt:
             self.logger.info("Pipeline getting a full refresh due to reset_pipeline being set")
@@ -138,13 +159,14 @@ class DataImportPipeline:
 
                 if total_counts.total() > 0:
                     delta_tables = get_delta_tables(pipeline)
-                    file_len = 0
 
+                    # There should only ever be one table here
                     for table in delta_tables.values():
-                        # Compact doesn't work on single file tables, so we can't use the wrapper for these
-                        file_len = len(table.files())
                         table.optimize.compact()
                         table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+                        file_uris = table.file_uris()
+                        async_to_sync(self._prepare_s3_files_for_querying)(file_uris)
 
                     async_to_sync(validate_schema_and_update_table)(
                         run_id=self.inputs.run_id,
@@ -152,7 +174,6 @@ class DataImportPipeline:
                         schema_id=self.inputs.schema_id,
                         table_schema=self.source.schema.tables,
                         row_count=total_counts.total(),
-                        use_delta_wrapper=file_len != 1,
                     )
 
                 pipeline_runs = pipeline_runs + 1
@@ -186,13 +207,14 @@ class DataImportPipeline:
 
             if total_counts.total() > 0:
                 delta_tables = get_delta_tables(pipeline)
-                file_len = 0
 
+                # There should only ever be one table here
                 for table in delta_tables.values():
-                    # Compact doesn't work on single file tables, so we can't use the wrapper for these
-                    file_len = len(table.files())
                     table.optimize.compact()
                     table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+                    file_uris = table.file_uris()
+                    async_to_sync(self._prepare_s3_files_for_querying)(file_uris)
 
                 async_to_sync(validate_schema_and_update_table)(
                     run_id=self.inputs.run_id,
@@ -200,7 +222,6 @@ class DataImportPipeline:
                     schema_id=self.inputs.schema_id,
                     table_schema=self.source.schema.tables,
                     row_count=total_counts.total(),
-                    use_delta_wrapper=file_len != 1,
                 )
 
         return dict(total_counts)
