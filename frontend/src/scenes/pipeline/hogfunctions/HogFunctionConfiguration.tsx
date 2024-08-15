@@ -1,4 +1,4 @@
-import { IconInfo, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -8,6 +8,7 @@ import {
     LemonLabel,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
     LemonTextArea,
     Link,
     SpinnerOverlay,
@@ -58,6 +59,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         sparkline,
         sparklineLoading,
         template,
+        templateHasChanged,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -237,9 +239,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                     <div className="flex-1">
                                                         <LemonButton>Close</LemonButton>
                                                     </div>
-                                                    <LemonButton onClick={() => resetToTemplate()}>
-                                                        Reset to template
-                                                    </LemonButton>
 
                                                     <LemonButton
                                                         type="secondary"
@@ -247,6 +246,12 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                     >
                                                         New function from template
                                                     </LemonButton>
+
+                                                    {templateHasChanged ? (
+                                                        <LemonButton type="primary" onClick={() => resetToTemplate()}>
+                                                            Update
+                                                        </LemonButton>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         }
@@ -255,7 +260,10 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                             <Link subtle className="flex items-center gap-1 flex-wrap p-2">
                                                 Built from template:
                                                 <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                <DestinationTag status={hogFunction.template.status} /> <IconInfo />
+                                                <DestinationTag status={hogFunction.template.status} />
+                                                {templateHasChanged ? (
+                                                    <LemonTag type="success">Update available!</LemonTag>
+                                                ) : null}
                                             </Link>
                                         </div>
                                     </LemonDropdown>
