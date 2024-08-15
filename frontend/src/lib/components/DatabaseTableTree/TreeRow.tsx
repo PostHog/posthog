@@ -98,6 +98,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                         : undefined
                 }
                 icon={<IconChevronDown className={collapsed ? 'rotate-270' : undefined} />}
+                tooltip={name}
             >
                 {name}
             </LemonButton>
