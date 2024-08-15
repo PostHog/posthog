@@ -201,39 +201,31 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
         identify_by_email = obj.config.get("identifyByEmail", "No") == "Yes"
 
         hf["filters"] = {}
-        property_filters: list = []
 
         if anon_option == "Send all events":
             pass
         elif anon_option == "Only send events from users with emails":
             # TODO: Add support for general filters
-            property_filters.append(
+            hf["filters"]["properties"] = [
                 {
                     "key": "email",
                     "value": "is_set",
                     "operator": "is_set",
                     "type": "person",
                 }
-            )
+            ]
         elif anon_option == "Only send events from users that have been identified":
-            property_filters.append(
+            hf["filters"]["properties"] = [
                 {
                     "key": "$is_identified",
                     "value": ["true"],
                     "operator": "exact",
                     "type": "event",
                 }
-            )
+            ]
 
         hf["filters"]["events"] = [
-            {
-                "id": event,
-                "name": event or "All events",
-                "type": "events",
-                "order": 0,
-                "properties": property_filters,
-            }
-            for event in events
+            {"id": event, "name": event or "All events", "type": "events", "order": 0} for event in events
         ]
 
         hf["inputs"] = {
