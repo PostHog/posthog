@@ -456,7 +456,6 @@ export interface PluginConfig {
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
-    filters?: PluginConfigFilters
 }
 
 export interface PluginJsonConfig {
@@ -993,30 +992,6 @@ export interface ActionStep {
     url_matching: StringMatching | null
     event: string | null
     properties: PropertyFilter[] | null
-}
-
-// subset of EntityFilter
-export interface PluginConfigFilterBase {
-    id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
-}
-
-export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
-    type: 'events'
-}
-
-export interface PluginConfigFilterActions extends PluginConfigFilterBase {
-    type: 'actions'
-}
-
-export type PluginConfigFilter = PluginConfigFilterEvents | PluginConfigFilterActions
-
-export interface PluginConfigFilters {
-    events?: PluginConfigFilterEvents[]
-    actions?: PluginConfigFilterActions[]
-    filter_test_accounts?: boolean
 }
 
 /** Raw Action row from database. */
