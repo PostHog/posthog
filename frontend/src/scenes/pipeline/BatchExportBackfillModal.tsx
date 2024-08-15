@@ -4,10 +4,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { batchExportRunsLogic, BatchExportRunsLogicProps } from './batchExportRunsLogic'
 
 export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX.Element {
+    const { timezone } = useValues(teamLogic)
     const logic = batchExportRunsLogic({ id })
 
     const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting } = useValues(logic)
@@ -54,18 +56,46 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                 enableFormOnSubmit
                 className="space-y-2"
             >
+                {
+                    // We will assume any dates selected are in the project's timezone and NOT in the user's local time.
+                    // So, if a user of a daily export selects "2024-08-14" they mean "2024-08-14 00:00:00 in their
+                    // project's timezone".
+                }
                 <LemonField name="start_at" label="Start Date" className="flex-1">
                     {({ value, onChange }) => (
-                        <LemonCalendarSelectInput value={value} onChange={onChange} placeholder="Select start date" />
+                        <LemonCalendarSelectInput
+                            value={value}
+                            onChange={(date) => {
+                                const projectDate = date.tz(timezone, true)
+                                onChange(projectDate)
+                            }}
+                            placeholder="Select start date"
+                            granularity={
+                                batchExportConfig.interval === 'hour'
+                                    ? 'hour'
+                                    : batchExportConfig.interval.endsWith('minutes')
+                                    ? 'minute'
+                                    : 'day'
+                            }
+                        />
                     )}
                 </LemonField>
-
                 <LemonField name="end_at" label="End date" className="flex-1">
                     {({ value, onChange }) => (
                         <LemonCalendarSelectInput
                             value={value}
-                            onChange={onChange}
+                            onChange={(date) => {
+                                const projectDate = date.tz(timezone, true)
+                                onChange(projectDate)
+                            }}
                             placeholder="Select end date (optional)"
+                            granularity={
+                                batchExportConfig.interval === 'hour'
+                                    ? 'hour'
+                                    : batchExportConfig.interval.endsWith('minutes')
+                                    ? 'minute'
+                                    : 'day'
+                            }
                         />
                     )}
                 </LemonField>
