@@ -13,6 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
+import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
@@ -28,7 +29,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { insightDataLogic, queryFromFilters } from './insightDataLogic'
+import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {

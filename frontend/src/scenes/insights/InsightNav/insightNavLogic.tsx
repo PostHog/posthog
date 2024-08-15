@@ -3,11 +3,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
-import { getDefaultQuery, insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
     DataWarehouseNode,
