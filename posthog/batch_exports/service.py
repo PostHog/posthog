@@ -649,6 +649,10 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
             jitter=(batch_export.interval_time_delta / 12),
+            # For the time being, do not update existing exports to avoid changing timezones and losing
+            # data due to the shift in start times. Once we have a plan to migrate existing exports,
+            # this conditional may be removed.
+            time_zone_name=batch_export.team.timezone if created else None,
         ),
         state=state,
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
