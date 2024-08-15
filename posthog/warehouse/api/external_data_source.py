@@ -213,27 +213,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.prefetch_related(
-            "created_by",
-            Prefetch(
-                "jobs",
-                queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
-                to_attr="ordered_jobs",
-            ),
-            Prefetch(
-                "schemas",
-                queryset=ExternalDataSchema.objects.select_related(
-                    "table__credential", "table__external_data_source"
-                ).order_by("name"),
-            ),
-            Prefetch(
-                "schemas",
-                queryset=ExternalDataSchema.objects.filter(should_sync=True).select_related(
-                    "source", "table__credential", "table__external_data_source"
+        return (
+            queryset.exclude(deleted=True)
+            .prefetch_related(
+                "created_by",
+                Prefetch(
+                    "jobs",
+                    queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
+                    to_attr="ordered_jobs",
                 ),
-                to_attr="active_schemas",
-            ),
-        ).order_by(self.ordering)
+                Prefetch(
+                    "schemas",
+                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    .select_related("table__credential", "table__external_data_source")
+                    .order_by("name"),
+                ),
+                Prefetch(
+                    "schemas",
+                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    .filter(should_sync=True)
+                    .select_related("source", "table__credential", "table__external_data_source"),
+                    to_attr="active_schemas",
+                ),
+            )
+            .order_by(self.ordering)
+        )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
@@ -566,17 +570,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return new_source_model, schemas
 
     def prefix_required(self, source_type: str) -> bool:
-        source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()
+        source_type_exists = (
+            ExternalDataSource.objects.exclude(deleted=True)
+            .filter(team_id=self.team.pk, source_type=source_type)
+            .exists()
+        )
         return source_type_exists
 
     def prefix_exists(self, source_type: str, prefix: str) -> bool:
-        prefix_exists = ExternalDataSource.objects.filter(
-            team_id=self.team.pk, source_type=source_type, prefix=prefix
-        ).exists()
+        prefix_exists = (
+            ExternalDataSource.objects.exclude(deleted=True)
+            .filter(team_id=self.team.pk, source_type=source_type, prefix=prefix)
+            .exists()
+        )
         return prefix_exists
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
+        instance: ExternalDataSource = self.get_object()
 
         latest_running_job = (
             ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
@@ -596,13 +606,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
                 pass
 
-        for schema in ExternalDataSchema.objects.filter(
-            team_id=self.team_id, source_id=instance.id, should_sync=True
-        ).all():
+        for schema in (
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
+            .all()
+        ):
             delete_external_data_schedule(str(schema.id))
 
         delete_external_data_schedule(str(instance.id))
-        return super().destroy(request, *args, **kwargs)
+
+        for schema in instance.schemas.all():
+            if schema.table:
+                schema.table.soft_delete()
+            schema.soft_delete()
+        instance.soft_delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
