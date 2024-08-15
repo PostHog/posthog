@@ -17,6 +17,7 @@ export enum SurveysTabs {
     Active = 'active',
     Yours = 'yours',
     Archived = 'archived',
+    Notifications = 'notifications',
     History = 'history',
 }
 
@@ -72,7 +73,7 @@ export const surveysLogic = kea<surveysLogicType>([
     })),
     reducers({
         tab: [
-            SurveysTabs.Active,
+            SurveysTabs.Active as SurveysTabs,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -196,11 +197,9 @@ export const surveysLogic = kea<surveysLogicType>([
             },
         ],
     }),
-    actionToUrl(({ values, props }) => ({
+    actionToUrl(({ values }) => ({
         setTab: () => {
-            console.log('HERE!=!=!', values.tab)
-            const tab = values.tab
-            return [router.values.location.pathname, { ...router.values.searchParams, tab }]
+            return [router.values.location.pathname, { ...router.values.searchParams, tab: values.tab }]
         },
     })),
     urlToAction(({ actions }) => ({

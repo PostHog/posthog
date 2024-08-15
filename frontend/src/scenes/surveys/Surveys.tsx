@@ -26,11 +26,12 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { ConnectedDestinations } from 'scenes/pipeline/destinations/ConnectedDestinations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
+import { ActivityScope, ProductKey, ProgressStatus, PropertyFilterType, PropertyOperator, Survey } from '~/types'
 
 import { SurveyQuestionLabel } from './constants'
 import { openSurveysSettingsDialog } from './SurveySettings'
@@ -108,12 +109,36 @@ export function Surveys(): JSX.Element {
                 tabs={[
                     { key: SurveysTabs.Active, label: 'Active' },
                     { key: SurveysTabs.Archived, label: 'Archived' },
+                    { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
                 ]}
             />
 
             {tab === SurveysTabs.History ? (
                 <ActivityLog scope={ActivityScope.SURVEY} />
+            ) : tab === SurveysTabs.Notifications ? (
+                <>
+                    <p>Get notified whenever a survey result is submitted</p>
+                    <ConnectedDestinations
+                        filters={{
+                            events: [
+                                {
+                                    id: 'survey sent',
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [
+                                        {
+                                            key: '$survey_response',
+                                            type: PropertyFilterType.Event,
+                                            value: 'is_set',
+                                            operator: PropertyOperator.IsSet,
+                                        },
+                                    ],
+                                },
+                            ],
+                        }}
+                    />
+                </>
             ) : (
                 <>
                     <div className="space-y-2">
