@@ -231,11 +231,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 actions.setSceneState(insightId, insightMode, subscriptionId)
             }
 
-            let query: Node | null = null
+            let queryFromUrl: Node | null = null
             if (q) {
-                query = JSON.parse(q)
+                queryFromUrl = JSON.parse(q)
             } else if (insightType && Object.values(InsightType).includes(insightType)) {
-                query = getDefaultQuery(insightType, values.filterTestAccountsDefault)
+                queryFromUrl = getDefaultQuery(insightType, values.filterTestAccountsDefault)
             }
 
             // Redirect to a simple URL if we had a query in the URL
@@ -250,13 +250,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             // reset the insight's state if we have to
-            if (initial || method === 'PUSH' || query) {
+            if (initial || method === 'PUSH' || queryFromUrl) {
                 if (insightId === 'new') {
+                    const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight('new'),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
-                            ...(query ? { query } : {}),
+                            query,
                         },
                         {
                             fromPersistentApi: false,
@@ -264,7 +265,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         }
                     )
 
-                    actions.setOpenedWithQuery(query || null)
+                    actions.setOpenedWithQuery(query)
 
                     eventUsageLogic.actions.reportInsightCreated(query)
                 }
