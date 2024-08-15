@@ -57,7 +57,7 @@ export function HogFunctionFilters(): JSX.Element {
                             fullWidth
                         />
                         <PropertyFilters
-                            propertyFilters={value.properties ?? []}
+                            propertyFilters={value?.properties ?? []}
                             taxonomicGroupTypes={[
                                 TaxonomicFilterGroupType.EventProperties,
                                 TaxonomicFilterGroupType.PersonProperties,
