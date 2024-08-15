@@ -105,7 +105,10 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
                     // TODO: Make this generic for all minute frequencies.
                     // Currently, only 5 minute batch exports are supported.
-                    if (!(start_at?.minute() % 5 === 0) || !(end_at?.minute() % 5 === 0)) {
+                    if (
+                        !(start_at?.minute() && start_at?.minute() % 5 === 0) ||
+                        !(end_at?.minute() && end_at?.minute() % 5 === 0)
+                    ) {
                         lemonToast.error(
                             'Backfilling a 5 minute batch export requires bounds be multiple of five minutes'
                         )
