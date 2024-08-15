@@ -329,10 +329,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 {destinationFilters && (
                     <>
                         <LemonDivider className="my-8" />
-                        <div className="flex items-center justify-between gap-2">
-                            <h3>Connected destinations</h3>
-                            <NewConnectedDestinationButton filters={destinationFilters} />
-                        </div>
+                        <h3>Connected destinations</h3>
                         <p>Get notified when people opt in to your feature</p>
                         <ConnectedDestinations filters={destinationFilters} />
                     </>

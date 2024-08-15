@@ -170,9 +170,13 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
         filteredDestinations: [
             (s) => [s.filters, s.destinations, s.destinationsFuse],
             (filters, destinations, destinationsFuse): NewDestinationItemType[] => {
-                const { search, kind } = filters
+                const { search, kind, sub_template } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
+                    if (sub_template && (!dest.sub_templates || !dest.sub_templates.includes(sub_template))) {
+                        return false
+                    }
+
                     if (kind && dest.backend !== kind) {
                         return false
                     }

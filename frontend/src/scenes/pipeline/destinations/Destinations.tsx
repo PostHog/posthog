@@ -54,7 +54,10 @@ export function Destinations(): JSX.Element {
     )
 }
 
-export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps): JSX.Element {
+export function DestinationsTable({
+    extraControls,
+    ...props
+}: PipelineDestinationsLogicProps & { extraControls?: JSX.Element }): JSX.Element {
     const { loading, filteredDestinations, filters, destinations } = useValues(pipelineDestinationsLogic(props))
     const { setFilters, resetFilters } = useActions(pipelineDestinationsLogic(props))
 
@@ -99,6 +102,8 @@ export function DestinationsTable({ ...props }: PipelineDestinationsLogicProps):
                         onChange={(e) => setFilters({ kind: e ?? undefined })}
                     />
                 )}
+
+                {extraControls}
             </div>
 
             <BindLogic logic={pipelineDestinationsLogic} props={props}>
