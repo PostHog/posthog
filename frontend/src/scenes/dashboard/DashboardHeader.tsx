@@ -48,10 +48,8 @@ export function DashboardHeader(): JSX.Element | null {
         apiUrl,
         showTextTileModal,
         textTileId,
-        stale,
-        isEditInProgress,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate, cancelTemporary, applyTemporary } = useActions(dashboardLogic)
+    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
@@ -122,19 +120,33 @@ export function DashboardHeader(): JSX.Element | null {
             <PageHeader
                 buttons={
                     dashboardMode === DashboardMode.Edit ? (
-                        <LemonButton
-                            data-attr="dashboard-edit-mode-save"
-                            type="primary"
-                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
-                            tabIndex={10}
-                            disabled={dashboardLoading}
-                        >
-                            Done editing
-                        </LemonButton>
+                        <>
+                            <LemonButton
+                                data-attr="dashboard-edit-mode-discard"
+                                type="secondary"
+                                onClick={() =>
+                                    setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                                }
+                                tabIndex={9}
+                            >
+                                Discard Changes
+                            </LemonButton>
+                            <LemonButton
+                                data-attr="dashboard-edit-mode-save"
+                                type="primary"
+                                onClick={() =>
+                                    setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+                                }
+                                tabIndex={10}
+                                disabled={dashboardLoading}
+                            >
+                                Save Dashboard
+                            </LemonButton>
+                        </>
                     ) : dashboardMode === DashboardMode.Fullscreen ? (
                         <LemonButton
                             type="secondary"
-                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
+                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderExitFullscreen)}
                             data-attr="dashboard-exit-presentation-mode"
                             disabled={dashboardLoading}
                         >
@@ -255,21 +267,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 }
                             />
                             <LemonDivider vertical />
-                            {isEditInProgress ? (
-                                <div className="flex items-center gap-2">
-                                    <LemonButton onClick={cancelTemporary} type="secondary">
-                                        Cancel changes
-                                    </LemonButton>
-                                    <LemonButton
-                                        onClick={applyTemporary}
-                                        type="primary"
-                                        disabledReason={!stale ? 'No changes to apply' : undefined}
-                                    >
-                                        Save dashboard
-                                    </LemonButton>
-                                </div>
-                            ) : null}
-                            {!isEditInProgress && dashboard && (
+                            {dashboard && (
                                 <>
                                     <CollaboratorBubbles
                                         dashboard={dashboard}
@@ -284,7 +282,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {!isEditInProgress && dashboard ? (
+                            {dashboard ? (
                                 <LemonButton
                                     to={urls.insightNew(undefined, dashboard.id)}
                                     type="primary"

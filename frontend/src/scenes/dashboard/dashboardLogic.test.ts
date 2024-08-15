@@ -13,15 +13,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardFilter } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import {
-    DashboardTile,
-    DashboardType,
-    InsightColor,
-    InsightModel,
-    InsightShortId,
-    InsightType,
-    TileLayout,
-} from '~/types'
+import { DashboardTile, DashboardType, InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
@@ -319,23 +311,6 @@ describe('dashboardLogic', () => {
                     {
                         id: 4,
                         layouts: {},
-                    },
-                ],
-            })
-        })
-
-        it('saving layouts with provided tiles updates only those tiles', async () => {
-            jest.spyOn(api, 'update')
-
-            await expectLogic(logic, () => {
-                logic.actions.saveLayouts([{ id: 1, layouts: { sm: {} as TileLayout, xs: {} as TileLayout } }])
-            }).toFinishAllListeners()
-
-            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                tiles: [
-                    {
-                        id: 1,
-                        layouts: { sm: {} as TileLayout, xs: {} as TileLayout },
                     },
                 ],
             })

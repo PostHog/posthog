@@ -41,16 +41,8 @@ export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JS
 }
 
 function DashboardScene(): JSX.Element {
-    const {
-        placement,
-        dashboard,
-        canEditDashboard,
-        tiles,
-        itemsLoading,
-        dashboardMode,
-        dashboardFailedToLoad,
-        isEditInProgress,
-    } = useValues(dashboardLogic)
+    const { placement, dashboard, canEditDashboard, tiles, itemsLoading, dashboardMode, dashboardFailedToLoad } =
+        useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useEffect(() => {
@@ -125,7 +117,7 @@ function DashboardScene(): JSX.Element {
                                 >
                                     {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />
-                                    ) : !isEditInProgress ? (
+                                    ) : !(dashboardMode === DashboardMode.Edit) ? (
                                         <DashboardReloadAction />
                                     ) : null}
                                 </div>
