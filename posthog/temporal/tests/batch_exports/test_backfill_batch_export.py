@@ -644,13 +644,13 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
         run_end_time = dt.datetime.strptime(workflow.id, f"{desc.id}-%Y-%m-%dT%H:%M:%SZ")
 
         adjusted_minutes = run_end_time.minute + 10 - index
-        adjusted_end_times.append(run_end_time.replace(tzinfo=dt.UTC, minute=adjusted_minutes).astimezone(timezone))
+        adjusted_end_times.append(run_end_time.replace(tzinfo=timezone, minute=adjusted_minutes))
 
         temporal_scheduled_start_time = workflow.search_attributes["TemporalScheduledStartTime"][0]
 
         assert isinstance(temporal_scheduled_start_time, dt.datetime)
         adjusted_scheduled_start_times.append(
-            temporal_scheduled_start_time.replace(minute=adjusted_minutes).astimezone(timezone)
+            temporal_scheduled_start_time.replace(minute=adjusted_minutes, tzinfo=timezone)
         )
 
     assert all(end_time == end_at for end_time in adjusted_end_times)
