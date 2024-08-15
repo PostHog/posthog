@@ -685,7 +685,7 @@ class _Printer(Visitor):
 
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
-                    return None  # ???
+                    return "0"
                 elif node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(node.right)}))"

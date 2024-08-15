@@ -544,14 +544,12 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
 
-        # Leave NULL values alone when used with the ``IN`` operator and let the standard compare operator decide what
-        # to do here.
+        # NULL values are never equal. While this differs from the behavior of the equality operator above, it is
+        # consistent with how ClickHouse treats these values:
+        # https://clickhouse.com/docs/en/sql-reference/operators/in#null-processing
         self._test_property_group_comparison("properties.key in NULL", "0")
         self._test_property_group_comparison("properties.key in (NULL)", "0")
         self._test_property_group_comparison("properties.key in (NULL, NULL, NULL)", "0")
-
-        # To maintain consistency with the way standalone NULLs are handled (they always evaluate to false, see above),
-        # they should be dropped from the RHS of the IN if there are other valid values to compare.
         self._test_property_group_comparison(
             "properties.key IN ('a', 'b', NULL)",
             "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s))",
