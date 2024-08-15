@@ -14,13 +14,14 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { ExperimentsEditingToolbarMenu } from '~/toolbar/experiments/ExperimentsEditingToolbarMenu'
 import { ExperimentsListView } from '~/toolbar/experiments/ExperimentsListView'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import {experimentsLogic} from "~/toolbar/experiments/experimentsLogic";
 
 const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(actionsLogic)
     const { setSearchTerm, getActions } = useActions(actionsLogic)
 
     const { newAction } = useActions(actionsTabLogic)
-    const { allActions, sortedActions, allActionsLoading } = useValues(actionsLogic)
+    const { allExperiments, sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
 
     const { apiURL } = useValues(toolbarConfigLogic)
 
@@ -43,12 +44,12 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="px-1 space-y-px py-2">
-                    {allActions.length === 0 && allActionsLoading ? (
+                    {allExperiments.length === 0 && allExperimentsLoading ? (
                         <div className="text-center my-4">
                             <Spinner />
                         </div>
                     ) : (
-                        <ExperimentsListView actions={sortedActions} />
+                        <ExperimentsListView experiments={sortedExperiments} />
                     )}
                 </div>
             </ToolbarMenu.Body>

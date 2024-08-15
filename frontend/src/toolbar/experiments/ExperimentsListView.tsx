@@ -2,42 +2,43 @@ import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { ActionType } from '~/types'
+// import { actionsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import {Experiment} from '~/types'
+import {experimentsLogic} from "~/toolbar/experiments/experimentsLogic";
+import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 
 interface ExperimentsListViewProps {
-    actions: ActionType[]
+    experiments: Experiment[]
 }
 
-export function ExperimentsListView({ actions }: ExperimentsListViewProps): JSX.Element {
-    const { allActionsLoading, searchTerm } = useValues(actionsLogic)
-    const { selectAction } = useActions(actionsTabLogic)
+export function ExperimentsListView({ experiments }: ExperimentsListViewProps): JSX.Element {
+    const { allExperimentsLoading, searchTerm } = useValues(experimentsLogic)
+    const { selectExperiment } = useActions(experimentsTabLogic)
 
     return (
         <div className="flex flex-col h-full overflow-y-scoll space-y-px">
-            {actions.length ? (
-                actions.map((action, index) => (
+            {experiments.length ? (
+                experiments.map((experiment, index) => (
                     <>
                         <Link
                             subtle
-                            key={action.id}
-                            onClick={() => selectAction(action.id || null)}
+                            key={experiment.id}
+                            onClick={() => selectExperiment(experiment.id)}
                             className="font-medium my-1 w-full"
                         >
                             <span className="min-w-[2rem] inline-block text-left">{index + 1}.</span>
                             <span className="flex-grow">
-                                {action.name || <span className="italic text-muted-alt">Untitled</span>}
+                                {experiment.name || <span className="italic text-muted-alt">Untitled</span>}
                             </span>
                         </Link>
                     </>
                 ))
-            ) : allActionsLoading ? (
+            ) : allExperimentsLoading ? (
                 <div className="flex items-center">
                     <Spinner className="text-4xl" />
                 </div>
             ) : (
-                <div className="p-2">No {searchTerm.length ? 'matching ' : ''}actions found.</div>
+                <div className="p-2">No {searchTerm.length ? 'matching ' : ''}experiments found.</div>
             )}
         </div>
     )

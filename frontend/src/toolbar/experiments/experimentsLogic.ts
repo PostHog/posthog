@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { ActionType } from '~/types'
+import { Experiment } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -14,16 +14,16 @@ export const experimentsLogic = kea<experimentsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ values }) => ({
-        allActions: [
-            [] as ActionType[],
+        allExperiments: [
+            [] as Experiment[],
             {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                getActions: async (_ = null, breakpoint: () => void) => {
+                getExperiments: async (_ = null, breakpoint: () => void) => {
                     const response = await toolbarFetch('/api/projects/@current/experiments/')
                     const results = await response.json()
 
                     if (response.status === 403) {
-                        toolbarConfigLogic.experiments.authenticate()
+                        toolbarConfigLogic.actions.authenticate()
                         return []
                     }
 
@@ -35,11 +35,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
 
                     return results.results
                 },
-                updateAction: ({ experiment }: { experiment: ActionType }) => {
-                    return values.allActions.filter((r) => r.id !== experiment.id).concat([experiment])
+                updateExperiment: ({ experiment }: { experiment: Experiment }) => {
+                    return values.allExperiments.filter((r) => r.id !== experiment.id).concat([experiment])
                 },
-                deleteAction: ({ id }: { id: number }) => {
-                    return values.allActions.filter((r) => r.id !== id)
+                deleteExperiment: ({ id }: { id: number }) => {
+                    return values.allExperiments.filter((r) => r.id !== id)
                 },
             },
         ],
@@ -53,21 +53,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     }),
     selectors({
-        sortedActions: [
-            (s) => [s.allActions, s.searchTerm],
-            (allActions, searchTerm) => {
-                const filteredActions = searchTerm
-                    ? new Fuse(allActions, {
+        sortedExperiments: [
+            (s) => [s.allExperiments, s.searchTerm],
+            (allExperiments, searchTerm) => {
+                const filteredExperiments = searchTerm
+                    ? new Fuse(allExperiments, {
                           threshold: 0.3,
                           keys: ['name'],
                       })
                           .search(searchTerm)
                           .map(({ item }) => item)
-                    : allActions
-                return [...filteredActions].sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
+                    : allExperiments
+                return [...filteredExperiments].sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
             },
         ],
-        experimentCount: [(s) => [s.allActions], (allActions) => allActions.length],
+        experimentCount: [(s) => [s.allExperiments], (allExperiments) => allExperiments.length],
     }),
     permanentlyMount(),
 ])

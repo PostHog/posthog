@@ -1,4 +1,4 @@
-import { ActionStepType, ActionType, ElementType } from '~/types'
+import {ActionStepType, ActionType, ElementType, Experiment} from '~/types'
 
 export type ElementsEventType = {
     count: number
@@ -68,6 +68,13 @@ export interface ActionElementWithMetadata extends ElementWithMetadata {
 }
 
 export type ActionDraftType = Omit<ActionType, 'id' | 'created_at' | 'created_by'>
+
+export type ExperimentDraftType = Omit<Experiment, 'id' | 'created_at' | 'created_by'>
+
+
+export interface ExperimentForm extends ActionDraftType {
+    elements?: ActionStepForm[]
+}
 
 export interface ActionStepForm extends ActionStepType {
     href_selected?: boolean

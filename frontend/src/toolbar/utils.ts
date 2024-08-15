@@ -4,7 +4,7 @@ import { cssEscape } from 'lib/utils/cssEscape'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import { ActionStepForm, ElementRect } from '~/toolbar/types'
+import {ActionStepForm, ElementRect, ExperimentForm} from '~/toolbar/types'
 import { ActionStepType } from '~/types'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
@@ -61,6 +61,19 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
+    const query = elementToQuery(element, dataAttributes)
+
+    return {
+        event: '$autocapture',
+        href: element.getAttribute('href') || '',
+        text: getSafeText(element) || '',
+        selector: query || '',
+        url: window.location.protocol + '//' + window.location.host + window.location.pathname,
+        url_matching: 'exact',
+    }
+}
+
+export function elementToExperimentStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
     const query = elementToQuery(element, dataAttributes)
 
     return {
@@ -263,6 +276,10 @@ export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opa
             outline: `hsla(4, 90%, 58%, 0.5) solid 1px`,
         }
     }
+}
+
+export function experimentStepToExperimentStepFormItem(step: ExperimentS): ExperimentForm {
+
 }
 
 export function actionStepToActionStepFormItem(step: ActionStepType, isNew = false): ActionStepForm {
