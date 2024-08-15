@@ -22,7 +22,7 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode, isDataVisualizationNode, isHogQuery, isInsightVizNode } from '~/queries/utils'
 import { ExportContext, FilterType, InsightLogicProps, InsightType } from '~/types'
 
 import type { insightDataLogicType } from './insightDataLogicType'
@@ -188,18 +188,22 @@ export const insightDataLogic = kea<insightDataLogicType>([
         queryChanged: [
             (s) => [s.query, s.savedInsight, s.filterTestAccountsDefault],
             (query, savedInsight, filterTestAccountsDefault) => {
-                if (savedInsight.query == null) {
-                    return true
+                let savedOrDefaultQuery
+                if (savedInsight.query) {
+                    savedOrDefaultQuery = savedInsight.query as InsightVizNode | DataVisualizationNode
+                } else if (isInsightVizNode(query)) {
+                    savedOrDefaultQuery = getDefaultQuery(insightMap[query.source.kind], filterTestAccountsDefault)
+                } else if (isDataVisualizationNode(query)) {
+                    savedOrDefaultQuery = getDefaultQuery(InsightType.SQL, filterTestAccountsDefault)
+                } else if (isDataTableNode(query)) {
+                    savedOrDefaultQuery = getDefaultQuery(InsightType.JSON, filterTestAccountsDefault)
+                } else if (isHogQuery(query)) {
+                    savedOrDefaultQuery = getDefaultQuery(InsightType.HOG, filterTestAccountsDefault)
+                } else {
+                    return false
                 }
 
-                const savedQuery = savedInsight.query as InsightVizNode | DataVisualizationNode
-                const currentQuery =
-                    query ||
-                    getDefaultQuery(
-                        insightMap[savedQuery.source?.kind || NodeKind.TrendsQuery],
-                        filterTestAccountsDefault
-                    )
-                return !compareQuery(savedInsight.query, currentQuery)
+                return !compareQuery(savedOrDefaultQuery, query as InsightVizNode | DataVisualizationNode)
             },
         ],
 
