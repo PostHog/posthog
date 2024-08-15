@@ -107,6 +107,9 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
+    CDP_REDIS_HOST: string
+    CDP_REDIS_PORT: number
+    CDP_REDIS_PASSWORD: string
 }
 
 export interface PluginsServerConfig extends CdpConfig {
@@ -453,7 +456,6 @@ export interface PluginConfig {
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
-    filters?: PluginConfigFilters
 }
 
 export interface PluginJsonConfig {
@@ -992,30 +994,6 @@ export interface ActionStep {
     properties: PropertyFilter[] | null
 }
 
-// subset of EntityFilter
-export interface PluginConfigFilterBase {
-    id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
-}
-
-export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
-    type: 'events'
-}
-
-export interface PluginConfigFilterActions extends PluginConfigFilterBase {
-    type: 'actions'
-}
-
-export type PluginConfigFilter = PluginConfigFilterEvents | PluginConfigFilterActions
-
-export interface PluginConfigFilters {
-    events?: PluginConfigFilterEvents[]
-    actions?: PluginConfigFilterActions[]
-    filter_test_accounts?: boolean
-}
-
 /** Raw Action row from database. */
 export interface RawAction {
     id: number
@@ -1235,6 +1213,6 @@ export type AppMetric2Type = {
     app_source_id: string
     instance_id?: string
     metric_kind: 'failure' | 'success' | 'other'
-    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently'
+    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently' | 'masked'
     count: number
 }

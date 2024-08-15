@@ -4,51 +4,59 @@
 
 @each $name, $hex in $colors {
     .text-#{$name} {
-        color: var(--#{$name});
+        color: var(--#{$name}) !important;
     }
     .bg-#{$name} {
-        background-color: var(--#{$name});
+        background-color: var(--#{$name}) !important;
     }
     .border-#{$name} {
-        border-color: var(--#{$name});
+        border-color: var(--#{$name}) !important;
     }
     .border-l-#{$name} {
-        border-left-color: var(--#{$name});
+        border-left-color: var(--#{$name}) !important;
     }
     .border-r-#{$name} {
-        border-right-color: var(--#{$name});
+        border-right-color: var(--#{$name}) !important;
     }
     .border-t-#{$name} {
-        border-top-color: var(--#{$name});
+        border-top-color: var(--#{$name}) !important;
     }
     .border-b-#{$name} {
-        border-bottom-color: var(--#{$name});
+        border-bottom-color: var(--#{$name}) !important;
     }
     .border-x-#{$name} {
-        border-right-color: var(--#{$name});
-        border-left-color: var(--#{$name});
+        border-right-color: var(--#{$name}) !important;
+        border-left-color: var(--#{$name}) !important;
     }
     .border-y-#{$name} {
-        border-top-color: var(--#{$name});
-        border-bottom-color: var(--#{$name});
+        border-top-color: var(--#{$name}) !important;
+        border-bottom-color: var(--#{$name}) !important;
     }
     .decoration-#{$name} {
-        text-decoration-color: var(--#{$name});
+        text-decoration-color: var(--#{$name}) !important;
     }
 }
 
 @each $name, $hex in $colors {
     .hover\:text-#{$name}:hover {
-        color: $hex;
+        color: $hex !important;
     }
     .hover\:bg-#{$name}:hover {
-        background-color: $hex;
+        background-color: $hex !important;
     }
     .hover\:border-#{$name}:hover {
-        border-color: $hex;
+        border-color: $hex !important;
     }
 }
 
+// stylelint-disable-next-line selector-class-pattern
+.placeholder\:\*\:text-default > *::placeholder {
+    // This is something Tailwind would generate, but we have to do Tailwind's job manually
+    // due to colors not being under Tailwind yet
+    color: var(--default);
+}
+
+// Extra utilties that Tailwind doesn't have built in
 @layer utilities {
     .image-pixelated {
         image-rendering: pixelated;

@@ -17,18 +17,14 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { Sparkline } from 'lib/components/Sparkline'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { groupsModel } from '~/models/groupsModel'
-import { AvailableFeature, EntityTypes } from '~/types'
+import { AvailableFeature } from '~/types'
 
+import { HogFunctionFilters } from './filters/HogFunctionFilters'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
@@ -67,7 +63,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
     } = useActions(logic)
 
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -154,6 +149,14 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     Hog Functions are in <b>alpha</b> and are the next generation of our data pipeline destinations. You
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
+
+                {hogFunction?.filters?.bytecode_error ? (
+                    <div>
+                        <LemonBanner type="error">
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                        </LemonBanner>
+                    </div>
+                ) : null}
 
                 <Form
                     logic={hogFunctionConfigurationLogic}
@@ -247,57 +250,8 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 ) : null}
                             </div>
 
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="filters" label="Filters by events and actions" className="gap-2">
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <TestAccountFilterSwitch
-                                                checked={value?.filter_test_accounts ?? false}
-                                                onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
-                                                fullWidth
-                                            />
-                                            <ActionFilter
-                                                bordered
-                                                filters={value ?? {}}
-                                                setFilters={(payload) => {
-                                                    onChange({
-                                                        ...payload,
-                                                        filter_test_accounts: value?.filter_test_accounts,
-                                                    })
-                                                }}
-                                                typeKey="plugin-filters"
-                                                mathAvailability={MathAvailability.None}
-                                                hideRename
-                                                hideDuplicate
-                                                showNestedArrow={false}
-                                                actionsTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.Events,
-                                                    TaxonomicFilterGroupType.Actions,
-                                                ]}
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.HogQLExpression,
-                                                    ...groupsTaxonomicTypes,
-                                                ]}
-                                                propertyFiltersPopover
-                                                addFilterDefaultOptions={{
-                                                    id: '$pageview',
-                                                    name: '$pageview',
-                                                    type: EntityTypes.EVENTS,
-                                                }}
-                                                buttonCopy="Add event filter"
-                                            />
-                                        </>
-                                    )}
-                                </LemonField>
+                            <HogFunctionFilters />
 
-                                <p className="italic text-muted-alt">
-                                    This destination will be triggered if <b>any of</b> the above filters match.
-                                </p>
-                            </div>
                             <div className="relative border bg-bg-light rounded p-3 space-y-2">
                                 <LemonLabel>Expected volume</LemonLabel>
                                 {sparkline && !sparklineLoading ? (

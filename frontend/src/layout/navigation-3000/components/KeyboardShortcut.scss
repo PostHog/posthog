@@ -20,12 +20,6 @@
         background: none;
     }
 
-    .ant-tooltip & {
-        color: #fff;
-        background: rgba(#000, 0.333);
-        border-color: rgba(#fff, 0.333);
-    }
-
     & + .KeyboardShortcut__key {
         margin-left: 0.25rem;
     }
