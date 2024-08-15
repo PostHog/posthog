@@ -12,14 +12,6 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
-class AbsoluteThreshold(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    lower: Optional[float] = None
-    upper: Optional[float] = None
-
-
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -36,11 +28,38 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE_SCALED = "percentage_scaled"
 
 
-class AnomalyCondition(BaseModel):
+class AlertAbsoluteThreshold(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    absoluteThreshold: AbsoluteThreshold
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+
+
+class AlertCondition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absoluteThreshold: AlertAbsoluteThreshold
+
+
+class AlertNotificationTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    email: list[str]
+
+
+class AlertType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: AlertCondition
+    id: str
+    insight: Optional[float] = None
+    name: str
+    notification_frequency: int
+    notification_target: AlertNotificationTarget
 
 
 class Kind(StrEnum):

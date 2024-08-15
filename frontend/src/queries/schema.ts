@@ -1684,11 +1684,27 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
 }
 
-export interface AbsoluteThreshold {
-    lower?: number | null
-    upper?: number | null
+export interface AlertNotificationTarget {
+    email: string[]
 }
 
-export interface AnomalyCondition {
-    absoluteThreshold: AbsoluteThreshold
+export interface AlertAbsoluteThreshold {
+    lower?: number
+    upper?: number
+}
+
+export interface AlertCondition {
+    absoluteThreshold: AlertAbsoluteThreshold
+    // More types of thresholds or conditions can be added here
+}
+
+export interface AlertType {
+    id: string
+    name: string
+    insight?: number
+    notification_targets: AlertNotificationTarget
+    condition: AlertCondition
+    notification_frequency: integer
+    state?: string
+    last_notified_at?: string
 }

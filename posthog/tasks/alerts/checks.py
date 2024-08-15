@@ -10,14 +10,14 @@ from posthog.email import EmailMessage
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.models import Alert
+from posthog.models import AlertConfiguration
 from posthog.schema import AnomalyCondition
 
 logger = structlog.get_logger(__name__)
 
 
 def check_all_alerts() -> None:
-    alert_ids = list(Alert.objects.all().values_list("id", flat=True))
+    alert_ids = list(AlertConfiguration.objects.all().values_list("id", flat=True))
 
     group_count = 10
     # All groups but the last one will have a group_size size.
@@ -34,7 +34,7 @@ def check_all_alerts() -> None:
 
 
 def check_alert(alert_id: int) -> None:
-    alert = Alert.objects.get(pk=alert_id)
+    alert = AlertConfiguration.objects.get(pk=alert_id)
     insight = alert.insight
 
     with conversion_to_query_based(insight):
@@ -80,7 +80,7 @@ def check_alert_task(alert_id: int) -> None:
     check_alert(alert_id)
 
 
-def send_notifications(alert: Alert, anomalies_descriptions: list[str]) -> None:
+def send_notifications(alert: AlertConfiguration, anomalies_descriptions: list[str]) -> None:
     subject = f"PostHog alert {alert.name} has anomalies"
     campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"

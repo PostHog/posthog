@@ -8,13 +8,13 @@ import { isEmail } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertType } from '~/types'
+import { AlertType } from '~/queries/schema'
 
 import type { alertLogicType } from './alertLogicType'
 import { alertsLogic, AlertsLogicProps } from './alertsLogic'
 
 export interface AlertLogicProps extends AlertsLogicProps {
-    id: number | 'new'
+    id?: string
 }
 
 export const alertLogic = kea<alertLogicType>([
@@ -29,10 +29,10 @@ export const alertLogic = kea<alertLogicType>([
         alert: {
             __default: undefined as unknown as AlertType,
             loadAlert: async () => {
-                if (props.id && props.id !== 'new') {
+                if (props.id) {
                     return await api.alerts.get(props.id)
                 }
-                return { anomaly_condition: { absoluteThreshold: {} } }
+                return { condition: { absoluteThreshold: {} } }
             },
         },
     })),
@@ -40,12 +40,12 @@ export const alertLogic = kea<alertLogicType>([
     forms(({ props, actions }) => ({
         alert: {
             defaults: {} as unknown as AlertType,
-            errors: ({ name, target_value }) => ({
+            errors: ({ name, notification_targets }) => ({
                 name: !name ? 'You need to give your alert a name' : undefined,
-                target_value: !target_value
-                    ? 'This field is required.'
-                    : !target_value.split(',').every((email) => isEmail(email))
-                    ? 'All emails must be valid'
+                notification_targets: !notification_targets?.email?.every((email) => isEmail(email))
+                    ? {
+                          email: ['All emails must be valid'],
+                      }
                     : undefined,
             }),
             submit: async (alert) => {
@@ -56,8 +56,9 @@ export const alertLogic = kea<alertLogicType>([
                     insight: insightId,
                 }
 
-                const updatedAlert: AlertType =
-                    props.id === 'new' ? await api.alerts.create(payload) : await api.alerts.update(props.id, payload)
+                const updatedAlert: AlertType = !props.id
+                    ? await api.alerts.create(payload)
+                    : await api.alerts.update(props.id, payload)
 
                 actions.resetAlert()
 

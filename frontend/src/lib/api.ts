@@ -10,6 +10,7 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import {
+    AlertType,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
     QuerySchema,
@@ -19,7 +20,6 @@ import {
 import {
     ActionType,
     ActivityScope,
-    AlertType,
     AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,

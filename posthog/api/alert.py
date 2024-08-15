@@ -3,24 +3,33 @@ from rest_framework.exceptions import ValidationError
 from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.alert import Alert
+from posthog.models.alert import AlertConfiguration
 
 
 class AlertSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Alert
+        model = AlertConfiguration
         fields = [
             "id",
+            "created_at",
             "insight",
             "name",
-            "target_value",
-            "anomaly_condition",
+            "notification_targets",
+            "condition",
+            "state",
+            "notification_frequency",
+            "last_notified_at",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "state",
+            "last_notified_at",
+        ]
 
-    def create(self, validated_data: dict) -> Alert:
+    def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
-        instance: Alert = super().create(validated_data)
+        instance: AlertConfiguration = super().create(validated_data)
         return instance
 
     def validate(self, attrs):
@@ -31,7 +40,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = Alert.objects.all()
+    queryset = AlertConfiguration.objects.all()
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:

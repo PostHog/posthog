@@ -1,4 +1,4 @@
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
@@ -23,7 +23,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
     const id = props.id
 
     const _onDelete = (): void => {
-        if (id !== 'new') {
+        if (id) {
             deleteAlert(id)
             props.onDelete()
         }
@@ -35,7 +35,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                 <div className="flex items-center gap-2">
                     <LemonButton icon={<IconChevronLeft />} onClick={props.onCancel} size="xsmall" />
 
-                    <h3>{id === 'new' ? 'New' : 'Edit '} Alert</h3>
+                    <h3>{!id ? 'New' : 'Edit '} Alert</h3>
                 </div>
             </LemonModal.Header>
 
@@ -51,14 +51,36 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                             <LemonInput placeholder="e.g. High error rate" data-attr="alert-name" />
                         </LemonField>
 
+                        <Group name={['notification_targets']}>
+                            <LemonField
+                                name="email"
+                                label="Who do you want to notify about anomalies"
+                                help="Enter email addresses of the users you want notify about anomalies"
+                            >
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    placeholder="Enter email addresses"
+                                    allowCustomValues
+                                    data-attr="alert-notification-targets"
+                                />
+                            </LemonField>
+                        </Group>
+
                         <LemonField
-                            name="target_value"
-                            label="Who do you want to notify about anomalies"
-                            help="Enter comma separated email addresses of the users you want notify about anomalies"
+                            name="notification_frequency"
+                            label="Notification frequency"
+                            help="At most notify every x minutes"
                         >
-                            <LemonInput data-attr="alert-notification-targets" placeholder="Enter an email address" />
+                            <LemonInput
+                                type="number"
+                                className="w-20"
+                                data-attr="alert-frequency"
+                                min={60}
+                                maxLength={24 * 60}
+                            />
                         </LemonField>
-                        <Group name={['anomaly_condition', 'absoluteThreshold']}>
+
+                        <Group name={['condition', 'absoluteThreshold']}>
                             <span className="flex gap-10">
                                 <LemonField
                                     name="lower"
@@ -82,7 +104,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {alert && id !== 'new' && (
+                    {alert && id && (
                         <LemonButton type="secondary" status="danger" onClick={_onDelete}>
                             Delete alert
                         </LemonButton>
@@ -92,7 +114,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                     Cancel
                 </LemonButton>
                 <LemonButton type="primary" htmlType="submit" loading={isAlertSubmitting} disabled={!alertChanged}>
-                    {id === 'new' ? 'Create alert' : 'Save'}
+                    {!id ? 'Create alert' : 'Save'}
                 </LemonButton>
             </LemonModal.Footer>
         </Form>

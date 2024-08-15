@@ -4,8 +4,9 @@ import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getInsightId } from 'scenes/insights/utils'
 
+import { AlertType } from '~/queries/schema'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { AlertType, ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
 
 import type { alertsLogicType } from './alertsLogicType'
 
@@ -29,7 +30,7 @@ export const alertsLogic = kea<alertsLogicType>([
     props({} as AlertsLogicProps),
     key(({ insightShortId }) => `insight-${insightShortId}`),
     actions({
-        deleteAlert: (id: number) => ({ id }),
+        deleteAlert: (id: string) => ({ id }),
         setShouldShowAlertDeletionWarning: (show: boolean) => ({ show }),
     }),
 

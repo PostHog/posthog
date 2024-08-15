@@ -17,7 +17,7 @@ import { ManageAlerts } from './views/ManageAlerts'
 export interface AlertsModalProps extends AlertsLogicProps {
     isOpen: boolean
     closeModal: () => void
-    alertId: number | 'new' | null
+    alertId?: string | null
 }
 
 export function AlertsModal(props: AlertsModalProps): JSX.Element {
@@ -35,11 +35,11 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
                     insightShortId={insightShortId}
                     insightLogicProps={insightLogicProps}
                     onCancel={closeModal}
-                    onSelect={(id) => push(urls.alert(insightShortId, id.toString()))}
+                    onSelect={(id) => push(urls.alert(insightShortId, id ?? 'new'))}
                 />
             ) : (
                 <EditAlert
-                    id={alertId}
+                    id={alertId === 'new' ? undefined : alertId}
                     insightShortId={insightShortId}
                     insightLogicProps={insightLogicProps}
                     onCancel={() => push(urls.alerts(insightShortId))}

@@ -1,18 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "AbsoluteThreshold": {
-            "additionalProperties": false,
-            "properties": {
-                "lower": {
-                    "type": ["number", "null"]
-                },
-                "upper": {
-                    "type": ["number", "null"]
-                }
-            },
-            "type": "object"
-        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -195,14 +183,64 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
         },
-        "AnomalyCondition": {
+        "AlertAbsoluteThreshold": {
+            "additionalProperties": false,
+            "properties": {
+                "lower": {
+                    "type": "number"
+                },
+                "upper": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
+        "AlertCondition": {
             "additionalProperties": false,
             "properties": {
                 "absoluteThreshold": {
-                    "$ref": "#/definitions/AbsoluteThreshold"
+                    "$ref": "#/definitions/AlertAbsoluteThreshold"
                 }
             },
             "required": ["absoluteThreshold"],
+            "type": "object"
+        },
+        "AlertNotificationTarget": {
+            "additionalProperties": false,
+            "properties": {
+                "email": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["email"],
+            "type": "object"
+        },
+        "AlertType": {
+            "additionalProperties": false,
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/AlertCondition"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "insight": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "notification_frequency": {
+                    "type": "integer"
+                },
+                "notification_target": {
+                    "$ref": "#/definitions/AlertNotificationTarget"
+                }
+            },
+            "required": ["id", "name", "notification_target", "condition", "notification_frequency"],
             "type": "object"
         },
         "AnyDataNode": {

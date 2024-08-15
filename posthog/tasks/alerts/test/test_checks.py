@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_even
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.schema import ChartDisplayType, EventsNode, TrendsQuery, TrendsFilter
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.models import Alert
+from posthog.models import AlertConfiguration
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
@@ -147,7 +147,7 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
     @patch("posthog.tasks.alerts.checks.EmailMessage")
     def test_send_emails(self, MockEmailMessage: MagicMock, mock_send_notifications: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        alert = Alert.objects.get(pk=self.alert["id"])
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
         send_notifications(alert, ["first anomaly description", "second anomaly description"])
 
         assert len(mocked_email_messages) == 1
