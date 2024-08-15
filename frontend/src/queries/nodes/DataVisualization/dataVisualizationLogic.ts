@@ -624,6 +624,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (state) => [state.visualizationType],
             (visualizationType): boolean => visualizationType === ChartDisplayType.ActionsTable,
         ],
+        showTableSettings: [
+            (state) => [state.visualizationType],
+            (visualizationType): boolean =>
+                visualizationType === ChartDisplayType.ActionsTable ||
+                visualizationType === ChartDisplayType.BoldNumber,
+        ],
     }),
     listeners(({ props, actions }) => ({
         updateChartSettings: ({ settings }) => {
