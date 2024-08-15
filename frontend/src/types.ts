@@ -3834,7 +3834,15 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'MySQL', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = [
+    'Stripe',
+    'Hubspot',
+    'Postgres',
+    'MySQL',
+    'Zendesk',
+    'Snowflake',
+    'Salesforce',
+] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
@@ -4186,6 +4194,13 @@ export enum SidePanelTab {
     Exports = 'exports',
 }
 
+export interface SourceFieldOauthConfig {
+    type: 'oauth'
+    name: string
+    label: string
+    required: boolean
+}
+
 export interface SourceFieldInputConfig {
     type: LemonInputProps['type'] | 'textarea'
     name: string
@@ -4211,7 +4226,11 @@ export interface SourceFieldSwitchGroupConfig {
     fields: SourceFieldConfig[]
 }
 
-export type SourceFieldConfig = SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig
+export type SourceFieldConfig =
+    | SourceFieldInputConfig
+    | SourceFieldSwitchGroupConfig
+    | SourceFieldSelectConfig
+    | SourceFieldOauthConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
