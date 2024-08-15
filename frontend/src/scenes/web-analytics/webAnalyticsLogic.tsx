@@ -59,6 +59,7 @@ export enum TileId {
     RETENTION = 'RETENTION',
     REPLAY = 'REPLAY',
     ERROR_TRACKING = 'ERROR_TRACKING',
+    GOALS = 'GOALS',
 }
 
 const loadPriorityMap: Record<TileId, number> = {
@@ -71,6 +72,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.RETENTION]: 7,
     [TileId.REPLAY]: 8,
     [TileId.ERROR_TRACKING]: 9,
+    [TileId.GOALS]: 10,
 }
 
 interface BaseTile {
@@ -1103,35 +1105,24 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         : null,
                     {
                         kind: 'query',
-                        tileId: TileId.RETENTION,
+                        tileId: TileId.GOALS,
                         title: 'Retention',
                         layout: {
                             colSpanClassName: 'md:col-span-2',
                         },
                         query: {
-                            kind: NodeKind.InsightVizNode,
+                            full: true,
+                            kind: NodeKind.DataTableNode,
                             source: {
-                                kind: NodeKind.RetentionQuery,
+                                kind: NodeKind.WebGoalsQuery,
                                 properties: webAnalyticsFilters,
                                 dateRange,
+                                sampling,
+                                limit: 10,
                                 filterTestAccounts,
-                                retentionFilter: {
-                                    retentionType: RETENTION_FIRST_TIME,
-                                    retentionReference: 'total',
-                                    totalIntervals: isGreaterThanMd ? 8 : 5,
-                                    period: RetentionPeriod.Week,
-                                },
                             },
-                            vizSpecificOptions: {
-                                [InsightType.RETENTION]: {
-                                    hideLineGraph: true,
-                                    hideSizeColumn: !isGreaterThanMd,
-                                    useSmallLayout: !isGreaterThanMd,
-                                },
-                            },
-                            embedded: true,
                         },
-                        insightProps: createInsightProps(TileId.RETENTION),
+                        insightProps: createInsightProps(TileId.GOALS),
                         canOpenInsight: true,
                         canOpenModal: false,
                     },
@@ -1162,6 +1153,39 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               }),
                           }
                         : null,
+                    {
+                        kind: 'query',
+                        tileId: TileId.RETENTION,
+                        layout: {
+                            colSpanClassName: 'md:col-span-1',
+                        },
+                        canOpenInsight: false,
+                        canOpenModal: true,
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts,
+                                retentionFilter: {
+                                    retentionType: RETENTION_FIRST_TIME,
+                                    retentionReference: 'total',
+                                    totalIntervals: isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                },
+                            },
+                            vizSpecificOptions: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
+                                },
+                            },
+                            embedded: true,
+                        },
+                        insightProps: createInsightProps(TileId.RETENTION),
+                    },
                 ]
                 return allTiles.filter(isNotNil)
             },
