@@ -1,10 +1,29 @@
 import equal from 'fast-deep-equal'
 import { getEventNamesForAction } from 'lib/utils'
 
-import { InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { examples } from '~/queries/examples'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    HogQuery,
+    InsightNodeKind,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema'
 import { isInsightQueryWithSeries } from '~/queries/utils'
-import { ActionType, DashboardTile, DashboardType, FilterType, InsightModel, QueryBasedInsightModel } from '~/types'
+import {
+    ActionType,
+    DashboardTile,
+    DashboardType,
+    FilterType,
+    InsightModel,
+    InsightType,
+    QueryBasedInsightModel,
+} from '~/types'
 
+import { nodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
@@ -88,6 +107,47 @@ export function getQueryFromInsightLike(insight: {
     }
 
     return query
+}
+
+export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: filtersToQueryNode(filters),
+})
+
+export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
+})
+
+export const getDefaultQuery = (
+    insightType: InsightType,
+    filterTestAccountsDefault: boolean
+): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+    if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {
+        if (insightType === InsightType.JSON) {
+            return examples.TotalEventsTable as DataTableNode
+        } else if (insightType === InsightType.SQL) {
+            return examples.DataVisualization as DataVisualizationNode
+        } else if (insightType === InsightType.HOG) {
+            return examples.Hoggonacci as HogQuery
+        }
+    } else {
+        if (insightType === InsightType.TRENDS) {
+            return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.FUNNELS) {
+            return queryFromKind(NodeKind.FunnelsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.RETENTION) {
+            return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.PATHS) {
+            return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.STICKINESS) {
+            return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.LIFECYCLE) {
+            return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
+        }
+    }
+
+    throw new Error('encountered unexpected type for view')
 }
 
 /** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */

@@ -7,7 +7,7 @@ import { getDefaultQuery, insightDataLogic } from 'scenes/insights/insightDataLo
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
-import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     ActionsNode,
     DataWarehouseNode,
@@ -140,7 +140,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG
                 } else if (isInsightVizNode(query)) {
-                    return insightMap[query.source.kind] || InsightType.TRENDS
+                    return nodeKindToInsightType[query.source.kind] || InsightType.TRENDS
                 }
                 return InsightType.JSON
             },
