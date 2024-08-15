@@ -21,6 +21,7 @@ import { posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
+import * as cyclotron from '../worker/cyclotron'
 import { ActionManager } from '../worker/ingestion/action-manager'
 import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
@@ -536,6 +537,9 @@ export async function startPluginsServer(
 
         if (capabilities.cdpProcessedEvents) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            if (hub.CYCLOTRON_DATABASE_URL) {
+                await cyclotron.initManager({ shards: [{ dbUrl: hub.CYCLOTRON_DATABASE_URL }] })
+            }
             const consumer = new CdpProcessedEventsConsumer(hub)
             await consumer.start()
 
@@ -546,6 +550,9 @@ export async function startPluginsServer(
 
         if (capabilities.cdpFunctionCallbacks) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            if (hub.CYCLOTRON_DATABASE_URL) {
+                await cyclotron.initManager({ shards: [{ dbUrl: hub.CYCLOTRON_DATABASE_URL }] })
+            }
             const consumer = new CdpFunctionCallbackConsumer(hub)
             await consumer.start()
 
@@ -563,6 +570,9 @@ export async function startPluginsServer(
 
         if (capabilities.cdpFunctionOverflow) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
+            if (hub.CYCLOTRON_DATABASE_URL) {
+                await cyclotron.initManager({ shards: [{ dbUrl: hub.CYCLOTRON_DATABASE_URL }] })
+            }
             const consumer = new CdpOverflowConsumer(hub)
             await consumer.start()
 

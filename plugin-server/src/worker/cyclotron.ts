@@ -15,7 +15,7 @@ interface PoolConfig {
     idleTimeoutSeconds?: number
 }
 
-interface InitWorkerInternal {
+interface PoolConfigInternal {
     db_url: string
     max_connections?: number
     min_connections?: number
@@ -26,6 +26,10 @@ interface InitWorkerInternal {
 
 interface ManagerConfig {
     shards: PoolConfig[]
+}
+
+interface ManagerConfigInternal {
+    shards: PoolConfigInternal[]
 }
 
 interface JobInit {
@@ -53,7 +57,7 @@ interface JobInitInternal {
 type JobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
 
 export async function initWorker(poolConfig: PoolConfig) {
-    const initWorkerInternal: InitWorkerInternal = {
+    const initWorkerInternal: PoolConfigInternal = {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
         min_connections: poolConfig.minConnections,
@@ -65,15 +69,43 @@ export async function initWorker(poolConfig: PoolConfig) {
 }
 
 export async function initManager(managerConfig: ManagerConfig) {
-    return await cyclotron.initManager(JSON.stringify({ ...managerConfig }))
+    const managerConfigInternal: ManagerConfigInternal = {
+        shards: managerConfig.shards.map((shard) => ({
+            db_url: shard.dbUrl,
+            max_connections: shard.maxConnections,
+            min_connections: shard.minConnections,
+            acquire_timeout_seconds: shard.acquireTimeoutSeconds,
+            max_lifetime_seconds: shard.maxLifetimeSeconds,
+            idle_timeout_seconds: shard.idleTimeoutSeconds,
+        })),
+    }
+    return await cyclotron.initManager(JSON.stringify(managerConfigInternal))
 }
 
 export async function maybeInitWorker(poolConfig: PoolConfig) {
-    return await cyclotron.maybeInitWorker(JSON.stringify({ ...poolConfig }))
+    const initWorkerInternal: PoolConfigInternal = {
+        db_url: poolConfig.dbUrl,
+        max_connections: poolConfig.maxConnections,
+        min_connections: poolConfig.minConnections,
+        acquire_timeout_seconds: poolConfig.acquireTimeoutSeconds,
+        max_lifetime_seconds: poolConfig.maxLifetimeSeconds,
+        idle_timeout_seconds: poolConfig.idleTimeoutSeconds,
+    }
+    return await cyclotron.maybeInitWorker(JSON.stringify(initWorkerInternal))
 }
 
 export async function maybeInitManager(managerConfig: ManagerConfig) {
-    return await cyclotron.maybeInitManager(JSON.stringify({ ...managerConfig }))
+    const managerConfigInternal: ManagerConfigInternal = {
+        shards: managerConfig.shards.map((shard) => ({
+            db_url: shard.dbUrl,
+            max_connections: shard.maxConnections,
+            min_connections: shard.minConnections,
+            acquire_timeout_seconds: shard.acquireTimeoutSeconds,
+            max_lifetime_seconds: shard.maxLifetimeSeconds,
+            idle_timeout_seconds: shard.idleTimeoutSeconds,
+        })),
+    }
+    return await cyclotron.maybeInitManager(JSON.stringify(managerConfigInternal))
 }
 
 export async function createJob(job: JobInit) {

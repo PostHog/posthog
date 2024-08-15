@@ -35,7 +35,7 @@ fi
 ./bin/migrate-check
 
 if [[ -n $DEBUG ]]; then
-  ./install-cyclotron-node
+  ./bin/install-cyclotron-node
 fi
 
 cd plugin-server
