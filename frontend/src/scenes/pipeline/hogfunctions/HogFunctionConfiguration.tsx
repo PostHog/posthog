@@ -285,8 +285,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 <>
                                     <div className="border bg-bg-light rounded p-3 space-y-2">
                                         <div className="flex items-center gap-2">
-                                            <LemonLabel className="flex-1">Pre-made templates</LemonLabel>
+                                            <LemonLabel className="flex-1">Choose template</LemonLabel>
                                             <LemonSelect
+                                                size="small"
                                                 options={[
                                                     {
                                                         value: null,
@@ -296,9 +297,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                         value: subTemplate.id,
                                                         label: subTemplate.name,
                                                         labelInMenu: (
-                                                            <div className="max-w-120 space-y-2">
+                                                            <div className="max-w-120 space-y-1 my-1">
                                                                 <div className="font-semibold">{subTemplate.name}</div>
-                                                                <div className="text-muted">
+                                                                <div className="text-muted font-sans text-xs">
                                                                     {subTemplate.description}
                                                                 </div>
                                                             </div>
@@ -317,7 +318,6 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                 }}
                                             />
                                         </div>
-                                        <p>Choose from a template or modify as you see fit</p>
                                     </div>
                                 </>
                             )}
