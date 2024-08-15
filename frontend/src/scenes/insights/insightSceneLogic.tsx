@@ -310,6 +310,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
+            // Don't show the prompt if we're in edit mode (just exploring)
+            if (values.insightMode !== ItemMode.Edit) {
+                return false
+            }
+
             let newInsightEdited = false
             if (props.dashboardItemId === 'new') {
                 const startingQuery =
@@ -345,10 +350,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const savedInsightEdited =
                 props.dashboardItemId !== 'new' && !!values.insightDataLogicRef?.logic.values.queryChanged
 
-            return (
-                values.insightMode === ItemMode.Edit &&
-                (insightMetadataEdited || savedInsightEdited || newInsightEdited)
-            )
+            return insightMetadataEdited || savedInsightEdited || newInsightEdited
         },
         message: 'Leave insight?\nChanges you made will be discarded.',
         onConfirm: () => {
