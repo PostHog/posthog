@@ -16,10 +16,11 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    ClickhouseDestroyTablesMixin,
 )
 
 
-class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
+class TestSessionsV1(ClickhouseTestMixin, APIBaseTest, ClickhouseDestroyTablesMixin):
     def __execute(self, query):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
         return execute_hogql_query(
