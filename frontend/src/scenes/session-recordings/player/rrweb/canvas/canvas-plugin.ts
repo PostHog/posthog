@@ -135,7 +135,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
         if (source) {
             target.width = source.clientWidth || source.width
-            target.height = source.clientHeight || source.width
+            target.height = source.clientHeight || source.height
         }
 
         await canvasMutation({
