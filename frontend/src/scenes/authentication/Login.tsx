@@ -132,7 +132,7 @@ export function Login(): JSX.Element {
                         >
                             <LemonInput
                                 type="password"
-                                ref={passwordInputRef}
+                                inputRef={passwordInputRef}
                                 className="ph-ignore-input"
                                 data-attr="password"
                                 placeholder="••••••••••"

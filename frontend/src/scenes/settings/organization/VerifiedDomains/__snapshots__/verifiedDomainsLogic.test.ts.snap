@@ -20,6 +20,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "enforce_2fa": false,
     "id": "ABCD",
     "is_member_join_email_enabled": true,
+    "logo_media_id": null,
     "member_count": 2,
     "membership_level": 8,
     "metadata": {},

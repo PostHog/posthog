@@ -16,11 +16,8 @@ from posthog.plugins.plugin_server_api import (
     reload_hog_functions_on_workers,
 )
 
-DEFAULT_STATE = {
-    "state": 0,
-    "ratings": [],
-    "states": [],
-}
+DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
+
 
 logger = structlog.get_logger(__name__)
 
@@ -28,7 +25,7 @@ logger = structlog.get_logger(__name__)
 class HogFunctionState(enum.Enum):
     UNKNOWN = 0
     HEALTHY = 1
-    OVERFLOWED = 2
+    DEGRADED = 2
     DISABLED_TEMPORARILY = 3
     DISABLED_PERMANENTLY = 4
 
@@ -49,6 +46,7 @@ class HogFunction(UUIDModel):
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
+    masking: models.JSONField = models.JSONField(null=True, blank=True)
     template_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
     @property
@@ -107,7 +105,7 @@ class HogFunction(UUIDModel):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.name
+        return f"HogFunction {self.id}: {self.name}"
 
 
 @receiver(post_save, sender=HogFunction)

@@ -1,7 +1,7 @@
 import { GroupTypeIndex, GroupTypeToColumnIndex, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
-import { posthog } from '../../utils/posthog'
+import { captureTeamEvent } from '../../utils/posthog'
 import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
 
@@ -110,19 +110,6 @@ export class GroupTypeManager {
             return
         }
 
-        posthog.capture({
-            distinctId: 'plugin-server',
-            event: 'group type ingested',
-            properties: {
-                team: team.uuid,
-                groupType,
-                groupTypeIndex,
-            },
-            groups: {
-                project: team.uuid,
-                organization: team.organization_id,
-                instance: this.instanceSiteUrl,
-            },
-        })
+        captureTeamEvent(team, 'group type ingested', { groupType, groupTypeIndex })
     }
 }

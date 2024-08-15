@@ -12,6 +12,14 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
+class AbsoluteThreshold(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -26,6 +34,13 @@ class AggregationAxisFormat(StrEnum):
     DURATION_MS = "duration_ms"
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
+
+
+class AnomalyCondition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absoluteThreshold: AbsoluteThreshold
 
 
 class Kind(StrEnum):
@@ -157,6 +172,27 @@ class ChartDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
+
+
+class DisplayType(StrEnum):
+    AUTO = "auto"
+    LINE = "line"
+    BAR = "bar"
+
+
+class YAxisPosition(StrEnum):
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class ChartSettingsDisplay(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    displayType: Optional[DisplayType] = None
+    label: Optional[str] = None
+    trendLine: Optional[bool] = None
+    yAxisPosition: Optional[YAxisPosition] = None
 
 
 class Style(StrEnum):
@@ -350,10 +386,10 @@ class ErrorTrackingGroup(BaseModel):
     description: Optional[str] = None
     events: Optional[list[dict[str, Any]]] = None
     exception_type: Optional[str] = None
-    fingerprint: str
+    fingerprint: list[str]
     first_seen: AwareDatetime
     last_seen: AwareDatetime
-    merged_fingerprints: list[str]
+    merged_fingerprints: list[list[str]]
     occurrences: float
     sessions: float
     status: Status
@@ -1199,6 +1235,7 @@ class TrendsQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -1356,6 +1393,19 @@ class WebTopClicksQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+
+
+class Scale(StrEnum):
+    LINEAR = "linear"
+    LOGARITHMIC = "logarithmic"
+
+
+class YAxisSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scale: Optional[Scale] = None
+    startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
 class ActorsQueryResponse(BaseModel):
@@ -1765,6 +1815,7 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -1888,6 +1939,7 @@ class Settings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    display: Optional[ChartSettingsDisplay] = None
     formatting: Optional[ChartSettingsFormatting] = None
 
 
@@ -1904,10 +1956,14 @@ class ChartSettings(BaseModel):
         extra="forbid",
     )
     goalLines: Optional[list[GoalLine]] = None
+    leftYAxisSettings: Optional[YAxisSettings] = None
+    rightYAxisSettings: Optional[YAxisSettings] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
-    yAxisAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
+    yAxisAtZero: Optional[bool] = Field(
+        default=None, description="Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero"
+    )
 
 
 class Response(BaseModel):
@@ -2959,6 +3015,7 @@ class QueryResponseAlternative22(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = Field(default=None, description="Wether more breakdown values are available.")
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -3044,6 +3101,7 @@ class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = None
     retentionType: Optional[RetentionType] = None
@@ -3057,6 +3115,7 @@ class RetentionFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cumulative: Optional[bool] = None
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
@@ -3173,6 +3232,13 @@ class SessionsTimelineQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class TableSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[ChartAxis]] = None
 
 
 class WebOverviewQuery(BaseModel):
@@ -4040,6 +4106,7 @@ class DataVisualizationNode(BaseModel):
     display: Optional[ChartDisplayType] = None
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
+    tableSettings: Optional[TableSettings] = None
 
 
 class DatabaseSchemaViewTable(BaseModel):
@@ -4234,7 +4301,7 @@ class ErrorTrackingQuery(BaseModel):
     eventColumns: Optional[list[str]] = None
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
-    fingerprint: Optional[str] = None
+    fingerprint: Optional[list[str]] = None
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
