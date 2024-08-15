@@ -41,15 +41,15 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
             data={
                 "name": "alert name",
                 "insight": self.insight["id"],
-                "target_value": "a@b.c,d@e.f",
-                "anomaly_condition": {"absoluteThreshold": {}},
+                "notification_targets": {"email": ["a@b.c", "d@e.f"]},
+                "condition": {"absoluteThreshold": {}},
             },
         ).json()
 
     def set_thresholds(self, lower: Optional[int] = None, upper: Optional[int] = None) -> None:
         self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
-            data={"anomaly_condition": {"absoluteThreshold": {"lower": lower, "upper": upper}}},
+            data={"condition": {"absoluteThreshold": {"lower": lower, "upper": upper}}},
         )
 
     def get_anomalies_descriptions(self, mock_send_notifications: MagicMock, call_index: int) -> list[str]:
@@ -70,7 +70,7 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications.call_count == 1
         alert = mock_send_notifications.call_args_list[0].args[0]
-        assert alert.id == self.alert["id"]
+        assert str(alert.id) == self.alert["id"]
 
         anomalies_descriptions = self.get_anomalies_descriptions(mock_send_notifications, call_index=0)
         assert len(anomalies_descriptions) == 1

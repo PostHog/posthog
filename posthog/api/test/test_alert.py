@@ -28,7 +28,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
     def test_create_and_delete_alert(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
-            "target_value": "test@posthog.com",
+            "notification_targets": {
+                "email": ["test@posthog.com"],
+            },
             "name": "alert name",
             "anomaly_condition": {},
         }
@@ -36,10 +38,16 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         expected_alert_json = {
             "id": mock.ANY,
+            "created_at": mock.ANY,
             "insight": self.insight["id"],
-            "target_value": "test@posthog.com",
+            "last_notified_at": None,
             "name": "alert name",
-            "anomaly_condition": {},
+            "notification_frequency": 60,
+            "notification_targets": {
+                "email": ["test@posthog.com"],
+            },
+            "condition": {},
+            "state": "inactive",
         }
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == expected_alert_json
@@ -55,7 +63,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     def test_incorrect_creation(self) -> None:
         creation_request = {
-            "target_value": "test@posthog.com",
+            "notification_targets": {
+                "email": ["test@posthog.com"],
+            },
             "name": "alert name",
             "anomaly_condition": {},
         }
@@ -71,7 +81,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         ).json()
         creation_request = {
             "insight": str(another_team_insight["id"]),
-            "target_value": "test@posthog.com",
+            "notification_targets": {
+                "email": ["test@posthog.com"],
+            },
             "name": "alert name",
             "anomaly_condition": {},
         }
@@ -81,7 +93,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
     def test_create_and_list_alert(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
-            "target_value": "test@posthog.com",
+            "notification_targets": {
+                "email": ["test@posthog.com"],
+            },
             "name": "alert name",
             "anomaly_condition": {},
         }
@@ -105,7 +119,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         ).json()
         creation_request = {
             "insight": another_insight["id"],
-            "target_value": "test@posthog.com",
+            "notification_targets": {
+                "email": ["test@posthog.com"],
+            },
             "name": "alert name",
             "anomaly_condition": {},
         }

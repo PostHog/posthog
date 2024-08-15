@@ -11,7 +11,7 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
     conversion_to_query_based,
 )
 from posthog.models import AlertConfiguration
-from posthog.schema import AnomalyCondition
+from posthog.schema import AlertCondition
 
 logger = structlog.get_logger(__name__)
 
@@ -47,8 +47,8 @@ def check_alert(alert_id: int) -> None:
     if not calculation_result.result:
         raise RuntimeError(f"No results for alert {alert.id}")
 
-    anomaly_condition = AnomalyCondition.model_validate(alert.anomaly_condition)
-    thresholds = anomaly_condition.absoluteThreshold
+    condition = AlertCondition.model_validate(alert.condition)
+    thresholds = condition.absoluteThreshold
 
     result = calculation_result.result[0]
     aggregated_value = result["aggregated_value"]
@@ -97,7 +97,7 @@ def send_notifications(alert: AlertConfiguration, anomalies_descriptions: list[s
             "alert_name": alert.name,
         },
     )
-    targets = list(filter(len, alert.target_value.split(",")))
+    targets = alert.notification_targets.get("email")
     if not targets:
         raise RuntimeError(f"no targets configured for the alert {alert.id}")
     for target in targets:
