@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
+import { getEventNamesForAction } from 'lib/utils'
 
 import { InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { isInsightQueryWithSeries } from '~/queries/utils'
@@ -30,9 +30,9 @@ export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType
 }
 
 export const getCachedResults = (
-    cachedInsight: Partial<InsightModel> | undefined | null,
+    cachedInsight: Partial<QueryBasedInsightModel> | undefined | null,
     query: InsightQueryNode
-): Partial<InsightModel> | undefined => {
+): Partial<QueryBasedInsightModel> | undefined => {
     if (!cachedInsight) {
         return undefined
     }
@@ -44,8 +44,6 @@ export const getCachedResults = (
         if ('source' in cachedInsight.query) {
             cachedQueryNode = cachedInsight.query.source as Node
         }
-    } else if (cachedInsight.filters && !isEmptyObject(cachedInsight.filters)) {
-        cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
     } else {
         return undefined
     }

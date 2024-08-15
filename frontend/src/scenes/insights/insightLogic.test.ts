@@ -21,7 +21,6 @@ import {
     DashboardType,
     FilterType,
     InsightLogicProps,
-    InsightModel,
     InsightShortId,
     InsightType,
     PropertyFilterType,
@@ -339,7 +338,7 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight: Partial<InsightModel> = {
+                const insight: Partial<QueryBasedInsightModel> = {
                     short_id: Insight42,
                     query: queryFromFilters({
                         insight: InsightType.TRENDS,
