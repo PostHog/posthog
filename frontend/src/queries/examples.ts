@@ -310,6 +310,29 @@ const HogQLTable: DataTableNode = {
 const DataVisualization: DataVisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: HogQLForDataVisualization,
+    tableSettings: {
+        columns: [
+            {
+                column: 'timestamp',
+                settings: {
+                    formatting: {
+                        prefix: '',
+                        suffix: '',
+                    },
+                },
+            },
+            {
+                column: 'count()',
+                settings: {
+                    formatting: {
+                        prefix: '',
+                        suffix: '',
+                    },
+                },
+            },
+        ],
+    },
+    chartSettings: { goalLines: undefined },
 }
 
 const Hog: HogQuery = {
