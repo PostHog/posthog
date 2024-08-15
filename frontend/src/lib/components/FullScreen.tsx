@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 
 export function FullScreen({ onExit }: { onExit?: () => any }): null {
-    const selector = 'aside.ant-layout-sider, .layout-top-content'
+    const selector = '.layout-top-content'
     useEffect(() => {
         const myClasses = window.document.querySelectorAll<HTMLElement>(selector)
 

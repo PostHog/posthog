@@ -39,6 +39,7 @@ import {
     PropertyGroupFilter,
 } from '~/types'
 
+import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
@@ -124,7 +125,8 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
         ...data,
         filters: data.filters ? sanitizeFilters(data.filters) : null,
         inputs: sanitizedInputs,
-        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+        masking: data.masking?.hash ? data.masking : null,
+        icon_url: data.icon_url,
     }
 
     return payload
@@ -291,6 +293,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
+        logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
         hasAddon: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
@@ -357,6 +360,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             JSON.parse(value)
                         } catch (e) {
                             inputErrors[key] = 'Invalid JSON'
+                        }
+                    }
+
+                    if (input.type === 'email' && value) {
+                        const emailTemplateErrors: Partial<EmailTemplate> = {
+                            html: !value.html ? 'HTML is required' : undefined,
+                            subject: !value.subject ? 'Subject is required' : undefined,
+                            // text: !value.text ? 'Text is required' : undefined,
+                            from: !value.from ? 'From is required' : undefined,
+                            to: !value.to ? 'To is required' : undefined,
+                        }
+
+                        if (Object.values(emailTemplateErrors).some((v) => !!v)) {
+                            inputErrors[key] = { value: emailTemplateErrors } as any
                         }
                     }
                 })
