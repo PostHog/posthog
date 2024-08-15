@@ -66,15 +66,21 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                         <LemonCalendarSelectInput
                             value={value}
                             onChange={(date) => {
-                                const projectDate = date.tz(timezone, true)
-                                onChange(projectDate)
+                                if (date) {
+                                    const projectDate = date.tz(timezone, true)
+                                    onChange(projectDate)
+                                } else {
+                                    onChange(date)
+                                }
                             }}
                             placeholder="Select start date"
                             granularity={
-                                batchExportConfig.interval === 'hour'
-                                    ? 'hour'
-                                    : batchExportConfig.interval.endsWith('minutes')
-                                    ? 'minute'
+                                batchExportConfig
+                                    ? batchExportConfig.interval === 'hour'
+                                        ? 'hour'
+                                        : batchExportConfig.interval.endsWith('minutes')
+                                        ? 'minute'
+                                        : 'day'
                                     : 'day'
                             }
                         />
@@ -85,15 +91,21 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                         <LemonCalendarSelectInput
                             value={value}
                             onChange={(date) => {
-                                const projectDate = date.tz(timezone, true)
-                                onChange(projectDate)
+                                if (date) {
+                                    const projectDate = date.tz(timezone, true)
+                                    onChange(projectDate)
+                                } else {
+                                    onChange(date)
+                                }
                             }}
                             placeholder="Select end date (optional)"
                             granularity={
-                                batchExportConfig.interval === 'hour'
-                                    ? 'hour'
-                                    : batchExportConfig.interval.endsWith('minutes')
-                                    ? 'minute'
+                                batchExportConfig
+                                    ? batchExportConfig.interval === 'hour'
+                                        ? 'hour'
+                                        : batchExportConfig.interval.endsWith('minutes')
+                                        ? 'minute'
+                                        : 'day'
                                     : 'day'
                             }
                         />
