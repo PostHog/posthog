@@ -243,7 +243,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     listeners(({ actions, values }) => ({
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
-            if (overrideQuery && query) {
+            // we don't want to override the query for example when updating the insight's name
+            if (!overrideQuery) {
+                return
+            }
+
+            if (query) {
                 actions.setQuery(query)
             }
 
