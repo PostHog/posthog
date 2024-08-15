@@ -11,6 +11,10 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
+import {
+    ConnectedDestinations,
+    NewConnectedDestinationButton,
+} from 'scenes/pipeline/destinations/ConnectedDestinations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -21,6 +25,7 @@ import {
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     FilterLogicalOperator,
+    HogFunctionFiltersType,
     PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
@@ -66,6 +71,26 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     if (earlyAccessFeatureLoading) {
         return <LemonSkeleton active />
     }
+
+    const destinationFilters: HogFunctionFiltersType | null =
+        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature
+            ? {
+                  events: [
+                      {
+                          id: '$feature_enrollment_update',
+                          type: 'events',
+                          properties: [
+                              {
+                                  key: '$feature_flag',
+                                  value: [earlyAccessFeature.feature_flag.key],
+                                  operator: PropertyOperator.Exact,
+                                  type: PropertyFilterType.Event,
+                              },
+                          ],
+                      },
+                  ],
+              }
+            : null
 
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
@@ -301,6 +326,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </div>
                     </div>
                 </div>
+                {destinationFilters && (
+                    <>
+                        <LemonDivider className="my-8" />
+                        <div className="flex items-center justify-between gap-2">
+                            <h3>Connected destinations</h3>
+                            <NewConnectedDestinationButton filters={destinationFilters} />
+                        </div>
+                        <p>Get notified when people opt in to your feature</p>
+                        <ConnectedDestinations filters={destinationFilters} />
+                    </>
+                )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <LemonDivider className="my-8" />
