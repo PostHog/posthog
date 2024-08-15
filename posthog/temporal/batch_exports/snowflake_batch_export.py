@@ -179,16 +179,21 @@ class SnowflakeClient:
 
         Methods that require a connection should be ran within this block.
         """
-        connection = await asyncio.to_thread(
-            snowflake.connector.connect,
-            user=self.user,
-            password=self.password,
-            account=self.account,
-            warehouse=self.warehouse,
-            database=self.database,
-            schema=self.schema,
-            role=self.role,
-        )
+        try:
+            connection = await asyncio.to_thread(
+                snowflake.connector.connect,
+                user=self.user,
+                password=self.password,
+                account=self.account,
+                warehouse=self.warehouse,
+                database=self.database,
+                schema=self.schema,
+                role=self.role,
+            )
+
+        except OperationalError as err:
+            raise SnowflakeConnectionError("Could not connect to Snowflake") from err
+
         self._connection = connection
 
         await self.use_namespace()
@@ -197,8 +202,6 @@ class SnowflakeClient:
         try:
             yield self
 
-        except OperationalError as err:
-            raise SnowflakeConnectionError("Could not connect to Snowflake") from err
         finally:
             self._connection = None
             await asyncio.to_thread(connection.close)
