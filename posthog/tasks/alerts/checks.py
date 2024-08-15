@@ -11,7 +11,6 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
     conversion_to_query_based,
 )
 from posthog.models import AlertConfiguration
-from posthog.schema import AlertCondition
 
 logger = structlog.get_logger(__name__)
 
@@ -47,27 +46,16 @@ def check_alert(alert_id: int) -> None:
     if not calculation_result.result:
         raise RuntimeError(f"No results for alert {alert.id}")
 
-    condition = AlertCondition.model_validate(alert.condition)
-    thresholds = condition.absoluteThreshold
-
     result = calculation_result.result[0]
     aggregated_value = result["aggregated_value"]
-    anomalies_descriptions = []
 
-    if thresholds.lower is not None and aggregated_value < thresholds.lower:
-        anomalies_descriptions += [
-            f"The trend value ({aggregated_value}) is below the lower threshold ({thresholds.lower})"
-        ]
-    if thresholds.upper is not None and aggregated_value > thresholds.upper:
-        anomalies_descriptions += [
-            f"The trend value ({aggregated_value}) is above the upper threshold ({thresholds.upper})"
-        ]
+    check, matches = alert.add_check(aggregated_value)
 
-    if not anomalies_descriptions:
-        logger.info("No threshold met", alert_id=alert.id)
+    if not check.state == "firing":
+        logger.info("Check state is %s", check.state, alert_id=alert.id)
         return
 
-    send_notifications(alert, anomalies_descriptions)
+    send_notifications(alert, matches)
 
 
 @shared_task(ignore_result=True)
@@ -80,7 +68,7 @@ def check_alert_task(alert_id: int) -> None:
     check_alert(alert_id)
 
 
-def send_notifications(alert: AlertConfiguration, anomalies_descriptions: list[str]) -> None:
+def send_notifications(alert: AlertConfiguration, matches: list[str]) -> None:
     subject = f"PostHog alert {alert.name} has anomalies"
     campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
@@ -90,7 +78,7 @@ def send_notifications(alert: AlertConfiguration, anomalies_descriptions: list[s
         subject=subject,
         template_name="alert_anomaly",
         template_context={
-            "anomalies_descriptions": anomalies_descriptions,
+            "anomalies_descriptions": matches,
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
             "alert_url": alert_url,
@@ -103,5 +91,5 @@ def send_notifications(alert: AlertConfiguration, anomalies_descriptions: list[s
     for target in targets:
         message.add_recipient(email=target)
 
-    logger.info(f"Send notifications about {len(anomalies_descriptions)} anomalies", alert_id=alert.id)
+    logger.info(f"Send notifications about {len(matches)} anomalies", alert_id=alert.id)
     message.send()

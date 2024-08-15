@@ -1,9 +1,11 @@
 from datetime import timedelta, datetime, UTC
+from typing import Any
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
+from posthog.schema import AlertCondition
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
@@ -13,6 +15,28 @@ def are_alerts_supported_for_insight(insight: Insight) -> bool:
     if query.get("trendsFilter", {}).get("display") != "BoldNumber":
         return False
     return True
+
+
+class ConditionValidator:
+    def __init__(self, condition: AlertCondition):
+        self.condition = condition
+
+    def validate(self, calculated_value: float) -> list[str]:
+        validators: Any = [
+            self.validate_absolute_threshold,
+        ]
+        matches = []
+        for validator in validators:
+            matches += validator(calculated_value)
+        return matches
+
+    def validate_absolute_threshold(self, calculated_value: float) -> list[str]:
+        thresholds = self.condition.absoluteThreshold
+        if thresholds.lower is not None and calculated_value < thresholds.lower:
+            return [f"The trend value ({calculated_value}) is below the lower threshold ({thresholds.lower})"]
+        if thresholds.upper is not None and calculated_value > thresholds.upper:
+            return [f"The trend value ({calculated_value}) is above the upper threshold ({thresholds.upper})"]
+        return []
 
 
 class Alert(models.Model):
@@ -52,19 +76,24 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
 
-    def should_send_notification(self):
+    def should_send_notification(self) -> bool:
         """Determine if we should send another notification based on the cooldown period."""
         if not self.last_notified_at:
             return True
         next_allowed_time = self.last_notified_at + timedelta(minutes=self.notification_frequency)
         return datetime.now(UTC) >= next_allowed_time
 
-    def add_check(self, calculated_value, anomaly_condition, error_message=None):
+    def evaluate_condition(self, calculated_value) -> list[str]:
+        condition = AlertCondition.model_validate(self.condition)
+        validator = ConditionValidator(condition)
+        return validator.validate(calculated_value)
+
+    def add_check(self, calculated_value, error_message=None) -> ["AlertCheck", list[str]]:
         """Add a new AlertCheck, managing state transitions and cooldown."""
-        threshold_met = self.evaluate_condition(calculated_value, anomaly_condition)
+        matches = self.evaluate_condition(calculated_value)
 
         # Determine the appropriate state for this check
-        if threshold_met:
+        if matches:
             if self.state == "firing" and not self.should_send_notification():
                 check_state = "cooldown"
             else:
@@ -74,13 +103,11 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
             check_state = "not_met"
             self.state = "inactive"  # Set the Alert to inactive if the threshold is no longer met
 
-        # Create the AlertCheck record
         alert_check = AlertCheck.objects.create(
-            alert=self,
+            alert_configuration=self,
             calculated_value=calculated_value,
-            anomaly_condition=anomaly_condition,
-            threshold_met=threshold_met,
-            notification_sent=(check_state == "firing"),
+            condition=self.condition,
+            targets_notified=self.notification_targets,
             state=check_state,
             error_message=error_message,
         )
@@ -92,12 +119,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
             self.state = "inactive"
 
         self.save()
-        return alert_check
-
-    def evaluate_condition(self, calculated_value, anomaly_condition):
-        """Placeholder method to evaluate if the condition is met."""
-        # Implement actual condition evaluation logic here
-        return calculated_value > anomaly_condition.get("threshold", 0)
+        return alert_check, matches
 
 
 class AlertCheck(UUIDModel):
