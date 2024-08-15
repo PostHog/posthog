@@ -4355,11 +4355,18 @@ export type HogFunctionConfigurationType = Omit<
 
 export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
 
+export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking'> & {
+    id: string
+    name: string
+    description?: string
+}
+
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
     'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
 > & {
     status: HogFunctionTemplateStatus
+    sub_templates?: HogFunctionSubTemplateType[]
 }
 
 export type HogFunctionIconResponse = {

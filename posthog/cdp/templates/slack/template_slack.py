@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="free",
@@ -101,5 +101,36 @@ if (res.status != 200 or not res.body.ok) {
             "secret": False,
             "required": False,
         },
+    ],
+    sub_templates=[
+        HogFunctionSubTemplate(
+            id="early_access_feature_enrollment",
+            name="Post to Slack on feature enrollment",
+            description="Posts a message to Slack when a user enrolls or un-enrolls in an early access feature",
+            filters={"events": [{"id": "$feature_enrollment_update", "type": "events"}]},
+            inputs={
+                "text": "*{person.name}* {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'",
+                "blocks": [
+                    {
+                        "text": {
+                            "text": "*{person.name}* {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'",
+                            "type": "mrkdwn",
+                        },
+                        "type": "section",
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "url": "{person.url}",
+                                "text": {"text": "View Person in PostHog", "type": "plain_text"},
+                                "type": "button",
+                            },
+                            # NOTE: It would be nice to have a link to the EAF but the event needs more info
+                        ],
+                    },
+                ],
+            },
+        )
     ],
 )

@@ -27,6 +27,7 @@ import {
     HogFunctionConfigurationType,
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
+    HogFunctionSubTemplateType,
     HogFunctionTemplateType,
     HogFunctionType,
     PipelineNodeTab,
@@ -114,6 +115,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         resetToTemplate: (keepInputs = true) => ({ keepInputs }),
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
+        setSubTemplate: (subTemplate: HogFunctionSubTemplateType | null) => ({ subTemplate }),
     }),
     reducers({
         showSource: [
@@ -127,6 +129,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             false,
             {
                 upsertHogFunctionFailure: () => true,
+            },
+        ],
+        subTemplate: [
+            null as HogFunctionSubTemplateType | null,
+            {
+                setSubTemplate: (_, { subTemplate }) => subTemplate,
+                resetToTemplate: () => null,
             },
         ],
     }),
@@ -565,8 +574,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
         },
         resetToTemplate: async ({ keepInputs }) => {
-            if (values.hogFunction?.template) {
-                const template = values.hogFunction.template
+            const template = values.hogFunction?.template ?? values.template
+            if (template) {
                 // Fill defaults from template
                 const inputs: Record<string, HogFunctionInputType> = {}
 
@@ -577,7 +586,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 })
 
                 actions.setConfigurationValues({
-                    ...values.hogFunction.template,
+                    ...template,
                     filters: values.configuration.filters ?? template.filters,
                     // Keep some existing things
                     name: values.configuration.name,
@@ -615,6 +624,28 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             })
 
             router.actions.replace(urls.pipeline(PipelineTab.Destinations))
+        },
+
+        setSubTemplate: ({ subTemplate }) => {
+            const newValues: Partial<HogFunctionConfigurationType> = {}
+
+            if (subTemplate.filters) {
+                newValues.filters = subTemplate.filters
+            }
+            if (subTemplate.inputs) {
+                newValues.inputs = values.configuration.inputs ?? {}
+
+                Object.entries(subTemplate.inputs).forEach(([key, value]) => {
+                    newValues.inputs![key] = {
+                        value,
+                    }
+                })
+            }
+            if (subTemplate.masking) {
+                newValues.masking = subTemplate.masking
+            }
+
+            actions.setConfigurationValues(newValues)
         },
     })),
     afterMount(({ props, actions, cache }) => {
