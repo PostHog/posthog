@@ -42,7 +42,13 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsOnEventsMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    InCohortVia,
+    MaterializationMode,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
+)
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -1060,7 +1066,7 @@ class _Printer(Visitor):
                     property_sql = self._print_identifier(materialized_column)
                     property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                     materialized_property_sql = property_sql
-                elif self.context.modifiers.usePropertyGroups:
+                elif self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.ENABLED:
                     property_name = str(type.chain[0])
                     # For now, we're assuming that properties are in either no groups or one group, so just using the
                     # first group returned is fine. If we start putting properties in multiple groups, this should be

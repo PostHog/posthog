@@ -5012,15 +5012,16 @@
                     ],
                     "type": "string"
                 },
+                "propertyGroupsMode": {
+                    "enum": ["enabled", "disabled"],
+                    "type": "string"
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
-                },
-                "usePropertyGroups": {
-                    "type": "boolean"
                 }
             },
             "type": "object"

@@ -13,7 +13,13 @@ from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgMaxVersion, PersonsOnEventsMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    MaterializationMode,
+    PersonsArgMaxVersion,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
+)
 from posthog.test.base import BaseTest, cleanup_materialized_columns
 
 
@@ -328,7 +334,7 @@ class TestPrinter(BaseTest):
             team_id=self.team.pk,
             modifiers=HogQLQueryModifiers(
                 materializationMode=MaterializationMode.AUTO,
-                usePropertyGroups=True,
+                propertyGroupsMode=PropertyGroupsMode.ENABLED,
             ),
         )
 

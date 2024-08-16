@@ -119,16 +119,16 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                 <div>Property Groups:</div>
                 <LemonSelect
                     options={[
-                        { value: true, label: 'Enabled' },
-                        { value: false, label: 'Disabled' },
+                        { value: 'enabled', label: 'Enabled' },
+                        { value: 'disabled', label: 'Disabled' },
                     ]}
                     onChange={(value) =>
                         setQuery({
                             ...query,
-                            modifiers: { ...query.modifiers, usePropertyGroups: value },
+                            modifiers: { ...query.modifiers, propertyGroupsMode: value },
                         })
                     }
-                    value={query.modifiers?.usePropertyGroups ?? response?.modifiers?.usePropertyGroups}
+                    value={query.modifiers?.propertyGroupsMode ?? response?.modifiers?.propertyGroupsMode}
                 />
             </LemonLabel>
         </div>

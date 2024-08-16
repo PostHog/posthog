@@ -600,6 +600,11 @@ class PersonsOnEventsMode(StrEnum):
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
+class PropertyGroupsMode(StrEnum):
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+
 class SessionTableVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
@@ -619,9 +624,9 @@ class HogQLQueryModifiers(BaseModel):
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+    propertyGroupsMode: Optional[PropertyGroupsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
-    usePropertyGroups: Optional[bool] = None
 
 
 class HogQueryResponse(BaseModel):
