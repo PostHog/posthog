@@ -204,8 +204,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 ) as BillingTierType[][]
                 return product.tiers
                     ? isEditingBillingLimit
-                        ? convertAmountToUsage(billingLimitInput.input, productAndAddonTiers, billing?.discount_percent)
-                        : convertAmountToUsage(customLimitUsd, productAndAddonTiers, billing?.discount_percent)
+                        ? convertAmountToUsage(
+                              `${billingLimitInput.input}`,
+                              productAndAddonTiers,
+                              billing?.discount_percent
+                          )
+                        : convertAmountToUsage(`${customLimitUsd}`, productAndAddonTiers, billing?.discount_percent)
                     : 0
             },
         ],
@@ -339,7 +343,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 ) as BillingTierType[][]
 
                 const newAmountAsUsage = props.product.tiers
-                    ? convertAmountToUsage(input, productAndAddonTiers, values.billing?.discount_percent)
+                    ? convertAmountToUsage(`${input}`, productAndAddonTiers, values.billing?.discount_percent)
                     : 0
 
                 if (props.product.current_usage && newAmountAsUsage < props.product.current_usage) {
