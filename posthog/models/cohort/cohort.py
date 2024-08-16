@@ -16,17 +16,7 @@ from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
-from prometheus_client import Counter
 
-
-COHORT_ERRORED_CALCULATIONS_COUNTER = Counter(
-    "cohort_errored_calculations_total",
-    "Count of cohort calculations that failed",
-)
-COHORT_SUCCESSFUL_CALCULATIONS_COUNTER = Counter(
-    "cohort_successful_calculations_total",
-    "Count of cohort calculations that succeeded",
-)
 
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
 # set in cohorts_cache
@@ -226,8 +216,6 @@ class Cohort(models.Model):
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
-
-            COHORT_SUCCESSFUL_CALCULATIONS_COUNTER.inc()
         except Exception as err:
             self.errors_calculating = F("errors_calculating") + 1
             logger.warning(
@@ -238,7 +226,6 @@ class Cohort(models.Model):
                 exc_info=True,
             )
 
-            COHORT_ERRORED_CALCULATIONS_COUNTER.inc()
             capture_exception(
                 Exception(f"Error calculating cohort id = {self.id}, team_id = {self.team.id}"),
                 {"error": str(err)},
