@@ -115,12 +115,20 @@ export class AsyncFunctionExecutor {
                         // want the `vmState` (and the rest of state) so we can put it into PG here.
                         vmState: '',
                         parameters: JSON.stringify({
+                            return_queue: 'hog',
                             url,
                             method,
                             headers,
                             body,
                         }),
-                        metadata: '', // TODO: Same as above.
+                        metadata: JSON.stringify({
+                            // TODO: It seems like Fetch expects metadata to have this shape, which
+                            // I don't understand. I think `metadata` is where all the other Hog
+                            // state is going to be stored? For now I'm just trying to make fetch
+                            // work.
+                            tries: 0,
+                            trace: [],
+                        }),
                     })
                 } catch (e) {
                     status.error(
