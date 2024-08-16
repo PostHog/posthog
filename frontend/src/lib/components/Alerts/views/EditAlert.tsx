@@ -1,6 +1,7 @@
 import { LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -47,6 +48,15 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                     </div>
                 ) : (
                     <>
+                        {alert?.created_by ? (
+                            <UserActivityIndicator
+                                at={alert.created_at}
+                                by={alert.created_by}
+                                prefix="Created"
+                                className="mb-4"
+                            />
+                        ) : null}
+
                         <LemonField name="name" label="Name">
                             <LemonInput placeholder="e.g. High error rate" data-attr="alert-name" />
                         </LemonField>

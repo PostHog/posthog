@@ -28,6 +28,7 @@ import {
     SessionPropertyFilter,
     StickinessFilterType,
     TrendsFilterType,
+    UserBasicType,
 } from '~/types'
 
 export { ChartDisplayCategory }
@@ -1704,6 +1705,8 @@ export interface AlertType {
     insight?: number
     notification_targets: AlertNotificationTarget
     condition: AlertCondition
+    created_by?: UserBasicType
+    created_at?: string
     state?: string
     last_notified_at?: string
 }

@@ -3,14 +3,18 @@ from rest_framework.exceptions import ValidationError
 from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.models.alert import AlertConfiguration
 
 
 class AlertSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+
     class Meta:
         model = AlertConfiguration
         fields = [
             "id",
+            "created_by",
             "created_at",
             "insight",
             "name",
@@ -27,7 +31,9 @@ class AlertSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: dict) -> AlertConfiguration:
+        request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
+        validated_data["created_by"] = request.user
         instance: AlertConfiguration = super().create(validated_data)
         return instance
 
