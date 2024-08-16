@@ -8,9 +8,6 @@ fi
 
 cd rust/cyclotron-node
 
-export DATABASE_URL=${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog}
-cargo sqlx migrate run
-
 npm install
 npm run build
 

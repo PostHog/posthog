@@ -8,7 +8,7 @@ pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "3302")]
+    #[envconfig(from = "BIND_PORT", default = "3304")]
     pub port: u16,
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/cyclotron")]
@@ -34,7 +34,7 @@ pub struct Config {
     pub concurrent_requests_limit: Option<u32>, // Defaults to 1000
     pub fetch_timeout_seconds: Option<u32>,     // Defaults to 30
     pub max_retry_attempts: Option<u32>,        // Defaults to 10
-    pub queue_served: Option<String>,           // Default to "default"
+    pub queue_served: Option<String>,           // Default to "fetch"
     pub batch_size: Option<usize>,              // Defaults to 1000
     pub max_response_bytes: Option<usize>,      // Defaults to 1MB
     pub retry_backoff_base_ms: Option<u32>,     // Defaults to 4000
@@ -67,7 +67,7 @@ impl Config {
         let concurrent_requests_limit = self.concurrent_requests_limit.unwrap_or(1000);
         let fetch_timeout_seconds = self.fetch_timeout_seconds.unwrap_or(30);
         let max_retry_attempts = self.max_retry_attempts.unwrap_or(10);
-        let queue_served = self.queue_served.unwrap_or_else(|| "default".to_string());
+        let queue_served = self.queue_served.unwrap_or_else(|| "fetch".to_string());
 
         let app_config = AppConfig {
             host: self.host,

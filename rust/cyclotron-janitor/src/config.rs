@@ -9,7 +9,7 @@ pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "3302")]
+    #[envconfig(from = "BIND_PORT", default = "3303")]
     pub port: u16,
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/cyclotron")]
