@@ -146,11 +146,11 @@ async def validate_schema_and_update_table(
             await sync_to_async(table_created.get_columns)()
         except Exception as e:
             if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
-                logger.exception("get_columns exception with DeltaS3Wrapper format - trying Delta format", e)
+                logger.exception("get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e)
 
                 table_created.format = DataWarehouseTable.TableFormat.Delta
                 await sync_to_async(table_created.get_columns)()
-                table_created.save()
+                await asave_datawarehousetable(table_created)
 
                 logger.info("Delta format worked - updating table to use Delta")
             else:
