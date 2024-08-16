@@ -45,8 +45,8 @@ def test_can_put_config(client: HttpClient):
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
-        "start_at": "2023-07-19 00:00:00",
-        "end_at": "2023-07-20 00:00:00",
+        "start_at": "2023-07-19T00:00:00+00:00",
+        "end_at": "2023-07-20T00:00:00+00:00",
     }
 
     organization = create_organization("Test Org")
@@ -104,7 +104,11 @@ def test_can_put_config(client: HttpClient):
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
-def test_can_patch_config(client: HttpClient, interval):
+@pytest.mark.parametrize(
+    "timezone",
+    ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Katmandu"],
+)
+def test_can_patch_config(client: HttpClient, interval, timezone):
     temporal = sync_connect()
 
     destination_data = {
@@ -125,7 +129,7 @@ def test_can_patch_config(client: HttpClient, interval):
     }
 
     organization = create_organization("Test Org")
-    team = create_team(organization)
+    team = create_team(organization, timezone=timezone)
     user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
@@ -169,6 +173,7 @@ def test_can_patch_config(client: HttpClient, interval):
         decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)
         assert args["bucket_name"] == "my-new-production-s3-bucket"
+        assert new_schedule.schedule.spec.time_zone_name == old_schedule.schedule.spec.time_zone_name == timezone
 
 
 @pytest.mark.django_db

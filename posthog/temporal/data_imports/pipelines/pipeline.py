@@ -224,6 +224,9 @@ class DataImportPipeline:
                     row_count=total_counts.total(),
                 )
 
+        # Delete local state from the file system
+        pipeline.drop()
+
         return dict(total_counts)
 
     async def run(self) -> dict[str, int]:

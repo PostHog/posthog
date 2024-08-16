@@ -1,12 +1,30 @@
 from typing import cast
+from unittest.mock import ANY
 
 from ee.api.hooks import valid_domain
 from ee.api.test.base import APILicensedTest
 from ee.models.hook import Hook
+from posthog.models.action.action import Action
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import ClickhouseTestMixin
 
 
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
+    action: Action
+
+    def setUp(self):
+        super().setUp()
+        self.action = Action.objects.create(
+            team=self.team,
+            name="Test Action",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [],
+                }
+            ],
+        )
+
     def test_create_hook(self):
         data = {"target": "https://hooks.zapier.com/abcd/", "event": "action_performed"}
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
@@ -68,6 +86,89 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         }
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
         self.assertEqual(response.status_code, 400)
+
+    def test_create_hog_function_via_hook(self):
+        data = {
+            "target": "https://hooks.zapier.com/hooks/standard/1234/abcd",
+            "event": "action_performed",
+            "resource_id": self.action.id,
+        }
+
+        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
+            res = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+
+        assert res.status_code == 201, res.json()
+        json = res.json()
+
+        assert not Hook.objects.exists()
+        assert HogFunction.objects.count() == 1
+        hog_function = HogFunction.objects.first()
+        assert hog_function
+        assert json == {
+            "id": str(hog_function.id),
+            "event": "action_performed",
+            "target": "https://hooks.zapier.com/hooks/standard/1234/abcd",
+            "resource_id": self.action.id,
+        }
+
+        assert hog_function.filters == {
+            "actions": [{"id": str(self.action.id), "name": "", "type": "actions", "order": 0}],
+            "bytecode": ["_h", 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1],
+        }
+
+        assert hog_function.inputs == {
+            "body": {
+                "bytecode": ANY,
+                "value": {
+                    "data": {
+                        "distinctId": "{event.distinct_id}",
+                        "event": "{event.name}",
+                        "eventUuid": "{event.uuid}",
+                        "person": {
+                            "properties": "{person.properties}",
+                            "uuid": "{person.uuid}",
+                        },
+                        "properties": "{event.properties}",
+                        "teamId": "{project.id}",
+                        "timestamp": "{event.timestamp}",
+                    },
+                    "hook": {
+                        "event": "{event}",
+                        "id": "{eventUuid}",
+                        "target": "https://hooks.zapier.com/{inputs.hook}",
+                    },
+                },
+            },
+            "debug": {},
+            "hook": {
+                "bytecode": [
+                    "_h",
+                    32,
+                    "hooks/standard/1234/abcd",
+                ],
+                "value": "hooks/standard/1234/abcd",
+            },
+        }
+
+    def test_delete_hog_function_via_hook(self):
+        data = {
+            "target": "https://hooks.zapier.com/hooks/standard/1234/abcd",
+            "event": "action_performed",
+            "resource_id": self.action.id,
+        }
+
+        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
+            res = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+
+        hook_id = res.json()["id"]
+
+        assert HogFunction.objects.count() == 1
+
+        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
+            res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
+            assert res.status_code == 204
+
+        assert not HogFunction.objects.exists()
 
 
 def test_valid_domain() -> None:
