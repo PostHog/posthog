@@ -20,6 +20,7 @@ import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
+import * as cyclotron from '../worker/cyclotron'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
@@ -691,5 +692,45 @@ export class CdpOverflowConsumer extends CdpConsumerBase {
         })
 
         return invocationGlobals
+    }
+}
+
+// TODO: Split out non-Kafka specific parts of CdpConsumerBase so that it can be used by the
+// Cyclotron worker below. Or maybe we can just wait, and rip the Kafka bits out once Cyclotron is
+// shipped (and rename it something other than consomer, probably). For now, this is an easy way to
+// use existing code and get an end-to-end demo shipped.
+export class CdpCyclotronWorker extends CdpConsumerBase {
+    protected name = 'CdpCyclotronWorker'
+    protected topic = 'UNUSED-CdpCyclotronWorker'
+    protected consumerGroupId = 'UNUSED-CdpCyclotronWorker'
+
+    private runningWorker: Promise<void> | undefined
+
+    public async _handleEachBatch(_: Message[]): Promise<void> {
+        // Not called, we override `start` below to use Cyclotron instead.
+    }
+
+    public async innerStart() {
+        try {
+            const limit = 100 // TODO: Make configurable.
+            while (!this.isStopping) {
+                const jobs = await cyclotron.dequeueJobsWithVmState('hog', limit)
+                for (const job of jobs) {
+                    // TODO: Reassemble a HogFunctionInvocationAsyncResponse (or whatever proper type)
+                    // from the fields on the job, and then execute the next Hog step.
+                    console.log(job.id)
+                }
+            }
+        } catch (err) {
+            console.error('Error in Cyclotron worker', err)
+            throw err
+        }
+    }
+
+    public async start() {
+        // Consumer `start` expects an async task is started, and not that `start` itself blocks
+        // indefinitely.
+        this.runningWorker = this.innerStart()
+        return Promise.resolve()
     }
 }

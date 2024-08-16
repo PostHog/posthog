@@ -11,7 +11,12 @@ import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
-import { CdpFunctionCallbackConsumer, CdpOverflowConsumer, CdpProcessedEventsConsumer } from '../cdp/cdp-consumers'
+import {
+    CdpCyclotronWorker,
+    CdpFunctionCallbackConsumer,
+    CdpOverflowConsumer,
+    CdpProcessedEventsConsumer,
+} from '../cdp/cdp-consumers'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
@@ -581,19 +586,17 @@ export async function startPluginsServer(
             healthChecks['cdp-overflow'] = () => consumer.isHealthy() ?? false
         }
 
-        if (capabilities.cdpCyclotronConsumer) {
+        if (capabilities.cdpCyclotronWorker) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             if (hub.CYCLOTRON_DATABASE_URL) {
                 await cyclotron.initManager({ shards: [{ dbUrl: hub.CYCLOTRON_DATABASE_URL }] })
                 await cyclotron.initWorker({ dbUrl: hub.CYCLOTRON_DATABASE_URL })
-            }
 
-            const limit = 100
-            while (true) {
-                const jobs = await cyclotron.dequeueJobsWithVmState('fetch', limit)
-                for (const job of jobs) {
-                    console.log(job.id)
-                }
+                const worker = new CdpCyclotronWorker(hub)
+                await worker.start()
+            } else {
+                // This is a temporary solution until we *require* Cyclotron to be configured.
+                status.warn('💥', 'CYCLOTRON_DATABASE_URL is not set, not running Cyclotron worker')
             }
         }
 
