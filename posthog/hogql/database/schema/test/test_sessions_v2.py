@@ -19,11 +19,10 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
-    ClickhouseDestroyTablesMixin,
 )
 
 
-class TestSessionsV2(ClickhouseTestMixin, APIBaseTest, ClickhouseDestroyTablesMixin):
+class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
     def __execute(self, query, bounce_rate_mode=BounceRatePageViewMode.COUNT_PAGEVIEWS):
         modifiers = HogQLQueryModifiers(
             sessionTableVersion=SessionTableVersion.V2, bounceRatePageViewMode=bounce_rate_mode
