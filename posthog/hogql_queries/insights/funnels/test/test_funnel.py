@@ -3241,7 +3241,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # event
             _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-            #  this event shouldn't appear as in US/Pacific this would be the previous day
+            # this event shouldn't appear as in US/Pacific this would be the previous day
             _create_event(
                 team=self.team,
                 event="user signed up",
@@ -3251,7 +3251,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            self.assertEqual([], results)
+            # There should be no events. UDF funnels returns an empty array and says "no events"
+            # Old style funnels returns a count of 0
+            try:
+                self.assertEqual([], results)
+            except AssertionError:
+                self.assertEqual(results[0]["name"], "user signed up")
+                self.assertEqual(results[0]["count"], 0)
 
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(
