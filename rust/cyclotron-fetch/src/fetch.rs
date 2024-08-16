@@ -71,7 +71,7 @@ pub struct FetchParameters {
     pub url: String,
     pub method: HttpMethod,
     pub return_queue: String,
-    pub header: Option<HashMap<String, String>>,
+    pub headers: Option<HashMap<String, String>>,
     pub body: Option<String>,
     pub max_tries: Option<u32>,      // Defaults to 3
     pub on_finish: Option<OnFinish>, // Defaults to Return
@@ -335,7 +335,7 @@ pub async fn run_job(
         }
     };
     let headers: reqwest::header::HeaderMap =
-        match (&parsed.parameters.header.unwrap_or_default()).try_into() {
+        match (&parsed.parameters.headers.unwrap_or_default()).try_into() {
             Ok(h) => h,
             Err(e) => {
                 return dead_letter_job(

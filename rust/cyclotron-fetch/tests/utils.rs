@@ -54,7 +54,7 @@ pub fn construct_params(url: String, method: HttpMethod) -> FetchParameters {
         url,
         method,
         return_queue: RETURN_QUEUE.to_string(),
-        header: None,
+        headers: None,
         body: None,
         max_tries: None,
         on_finish: None,
