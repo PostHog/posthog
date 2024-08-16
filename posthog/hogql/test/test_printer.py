@@ -568,16 +568,18 @@ class TestPrinter(BaseTest):
         self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
 
     def test_property_groups_select_with_aliases(self):
-        context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            modifiers=HogQLQueryModifiers(
-                materializationMode=MaterializationMode.AUTO,
-                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
-            ),
-        )
+        def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
+            return HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=property_groups_mode,
+                ),
+            )
+
         parsed = parse_select("SELECT properties.file_type AS ft FROM events WHERE ft = 'image/svg'")
-        printed = print_ast(parsed, context, dialect="clickhouse")
+        printed = print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")
         assert printed == (
             "SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS ft "
             "FROM events "
@@ -585,13 +587,14 @@ class TestPrinter(BaseTest):
             "LIMIT 50000"
         )
 
-        # What about this?
-        # parsed = parse_select("SELECT properties.file_type AS ft, 'image/svg' as ft2 FROM events WHERE ft = ft2")
-        # printed = print_ast(
-        #     parsed,
-        #     context,
-        #     dialect="clickhouse"
-        # )
+        # TODO: Ideally we'd be able to optimize queries that compare aliases, but this is a bit tricky since we need
+        # the ability to resolve the field back to the aliased expression (if one exists) to determine whether or not
+        # the condition can be optimized (and possibly just inline the aliased value to make things easier for the
+        # analyzer.) Until then, this should just use the direct (simple) property group access method.
+        parsed = parse_select("SELECT properties.file_type AS ft, 'image/svg' as ft2 FROM events WHERE ft = ft2")
+        assert print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse") == print_ast(
+            parsed, build_context(PropertyGroupsMode.ENABLED), dialect="clickhouse"
+        )
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
