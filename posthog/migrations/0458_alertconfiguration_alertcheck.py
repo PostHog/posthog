@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
                 (
                     "state",
                     models.CharField(
-                        choices=[("firing", "Firing"), ("cooldown", "Cooldown"), ("not_met", "Not Met")],
+                        choices=[("firing", "Firing"), ("not_met", "Not Met")],
                         default="not_met",
                         max_length=10,
                     ),

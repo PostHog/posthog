@@ -1699,6 +1699,14 @@ export interface AlertCondition {
     // More types of thresholds or conditions can be added here
 }
 
+export interface AlertCheck {
+    id: string
+    created_at: string
+    calculated_value: number
+    state: string
+    targets_notified: boolean
+}
+
 export interface AlertType {
     id: string
     name: string
@@ -1709,4 +1717,5 @@ export interface AlertType {
     created_at?: string
     state?: string
     last_notified_at?: string
+    checks?: AlertCheck[]
 }

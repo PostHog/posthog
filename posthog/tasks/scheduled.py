@@ -261,7 +261,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="20"),
+        crontab(hour="*", minute="*"),
         check_all_alerts_task.s(),
         name="detect alerts' anomalies and notify about them",
     )

@@ -1,6 +1,7 @@
-import { LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -64,8 +65,8 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                         <Group name={['notification_targets']}>
                             <LemonField
                                 name="email"
-                                label="Who do you want to notify about anomalies"
-                                help="Enter email addresses of the users you want notify about anomalies"
+                                label="Who do you want to notify"
+                                help="Enter email addresses of the users you want notify"
                             >
                                 <LemonInputSelect
                                     mode="multiple"
@@ -94,6 +95,35 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                                 </LemonField>
                             </span>
                         </Group>
+
+                        {alert.checks && alert.checks.length > 0 && (
+                            <div>
+                                <LemonDivider />
+                                <h3>Recent checks</h3>
+                                <table className="w-full table-auto border-spacing-2 border-collapse">
+                                    <thead>
+                                        <tr className="text-left">
+                                            <th>Status</th>
+                                            <th className="text-right">Time</th>
+                                            <th className="text-right pr-4">Value</th>
+                                            <th>Targets notified</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {alert.checks.map((check) => (
+                                            <tr key={check.id}>
+                                                <td>{check.state === 'firing' ? 'Firing' : 'Not met'}</td>
+                                                <td className="text-right">
+                                                    <TZLabel time={check.created_at} />
+                                                </td>
+                                                <td className="text-right pr-4">{check.calculated_value}</td>
+                                                <td>{check.targets_notified ? 'Yes' : 'No'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </>
                 )}
             </LemonModal.Content>

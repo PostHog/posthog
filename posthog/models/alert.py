@@ -124,7 +124,6 @@ class AlertCheck(UUIDModel):
 
     STATE_CHOICES = [
         ("firing", "Firing"),
-        ("cooldown", "Cooldown"),
         ("not_met", "Not Met"),
     ]
     state = models.CharField(max_length=10, choices=STATE_CHOICES, default="not_met")
