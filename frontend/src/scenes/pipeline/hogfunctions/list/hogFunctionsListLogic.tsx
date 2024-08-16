@@ -48,7 +48,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     }),
     actions({
         toggleEnabled: (hogFunction: HogFunctionType, enabled: boolean) => ({ hogFunction, enabled }),
-        delete: (hogFunction: HogFunctionType) => ({ hogFunction }),
+        deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setFilters: (filters: Partial<HogFunctionListFilters>) => ({ filters }),
         resetFilters: true,
     }),
@@ -79,7 +79,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     ).results
                 },
 
-                delete: async ({ hogFunction }) => {
+                deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
                         endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
                         object: {

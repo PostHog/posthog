@@ -8,15 +8,12 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { AppMetricSparkLineV2 } from 'scenes/pipeline/metrics/AppMetricsV2Sparkline'
+import { NewButton } from 'scenes/pipeline/NewButton'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
+import { AvailableFeature, HogFunctionType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
-import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
-import { NewButton } from '../NewButton'
-import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { Destination } from '../types'
-import { pipelineNodeMenuCommonItems } from '../utils'
+import { HogFunctionIcon } from '../HogFunctionIcon'
 import { hogFunctionsListLogic, HogFunctionsListLogicProps } from './hogFunctionsListLogic'
 
 export function HogFunctionsListScene(): JSX.Element {
@@ -48,8 +45,10 @@ export function HogFunctionsList({
     extraControls,
     ...props
 }: HogFunctionsListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions } = useValues(hogFunctionsListLogic(props))
-    const { setFilters, resetFilters } = useActions(hogFunctionsListLogic(props))
+    const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
+        hogFunctionsListLogic(props)
+    )
+    const { setFilters, resetFilters, toggleEnabled, deleteHogFunction } = useActions(hogFunctionsListLogic(props))
 
     return (
         <>
@@ -114,13 +113,7 @@ export function HogFunctionsList({
                                 )
                             },
                         },
-                        {
-                            title: 'Frequency',
-                            key: 'interval',
-                            render: (_, hogFunction) => {
-                                return hogFunction.interval
-                            },
-                        },
+
                         {
                             title: 'Weekly volume',
                             render: (_, hogFunction) => {
@@ -137,7 +130,7 @@ export function HogFunctionsList({
                                 )
                             },
                         },
-                        updatedAtColumn() as LemonTableColumn<Destination, any>,
+                        updatedAtColumn() as LemonTableColumn<HogFunctionType, any>,
                         {
                             title: 'Status',
                             key: 'enabled',
@@ -162,12 +155,34 @@ export function HogFunctionsList({
                         {
                             width: 0,
                             render: function Render(_, destination) {
-                                return <More overlay={<DestinationMoreOverlay destination={destination} />} />
+                                return (
+                                    <More
+                                        overlay={
+                                            <LemonMenuOverlay
+                                                items={[
+                                                    {
+                                                        label: destination.enabled ? 'Pause' : 'Unpause',
+                                                        onClick: () => toggleEnabled(destination, !destination.enabled),
+                                                        disabledReason:
+                                                            !canEnableHogFunction(destination) && !destination.enabled
+                                                                ? 'Data pipelines add-on is required for enabling new destinations'
+                                                                : undefined,
+                                                    },
+                                                    {
+                                                        label: 'Delete',
+                                                        status: 'danger' as const, // for typechecker happiness
+                                                        onClick: () => deleteHogFunction(destination),
+                                                    },
+                                                ]}
+                                            />
+                                        }
+                                    />
+                                )
                             },
                         },
                     ]}
                     emptyState={
-                        destinations.length === 0 && !loading ? (
+                        hogFunctions.length === 0 && !loading ? (
                             'No destinations found'
                         ) : (
                             <>
@@ -179,35 +194,5 @@ export function HogFunctionsList({
                 />
             </BindLogic>
         </>
-    )
-}
-
-const DestinationMoreOverlay = ({ destination }: { destination: Destination }): JSX.Element => {
-    const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
-
-    return (
-        <LemonMenuOverlay
-            items={[
-                {
-                    label: destination.enabled ? 'Pause destination' : 'Unpause destination',
-                    onClick: () => toggleNode(destination, !destination.enabled),
-                    disabledReason: !canConfigurePlugins
-                        ? 'You do not have permission to toggle destinations.'
-                        : !canEnableDestination(destination) && !destination.enabled
-                        ? 'Data pipelines add-on is required for enabling new destinations'
-                        : undefined,
-                },
-                ...pipelineNodeMenuCommonItems(destination),
-                {
-                    label: 'Delete destination',
-                    status: 'danger' as const, // for typechecker happiness
-                    onClick: () => deleteNode(destination),
-                    disabledReason: canConfigurePlugins
-                        ? undefined
-                        : 'You do not have permission to delete destinations.',
-                },
-            ]}
-        />
     )
 }
