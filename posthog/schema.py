@@ -12,6 +12,14 @@ class SchemaRoot(RootModel[Any]):
     root: Any
 
 
+class AbsoluteThreshold(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -26,6 +34,13 @@ class AggregationAxisFormat(StrEnum):
     DURATION_MS = "duration_ms"
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
+
+
+class AnomalyCondition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absoluteThreshold: AbsoluteThreshold
 
 
 class Kind(StrEnum):

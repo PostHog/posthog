@@ -1,5 +1,5 @@
 from random import random
-from typing import Union
+from typing import Union, cast
 
 import structlog
 from django.conf import settings
@@ -140,6 +140,7 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            token = cast(str, token)  # we know it's not None if we found a team
             structlog.contextvars.bind_contextvars(team_id=team.id)
 
             disable_flags = process_bool(data.get("disable_flags")) is True
@@ -245,7 +246,18 @@ def get_decide(request: HttpRequest):
             ):
                 response["elementsChainAsString"] = True
 
-            response["sessionRecording"] = _session_recording_config_response(request, team)
+            response["sessionRecording"] = _session_recording_config_response(request, team, token)
+
+            if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
+                from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+                limited_tokens_recordings = list_limited_team_attributes(
+                    QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+
+                if token in limited_tokens_recordings:
+                    response["quotaLimited"] = ["recordings"]
+                    response["sessionRecording"] = False
 
             response["surveys"] = True if team.surveys_opt_in else False
             response["heatmaps"] = True if team.heatmaps_opt_in else False
@@ -291,7 +303,7 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
+def _session_recording_config_response(request: HttpRequest, team: Team, token: str) -> bool | dict:
     session_recording_config_response: bool | dict = False
 
     try:
