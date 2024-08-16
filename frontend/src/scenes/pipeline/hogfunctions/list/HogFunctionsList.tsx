@@ -1,37 +1,26 @@
-import {
-    LemonCheckbox,
-    LemonInput,
-    LemonSelect,
-    LemonTable,
-    LemonTableColumn,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { AppMetricSparkLineV2 } from 'scenes/pipeline/metrics/AppMetricsV2Sparkline'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
-import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
-import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { Destination, PipelineBackend } from '../types'
-import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
-import { pipelineDestinationsLogic, PipelineDestinationsLogicProps } from './destinationsLogic'
+import { Destination } from '../types'
+import { pipelineNodeMenuCommonItems } from '../utils'
+import { hogFunctionsListLogic, HogFunctionsListLogicProps } from './hogFunctionsListLogic'
 
-export function Destinations(): JSX.Element {
-    const { destinations, loading } = useValues(pipelineDestinationsLogic({ syncFiltersWithUrl: true }))
+export function HogFunctionsListScene(): JSX.Element {
+    const { hogFunctions, loading } = useValues(hogFunctionsListLogic({ syncFiltersWithUrl: true }))
 
     return (
         <>
@@ -47,22 +36,20 @@ export function Destinations(): JSX.Element {
                     description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
                     docsURL="https://posthog.com/docs/cdp"
                     actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                    isEmpty={destinations.length === 0 && !loading}
+                    isEmpty={hogFunctions.length === 0 && !loading}
                 />
             </PayGateMini>
-            <DestinationsTable syncFiltersWithUrl />
+            <HogFunctionsList syncFiltersWithUrl />
         </>
     )
 }
 
-export function DestinationsTable({
+export function HogFunctionsList({
     extraControls,
     ...props
-}: PipelineDestinationsLogicProps & { extraControls?: JSX.Element }): JSX.Element {
-    const { loading, filteredDestinations, filters, destinations } = useValues(pipelineDestinationsLogic(props))
-    const { setFilters, resetFilters } = useActions(pipelineDestinationsLogic(props))
-
-    const hasHogFunctions = !!useFeatureFlag('HOG_FUNCTIONS')
+}: HogFunctionsListLogicProps & { extraControls?: JSX.Element }): JSX.Element {
+    const { loading, filteredHogFunctions, filters, hogFunctions } = useValues(hogFunctionsListLogic(props))
+    const { setFilters, resetFilters } = useActions(hogFunctionsListLogic(props))
 
     return (
         <>
@@ -85,48 +72,20 @@ export function DestinationsTable({
                         onChange={(e) => setFilters({ onlyActive: e ?? undefined })}
                     />
                 )}
-                {!props.forceFilters?.kind && (
-                    <LemonSelect
-                        type="secondary"
-                        size="small"
-                        options={
-                            [
-                                { label: 'All kinds', value: null },
-                                hasHogFunctions
-                                    ? { label: 'Realtime (new)', value: PipelineBackend.HogFunction }
-                                    : undefined,
-                                { label: 'Realtime', value: PipelineBackend.Plugin },
-                                { label: 'Batch exports', value: PipelineBackend.BatchExport },
-                            ].filter(Boolean) as { label: string; value: PipelineBackend | null }[]
-                        }
-                        value={filters.kind}
-                        onChange={(e) => setFilters({ kind: e ?? undefined })}
-                    />
-                )}
-
                 {extraControls}
             </div>
 
-            <BindLogic logic={pipelineDestinationsLogic} props={props}>
+            <BindLogic logic={hogFunctionsListLogic} props={props}>
                 <LemonTable
-                    dataSource={filteredDestinations}
+                    dataSource={filteredHogFunctions}
                     size="small"
                     loading={loading}
                     columns={[
                         {
-                            title: 'App',
+                            title: '',
                             width: 0,
-                            render: function RenderAppInfo(_, destination) {
-                                switch (destination.backend) {
-                                    case 'plugin':
-                                        return <RenderApp plugin={destination.plugin} />
-                                    case 'hog_function':
-                                        return <HogFunctionIcon src={destination.hog_function.icon_url} size="small" />
-                                    case 'batch_export':
-                                        return <RenderBatchExportIcon type={destination.service.type} />
-                                    default:
-                                        return null
-                                }
+                            render: function RenderIcon(_, hogFunction) {
+                                return <HogFunctionIcon src={hogFunction.icon_url} size="small" />
                             },
                         },
                         {
@@ -135,22 +94,22 @@ export function DestinationsTable({
                             sorter: true,
                             key: 'name',
                             dataIndex: 'name',
-                            render: function RenderPluginName(_, destination) {
+                            render: (_, hogFunction) => {
                                 return (
                                     <LemonTableLink
                                         to={urls.pipelineNode(
                                             PipelineStage.Destination,
-                                            destination.id,
+                                            `hog-${hogFunction.id}`,
                                             PipelineNodeTab.Configuration
                                         )}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">
-                                                    <span>{destination.name}</span>
+                                                    <span>{hogFunction.name}</span>
                                                 </Tooltip>
                                             </>
                                         }
-                                        description={destination.description}
+                                        description={hogFunction.description}
                                     />
                                 )
                             },
@@ -158,26 +117,22 @@ export function DestinationsTable({
                         {
                             title: 'Frequency',
                             key: 'interval',
-                            render: function RenderFrequency(_, destination) {
-                                return destination.interval
+                            render: (_, hogFunction) => {
+                                return hogFunction.interval
                             },
                         },
                         {
                             title: 'Weekly volume',
-                            render: function RenderSuccessRate(_, destination) {
+                            render: (_, hogFunction) => {
                                 return (
                                     <Link
                                         to={urls.pipelineNode(
                                             PipelineStage.Destination,
-                                            destination.id,
+                                            `hog-${hogFunction.id}`,
                                             PipelineNodeTab.Metrics
                                         )}
                                     >
-                                        {destination.backend === PipelineBackend.HogFunction ? (
-                                            <AppMetricSparkLineV2 id={destination.hog_function.id} />
-                                        ) : (
-                                            <AppMetricSparkLine pipelineNode={destination} />
-                                        )}
+                                        <AppMetricSparkLineV2 id={hogFunction.id} />
                                     </Link>
                                 )
                             },

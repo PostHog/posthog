@@ -4,9 +4,9 @@ import api from 'lib/api'
 
 import { AppMetricsTotalsV2Response, AppMetricsV2RequestParams, AppMetricsV2Response } from '~/types'
 
-import type { pipelineNodeMetricsV2LogicType } from './pipelineNodeMetricsV2LogicType'
+import type { appMetricsV2LogicType } from './appMetricsV2LogicType'
 
-export type PipelineNodeMetricsProps = {
+export type AppMetricsV2LogicProps = {
     id: string
 }
 
@@ -18,9 +18,9 @@ const DEFAULT_FILTERS: MetricsFilters = {
     interval: 'day',
 }
 
-export const pipelineNodeMetricsV2Logic = kea<pipelineNodeMetricsV2LogicType>([
-    props({} as PipelineNodeMetricsProps),
-    key(({ id }: PipelineNodeMetricsProps) => id),
+export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
+    props({} as AppMetricsV2LogicProps),
+    key(({ id }: AppMetricsV2LogicProps) => id),
     path((id) => ['scenes', 'pipeline', 'appMetricsLogic', id]),
     actions({
         setFilters: (filters: Partial<MetricsFilters>) => ({ filters }),
