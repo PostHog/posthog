@@ -150,7 +150,7 @@ async def validate_schema_and_update_table(
 
                 table_created.format = DataWarehouseTable.TableFormat.Delta
                 await sync_to_async(table_created.get_columns)()
-                table_created.save()
+                await asave_datawarehousetable(table_created)
 
                 logger.info("Delta format worked - updating table to use Delta")
             else:
