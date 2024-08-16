@@ -229,14 +229,14 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         <div
             className={clsx(
                 `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
-                !collapsed ? 'min-w-80 flex-1' : 'flex-0'
+                !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
             {collapsed ? (
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
             ) : (
                 <>
-                    <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth>
+                    <LemonButton size="xsmall" onClick={() => setCollapsed(true)} fullWidth icon={<IconDatabase />}>
                         <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
