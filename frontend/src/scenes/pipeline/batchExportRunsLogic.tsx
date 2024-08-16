@@ -212,10 +212,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
             actions.loadRuns()
         },
         retryRun: async ({ run }) => {
-            await api.batchExports.createBackfill(props.id, {
-                start_at: run.data_interval_start.toISOString(),
-                end_at: run.data_interval_end.toISOString(),
-            })
+            await api.batchExports.retryRun(props.id, run.id)
             lemonToast.success('Retry has been scheduled.')
         },
     })),
