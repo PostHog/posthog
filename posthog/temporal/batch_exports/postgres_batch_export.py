@@ -658,6 +658,9 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "InsufficientPrivilege",
                 # Issue with exported data compared to schema, retrying won't help.
                 "NotNullViolation",
+                # A user added a unique constraint on their table, but batch exports (particularly events)
+                # can cause duplicates.
+                "UniqueViolation",
             ],
             finish_inputs=finish_inputs,
         )

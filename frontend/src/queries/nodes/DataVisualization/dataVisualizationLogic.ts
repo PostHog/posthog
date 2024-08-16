@@ -678,7 +678,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         }
     }),
     subscriptions(({ props, actions, values }) => ({
-        columns: (value: Column[], oldValue: Column[]) => {
+        columns: (value: Column[]) => {
             // If response is cleared, then don't update any internal values
             if (!values.response || (!values.response.results && !values.response.result)) {
                 return
@@ -688,43 +688,35 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 JSON.stringify(values.selectedTabularSeries)
             )
 
-            if (oldValue && oldValue.length) {
-                if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
-                    actions.clearAxis()
-                }
-            }
+            actions.clearAxis()
 
             // Set up table series
-            if (values.response && values.selectedTabularSeries === null) {
-                value.forEach((column) => {
+            value.forEach((column) => {
+                if (oldSelectedSeries) {
+                    const lastValue = oldSelectedSeries.find((n) => n?.name === column.name)
+                    return actions.addSeries(column.name, lastValue?.settings)
+                }
+
+                actions.addSeries(column.name)
+            })
+
+            // Set up chart series
+            const xAxisTypes = value.find((n) => n.type.name.indexOf('DATE') !== -1)
+            const yAxisTypes = value.filter((n) => n.type.isNumerical)
+
+            if (yAxisTypes) {
+                yAxisTypes.forEach((y) => {
                     if (oldSelectedSeries) {
-                        const lastValue = oldSelectedSeries.find((n) => n?.name === column.name)
-                        return actions.addSeries(column.name, lastValue?.settings)
+                        const lastValue = oldSelectedSeries.find((n) => n?.name === y.name)
+                        return actions.addYSeries(y.name, lastValue?.settings)
                     }
 
-                    actions.addSeries(column.name)
+                    actions.addYSeries(y.name)
                 })
             }
 
-            // Set up chart series
-            if (values.response && values.selectedXAxis === null && values.selectedYAxis === null) {
-                const xAxisTypes = value.find((n) => n.type.name.indexOf('DATE') !== -1)
-                const yAxisTypes = value.filter((n) => n.type.isNumerical)
-
-                if (yAxisTypes) {
-                    yAxisTypes.forEach((y) => {
-                        if (oldSelectedSeries) {
-                            const lastValue = oldSelectedSeries.find((n) => n?.name === y.name)
-                            return actions.addYSeries(y.name, lastValue?.settings)
-                        }
-
-                        actions.addYSeries(y.name)
-                    })
-                }
-
-                if (xAxisTypes) {
-                    actions.updateXSeries(xAxisTypes.name)
-                }
+            if (xAxisTypes) {
+                actions.updateXSeries(xAxisTypes.name)
             }
         },
         selectedXAxis: (value: string | null) => {

@@ -8,6 +8,7 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactElement } from 'react'
@@ -35,6 +36,7 @@ import {
     CountPerActorMathType,
     Experiment,
     ExperimentResults,
+    FeatureFlagType,
     FilterType,
     FunnelExperimentVariant,
     FunnelStep,
@@ -108,6 +110,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['results as trendResults'],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['insightDataLoading as goalInsightDataLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             experimentsLogic,
@@ -160,6 +164,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentExposureModal: true,
         openExperimentCollectionGoalModal: true,
         closeExperimentCollectionGoalModal: true,
+        openMakeDecisionModal: true,
+        closeMakeDecisionModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
     }),
@@ -296,6 +302,13 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openExperimentCollectionGoalModal: () => true,
                 closeExperimentCollectionGoalModal: () => false,
+            },
+        ],
+        isMakeDecisionModalOpen: [
+            false,
+            {
+                openMakeDecisionModal: () => true,
+                closeMakeDecisionModal: () => false,
             },
         ],
         experimentValuesChangedLocally: [
@@ -690,6 +703,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
+        shipVariantSuccess: () => {
+            lemonToast.success('The selected variant has been shipped')
+            actions.closeMakeDecisionModal()
+            actions.loadExperiment()
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -780,6 +798,38 @@ export const experimentLogic = kea<experimentLogicType>([
                         return (await api.experiments.createExposureCohort(props.experimentId)).cohort
                     }
                     return null
+                },
+            },
+        ],
+        featureFlag: [
+            null as FeatureFlagType | null,
+            {
+                shipVariant: async (selectedVariant) => {
+                    const currentFlagFilters = values.experiment.feature_flag?.filters
+
+                    const newFilters = {
+                        aggregation_group_type_index: currentFlagFilters?.aggregation_group_type_index || null,
+                        payloads: currentFlagFilters?.payloads || {},
+                        multivariate: {
+                            variants: currentFlagFilters?.multivariate?.variants.map(({ key, name }) => ({
+                                key,
+                                rollout_percentage: key === selectedVariant ? 100 : 0,
+                                ...(name && { name }),
+                            })),
+                        },
+                        groups: [
+                            { properties: [], rollout_percentage: 100 },
+                            // Preserve existing groups so that users can roll back this action
+                            // by deleting the newly added release condition
+                            ...(currentFlagFilters?.groups || []),
+                        ],
+                    }
+
+                    const savedFlag = await api.update(
+                        `api/projects/${values.currentTeamId}/feature_flags/${values.experiment.feature_flag?.id}`,
+                        { filters: newFilters }
+                    )
+                    return savedFlag
                 },
             },
         ],
@@ -1328,6 +1378,21 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
 
                 return dayjs().diff(experiment.start_date, 'day')
+            },
+        ],
+        isSingleVariantShipped: [
+            (s) => [s.experiment],
+            (experiment: Experiment): boolean => {
+                const filters = experiment.feature_flag?.filters
+
+                return (
+                    !!filters &&
+                    Array.isArray(filters.groups?.[0]?.properties) &&
+                    filters.groups?.[0]?.properties?.length === 0 &&
+                    filters.groups?.[0]?.rollout_percentage === 100 &&
+                    (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) ||
+                        false)
+                )
             },
         ],
     }),

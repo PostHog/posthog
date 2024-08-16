@@ -214,7 +214,7 @@ sinks:
             sticky.partitioning.linger.ms: '25'
             enable.idempotence: 'false'
             max.in.flight.requests.per.connection: '1000000'
-            partitioner: 'consistent_random'
+            partitioner: 'murmur2_random'
         message_timeout_ms: 10000
         socket_timeout_ms: 5000
     kafka_overflow:
