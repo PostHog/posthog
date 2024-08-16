@@ -8,13 +8,12 @@ use hook_common::pgqueue::PgQueue;
 
 use super::webhook;
 
-pub const CONCURRENCY_LIMIT: usize = 1000;
-
 pub fn add_routes(
     router: Router,
     pg_pool: PgQueue,
     hog_mode: bool,
     max_body_size: usize,
+    concurrency_limit: usize,
 ) -> Router {
     let router = router
         .route("/", routing::get(index))
@@ -26,7 +25,7 @@ pub fn add_routes(
             "/hoghook",
             routing::post(webhook::post_hoghook)
                 .with_state(pg_pool)
-                .layer::<_, Infallible>(ConcurrencyLimitLayer::new(CONCURRENCY_LIMIT))
+                .layer::<_, Infallible>(ConcurrencyLimitLayer::new(concurrency_limit))
                 .layer(RequestBodyLimitLayer::new(max_body_size)),
         )
     } else {
@@ -34,7 +33,7 @@ pub fn add_routes(
             "/webhook",
             routing::post(webhook::post_webhook)
                 .with_state(pg_pool)
-                .layer::<_, Infallible>(ConcurrencyLimitLayer::new(CONCURRENCY_LIMIT))
+                .layer::<_, Infallible>(ConcurrencyLimitLayer::new(concurrency_limit))
                 .layer(RequestBodyLimitLayer::new(max_body_size)),
         )
     }
@@ -61,7 +60,7 @@ mod tests {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, hog_mode, 1_000_000);
+        let app = add_routes(Router::new(), pg_queue, hog_mode, 1_000_000, 10);
 
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
