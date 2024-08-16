@@ -258,6 +258,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -419,9 +421,9 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg==3.1.18
+psycopg==3.1.20
     # via -r requirements.in
-psycopg-binary==3.1.18
+psycopg-binary==3.1.20
     # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
