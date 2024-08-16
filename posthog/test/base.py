@@ -1007,19 +1007,31 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
+            ]
+        )
+        run_clickhouse_statement_in_parallel(
+            [
                 CHANNEL_DEFINITION_DATA_SQL(),
                 SESSIONS_TABLE_MV_SQL(),
                 RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
                 RAW_SESSIONS_VIEW_SQL(),
-                DISTRIBUTED_SESSIONS_TABLE_SQL(),
-                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             ]
         )
 
     def tearDown(self):
         super().tearDown()
 
+        run_clickhouse_statement_in_parallel(
+            [
+                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_SESSION_VIEW_SQL(),
+                DROP_RAW_SESSION_VIEW_SQL(),
+            ]
+        )
         run_clickhouse_statement_in_parallel(
             [
                 DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -1033,13 +1045,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
                 DROP_SESSION_TABLE_SQL(),
                 DROP_RAW_SESSION_TABLE_SQL(),
-                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_SESSION_VIEW_SQL(),
-                DROP_RAW_SESSION_VIEW_SQL(),
             ]
         )
-
         run_clickhouse_statement_in_parallel(
             [
                 EVENTS_TABLE_SQL(),
@@ -1059,6 +1066,10 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
                 DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
+            ]
+        )
+        run_clickhouse_statement_in_parallel(
+            [
                 SESSIONS_TABLE_MV_SQL(),
                 RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
