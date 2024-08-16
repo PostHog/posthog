@@ -1,9 +1,14 @@
+use std::convert::Infallible;
+
 use axum::{routing, Router};
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
 use hook_common::pgqueue::PgQueue;
 
 use super::webhook;
+
+pub const CONCURRENCY_LIMIT: usize = 1000;
 
 pub fn add_routes(
     router: Router,
@@ -21,6 +26,7 @@ pub fn add_routes(
             "/hoghook",
             routing::post(webhook::post_hoghook)
                 .with_state(pg_pool)
+                .layer::<_, Infallible>(ConcurrencyLimitLayer::new(CONCURRENCY_LIMIT))
                 .layer(RequestBodyLimitLayer::new(max_body_size)),
         )
     } else {
@@ -28,6 +34,7 @@ pub fn add_routes(
             "/webhook",
             routing::post(webhook::post_webhook)
                 .with_state(pg_pool)
+                .layer::<_, Infallible>(ConcurrencyLimitLayer::new(CONCURRENCY_LIMIT))
                 .layer(RequestBodyLimitLayer::new(max_body_size)),
         )
     }
