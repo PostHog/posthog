@@ -703,9 +703,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        shipVariantSuccess: () => {
+        shipVariantSuccess: ({ payload }) => {
             lemonToast.success('The selected variant has been shipped')
             actions.closeMakeDecisionModal()
+            if (payload.shouldStopExperiment) {
+                actions.endExperiment()
+            }
             actions.loadExperiment()
         },
         shipVariantFailure: ({ error }) => {
@@ -808,19 +811,20 @@ export const experimentLogic = kea<experimentLogicType>([
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                shipVariant: async (selectedVariant) => {
+                shipVariant: async ({ selectedVariantKey, shouldStopExperiment }) => {
                     if (!values.experiment.feature_flag) {
                         throw new Error('Experiment does not have a feature flag linked')
                     }
 
                     const currentFlagFilters = values.experiment.feature_flag?.filters
-                    const newFilters = transformFiltersForWinningVariant(currentFlagFilters, selectedVariant)
+                    const newFilters = transformFiltersForWinningVariant(currentFlagFilters, selectedVariantKey)
 
-                    const savedFlag = await api.update(
+                    await api.update(
                         `api/projects/${values.currentTeamId}/feature_flags/${values.experiment.feature_flag?.id}`,
                         { filters: newFilters }
                     )
-                    return savedFlag
+
+                    return shouldStopExperiment
                 },
             },
         ],
