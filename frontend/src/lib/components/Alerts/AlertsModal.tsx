@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -62,36 +62,18 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
     if (!showAlerts) {
         return <></>
     }
-    if (!areAlertsSupportedForInsight(insight.query)) {
-        return (
-            <LemonButton
-                data-attr="disabled-alerts-button"
-                disabledReason="Insights are only availabe for trends represented as a number. Change the insight representation to add alerts."
-            >
-                Alerts
-            </LemonButton>
-        )
-    }
+
     return (
-        <LemonButtonWithDropdown
+        <LemonButton
+            onClick={() => push(urls.alerts(insight.short_id!))}
             fullWidth
-            dropdown={{
-                actionable: true,
-                closeParentPopoverOnClickInside: true,
-                placement: 'right-start',
-                overlay: (
-                    <>
-                        <LemonButton onClick={() => push(urls.alert(insight.short_id!, 'new'))} fullWidth>
-                            New alert
-                        </LemonButton>
-                        <LemonButton onClick={() => push(urls.alerts(insight.short_id!))} fullWidth>
-                            Manage alerts
-                        </LemonButton>
-                    </>
-                ),
-            }}
+            disabledReason={
+                !areAlertsSupportedForInsight(insight.query)
+                    ? 'Insights are only available for trends represented as a number. Change the insight representation to add alerts.'
+                    : undefined
+            }
         >
-            Alerts
-        </LemonButtonWithDropdown>
+            Manage alerts
+        </LemonButton>
     )
 }
