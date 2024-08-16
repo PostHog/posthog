@@ -125,6 +125,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentArchived',
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
+                'reportExperimentVariantShipped',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -710,6 +711,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.endExperiment()
             }
             actions.loadExperiment()
+            actions.reportExperimentVariantShipped(values.experiment)
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
