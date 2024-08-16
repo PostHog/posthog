@@ -70,12 +70,10 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
 
     if parsed.tzinfo is None:
-        if team:
-            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.UTC)
-        else:
-            parsed = parsed.replace(tzinfo=dt.UTC)
+        raise ValidationError(f"Input {date_input} is naive.")
     else:
-        parsed = parsed.astimezone(dt.UTC)
+        if team is not None:
+            parsed = parsed.astimezone(team.timezone_info)
 
     return parsed
 
@@ -358,27 +356,22 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Trigger a backfill for a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
-            raise NotAuthenticated()
-
         start_at_input = request.data.get("start_at", None)
         end_at_input = request.data.get("end_at", None)
 
         if start_at_input is None or end_at_input is None:
             raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
-        start_at = validate_date_input(start_at_input, request.user.current_team)
-        end_at = validate_date_input(end_at_input, request.user.current_team)
+        start_at = validate_date_input(start_at_input, self.team)
+        end_at = validate_date_input(end_at_input, self.team)
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
-        team_id = request.user.current_team.id
-
         batch_export = self.get_object()
         temporal = sync_connect()
         try:
-            backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
+            backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
         except BatchExportWithNoEndNotAllowedError:
             raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
 
