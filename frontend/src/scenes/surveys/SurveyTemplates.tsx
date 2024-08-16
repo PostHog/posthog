@@ -33,27 +33,32 @@ export function SurveyTemplates(): JSX.Element {
             <div className="flex flex-row flex-wrap gap-8 mt-8">
                 {defaultSurveyTemplates.map((template, idx) => {
                     return (
-                        <div
-                            className="flex flex-col items-center"
-                            data-attr="survey-template"
-                            key={idx}
-                            onClick={() => {
-                                setSurveyTemplateValues({
-                                    name: template.templateType,
-                                    questions: template.questions,
-                                    appearance: { ...defaultSurveyAppearance, ...template.appearance },
-                                })
-                                reportSurveyTemplateClicked(template.templateType)
-                            }}
-                        >
+                        <div className="flex flex-col items-center" key={idx}>
                             <span className="text-md">
                                 <b>{template.templateType}</b>
                             </span>
                             <span className="flex flex-wrap text-xs text-muted max-w-80 font-medium mb-3">
                                 {template.description}
                             </span>
-                            <div className="SurveyTemplateContainer">
-                                <div className="SurveyTemplate">
+                            <div
+                                className="SurveyTemplateContainer"
+                                tabIndex={idx}
+                                data-attr="survey-template"
+                                onClick={() => {
+                                    setSurveyTemplateValues({
+                                        name: template.templateType,
+                                        questions: template.questions,
+                                        appearance: { ...defaultSurveyAppearance, ...template.appearance },
+                                    })
+                                    reportSurveyTemplateClicked(template.templateType)
+                                }}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.currentTarget.click()
+                                    }
+                                }}
+                            >
+                                <div className="SurveyTemplate" inert="">
                                     <SurveyAppearancePreview
                                         key={idx}
                                         survey={
