@@ -500,7 +500,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconServer />,
                                   to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                               }
-                            : null,
+                            : {
+                                identifier: Scene.DataModel,
+                                label: 'Data model',
+                                icon: <IconServer />,
+                                to: isUsingSidebar ? undefined : urls.dataModel(),
+                            },
                         featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,
