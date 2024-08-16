@@ -1955,7 +1955,7 @@ const api = {
         async retryRun(
             id: BatchExportConfiguration['id'],
             runId: BatchExportRun['id'],
-            teamId: TeamType['id']
+            teamId?: TeamType['id']
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('retry').create()
         },

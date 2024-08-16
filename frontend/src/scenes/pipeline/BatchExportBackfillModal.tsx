@@ -77,7 +77,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                                 if (date) {
                                     let projectDate = date.tz(timezone, true)
 
-                                    if (batchExportConfig.interval === 'day') {
+                                    if (batchExportConfig && batchExportConfig.interval === 'day') {
                                         projectDate = projectDate.hour(0).minute(0).second(0)
                                     }
 
@@ -115,7 +115,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                                 if (date) {
                                     let projectDate = date.tz(timezone, true)
 
-                                    if (batchExportConfig.interval === 'day') {
+                                    if (batchExportConfig && batchExportConfig.interval === 'day') {
                                         projectDate = projectDate.hour(0).minute(0).second(0)
                                     }
 
