@@ -426,18 +426,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     properties: properties || null,
                 }),
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
+                loadDashboardSuccess: (state, { dashboard }) =>
                     dashboard
                         ? {
                               ...state,
-                              // don't update temporary filters if we're previewing
-                              ...(payload?.action === 'preview'
-                                  ? {}
-                                  : {
-                                        date_from: dashboard?.filters.date_from || null,
-                                        date_to: dashboard?.filters.date_to || null,
-                                        properties: dashboard?.filters.properties || [],
-                                    }),
+                              date_from: dashboard?.filters.date_from || null,
+                              date_to: dashboard?.filters.date_to || null,
+                              properties: dashboard?.filters.properties || [],
                           }
                         : state,
             },
@@ -453,13 +448,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     ...filters,
                 }),
-                loadDashboardSuccess: (state, { dashboard }) =>
+                loadDashboardSuccess: (state, { dashboard, payload }) =>
                     dashboard
                         ? {
                               ...state,
-                              date_from: dashboard?.filters.date_from || null,
-                              date_to: dashboard?.filters.date_to || null,
-                              properties: dashboard?.filters.properties || [],
+                              // don't update filters if we're previewing
+                              ...(payload?.action === 'preview'
+                                  ? {}
+                                  : {
+                                        date_from: dashboard?.filters.date_from || null,
+                                        date_to: dashboard?.filters.date_to || null,
+                                        properties: dashboard?.filters.properties || [],
+                                    }),
                           }
                         : state,
             },
@@ -1148,12 +1148,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                     // cancel edit mode changes
 
-                    // reset filters to that on the dashboard
-                    actions.setDates(
-                        values.dashboard?.filters.date_from ?? null,
-                        values.dashboard?.filters.date_to ?? null
-                    )
-                    actions.setProperties(values.dashboard?.filters.properties ?? null)
+                    // reset filters to that before previewing
+                    actions.setDates(values.filters.date_from ?? null, values.filters.date_to ?? null)
+                    actions.setProperties(values.filters.properties ?? null)
 
                     // also reset layout to that we stored in dashboardLayouts
                     // this is done in the reducer for dashboard

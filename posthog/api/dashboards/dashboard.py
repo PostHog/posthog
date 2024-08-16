@@ -29,6 +29,9 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
+from posthog.utils import (
+    filters_override_requested_by_client,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +126,7 @@ class DashboardBasicSerializer(
 
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
-    # filters = serializers.SerializerMethodField()
+    filters = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
@@ -286,6 +289,9 @@ class DashboardSerializer(DashboardBasicSerializer):
         for tile_data in tiles:
             self._update_tiles(instance, tile_data, user)
 
+        instance.filters = initial_data.get("filters", instance.filters)
+        instance.save(update_fields=["filters"])
+
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
@@ -378,16 +384,15 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return serialized_tiles
 
-    # TODO: should we return filter_overrides as an extra field?
-    # def get_filters(self, dashboard: Dashboard) -> dict:
-    #     request = self.context.get("request")
-    #     if request:
-    #         filters_override = filters_override_requested_by_client(request)
+    def get_filters(self, dashboard: Dashboard) -> dict:
+        request = self.context.get("request")
+        if request:
+            filters_override = filters_override_requested_by_client(request)
 
-    #         if filters_override:
-    #             return filters_override
+            if filters_override is not None:
+                return filters_override
 
-    #     return dashboard.filters
+        return dashboard.filters
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
