@@ -72,6 +72,7 @@ async def validate_schema_and_update_table(
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
     row_count: int,
+    table_format: DataWarehouseTable.TableFormat,
 ) -> None:
     """
 
@@ -117,7 +118,7 @@ async def validate_schema_and_update_table(
         table_params = {
             "credential": credential,
             "name": table_name,
-            "format": DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "format": table_format,
             "url_pattern": new_url_pattern,
             "team_id": team_id,
             "row_count": row_count,
