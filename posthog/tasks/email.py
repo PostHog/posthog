@@ -197,6 +197,7 @@ def send_batch_export_run_failure(
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
 
+    # NOTE: Temporary workaround. This should be a configurable setting
     admin_only = (get_instance_region() == "US") and team.pk in [28956]
 
     memberships_to_email = []
