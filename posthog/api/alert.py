@@ -5,7 +5,22 @@ from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.alert import AlertConfiguration, AlertCheck
+from posthog.models.alert import AlertConfiguration, AlertCheck, Threshold
+
+
+class ThresholdSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Threshold
+        fields = [
+            "id",
+            "created_at",
+            "name",
+            "configuration",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+        ]
 
 
 class AlertCheckSerializer(serializers.ModelSerializer):
@@ -29,6 +44,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
 class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(many=True, read_only=True)
+    threshold = ThresholdSerializer()
 
     class Meta:
         model = AlertConfiguration
@@ -39,6 +55,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "insight",
             "name",
             "notification_targets",
+            "threshold",
             "condition",
             "state",
             "enabled",
@@ -52,12 +69,41 @@ class AlertSerializer(serializers.ModelSerializer):
             "last_notified_at",
         ]
 
+    def add_threshold(self, threshold_data, validated_data):
+        threshold_instance = Threshold.objects.create(
+            **threshold_data,
+            team_id=self.context["team_id"],
+            created_by=self.context["request"].user,
+            insight_id=validated_data["insight"].id,
+        )
+        return threshold_instance
+
     def create(self, validated_data: dict) -> AlertConfiguration:
-        request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
-        validated_data["created_by"] = request.user
+        validated_data["created_by"] = self.context["request"].user
+
+        threshold_data = validated_data.pop("threshold", None)
+        if threshold_data:
+            threshold_instance = self.add_threshold(threshold_data, validated_data)
+            validated_data["threshold"] = threshold_instance
+
         instance: AlertConfiguration = super().create(validated_data)
         return instance
+
+    def update(self, instance, validated_data):
+        threshold_data = validated_data.pop("threshold", None)
+        if threshold_data is not None:
+            if threshold_data == {}:
+                instance.threshold = None
+            elif instance.threshold:
+                threshold_instance = instance.threshold
+                for key, value in threshold_data.items():
+                    setattr(threshold_instance, key, value)
+                threshold_instance.save()
+            else:
+                threshold_instance = self.add_threshold(threshold_data, validated_data)
+                validated_data["threshold"] = threshold_instance
+        return super().update(instance, validated_data)
 
     def validate(self, attrs):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:

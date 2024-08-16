@@ -68,6 +68,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                                 data-attr="alert-enabled"
                                 fullWidth
                                 label="Enabled"
+                                defaultChecked
                             />
                         </LemonField>
 
@@ -86,7 +87,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                             </LemonField>
                         </Group>
 
-                        <Group name={['condition', 'absoluteThreshold']}>
+                        <Group name={['threshold', 'configuration', 'absoluteThreshold']}>
                             <span className="flex gap-10">
                                 <LemonField
                                     name="lower"

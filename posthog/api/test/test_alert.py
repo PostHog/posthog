@@ -32,21 +32,27 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "email": ["test@posthog.com"],
             },
             "name": "alert name",
-            "anomaly_condition": {},
+            "threshold": {"configuration": {}},
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
 
         expected_alert_json = {
-            "id": mock.ANY,
+            "condition": {},
             "created_at": mock.ANY,
-            "insight": self.insight["id"],
+            "created_by": mock.ANY,
+            "enabled": True,
+            "id": mock.ANY,
+            "insight": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",
-            "notification_targets": {
-                "email": ["test@posthog.com"],
-            },
-            "condition": {},
+            "notification_targets": {"email": ["test@posthog.com"]},
             "state": "inactive",
+            "threshold": {
+                "configuration": {},
+                "created_at": mock.ANY,
+                "id": mock.ANY,
+                "name": "",
+            },
         }
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == expected_alert_json
@@ -65,8 +71,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "notification_targets": {
                 "email": ["test@posthog.com"],
             },
+            "threshold": {"configuration": {}},
             "name": "alert name",
-            "anomaly_condition": {},
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -83,8 +89,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "notification_targets": {
                 "email": ["test@posthog.com"],
             },
+            "threshold": {"configuration": {}},
             "name": "alert name",
-            "anomaly_condition": {},
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -95,8 +101,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "notification_targets": {
                 "email": ["test@posthog.com"],
             },
+            "threshold": {"configuration": {}},
             "name": "alert name",
-            "anomaly_condition": {},
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
 
@@ -121,8 +127,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "notification_targets": {
                 "email": ["test@posthog.com"],
             },
+            "threshold": {"configuration": {}},
             "name": "alert name",
-            "anomaly_condition": {},
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
 

@@ -4,7 +4,7 @@ from typing import Any
 from django.db import models
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
-from posthog.schema import AlertCondition
+from posthog.schema import AlertCondition, InsightThreshold
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
@@ -17,7 +17,8 @@ def are_alerts_supported_for_insight(insight: Insight) -> bool:
 
 
 class ConditionValidator:
-    def __init__(self, condition: AlertCondition):
+    def __init__(self, threshold: InsightThreshold, condition: AlertCondition):
+        self.threshold = threshold
         self.condition = condition
 
     def validate(self, calculated_value: float) -> list[str]:
@@ -30,7 +31,7 @@ class ConditionValidator:
         return matches
 
     def validate_absolute_threshold(self, calculated_value: float) -> list[str]:
-        thresholds = self.condition.absoluteThreshold
+        thresholds = self.threshold.absoluteThreshold
         if thresholds.lower is not None and calculated_value < thresholds.lower:
             return [f"The trend value ({calculated_value}) is below the lower threshold ({thresholds.lower})"]
         if thresholds.upper is not None and calculated_value > thresholds.upper:
@@ -51,12 +52,28 @@ class Alert(models.Model):
     anomaly_condition: models.JSONField = models.JSONField(default=dict)
 
 
+class Threshold(CreatedMetaFields, UUIDModel):
+    """
+    Threshold holds the configuration for a threshold. This can either be attached to an alert, or used as a standalone
+    object for other purposes.
+    """
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+
+    name = models.CharField(max_length=255, blank=True)
+    configuration = models.JSONField(default=dict)
+
+
 class AlertConfiguration(CreatedMetaFields, UUIDModel):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=255, blank=True)
     notification_targets = models.JSONField(default=dict)  # Object with list of emails or other notification targets
+
+    # The threshold to evaluate the alert against. If null, the alert must have other conditions to trigger.
+    threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
 
     STATE_CHOICES = [
@@ -72,8 +89,9 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         return f"{self.name} (Team: {self.team})"
 
     def evaluate_condition(self, calculated_value) -> list[str]:
+        threshold = InsightThreshold.model_validate(self.threshold.configuration) if self.threshold else None
         condition = AlertCondition.model_validate(self.condition)
-        validator = ConditionValidator(condition)
+        validator = ConditionValidator(threshold=threshold, condition=condition)
         return validator.validate(calculated_value)
 
     def add_check(self, calculated_value, error_message=None) -> ["AlertCheck", list[str]]:

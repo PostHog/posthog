@@ -1689,14 +1689,19 @@ export interface AlertNotificationTarget {
     email: string[]
 }
 
-export interface AlertAbsoluteThreshold {
+export interface InsightsThresholdAbsolute {
     lower?: number
     upper?: number
 }
 
-export interface AlertCondition {
-    absoluteThreshold: AlertAbsoluteThreshold
+export interface InsightThreshold {
+    absoluteThreshold: InsightsThresholdAbsolute
     // More types of thresholds or conditions can be added here
+}
+
+export interface AlertCondition {
+    // Conditions in addition to the separate threshold
+    // TODO: Think about things like relative thresholds, rate of change, etc.
 }
 
 export interface AlertCheck {
@@ -1712,6 +1717,7 @@ export interface AlertType {
     name: string
     insight?: number
     notification_targets: AlertNotificationTarget
+    threshold?: { configuration: InsightThreshold }
     condition: AlertCondition
     created_by?: UserBasicType
     created_at?: string

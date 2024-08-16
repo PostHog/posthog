@@ -43,14 +43,14 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 "name": "alert name",
                 "insight": self.insight["id"],
                 "notification_targets": {"email": ["a@b.c", "d@e.f"]},
-                "condition": {"absoluteThreshold": {}},
+                "threshold": {"configuration": {"absoluteThreshold": {}}},
             },
         ).json()
 
     def set_thresholds(self, lower: Optional[int] = None, upper: Optional[int] = None) -> None:
         self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
-            data={"condition": {"absoluteThreshold": {"lower": lower, "upper": upper}}},
+            data={"threshold": {"configuration": {"absoluteThreshold": {"lower": lower, "upper": upper}}}},
         )
 
     def get_anomalies_descriptions(self, mock_send_notifications: MagicMock, call_index: int) -> list[str]:

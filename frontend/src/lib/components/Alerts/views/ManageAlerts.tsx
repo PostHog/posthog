@@ -59,11 +59,11 @@ export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps):
                                     <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-success-light" />
                                 )}
                                 <div className="text-xs text-muted">
-                                    {alert.condition.absoluteThreshold?.lower
-                                        ? ` < ${alert.condition.absoluteThreshold.lower}`
+                                    {alert.threshold?.configuration?.absoluteThreshold?.lower
+                                        ? ` < ${alert.threshold?.configuration?.absoluteThreshold.lower}`
                                         : ''}{' '}
-                                    {alert.condition.absoluteThreshold?.upper
-                                        ? ` > ${alert.condition.absoluteThreshold.upper}`
+                                    {alert.threshold?.configuration?.absoluteThreshold?.upper
+                                        ? ` > ${alert.threshold?.configuration?.absoluteThreshold.upper}`
                                         : ''}
                                 </div>
                             </>

@@ -28,19 +28,22 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE_SCALED = "percentage_scaled"
 
 
-class AlertAbsoluteThreshold(BaseModel):
+class AlertCheck(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    lower: Optional[float] = None
-    upper: Optional[float] = None
+    calculated_value: float
+    created_at: str
+    id: str
+    state: str
+    targets_notified: bool
 
 
 class AlertCondition(BaseModel):
+    pass
     model_config = ConfigDict(
         extra="forbid",
     )
-    absoluteThreshold: AlertAbsoluteThreshold
 
 
 class AlertNotificationTarget(BaseModel):
@@ -48,19 +51,6 @@ class AlertNotificationTarget(BaseModel):
         extra="forbid",
     )
     email: list[str]
-
-
-class AlertType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    condition: AlertCondition
-    id: str
-    insight: Optional[float] = None
-    last_notified_at: Optional[str] = None
-    name: str
-    notification_targets: AlertNotificationTarget
-    state: Optional[str] = None
 
 
 class Kind(StrEnum):
@@ -580,6 +570,19 @@ class GoalLine(BaseModel):
     value: float
 
 
+class HedgehogColorOptions(StrEnum):
+    GREEN = "green"
+    RED = "red"
+    BLUE = "blue"
+    PURPLE = "purple"
+    DARK = "dark"
+    LIGHT = "light"
+    SEPIA = "sepia"
+    INVERT = "invert"
+    INVERT_HUE = "invert-hue"
+    GREYSCALE = "greyscale"
+
+
 class HogLanguage(StrEnum):
     HOG = "hog"
     HOG_JSON = "hogJson"
@@ -714,6 +717,14 @@ class InsightNodeKind(StrEnum):
     LIFECYCLE_QUERY = "LifecycleQuery"
 
 
+class InsightsThresholdAbsolute(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+
+
 class IntervalType(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -727,6 +738,15 @@ class LifecycleToggle(StrEnum):
     RESURRECTING = "resurrecting"
     RETURNING = "returning"
     DORMANT = "dormant"
+
+
+class MinimalHedgehogConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accessories: list[str]
+    color: Optional[HedgehogColorOptions] = None
+    use_as_profile: bool
 
 
 class MultipleBreakdownType(StrEnum):
@@ -1267,6 +1287,20 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class UserBasicType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    email: str
+    first_name: str
+    hedgehog_config: Optional[MinimalHedgehogConfig] = None
+    id: float
+    is_email_verified: Optional[Any] = None
+    last_name: Optional[str] = None
+    uuid: str
 
 
 class ActionsPie(BaseModel):
@@ -2485,6 +2519,13 @@ class InsightActorsQueryBase(BaseModel):
     response: Optional[ActorsQueryResponse] = None
 
 
+class InsightThreshold(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absoluteThreshold: InsightsThresholdAbsolute
+
+
 class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3313,6 +3354,24 @@ class WebTopClicksQuery(BaseModel):
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
+
+
+class AlertType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    checks: Optional[list[AlertCheck]] = None
+    condition: AlertCondition
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    enabled: bool
+    id: str
+    insight: Optional[float] = None
+    last_notified_at: Optional[str] = None
+    name: str
+    notification_targets: AlertNotificationTarget
+    state: Optional[str] = None
+    threshold: Optional[InsightThreshold] = None
 
 
 class AnyResponseType(

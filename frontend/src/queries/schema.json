@@ -183,26 +183,30 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
         },
-        "AlertAbsoluteThreshold": {
+        "AlertCheck": {
             "additionalProperties": false,
             "properties": {
-                "lower": {
+                "calculated_value": {
                     "type": "number"
                 },
-                "upper": {
-                    "type": "number"
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "targets_notified": {
+                    "type": "boolean"
                 }
             },
+            "required": ["id", "created_at", "calculated_value", "state", "targets_notified"],
             "type": "object"
         },
         "AlertCondition": {
             "additionalProperties": false,
-            "properties": {
-                "absoluteThreshold": {
-                    "$ref": "#/definitions/AlertAbsoluteThreshold"
-                }
-            },
-            "required": ["absoluteThreshold"],
             "type": "object"
         },
         "AlertNotificationTarget": {
@@ -221,8 +225,23 @@
         "AlertType": {
             "additionalProperties": false,
             "properties": {
+                "checks": {
+                    "items": {
+                        "$ref": "#/definitions/AlertCheck"
+                    },
+                    "type": "array"
+                },
                 "condition": {
                     "$ref": "#/definitions/AlertCondition"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "$ref": "#/definitions/UserBasicType"
+                },
+                "enabled": {
+                    "type": "boolean"
                 },
                 "id": {
                     "type": "string"
@@ -241,9 +260,12 @@
                 },
                 "state": {
                     "type": "string"
+                },
+                "threshold": {
+                    "$ref": "#/definitions/InsightThreshold"
                 }
             },
-            "required": ["id", "name", "notification_targets", "condition"],
+            "required": ["id", "name", "notification_targets", "condition", "enabled"],
             "type": "object"
         },
         "AnyDataNode": {
@@ -4783,6 +4805,10 @@
                 }
             ]
         },
+        "HedgehogColorOptions": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+            "type": "string"
+        },
         "HogLanguage": {
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
             "type": "string"
@@ -5512,6 +5538,16 @@
         "InsightShortId": {
             "type": "string"
         },
+        "InsightThreshold": {
+            "additionalProperties": false,
+            "properties": {
+                "absoluteThreshold": {
+                    "$ref": "#/definitions/InsightsThresholdAbsolute"
+                }
+            },
+            "required": ["absoluteThreshold"],
+            "type": "object"
+        },
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
@@ -5814,6 +5850,18 @@
             "required": ["kind"],
             "type": "object"
         },
+        "InsightsThresholdAbsolute": {
+            "additionalProperties": false,
+            "properties": {
+                "lower": {
+                    "type": "number"
+                },
+                "upper": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "IntervalType": {
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -5980,6 +6028,32 @@
                     "$ref": "#/definitions/HogQLMathType"
                 }
             ]
+        },
+        "MinimalHedgehogConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "accessories": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "color": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogColorOptions"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "use_as_profile": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["use_as_profile", "color", "accessories"],
+            "type": "object"
         },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
@@ -9270,6 +9344,35 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "UserBasicType": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "hedgehog_config": {
+                    "$ref": "#/definitions/MinimalHedgehogConfig"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "is_email_verified": {},
+                "last_name": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["distinct_id", "email", "first_name", "id", "uuid"],
             "type": "object"
         },
         "VizSpecificOptions": {
