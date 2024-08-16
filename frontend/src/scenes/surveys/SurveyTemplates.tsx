@@ -42,7 +42,7 @@ export function SurveyTemplates(): JSX.Element {
                             </span>
                             <div
                                 className="SurveyTemplateContainer"
-                                tabIndex={idx}
+                                tabIndex={0}
                                 data-attr="survey-template"
                                 onClick={() => {
                                     setSurveyTemplateValues({
