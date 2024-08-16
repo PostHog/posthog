@@ -484,8 +484,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if self.is_cached_response(cached_response_candidate):
             assert isinstance(cached_response, CachedResponse)
 
-            cached_response.cache_target_age = self.cache_target_age(cached_response)
-
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 self.count_query_cache_hit(hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
