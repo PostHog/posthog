@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -84,9 +85,16 @@ export function ManageAlerts(props: ManageAlertsProps): JSX.Element {
     return (
         <>
             <LemonModal.Header>
-                <h3>Manage Alerts</h3>
+                <h3>
+                    Manage Alerts <LemonTag type="warning">ALPHA</LemonTag>
+                </h3>
             </LemonModal.Header>
             <LemonModal.Content>
+                <div className="mb-4">
+                    With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
+                    not evaluate alerts in real-time, but rather on a schedule of once every hour. Please note that
+                    alerts are in alpha and may not be fully reliable.
+                </div>
                 {alerts.length ? (
                     <div className="space-y-2">
                         <div>
