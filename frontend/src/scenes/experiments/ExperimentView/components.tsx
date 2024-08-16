@@ -571,8 +571,8 @@ export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['
                     }))}
                 />
                 <LemonBanner type="info" className="mb-4">
-                    For a more precise control over your release, adjust the rollout percentage and release conditions
-                    in the{' '}
+                    For more precise control over your release, adjust the rollout percentage and release conditions in
+                    the{' '}
                     <Link
                         target="_blank"
                         className="font-semibold"
