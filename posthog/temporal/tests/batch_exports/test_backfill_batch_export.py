@@ -21,6 +21,7 @@ from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
     BackfillScheduleInputs,
+    adjust_bound_datetime_to_schedule_time_zone,
     backfill_range,
     backfill_schedule,
     get_schedule_frequency,
@@ -644,13 +645,13 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
         run_end_time = dt.datetime.strptime(workflow.id, f"{desc.id}-%Y-%m-%dT%H:%M:%SZ")
 
         adjusted_minutes = run_end_time.minute + 10 - index
-        adjusted_end_times.append(run_end_time.replace(tzinfo=timezone, minute=adjusted_minutes))
+        adjusted_end_times.append(run_end_time.replace(minute=adjusted_minutes).astimezone(timezone))
 
         temporal_scheduled_start_time = workflow.search_attributes["TemporalScheduledStartTime"][0]
 
         assert isinstance(temporal_scheduled_start_time, dt.datetime)
         adjusted_scheduled_start_times.append(
-            temporal_scheduled_start_time.replace(minute=adjusted_minutes, tzinfo=timezone)
+            temporal_scheduled_start_time.replace(minute=adjusted_minutes).astimezone(timezone)
         )
 
     assert all(end_time == end_at for end_time in adjusted_end_times)
@@ -757,3 +758,40 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+
+
+@pytest.mark.parametrize(
+    "bound_dt,schedule_time_zone_name,frequency,expected",
+    [
+        (
+            dt.datetime(2024, 8, 16, 0, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+            None,
+            dt.timedelta(days=1),
+            dt.datetime(2024, 8, 16, 0, 0, 0, tzinfo=zoneinfo.ZoneInfo("UTC")),
+        ),
+        (
+            dt.datetime(2024, 8, 16, 0, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+            None,
+            dt.timedelta(seconds=86400),
+            dt.datetime(2024, 8, 16, 0, 0, 0, tzinfo=zoneinfo.ZoneInfo("UTC")),
+        ),
+        (
+            dt.datetime(2024, 8, 16, 4, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+            "UTC",
+            dt.timedelta(hours=1),
+            dt.datetime(2024, 8, 16, 11, 0, 0, tzinfo=zoneinfo.ZoneInfo("UTC")),
+        ),
+        (
+            dt.datetime(2024, 8, 16, 4, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+            "Europe/Berlin",
+            dt.timedelta(hours=1),
+            dt.datetime(2024, 8, 16, 13, 0, 0, tzinfo=zoneinfo.ZoneInfo("Europe/Berlin")),
+        ),
+    ],
+)
+def test_adjust_bound_datetime_to_schedule_time_zone(bound_dt, schedule_time_zone_name, frequency, expected):
+    result = adjust_bound_datetime_to_schedule_time_zone(
+        bound_dt, schedule_time_zone_name=schedule_time_zone_name, frequency=frequency
+    )
+
+    assert result == expected
