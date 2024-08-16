@@ -26,3 +26,7 @@ serde_json = { workspace = true }
 http = { workspace = true }
 rand = { workspace = true }
 futures = { workspace = true }
+
+[dev-dependencies]
+sqlx = { workspace = true }
+httpmock = { workspace = true }

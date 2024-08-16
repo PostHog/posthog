@@ -37,13 +37,13 @@ async fn index(State(worker_id): State<WorkerId>) -> String {
 async fn worker_loop(context: AppContext) -> Result<(), FetchError> {
     let context = Arc::new(context);
     loop {
+        context.liveness.report_healthy().await;
         let started = tick(context.clone()).await?;
         info!("started {} jobs", started);
-        // TODO - tick only returns when we have definitely started some jobs,
-        // because our dequeue loops. Once we've kicked off some work - any work -
-        // we sleep.. I think there's probably something smarter that can be done here,
-        // but I don't know what
-        tokio::time::sleep(context.config.job_poll_interval.to_std().unwrap()).await;
+        // This will happen if 1) there are no jobs or 2) we have no capacity to start new jobs. Either way, we should sleep for a bit
+        if started == 0 {
+            tokio::time::sleep(context.config.job_poll_interval.to_std().unwrap()).await;
+        }
     }
 }
 

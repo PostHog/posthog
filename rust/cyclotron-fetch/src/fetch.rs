@@ -20,7 +20,6 @@ use crate::context::AppContext;
 pub const DEAD_LETTER_QUEUE: &str = "fetch-dead-letter";
 pub const DEFAULT_RETRIES: u32 = 3;
 pub const DEFAULT_ON_FINISH: OnFinish = OnFinish::Return;
-pub const EXP_BACKOFF_BASE_SECONDS: i64 = 4;
 pub const HEARTBEAT_INTERVAL_MS: i64 = 5000;
 
 // Exclusively for errors in the worker - these will
@@ -69,13 +68,13 @@ impl From<&HttpMethod> for http::Method {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub struct FetchParameters {
-    url: String,
-    method: HttpMethod,
-    return_queue: String,
-    header: Option<HashMap<String, String>>,
-    body: Option<String>,
-    max_tries: Option<u32>,      // Defaults to 3
-    on_finish: Option<OnFinish>, // Defaults to Return
+    pub url: String,
+    pub method: HttpMethod,
+    pub return_queue: String,
+    pub header: Option<HashMap<String, String>>,
+    pub body: Option<String>,
+    pub max_tries: Option<u32>,      // Defaults to 3
+    pub on_finish: Option<OnFinish>, // Defaults to Return
 }
 
 // What should we do when we get a result, or run out of tries for a given job?
@@ -153,21 +152,21 @@ impl FetchFailure {
 
     pub fn with_body(self, body: String) -> Self {
         Self {
-            message: format!("{} - body: {}", self.message, body),
+            body: Some(body),
             ..self
         }
     }
 
     pub fn with_headers(self, headers: HashMap<String, String>) -> Self {
         Self {
-            message: format!("{} - headers: {:?}", self.message, headers),
+            headers: Some(headers),
             ..self
         }
     }
 
     pub fn with_status(self, status: u16) -> Self {
         Self {
-            message: format!("{} - status: {}", self.message, status),
+            status: Some(status),
             ..self
         }
     }
@@ -217,26 +216,6 @@ pub fn report_worker_saturation(context: &AppContext) {
         .set(context.concurrency_limit.available_permits() as f64);
 }
 
-// Blocks until at least one job is available. Reports healthy while waiting, and is
-// guaranteed to 1) return at least one job and 2) report healthy at least once.
-pub async fn wait_for_jobs(context: &AppContext, max_jobs: usize) -> Result<Vec<Job>, FetchError> {
-    let mut interval = tokio::time::interval(context.config.job_poll_interval.to_std().unwrap());
-    loop {
-        context.liveness.report_healthy().await;
-
-        let jobs = context
-            .worker
-            .dequeue_jobs(&context.config.queue_served, max_jobs)
-            .await?;
-
-        if !jobs.is_empty() {
-            return Ok(jobs);
-        }
-
-        interval.tick().await;
-    }
-}
-
 pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
     report_worker_saturation(&context);
 
@@ -245,7 +224,10 @@ pub async fn tick(context: Arc<AppContext>) -> Result<usize, FetchError> {
         context.config.batch_size,
     );
 
-    let jobs = wait_for_jobs(&context, max_jobs).await?;
+    let jobs = context
+        .worker
+        .dequeue_jobs(&context.config.queue_served, max_jobs)
+        .await?;
 
     let num_jobs = jobs.len();
 
@@ -512,9 +494,9 @@ where
     // TODO - right now we treat all failures as retryable, but we should probably be more aggressive in
     // culling retries for permanent failures (this is less of a correctness issue and more of an efficiency/
     // politeness one). We might also want to make backoff configurable.
-    if metadata.tries <= min(max_tries, context.config.max_retry_attempts) {
+    if metadata.tries < min(max_tries, context.config.max_retry_attempts) {
         let next_available =
-            Utc::now() + Duration::seconds(EXP_BACKOFF_BASE_SECONDS.pow(metadata.tries));
+            Utc::now() + (context.config.retry_backoff_base * (metadata.tries as i32));
         // We back off for at most an hour (since callers can configure max retries to be very high)
         let next_available = min(next_available, Utc::now() + Duration::hours(1));
         // Add some seconds of jitter

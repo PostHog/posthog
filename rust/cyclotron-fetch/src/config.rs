@@ -37,6 +37,7 @@ pub struct Config {
     pub queue_served: Option<String>,           // Default to "default"
     pub batch_size: Option<usize>,              // Defaults to 1000
     pub max_response_bytes: Option<usize>,      // Defaults to 1MB
+    pub retry_backoff_base_ms: Option<u32>,     // Defaults to 4000
 }
 
 // I do this instead of using envconfig's defaults because
@@ -49,13 +50,14 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub worker_id: String,
-    pub job_poll_interval: Duration,
+    pub job_poll_interval: Duration, // How long we wait to poll for new jobs, when we're at capacity or find no new jobs
     pub concurrent_requests_limit: u32,
     pub fetch_timeout: Duration,
     pub max_retry_attempts: u32,
     pub queue_served: String,
     pub batch_size: usize,
     pub max_response_bytes: usize,
+    pub retry_backoff_base: Duration, // Job retry backoff times are this * attempt count
 }
 
 impl Config {
@@ -78,6 +80,9 @@ impl Config {
             queue_served,
             batch_size: self.batch_size.unwrap_or(1000),
             max_response_bytes: self.max_response_bytes.unwrap_or(1024 * 1024),
+            retry_backoff_base: Duration::milliseconds(
+                self.retry_backoff_base_ms.unwrap_or(4000) as i64
+            ),
         };
 
         let pool_config = PoolConfig {
