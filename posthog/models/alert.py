@@ -64,6 +64,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         ("inactive", "Inactive"),
     ]
     state = models.CharField(max_length=10, choices=STATE_CHOICES, default="inactive")
+    enabled = models.BooleanField(default=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
 

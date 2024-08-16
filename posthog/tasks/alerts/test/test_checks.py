@@ -56,6 +56,15 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def get_anomalies_descriptions(self, mock_send_notifications: MagicMock, call_index: int) -> list[str]:
         return mock_send_notifications.call_args_list[call_index].args[1]
 
+    def test_alert_is_not_triggered_when_disabled(self, mock_send_notifications: MagicMock) -> None:
+        self.set_thresholds(lower=1)
+
+        self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"enabled": False})
+
+        check_alert(self.alert["id"])
+
+        assert mock_send_notifications.call_count == 0
+
     def test_alert_is_triggered_for_values_above_higher_threshold(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(upper=0)
 

@@ -41,6 +41,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "notification_targets",
             "condition",
             "state",
+            "enabled",
             "last_notified_at",
             "checks",
         ]

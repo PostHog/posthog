@@ -1,5 +1,6 @@
 from celery import shared_task
 from celery.canvas import group, chain
+from django.db import transaction
 from django.utils import timezone
 import math
 import structlog
@@ -16,7 +17,7 @@ logger = structlog.get_logger(__name__)
 
 
 def check_all_alerts() -> None:
-    alert_ids = list(AlertConfiguration.objects.all().values_list("id", flat=True))
+    alert_ids = list(AlertConfiguration.objects.filter(enabled=True).values_list("id", flat=True))
 
     group_count = 10
     # All groups but the last one will have a group_size size.
@@ -32,8 +33,14 @@ def check_all_alerts() -> None:
     group(groups).apply_async()
 
 
+@transaction.atomic
 def check_alert(alert_id: int) -> None:
-    alert = AlertConfiguration.objects.get(pk=alert_id)
+    try:
+        alert = AlertConfiguration.objects.select_for_update().get(id=alert_id, enabled=True)
+    except AlertConfiguration.DoesNotExist:
+        logger.warning("Alert not found or not enabled", alert_id=alert_id)
+        return
+
     insight = alert.insight
 
     with conversion_to_query_based(insight):

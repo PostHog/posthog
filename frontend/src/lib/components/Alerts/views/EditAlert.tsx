@@ -1,4 +1,4 @@
-import { LemonDivider, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDivider, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -60,6 +60,15 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
 
                         <LemonField name="name" label="Name">
                             <LemonInput placeholder="e.g. High error rate" data-attr="alert-name" />
+                        </LemonField>
+
+                        <LemonField name="enabled">
+                            <LemonCheckbox
+                                checked={alert.enabled}
+                                data-attr="alert-enabled"
+                                fullWidth
+                                label="Enabled"
+                            />
                         </LemonField>
 
                         <Group name={['notification_targets']}>

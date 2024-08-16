@@ -1,6 +1,7 @@
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconPause } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -25,6 +26,7 @@ export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps):
             onClick={onClick}
             data-attr="alert-list-item"
             fullWidth
+            icon={alert.enabled ? <IconPlayCircle /> : <IconPause />}
             sideAction={{
                 icon: <IconEllipsis />,
                 dropdown: {
@@ -49,19 +51,25 @@ export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps):
                 <div>
                     <div className="text-link font-medium">
                         {alert.name}
-                        {alert.state === 'firing' ? (
-                            <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-danger-light" />
+                        {alert.enabled ? (
+                            <>
+                                {alert.state === 'firing' ? (
+                                    <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-danger-light" />
+                                ) : (
+                                    <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-success-light" />
+                                )}
+                                <div className="text-xs text-muted">
+                                    {alert.condition.absoluteThreshold?.lower
+                                        ? ` < ${alert.condition.absoluteThreshold.lower}`
+                                        : ''}{' '}
+                                    {alert.condition.absoluteThreshold?.upper
+                                        ? ` > ${alert.condition.absoluteThreshold.upper}`
+                                        : ''}
+                                </div>
+                            </>
                         ) : (
-                            <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-success-light" />
+                            <div className="text-muted">Disabled</div>
                         )}
-                        <span className="text-xs text-muted">
-                            {alert.condition.absoluteThreshold?.lower
-                                ? ` < ${alert.condition.absoluteThreshold.lower}`
-                                : ''}{' '}
-                            {alert.condition.absoluteThreshold?.upper
-                                ? ` > ${alert.condition.absoluteThreshold.upper}`
-                                : ''}
-                        </span>
                     </div>
                 </div>
                 <ProfileBubbles limit={4} people={alert.notification_targets?.email?.map((email) => ({ email }))} />

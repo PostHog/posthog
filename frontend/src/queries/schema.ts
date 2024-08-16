@@ -1716,6 +1716,7 @@ export interface AlertType {
     created_by?: UserBasicType
     created_at?: string
     state?: string
+    enabled: boolean
     last_notified_at?: string
     checks?: AlertCheck[]
 }
