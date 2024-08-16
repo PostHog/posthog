@@ -15,7 +15,10 @@ BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 50  # 50MB
 BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 100  # 100MB
 BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 50  # 50MB
 BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 100  # 100MB
-BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 10  # 10MB
+# This is set to 1MB to stay under Axum's 2MB default limit. We could raise the Capture max body
+# size limit, but that would put as at more risk of OOMing Capture. There isn't a rush on HTTP
+# Batch Exports, so this is a safe path forward for now.
+BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 1  # 1MB
 BATCH_EXPORT_HTTP_BATCH_SIZE: int = 1000
 
 UNCONSTRAINED_TIMESTAMP_TEAM_IDS: list[str] = get_list(os.getenv("UNCONSTRAINED_TIMESTAMP_TEAM_IDS", ""))
