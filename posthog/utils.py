@@ -325,6 +325,7 @@ def render_template(
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
         context["js_posthog_host"] = "'https://internal-t.posthog.com'"
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_flags_api_key"] = "https://feature-flags-do-not-block.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
