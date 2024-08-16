@@ -922,12 +922,10 @@ export const surveyLogic = kea<surveyLogicType>([
                                     // Join array items into a string
                                     return `coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '${getResponseField(
                                         i
-                                    )}'), ', ')) -- ${q.question}`
+                                    )}'), ', ')`
                                 }
 
-                                return `coalesce(JSONExtractString(properties, '${getResponseField(i)}')) -- ${
-                                    q.question
-                                }`
+                                return `coalesce(JSONExtractString(properties, '${getResponseField(i)}'))`
                             }),
                             'timestamp',
                             'person',
