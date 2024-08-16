@@ -46,7 +46,7 @@ from .settings import (
 THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
 
 
-@dlt.source(name="hubspot")
+@dlt.source(name="hubspot", max_table_nesting=0)
 def hubspot(
     api_key: str,
     refresh_token: str,
