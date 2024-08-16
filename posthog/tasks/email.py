@@ -21,6 +21,7 @@ from posthog.models import (
     User,
 )
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -196,9 +197,18 @@ def send_batch_export_run_failure(
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
 
+    admin_only = (get_instance_region() == "US") and team.pk in [28956]
+
     memberships_to_email = []
-    memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
-        organization_id=team.organization_id
+    memberships = (
+        OrganizationMembership.objects.select_related("user", "organization").filter(
+            organization_id=team.organization_id,
+            level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
+        )
+        if admin_only
+        else OrganizationMembership.objects.select_related("user", "organization").filter(
+            organization_id=team.organization_id,
+        )
     )
 
     for membership in memberships:
