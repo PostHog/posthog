@@ -395,6 +395,7 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
         "$urls",
         "duration",
         "$num_uniq_urls",
+        "$page_screen_autocapture_count_up_to",
     }
 
     # some fields should have a specific property type which isn't derivable from the type of database field
