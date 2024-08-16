@@ -57,9 +57,10 @@ class AlertType(BaseModel):
     condition: AlertCondition
     id: str
     insight: Optional[float] = None
+    last_notified_at: Optional[str] = None
     name: str
-    notification_frequency: int
-    notification_target: AlertNotificationTarget
+    notification_targets: AlertNotificationTarget
+    state: Optional[str] = None
 
 
 class Kind(StrEnum):

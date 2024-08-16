@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
+from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.checks import send_notifications, check_alert
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, ClickhouseDestroyTablesMixin
@@ -99,6 +100,44 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_notifications.call_count == 1
         anomalies = self.get_anomalies_descriptions(mock_send_notifications, call_index=0)
         assert "The trend value (0) is below the lower threshold (1.0)" in anomalies
+
+    def test_alert_triggers_but_does_not_send_notification_during_firing(
+        self, mock_send_notifications: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        check_alert(self.alert["id"])
+
+        assert mock_send_notifications.call_count == 1
+        assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at").state == "firing"
+
+        with freeze_time("2024-06-02T09:00:00.000Z"):
+            check_alert(self.alert["id"])
+
+            assert mock_send_notifications.call_count == 1
+            assert (
+                AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at").state == "firing"
+            )
+
+        with freeze_time("2024-06-02T09:55:00.000Z"):
+            self.set_thresholds(lower=0)
+
+            check_alert(self.alert["id"])
+
+            assert mock_send_notifications.call_count == 1
+            assert (
+                AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at").state == "not_met"
+            )
+
+        with freeze_time("2024-06-02T11:00:00.000Z"):
+            self.set_thresholds(lower=1)
+
+            check_alert(self.alert["id"])
+
+            assert mock_send_notifications.call_count == 2
+            assert (
+                AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at").state == "firing"
+            )
 
     def test_alert_is_not_triggered_for_normal_values(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(lower=0, upper=1)

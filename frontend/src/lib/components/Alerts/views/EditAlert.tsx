@@ -66,20 +66,6 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                             </LemonField>
                         </Group>
 
-                        <LemonField
-                            name="notification_frequency"
-                            label="Notification frequency"
-                            help="At most notify every x minutes"
-                        >
-                            <LemonInput
-                                type="number"
-                                className="w-20"
-                                data-attr="alert-frequency"
-                                min={60}
-                                maxLength={24 * 60}
-                            />
-                        </LemonField>
-
                         <Group name={['condition', 'absoluteThreshold']}>
                             <span className="flex gap-10">
                                 <LemonField

@@ -42,7 +42,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "insight": self.insight["id"],
             "last_notified_at": None,
             "name": "alert name",
-            "notification_frequency": 60,
             "notification_targets": {
                 "email": ["test@posthog.com"],
             },

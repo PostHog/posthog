@@ -17,7 +17,6 @@ class AlertSerializer(serializers.ModelSerializer):
             "notification_targets",
             "condition",
             "state",
-            "notification_frequency",
             "last_notified_at",
         ]
         read_only_fields = [

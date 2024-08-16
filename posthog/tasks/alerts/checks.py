@@ -55,6 +55,10 @@ def check_alert(alert_id: int) -> None:
         logger.info("Check state is %s", check.state, alert_id=alert.id)
         return
 
+    if not matches:
+        # We might be firing but have no (new) matches to notify about
+        return
+
     send_notifications(alert, matches)
 
 

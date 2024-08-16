@@ -230,17 +230,20 @@
                 "insight": {
                     "type": "number"
                 },
+                "last_notified_at": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
-                "notification_frequency": {
-                    "type": "integer"
-                },
-                "notification_target": {
+                "notification_targets": {
                     "$ref": "#/definitions/AlertNotificationTarget"
+                },
+                "state": {
+                    "type": "string"
                 }
             },
-            "required": ["id", "name", "notification_target", "condition", "notification_frequency"],
+            "required": ["id", "name", "notification_targets", "condition"],
             "type": "object"
         },
         "AnyDataNode": {

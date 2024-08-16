@@ -1704,7 +1704,6 @@ export interface AlertType {
     insight?: number
     notification_targets: AlertNotificationTarget
     condition: AlertCondition
-    notification_frequency: integer
     state?: string
     last_notified_at?: string
 }

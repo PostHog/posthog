@@ -1,7 +1,6 @@
-from datetime import timedelta, datetime, UTC
+from datetime import datetime, UTC
 from typing import Any
 
-from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
@@ -66,22 +65,10 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     ]
     state = models.CharField(max_length=10, choices=STATE_CHOICES, default="inactive")
 
-    notification_frequency = models.IntegerField(
-        default=60,
-        help_text="Frequency in minutes",
-        validators=[MinValueValidator(60), MaxValueValidator(1440)],
-    )
     last_notified_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
-
-    def should_send_notification(self) -> bool:
-        """Determine if we should send another notification based on the cooldown period."""
-        if not self.last_notified_at:
-            return True
-        next_allowed_time = self.last_notified_at + timedelta(minutes=self.notification_frequency)
-        return datetime.now(UTC) >= next_allowed_time
 
     def evaluate_condition(self, calculated_value) -> list[str]:
         condition = AlertCondition.model_validate(self.condition)
@@ -91,23 +78,28 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     def add_check(self, calculated_value, error_message=None) -> ["AlertCheck", list[str]]:
         """Add a new AlertCheck, managing state transitions and cooldown."""
         matches = self.evaluate_condition(calculated_value)
+        targets_notified = {}
 
         # Determine the appropriate state for this check
         if matches:
-            if self.state == "firing" and not self.should_send_notification():
-                check_state = "cooldown"
-            else:
+            if self.state != "firing":
+                # Transition to firing state and send a notification
                 check_state = "firing"
                 self.last_notified_at = datetime.now(UTC)
+                targets_notified = self.notification_targets
+            else:
+                check_state = "firing"  # Already firing, no new notification
+                matches = []  # Don't send duplicate notifications
         else:
             check_state = "not_met"
             self.state = "inactive"  # Set the Alert to inactive if the threshold is no longer met
+            # Optionally send a resolved notification
 
         alert_check = AlertCheck.objects.create(
             alert_configuration=self,
             calculated_value=calculated_value,
             condition=self.condition,
-            targets_notified=self.notification_targets,
+            targets_notified=targets_notified,
             state=check_state,
             error_message=error_message,
         )
