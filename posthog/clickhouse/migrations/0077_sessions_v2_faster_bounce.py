@@ -13,6 +13,6 @@ operations = [
     run_sql_with_exceptions(WRITABLE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL()),
     run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_ADD_EVENT_COUNT_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(BASE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL()),
-    # and then recreate the materialized views and kafka tables
+    # and then recreate the materialized view
     run_sql_with_exceptions(RAW_SESSIONS_TABLE_MV_SQL()),
 ]
