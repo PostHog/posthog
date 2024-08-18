@@ -291,11 +291,13 @@ describe('dashboardLogic', () => {
             logic.mount()
         })
 
-        it('saving layouts with no provided tiles updates all tiles', async () => {
+        it('saving layouts creates api call with all tiles', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveLayouts()
+                logic.actions.updateFiltersAndLayouts()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
@@ -313,6 +315,11 @@ describe('dashboardLogic', () => {
                         layouts: {},
                     },
                 ],
+                filters: {
+                    date_from: null,
+                    date_to: null,
+                    properties: [],
+                },
             })
         })
     })

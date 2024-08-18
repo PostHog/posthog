@@ -21,6 +21,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
+from rest_framework.request import Request
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -548,8 +549,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        request = self.context.get("request")
-        dashboard_filters_override = filters_override_requested_by_client(request)
+        request: Optional[Request] = self.context.get("request")
+        dashboard_filters_override = filters_override_requested_by_client(request) if request else None
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
