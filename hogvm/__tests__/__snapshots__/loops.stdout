@@ -1,0 +1,38 @@
+-- test while loop --
+1
+2
+3
+3
+-- test for loop --
+0
+1
+2
+-- test emptier for loop --
+woo
+woo
+woo
+hoo
+-- for in loop with arrays --
+1
+2
+3
+-- for in loop with arrays and keys --
+0 1
+1 2
+2 3
+-- for in loop with tuples --
+1
+2
+3
+-- for in loop with tuples and keys --
+0 1
+1 2
+2 3
+-- for in loop with dicts --
+v1
+v2
+v3
+-- for in loop with dicts and keys --
+first v1
+second v2
+third v3

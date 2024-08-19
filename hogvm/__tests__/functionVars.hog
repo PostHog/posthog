@@ -14,6 +14,8 @@ execFunction()
 execFunctionNested()
 execFunction()
 
+// TODO: implement closures to access variables declared outside
+//
 //print('--------')
 //
 //fn secondExecFunction() {

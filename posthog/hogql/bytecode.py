@@ -486,18 +486,33 @@ class BytecodeBuilder(Visitor):
 
         if key_var is not None:
             expr_keys_local = self._declare_local("__H_keys_H__")  # keys
-            response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL, "keys", 1])
+            response.extend(
+                [Operation.GET_LOCAL, expr_local, Operation.STRING, "keys", Operation.GET_GLOBAL, 1, Operation.CALL, 1]
+            )
         else:
             expr_keys_local = None
 
         expr_values_local = self._declare_local("__H_values_H__")  # values
-        response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL, "values", 1])
+        response.extend(
+            [Operation.GET_LOCAL, expr_local, Operation.STRING, "values", Operation.GET_GLOBAL, 1, Operation.CALL, 1]
+        )
 
         loop_index_local = self._declare_local("__H_index_H__")  # 0
         response.extend([Operation.INTEGER, 1])
 
         loop_limit_local = self._declare_local("__H_limit_H__")  # length of keys
-        response.extend([Operation.GET_LOCAL, expr_values_local, Operation.CALL, "length", 1])
+        response.extend(
+            [
+                Operation.GET_LOCAL,
+                expr_values_local,
+                Operation.STRING,
+                "length",
+                Operation.GET_GLOBAL,
+                1,
+                Operation.CALL,
+                1,
+            ]
+        )
 
         if key_var is not None:
             key_var_local = self._declare_local(key_var)  # loop key

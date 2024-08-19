@@ -1,0 +1,12 @@
+start
+try
+------------------
+start
+try
+------------------
+try again
+Error('An error occurred') was the exception
+------------------
+try again
+No var for error
+------------------
