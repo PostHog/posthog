@@ -19,7 +19,6 @@ use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
-const BATCH_CONCURRENCY_LIMIT: usize = 25; // We deploy these pods with 1G of memory, this and the above lets half of that be used for batch posts
 
 #[derive(Clone)]
 pub struct State {
