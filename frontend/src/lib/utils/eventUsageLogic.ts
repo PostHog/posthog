@@ -476,6 +476,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             newCohort,
         }),
         reportExperimentInsightLoadFailed: true,
+        reportExperimentVariantShipped: (experiment: Experiment) => ({ experiment }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1066,6 +1067,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentInsightLoadFailed: () => {
             posthog.capture('experiment load insight failed')
+        },
+        reportExperimentVariantShipped: ({ experiment }) => {
+            posthog.capture('experiment variant shipped', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
+            })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
