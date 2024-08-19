@@ -74,7 +74,6 @@ pub fn router<
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(ConcurrencyLimitLayer::new(BATCH_CONCURRENCY_LIMIT))
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
     let event_router = Router::new()
