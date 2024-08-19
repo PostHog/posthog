@@ -59,10 +59,7 @@ export interface Query {
     status: 1 | 2 | 3 | 4
     execution_time: number
     path: string
-    logComment: {
-        query: any
-        [key: string]: any
-    }
+    logComment: Record<string, unknown>
 }
 
 export interface DebugResponse {
@@ -332,7 +329,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                             <span className="font-bold tracking-wide">ID:</span>{' '}
                                             <span className="font-mono">{item.query_id}</span>
                                         </LemonTag>{' '}
-                                        {item.logComment.cache_key ? (
+                                        {typeof item.logComment.cache_key === 'string' ? (
                                             <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Cache key:</span>{' '}
                                                 <span className="font-mono">{item.logComment.cache_key}</span>{' '}
@@ -344,7 +341,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                 />
                                             </LemonTag>
                                         ) : null}{' '}
-                                        {item.logComment.insight_id ? (
+                                        {typeof item.logComment.insight_id === 'number' ? (
                                             <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Insight ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.insight_id}</span>{' '}
@@ -356,7 +353,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                 />
                                             </LemonTag>
                                         ) : null}{' '}
-                                        {item.logComment.dashboard_id ? (
+                                        {typeof item.logComment.dashboard_id === 'number' ? (
                                             <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Dashboard ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.dashboard_id}</span>{' '}
@@ -368,7 +365,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                 />
                                             </LemonTag>
                                         ) : null}{' '}
-                                        {item.logComment.user_id ? (
+                                        {typeof item.logComment.user_id === 'number' ? (
                                             <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">User ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.user_id}</span>{' '}
@@ -384,17 +381,19 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
                                             <div>{item.exception}</div>
-                                            <LemonButton
-                                                type="secondary"
-                                                size="xsmall"
-                                                to={`https://sentry.io/issues/?query=is%3Aunresolved+trace%3A${
-                                                    item.logComment.sentry_trace.split('-')[0]
-                                                }&statsPeriod=7d`}
-                                                targetBlank
-                                                className="mt-4 mb-1"
-                                            >
-                                                View in Sentry
-                                            </LemonButton>
+                                            {typeof item.logComment.sentry_trace === 'string' ? (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="xsmall"
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+trace%3A${
+                                                        item.logComment.sentry_trace.split('-')[0]
+                                                    }&statsPeriod=7d`}
+                                                    targetBlank
+                                                    className="mt-4 mb-1"
+                                                >
+                                                    View in Sentry
+                                                </LemonButton>
+                                            ) : null}
                                         </LemonBanner>
                                     )}
                                     <CodeSnippet
@@ -405,7 +404,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                     >
                                         {item.query}
                                     </CodeSnippet>
-                                    {item.logComment.query ? (
+                                    {typeof item.logComment.query === 'object' && item.logComment.query !== null ? (
                                         <LemonButton
                                             type="primary"
                                             size="small"
@@ -425,7 +424,9 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                             }}
                                             className="my-0"
                                         >
-                                            Debug {item.logComment.query.kind || 'query'} in new tab
+                                            Debug{' '}
+                                            {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'} in
+                                            new tab
                                         </LemonButton>
                                     ) : null}
                                 </div>
