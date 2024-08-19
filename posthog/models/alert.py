@@ -1,5 +1,5 @@
 from datetime import datetime, UTC
-from typing import Any
+from typing import Any, Optional
 
 from django.db import models
 from posthog.models.insight import Insight
@@ -17,7 +17,7 @@ def are_alerts_supported_for_insight(insight: Insight) -> bool:
 
 
 class ConditionValidator:
-    def __init__(self, threshold: InsightThreshold, condition: AlertCondition):
+    def __init__(self, threshold: Optional[InsightThreshold], condition: AlertCondition):
         self.threshold = threshold
         self.condition = condition
 
@@ -31,6 +31,9 @@ class ConditionValidator:
         return matches
 
     def validate_absolute_threshold(self, calculated_value: float) -> list[str]:
+        if not self.threshold:
+            return []
+
         thresholds = self.threshold.absoluteThreshold
         if thresholds.lower is not None and calculated_value < thresholds.lower:
             return [f"The trend value ({calculated_value}) is below the lower threshold ({thresholds.lower})"]
@@ -94,7 +97,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         validator = ConditionValidator(threshold=threshold, condition=condition)
         return validator.validate(calculated_value)
 
-    def add_check(self, calculated_value, error_message=None) -> ["AlertCheck", list[str]]:
+    def add_check(self, calculated_value, error_message=None) -> tuple["AlertCheck", list[str]]:
         """Add a new AlertCheck, managing state transitions and cooldown."""
         matches = self.evaluate_condition(calculated_value)
         targets_notified = {}
