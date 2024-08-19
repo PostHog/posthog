@@ -82,7 +82,15 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
     },
 })
 
-export const formatDataWithSettings = (data: number | string, settings?: AxisSeriesSettings): string => {
+export const formatDataWithSettings = (data: number | string | null | object, settings?: AxisSeriesSettings): any => {
+    if (data === null || Number.isNaN(data)) {
+        return null
+    }
+
+    if (typeof data === 'object') {
+        return data
+    }
+
     const decimalPlaces = settings?.formatting?.decimalPlaces
 
     let dataAsString = `${data}`
@@ -160,7 +168,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
                 loadPriority: props.insightLogicProps.loadPriority,
             }),
-            ['response', 'responseLoading'],
+            ['response', 'responseLoading', 'responseError', 'queryCancelled'],
         ],
     })),
     props({ query: {} } as DataVisualizationLogicProps),
@@ -552,6 +560,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                         if (column.type.isNumerical) {
                             try {
+                                if (value === null) {
+                                    return value
+                                }
+
                                 const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
 
                                 if (series.settings.formatting?.decimalPlaces) {
@@ -612,6 +624,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (state) => [state.visualizationType],
             (visualizationType): boolean => visualizationType === ChartDisplayType.ActionsTable,
         ],
+        showTableSettings: [
+            (state) => [state.visualizationType],
+            (visualizationType): boolean =>
+                visualizationType === ChartDisplayType.ActionsTable ||
+                visualizationType === ChartDisplayType.BoldNumber,
+        ],
     }),
     listeners(({ props, actions }) => ({
         updateChartSettings: ({ settings }) => {
@@ -662,7 +680,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     subscriptions(({ props, actions, values }) => ({
         columns: (value: Column[], oldValue: Column[]) => {
             // If response is cleared, then don't update any internal values
-            if (!values.response || !values.response.results) {
+            if (!values.response || (!values.response.results && !values.response.result)) {
                 return
             }
 

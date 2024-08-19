@@ -116,7 +116,7 @@ export const errorTrackingGroupQuery = ({
     filterTestAccounts,
     filterGroup,
 }: {
-    fingerprint: string
+    fingerprint: string[]
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup

@@ -6,13 +6,20 @@ import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
-import { _FunnelExperimentResults, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
+import {
+    _FunnelExperimentResults,
+    _TrendsExperimentResults,
+    FunnelExperimentVariant,
+    InsightType,
+    TrendExperimentVariant,
+} from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
 export function SummaryTable(): JSX.Element {
     const {
+        experimentId,
         experimentResults,
         tabularExperimentResults,
         experimentInsightType,
@@ -37,7 +44,7 @@ export function SummaryTable(): JSX.Element {
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="flex items-center">
-                        <VariantTag variantKey={item.key} />
+                        <VariantTag experimentId={experimentId} variantKey={item.key} />
                     </div>
                 )
             },
@@ -76,8 +83,114 @@ export function SummaryTable(): JSX.Element {
         columns.push({
             key: 'exposure',
             title: 'Exposure',
-            render: function Key(_, item): JSX.Element {
-                return <div>{exposureCountDataForVariant(experimentResults, item.key)}</div>
+            render: function Key(_, variant): JSX.Element {
+                return <div>{exposureCountDataForVariant(experimentResults, variant.key)}</div>
+            },
+        })
+        columns.push({
+            key: 'mean',
+            title: 'Mean',
+            render: function Key(_, v): JSX.Element {
+                const variant = v as TrendExperimentVariant
+                if (!variant.count || !variant.absolute_exposure) {
+                    return <div className="font-semibold">—</div>
+                }
+
+                return <div className="font-semibold">{(variant.count / variant.absolute_exposure).toFixed(2)}</div>
+            },
+        })
+        columns.push({
+            key: 'delta',
+            title: (
+                <div className="inline-flex items-center space-x-1">
+                    <div className="">Delta %</div>
+                    <Tooltip title="Delta % indicates the percentage change in the mean between the control and the test variant.">
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
+            ),
+            render: function Key(_, v): JSX.Element {
+                const variant = v as TrendExperimentVariant
+
+                if (variant.key === 'control') {
+                    return <em>Baseline</em>
+                }
+
+                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
+                    ({ key }) => key === 'control'
+                ) as TrendExperimentVariant
+
+                if (
+                    !variant.count ||
+                    !variant.absolute_exposure ||
+                    !controlVariant ||
+                    !controlVariant.count ||
+                    !controlVariant.absolute_exposure
+                ) {
+                    return <div className="font-semibold">—</div>
+                }
+
+                const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                const variantMean = variant.count / variant.absolute_exposure
+                const delta = ((variantMean - controlMean) / controlMean) * 100
+
+                return (
+                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
+                        delta > 0 ? '+' : ''
+                    }${delta.toFixed(2)}%`}</div>
+                )
+            },
+        })
+        columns.push({
+            key: 'credibleInterval',
+            title: (
+                <div className="inline-flex items-center space-x-1">
+                    <div className="">Credible interval (95%)</div>
+                    <Tooltip
+                        title={
+                            <div className="space-y-2">
+                                <div>
+                                    A credible interval represents a range within which we believe the true difference
+                                    in the mean between the test variant and the control lies, with 95% probability.
+                                </div>
+                                <div>
+                                    In this context, the interval is expressed as a percentage change, indicating how
+                                    much higher or lower the mean of the test variant could be compared to the control,
+                                    based on the observed data and our prior beliefs.
+                                </div>
+                            </div>
+                        }
+                    >
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
+            ),
+            render: function Key(_, v): JSX.Element {
+                const variant = v as TrendExperimentVariant
+                if (variant.key === 'control') {
+                    return <em>Baseline</em>
+                }
+
+                const credibleInterval = (experimentResults as _TrendsExperimentResults)?.credible_intervals?.[
+                    variant.key
+                ]
+                if (!credibleInterval) {
+                    return <>—</>
+                }
+
+                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
+                    ({ key }) => key === 'control'
+                ) as TrendExperimentVariant
+                const controlMean = controlVariant.count / controlVariant.absolute_exposure
+
+                const lowerBound = (credibleInterval[0] - controlMean) * 100
+                const upperBound = (credibleInterval[1] - controlMean) * 100
+
+                return (
+                    <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
+                        upperBound > 0 ? '+' : ''
+                    }${upperBound.toFixed(2)}%]`}</div>
+                )
             },
         })
     }

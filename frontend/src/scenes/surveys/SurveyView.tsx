@@ -13,19 +13,10 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import {
-    ActivityScope,
-    InsightType,
-    PropertyFilterType,
-    PropertyOperator,
-    Survey,
-    SurveyQuestionType,
-    SurveyType,
-} from '~/types'
+import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
@@ -432,6 +423,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResults,
         surveyOpenTextResultsReady,
         surveyNPSScore,
+        surveyAsInsightURL,
     } = useValues(surveyLogic)
 
     return (
@@ -510,22 +502,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     type="primary"
                     data-attr="survey-results-explore"
                     icon={<IconGraph />}
-                    to={urls.insightNew({
-                        insight: InsightType.TRENDS,
-                        events: [
-                            { id: 'survey sent', name: 'survey sent', type: 'events' },
-                            { id: 'survey shown', name: 'survey shown', type: 'events' },
-                            { id: 'survey dismissed', name: 'survey dismissed', type: 'events' },
-                        ],
-                        properties: [
-                            {
-                                key: '$survey_id',
-                                value: survey.id,
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    })}
+                    to={surveyAsInsightURL}
                 >
                     Explore results
                 </LemonButton>
