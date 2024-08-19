@@ -52,4 +52,5 @@ export const enum Operation {
     TRY = 50,
     POP_TRY = 51,
     CALLABLE = 52,
+    CLOSURE = 53,
 }
