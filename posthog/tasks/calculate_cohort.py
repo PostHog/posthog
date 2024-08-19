@@ -12,7 +12,12 @@ from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.cohort.util import clear_stale_cohortpeople
 from posthog.models.user import User
+from prometheus_client import Gauge
 
+COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
+    "cohort_recalculations_backlog",
+    "Number of cohorts that are waiting to be calculated",
+)
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
@@ -33,6 +38,19 @@ def calculate_cohorts() -> None:
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         update_cohort(cohort, initiating_user=None)
+
+    # update gauge
+    backlog = (
+        Cohort.objects.filter(
+            deleted=False,
+            is_calculating=False,
+            last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
+            errors_calculating__lte=20,
+        )
+        .exclude(is_static=True)
+        .count()
+    )
+    COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
 
 
 def update_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
