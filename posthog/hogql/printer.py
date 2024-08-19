@@ -684,25 +684,34 @@ class _Printer(Visitor):
                 return None
 
             if isinstance(node.right, ast.Constant):
-                # TODO: What if the RHS is NULL? What is the expected behavior here?
-                if node.right.value == "":
+                if node.right.value is None:
+                    return None  # ???
+                elif node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(node.right)}))"
                 else:
                     return f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
                 # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
-                # value for missing keys -- everything else can be passed through as-is.
+                # value for missing keys. NULLs should also be dropped, but everything else can be passed through as-is.
                 default_value_expr: ast.Constant | None = None
                 for expr in node.right.exprs[:]:
                     if not isinstance(expr, ast.Constant):
                         return None  # only optimize constants for now, see above
+                    elif expr.value is None:
+                        node.right.exprs.remove(expr)  # XXX: safe to mutate?
                     elif expr.value == "":  # XXX: check type?
                         default_value_expr = expr
                         node.right.exprs.remove(expr)  # XXX: safe to mutate?
-                printed_expr = f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
-                if default_value_expr:
-                    printed_expr = f"or({printed_expr}, and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(default_value_expr)})))"
+                if len(node.right.exprs) > 0:
+                    # TODO: Check to see if it'd be faster to do equality comparison here instead?
+                    printed_expr = f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
+                    if default_value_expr is not None:
+                        printed_expr = f"or({printed_expr}, and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(default_value_expr)})))"
+                elif default_value_expr is not None:
+                    printed_expr = f"and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(default_value_expr)}))"
+                else:
+                    printed_expr = "0"
                 return printed_expr
             else:
                 return None  # XXX: what about aliases?
