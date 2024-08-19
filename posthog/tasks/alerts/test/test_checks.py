@@ -147,6 +147,11 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at").state == "firing"
             )
 
+        # test clean up old checks (> 14 days)
+        with freeze_time("2024-06-20T11:00:00.000Z"):
+            AlertCheck.clean_up_old_checks()
+            assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0
+
     def test_alert_is_set_to_inactive_when_disabled(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(lower=1)
 

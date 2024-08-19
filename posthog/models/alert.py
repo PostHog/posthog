@@ -1,4 +1,4 @@
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from typing import Any, Optional
 
 from django.db import models
@@ -163,3 +163,10 @@ class AlertCheck(UUIDModel):
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"
+
+    @classmethod
+    def clean_up_old_checks(cls) -> int:
+        retention_days = 14
+        oldest_allowed_date = datetime.now(UTC) - timedelta(days=retention_days)
+        _, rows_count = cls.objects.filter(created_at__lt=oldest_allowed_date).delete()
+        return rows_count

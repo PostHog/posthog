@@ -15,6 +15,7 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
     conversion_to_query_based,
 )
 from posthog.models import AlertConfiguration
+from posthog.models.alert import AlertCheck
 
 logger = structlog.get_logger(__name__)
 
@@ -89,6 +90,11 @@ def check_all_alerts_task() -> None:
 @shared_task(ignore_result=True)
 def check_alert_task(alert_id: int) -> None:
     check_alert(alert_id)
+
+
+@shared_task(ignore_result=True)
+def checks_cleanup_task() -> None:
+    AlertCheck.clean_up_old_checks()
 
 
 def send_notifications(alert: AlertConfiguration, matches: list[str]) -> None:
