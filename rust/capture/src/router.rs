@@ -1,12 +1,14 @@
 use std::future::ready;
 use std::sync::Arc;
 
+use axum::extract::DefaultBodyLimit;
 use axum::http::Method;
 use axum::{
     routing::{get, post},
     Router,
 };
 use health::HealthRegistry;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -15,6 +17,10 @@ use crate::{
 };
 
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
+
+const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
+const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
+const BATCH_CONCURRENCY_LIMIT: usize = 25; // We deploy these pods with 1G of memory, this and the above lets half of that be used for batch posts
 
 #[derive(Clone)]
 pub struct State {
@@ -55,23 +61,7 @@ pub fn router<
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
-    let router = Router::new()
-        // TODO: use NormalizePathLayer::trim_trailing_slash
-        .route("/", get(index))
-        .route("/_readiness", get(index))
-        .route("/_liveness", get(move || ready(liveness.get_status())))
-        .route(
-            "/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
+    let batch_router = Router::new()
         .route(
             "/batch",
             post(v0_endpoint::event)
@@ -80,6 +70,22 @@ pub fn router<
         )
         .route(
             "/batch/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .layer(ConcurrencyLimitLayer::new(BATCH_CONCURRENCY_LIMIT))
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
+
+    let event_router = Router::new()
+        .route(
+            "/e",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/e/",
             post(v0_endpoint::event)
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
@@ -96,6 +102,17 @@ pub fn router<
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
+        .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
+
+    let status_router = Router::new()
+        .route("/", get(index))
+        .route("/_readiness", get(index))
+        .route("/_liveness", get(move || ready(liveness.get_status())));
+
+    let router = Router::new()
+        .merge(batch_router)
+        .merge(event_router)
+        .merge(status_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))

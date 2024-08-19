@@ -440,6 +440,7 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
+    '/pipeline/:stage/:id': ({ stage, id }) => urls.pipelineNode(stage as PipelineStage, id),
 }
 
 export const routes: Record<string, Scene> = {
