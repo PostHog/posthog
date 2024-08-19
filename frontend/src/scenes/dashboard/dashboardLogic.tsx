@@ -379,6 +379,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        _dashboardLoading: [
+            false,
+            {
+                loadDashboard: () => true,
+                loadDashboardSuccess: () => false,
+                loadDashboardFailure: () => false,
+            },
+        ],
         pageVisibility: [
             true,
             {
@@ -721,7 +729,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
-            (s) => [s.dashboardLoading, s.refreshStatus],
+            (s) => [s._dashboardLoading, s.refreshStatus],
             (dashboardLoading, refreshStatus) => {
                 return dashboardLoading || Object.values(refreshStatus).some((s) => s.loading || s.queued)
             },
@@ -838,7 +846,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.dashboardLoading, s.dashboardFailedToLoad],
+            (s) => [s.dashboard, s._dashboardLoading, s.dashboardFailedToLoad],
             (dashboard, dashboardLoading, dashboardFailedToLoad): Breadcrumb[] => [
                 {
                     key: Scene.Dashboards,
