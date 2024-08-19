@@ -39,6 +39,7 @@ export const errorTrackingQuery = ({
     filterGroup,
     sparklineSelectedPeriod,
     columns,
+    limit = 50,
 }: {
     order: ErrorTrackingQuery['order']
     dateRange: DateRange
@@ -46,6 +47,7 @@ export const errorTrackingQuery = ({
     filterGroup: UniversalFiltersGroup
     sparklineSelectedPeriod: string | null
     columns?: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
+    limit?: number
 }): DataTableNode => {
     const select: string[] = []
     if (!columns) {
@@ -69,6 +71,7 @@ export const errorTrackingQuery = ({
             dateRange: dateRange,
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
+            limit: limit,
         },
         showActions: false,
         showTimings: false,
