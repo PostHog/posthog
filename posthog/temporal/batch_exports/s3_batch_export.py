@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import dataclasses
 import datetime as dt
@@ -130,12 +131,12 @@ class IntermittentUploadPartTimeoutError(Exception):
         super().__init__(f"An intermittent `RequestTimeout` was raised while attempting to upload part {part_number}")
 
 
+Part = dict[str, str | int]
+
+
 class S3MultiPartUploadState(typing.NamedTuple):
     upload_id: str
-    parts: list[dict[str, str | int]]
-
-
-Part = dict[str, str | int]
+    parts: list[Part]
 
 
 class S3MultiPartUpload:
@@ -274,7 +275,15 @@ class S3MultiPartUpload:
         self.upload_id = None
         self.parts = []
 
-    async def upload_part(self, body: BatchExportTemporaryFile, rewind: bool = True):
+    async def upload_part(
+        self,
+        body: BatchExportTemporaryFile,
+        rewind: bool = True,
+        max_attempts: int = 5,
+        initial_retry_delay: float | int = 2,
+        max_retry_delay: float | int = 32,
+        exponential_backoff_coefficient: int = 2,
+    ):
         """Upload a part of this multi-part upload."""
         next_part_number = self.part_number + 1
 
@@ -285,25 +294,38 @@ class S3MultiPartUpload:
         # We comply with the file-like interface of io.IOBase.
         # So we tell mypy to be nice with us.
         reader = io.BufferedReader(body)  # type: ignore
+        attempt = 0
+        response = None
 
         async with self.s3_client() as s3_client:
             try:
-                response = await s3_client.upload_part(
-                    Bucket=self.bucket_name,
-                    Key=self.key,
-                    PartNumber=next_part_number,
-                    UploadId=self.upload_id,
-                    Body=reader,
-                )
-            except botocore.exceptions.ClientError as err:
-                error_code = err.response.get("Error", {}).get("Code", None)
+                while response is None:
+                    try:
+                        response = await s3_client.upload_part(
+                            Bucket=self.bucket_name,
+                            Key=self.key,
+                            PartNumber=next_part_number,
+                            UploadId=self.upload_id,
+                            Body=reader,
+                        )
 
-                if error_code is not None and error_code == "RequestTimeout":
-                    raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
-                else:
-                    raise
+                    except botocore.exceptions.ClientError as err:
+                        error_code = err.response.get("Error", {}).get("Code", None)
 
-        reader.detach()  # BufferedReader closes the file otherwise.
+                        if error_code is not None and error_code == "RequestTimeout":
+                            if attempt >= max_attempts:
+                                raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
+
+                            await asyncio.sleep(
+                                min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                            )
+                            attempt += 1
+
+                            continue
+                        else:
+                            raise
+            finally:
+                reader.detach()  # BufferedReader closes the file otherwise.
 
         self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
 
@@ -395,7 +417,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         # This is the error we expect when no details as the sequence will be empty.
         interval_start = inputs.data_interval_start
         logger.debug(
-            "Did not receive details from previous activity Excecution. Export will start from the beginning %s",
+            "Did not receive details from previous activity Execution. Export will start from the beginning %s",
             interval_start,
         )
     except Exception:
@@ -403,7 +425,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
         interval_start = inputs.data_interval_start
         logger.warning(
-            "Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning %s",
+            "Did not receive details from previous activity Execution due to an unexpected error. Export will start from the beginning %s",
             interval_start,
         )
     else:
@@ -585,7 +607,7 @@ def get_batch_export_writer(
         )
     elif inputs.file_format == "JSONLines":
         writer = JSONLBatchExportWriter(
-            max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            max_bytes=max_bytes,
             flush_callable=flush_callable,
             compression=inputs.compression,
         )
