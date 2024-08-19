@@ -39,6 +39,7 @@ async fn main() {
         pg_queue,
         config.hog_mode,
         config.max_body_size,
+        config.concurrency_limit,
     );
     let app = setup_metrics_routes(app);
 

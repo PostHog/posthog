@@ -23,13 +23,13 @@ import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { columns, numericalColumns, xData, yData, responseLoading, isTableVisualization, tabularColumns } =
+    const { columns, numericalColumns, xData, yData, responseLoading, showTableSettings, tabularColumns } =
         useValues(dataVisualizationLogic)
     const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
 
     const hideAddYSeries = yData.length >= numericalColumns.length
 
-    if (isTableVisualization) {
+    if (showTableSettings) {
         return (
             <div className="flex flex-col w-full">
                 <LemonLabel>Columns</LemonLabel>
@@ -87,7 +87,7 @@ export const SeriesTab = (): JSX.Element => {
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number }): JSX.Element => {
-    const { columns, numericalColumns, responseLoading, dataVisualizationProps, isTableVisualization } =
+    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
         useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
 
@@ -100,12 +100,12 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = getSeriesColor(index)
 
-    const columnsInOptions = isTableVisualization ? columns : numericalColumns
+    const columnsInOptions = showTableSettings ? columns : numericalColumns
     const options = columnsInOptions.map(({ name, type }) => ({
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {!isTableVisualization && (
+                {!showTableSettings && (
                     <SeriesGlyph
                         style={{
                             borderColor: seriesColor,
@@ -172,7 +172,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                     disabledReasonWrapperClass="flex"
                 />
             </Popover>
-            {!isTableVisualization && (
+            {!showTableSettings && (
                 <LemonButton
                     key="delete"
                     icon={<IconTrash />}
@@ -216,14 +216,14 @@ const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSerie
 }
 
 const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { isTableVisualization } = useValues(dataVisualizationLogic)
+    const { showTableSettings } = useValues(dataVisualizationLogic)
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
             <LemonField name="label" label="Label">
                 <LemonInput />
             </LemonField>
-            {!isTableVisualization && (
+            {!showTableSettings && (
                 <>
                     <LemonField name="trendLine" label="Trend line">
                         {({ value, onChange }) => (

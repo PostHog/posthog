@@ -94,7 +94,7 @@ class DashboardCollaboratorViewSet(
     queryset = DashboardPrivilege.objects.select_related("dashboard").filter(user__is_active=True)
     lookup_field = "user__uuid"
     serializer_class = DashboardCollaboratorSerializer
-    filter_rewrite_rules = {"team_id": "dashboard__team_id"}
+    filter_rewrite_rules = {"project_id": "dashboard__team__project_id"}
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

@@ -279,10 +279,11 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
+  INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
          AND "posthog_action"."team_id" = 2
-         AND "posthog_action"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
@@ -463,10 +464,11 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
+  INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
          AND "posthog_action"."team_id" = 2
-         AND "posthog_action"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
@@ -665,10 +667,11 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
+  INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
          AND "posthog_action"."team_id" = 2
-         AND "posthog_action"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
