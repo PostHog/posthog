@@ -77,6 +77,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.HogQLExpression,
                 ]}
             />
