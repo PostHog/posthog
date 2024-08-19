@@ -3356,6 +3356,13 @@ class WebTopClicksQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
+class Threshold(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    configuration: InsightThreshold
+
+
 class AlertType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3371,7 +3378,7 @@ class AlertType(BaseModel):
     name: str
     notification_targets: AlertNotificationTarget
     state: Optional[str] = None
-    threshold: Optional[InsightThreshold] = None
+    threshold: Optional[Threshold] = None
 
 
 class AnyResponseType(

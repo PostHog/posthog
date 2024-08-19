@@ -262,7 +262,14 @@
                     "type": "string"
                 },
                 "threshold": {
-                    "$ref": "#/definitions/InsightThreshold"
+                    "additionalProperties": false,
+                    "properties": {
+                        "configuration": {
+                            "$ref": "#/definitions/InsightThreshold"
+                        }
+                    },
+                    "required": ["configuration"],
+                    "type": "object"
                 }
             },
             "required": ["id", "name", "notification_targets", "condition", "enabled"],
