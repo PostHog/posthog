@@ -230,6 +230,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
+        updateFiltersAndLayouts: true,
     }),
 
     loaders(({ actions, props, values }) => ({
