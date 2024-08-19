@@ -80,16 +80,16 @@ def check_alert_task(alert_id: int) -> None:
 
 
 def send_notifications(alert: AlertConfiguration, matches: list[str]) -> None:
-    subject = f"PostHog alert {alert.name} has anomalies"
-    campaign_key = f"alert-anomaly-notification-{alert.id}-{timezone.now().timestamp()}"
+    subject = f"PostHog alert {alert.name} is firing"
+    campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}/alerts/{alert.id}"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
-        template_name="alert_anomaly",
+        template_name="alert_check_firing",
         template_context={
-            "anomalies_descriptions": matches,
+            "match_descriptions": matches,
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
             "alert_url": alert_url,
