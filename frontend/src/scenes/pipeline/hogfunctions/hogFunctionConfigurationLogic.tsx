@@ -237,7 +237,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    ...values.inputFormErrors,
+                    ...(values.inputFormErrors as any),
                 }
             },
             submit: async (data) => {
