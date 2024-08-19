@@ -65,12 +65,13 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
         # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
         # Read more here: https://github.com/python/mypy/issues/2420.
         # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
+        parsed = dt.datetime.fromisoformat(date_input)
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
 
     if parsed.tzinfo is None:
         raise ValidationError(f"Input {date_input} is naive.")
+
     else:
         if team is not None:
             parsed = parsed.astimezone(team.timezone_info)
@@ -126,6 +127,26 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
         return queryset
+
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
+    def retry(self, *args, **kwargs) -> response.Response:
+        """Retry a batch export run.
+
+        We use the same underlying mechanism as when backfilling a batch export, as retrying
+        a run is the same as backfilling one run.
+        """
+        batch_export_run = self.get_object()
+
+        temporal = sync_connect()
+        backfill_id = backfill_export(
+            temporal,
+            str(batch_export_run.batch_export.id),
+            self.team_id,
+            batch_export_run.data_interval_start,
+            batch_export_run.data_interval_end,
+        )
+
+        return response.Response({"backfill_id": backfill_id})
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):

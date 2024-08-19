@@ -210,7 +210,7 @@ export function ProjectAccessControl(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
-    const isRestricted = !!useRestrictedArea({
+    const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
@@ -248,12 +248,16 @@ export function ProjectAccessControl(): JSX.Element {
                         : updateCurrentTeam({ access_control: checked })
                 }}
                 checked={!!currentTeam?.access_control}
-                disabled={
-                    isRestricted ||
-                    !currentOrganization ||
-                    !currentTeam ||
-                    currentOrganizationLoading ||
-                    currentTeamLoading
+                disabledReason={
+                    !currentOrganization
+                        ? 'Organization not loaded'
+                        : !currentTeam
+                        ? 'Project not loaded'
+                        : currentOrganizationLoading
+                        ? 'Loading organization…'
+                        : currentTeamLoading
+                        ? 'Loading project…'
+                        : restrictionReason
                 }
                 bordered
                 label="Make project private"
