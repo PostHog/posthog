@@ -294,40 +294,62 @@ class S3MultiPartUpload:
         # We comply with the file-like interface of io.IOBase.
         # So we tell mypy to be nice with us.
         reader = io.BufferedReader(body)  # type: ignore
-        attempt = 0
-        response = None
 
-        async with self.s3_client() as s3_client:
-            try:
-                while response is None:
-                    try:
-                        response = await s3_client.upload_part(
-                            Bucket=self.bucket_name,
-                            Key=self.key,
-                            PartNumber=next_part_number,
-                            UploadId=self.upload_id,
-                            Body=reader,
-                        )
-
-                    except botocore.exceptions.ClientError as err:
-                        error_code = err.response.get("Error", {}).get("Code", None)
-
-                        if error_code is not None and error_code == "RequestTimeout":
-                            if attempt >= max_attempts:
-                                raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
-
-                            await asyncio.sleep(
-                                min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
-                            )
-                            attempt += 1
-
-                            continue
-                        else:
-                            raise
-            finally:
-                reader.detach()  # BufferedReader closes the file otherwise.
+        try:
+            response = await self.upload_part_retryable(
+                reader,
+                next_part_number,
+                max_attempts=max_attempts,
+                initial_retry_delay=initial_retry_delay,
+                max_retry_delay=max_retry_delay,
+                exponential_backoff_coefficient=exponential_backoff_coefficient,
+            )
+        finally:
+            reader.detach()  # BufferedReader closes the file otherwise.
 
         self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
+
+    async def upload_part_retryable(
+        self,
+        reader: io.BufferedReader,
+        next_part_number: int,
+        max_attempts: int = 5,
+        initial_retry_delay: float | int = 2,
+        max_retry_delay: float | int = 32,
+        exponential_backoff_coefficient: int = 2,
+    ):
+        """Attempt to upload a part for this multi-part upload retrying on transient errors."""
+        response = None
+        attempt = 0
+
+        async with self.s3_client() as s3_client:
+            while response is None:
+                try:
+                    response = await s3_client.upload_part(
+                        Bucket=self.bucket_name,
+                        Key=self.key,
+                        PartNumber=next_part_number,
+                        UploadId=self.upload_id,
+                        Body=reader,
+                    )
+
+                except botocore.exceptions.ClientError as err:
+                    error_code = err.response.get("Error", {}).get("Code", None)
+
+                    if error_code is not None and error_code == "RequestTimeout":
+                        if attempt >= max_attempts:
+                            raise IntermittentUploadPartTimeoutError(part_number=next_part_number) from err
+
+                        await asyncio.sleep(
+                            min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                        )
+                        attempt += 1
+
+                        continue
+                    else:
+                        raise
+
+        return response
 
     async def __aenter__(self):
         """Asynchronous context manager protocol enter."""
