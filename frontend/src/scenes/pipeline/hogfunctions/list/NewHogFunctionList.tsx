@@ -13,7 +13,7 @@ import { AvailableFeature, PipelineStage, SidePanelTab } from '~/types'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { PipelineBackend } from '../types'
 import { DestinationTag } from './DestinationTag'
-import { newDestinationsLogic, NewDestinationsLogicProps } from './newDestinationsLogic'
+import { newDestinationsLogic, NewDestinationsLogicProps } from './newHogFunctionListLogic'
 
 export function DestinationOptionsTable(props: NewDestinationsLogicProps): JSX.Element {
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')

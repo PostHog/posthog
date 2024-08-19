@@ -1,45 +1,17 @@
 import { LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { useEffect } from 'react'
 import { AppMetricSparkLineV2 } from 'scenes/pipeline/metrics/AppMetricsV2Sparkline'
-import { NewButton } from 'scenes/pipeline/NewButton'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, HogFunctionType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
+import { HogFunctionType, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { HogFunctionIcon } from '../HogFunctionIcon'
 import { hogFunctionsListLogic, HogFunctionsListLogicProps } from './hogFunctionsListLogic'
-
-export function HogFunctionsListScene(): JSX.Element {
-    const { hogFunctions, loading } = useValues(hogFunctionsListLogic({ syncFiltersWithUrl: true }))
-
-    return (
-        <>
-            <PageHeader
-                caption="Send your data in real time or in batches to destinations outside of PostHog."
-                buttons={<NewButton stage={PipelineStage.Destination} />}
-            />
-            <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
-                <ProductIntroduction
-                    productName="Pipeline destinations"
-                    thingName="destination"
-                    productKey={ProductKey.PIPELINE_DESTINATIONS}
-                    description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
-                    docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                    isEmpty={hogFunctions.length === 0 && !loading}
-                />
-            </PayGateMini>
-            <HogFunctionsList syncFiltersWithUrl />
-        </>
-    )
-}
 
 export function HogFunctionsList({
     extraControls,
@@ -48,7 +20,11 @@ export function HogFunctionsList({
     const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction } = useValues(
         hogFunctionsListLogic(props)
     )
-    const { setFilters, resetFilters, toggleEnabled, deleteHogFunction } = useActions(hogFunctionsListLogic(props))
+    const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction } = useActions(
+        hogFunctionsListLogic(props)
+    )
+
+    useEffect(() => loadHogFunctions(), [])
 
     return (
         <>

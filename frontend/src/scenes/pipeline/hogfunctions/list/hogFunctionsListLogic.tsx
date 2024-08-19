@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -196,8 +196,4 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadHogFunctions()
-    }),
 ])
