@@ -111,14 +111,14 @@ pub fn router<
     let recordings_router = Router::new()
         .route(
             "/s",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
+            post(v0_endpoint::recording)
+                .get(v0_endpoint::recording)
                 .options(v0_endpoint::options),
         )
         .route(
             "/s/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
+            post(v0_endpoint::recording)
+                .get(v0_endpoint::recording)
                 .options(v0_endpoint::options),
         );
 

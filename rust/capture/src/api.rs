@@ -113,6 +113,8 @@ pub struct ProcessedEvent {
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
+    #[serde(skip_serializing)]
+    pub session_id: Option<String>,
 }
 
 impl ProcessedEvent {

@@ -206,7 +206,7 @@ pub async fn event(
     )
 )]
 #[debug_handler]
-pub async fn session_replay(
+pub async fn recording(
     state: State<router::State>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
@@ -256,7 +256,6 @@ pub fn process_single_event(
         ("$$client_ingestion_warning", _) => DataType::ClientIngestionWarning,
         ("$exception", _) => DataType::ExceptionMain,
         ("$$heatmap", _) => DataType::HeatmapMain,
-        ("$$snapshot", _) => DataType::SnapshotMain,
         (_, true) => DataType::AnalyticsHistorical,
         (_, false) => DataType::AnalyticsMain,
     };
@@ -275,6 +274,7 @@ pub fn process_single_event(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        session_id: None,
     })
 }
 
@@ -314,6 +314,8 @@ pub async fn process_replay_events<'a>(
         .collect::<Result<Vec<Vec<_>>,CaptureError>>()?
         .into_iter().flatten().collect();
 
+    let session_id = events[0].properties.get("$session_id").ok_or(CaptureError::MissingSessionId)?;
+    let window_id = events[0].properties.get("$window_id").ok_or(CaptureError::MissingWindowId)?;
     let event = ProcessedEvent {
         data_type: DataType::SnapshotMain,
         uuid: events[0].uuid.unwrap_or_else(uuid_v7),
@@ -323,8 +325,8 @@ pub async fn process_replay_events<'a>(
             "event": "$snapshot_items",
             "properties": {
                 "distinct_id": events[0].extract_distinct_id()?,
-                "$session_id": events[0].properties.get("$session_id").ok_or(CaptureError::MissingSessionId)?,
-                "$window_id": events[0].properties.get("$window_id").ok_or(CaptureError::MissingWindowId)?,
+                "$session_id": session_id,
+                "$window_id": window_id,
                 "$snapshot_source": events[0].properties.get("$snapshot_source").unwrap_or(&Value::String(String::from("web"))),
                 "$snapshot_items": snapshot_items,
             }
@@ -332,6 +334,7 @@ pub async fn process_replay_events<'a>(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        session_id: Some(session_id.as_str().unwrap().to_string()),
     };
 
     sink.send(event).await

@@ -5,6 +5,7 @@ use health::HealthHandle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
+use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tokio::task::JoinSet;
@@ -179,6 +180,8 @@ impl KafkaSink {
         })?;
 
         let event_key = event.key();
+        let session_id = event.session_id.as_deref();
+
         let (topic, partition_key): (&str, Option<&str>) = match &event.data_type {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
@@ -199,7 +202,10 @@ impl KafkaSink {
             ),
             DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
             DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
-            DataType::SnapshotMain => (&self.exceptions_topic, Some(event_key.as_str())),
+            DataType::SnapshotMain => {
+                (&self.main_topic, Some(session_id.ok_or(CaptureError::MissingSessionId)?))
+            }
+
         };
 
         match self.producer.send_result(FutureRecord {
@@ -208,7 +214,7 @@ impl KafkaSink {
             partition: None,
             key: partition_key,
             timestamp: None,
-            headers: None,
+            headers: Some(OwnedHeaders::new().insert(Header{key: "token", value: Some(&event.token)})),
         }) {
             Ok(ack) => Ok(ack),
             Err((e, _)) => match e.rdkafka_error_code() {
