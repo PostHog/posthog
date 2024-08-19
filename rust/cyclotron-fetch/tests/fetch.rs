@@ -147,7 +147,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
     let url = server.url("/test");
     let manual_params = json!({
         "url": url,
-        "method": "get",
+        "method": "GET",
         "return_queue": "return",
     })
     .to_string();
