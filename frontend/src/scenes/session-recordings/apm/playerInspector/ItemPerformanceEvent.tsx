@@ -82,7 +82,7 @@ function renderTimeBenchmark(milliseconds: number): JSX.Element {
 }
 
 function emptyPayloadMessage(
-    payloadCaptureIsEnabled: undefined | boolean,
+    payloadCaptureIsEnabled: boolean | undefined | null,
     item: PerformanceEvent,
     label: 'Request' | 'Response'
 ): JSX.Element | string {
