@@ -204,6 +204,7 @@ export interface HogQLQueryModifiers {
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls'
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
+    propertyGroupsMode?: 'enabled' | 'disabled'
 }
 
 export interface DataWarehouseEventsModifier {
