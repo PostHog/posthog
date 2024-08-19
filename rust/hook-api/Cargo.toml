@@ -19,7 +19,6 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }

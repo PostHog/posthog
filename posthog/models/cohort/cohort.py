@@ -17,6 +17,7 @@ from posthog.models.property import BehavioralPropertyType, Property, PropertyGr
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
 
+
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
 # set in cohorts_cache
 CohortOrEmpty = Union["Cohort", Literal[""], None]
@@ -215,7 +216,7 @@ class Cohort(models.Model):
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
-        except Exception:
+        except Exception as err:
             self.errors_calculating = F("errors_calculating") + 1
             logger.warning(
                 "cohort_calculation_failed",
@@ -224,6 +225,12 @@ class Cohort(models.Model):
                 new_version=pending_version,
                 exc_info=True,
             )
+
+            capture_exception(
+                Exception(f"Error calculating cohort id = {self.id}, team_id = {self.team.id}"),
+                {"error": str(err)},
+            )
+
             raise
         finally:
             self.is_calculating = False
