@@ -17,7 +17,13 @@ from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgMaxVersion, PersonsOnEventsMode, PropertyGroupsMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    MaterializationMode,
+    PersonsArgMaxVersion,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
+)
 from posthog.test.base import BaseTest, _create_event, cleanup_materialized_columns
 
 
@@ -360,8 +366,8 @@ class TestPrinter(BaseTest):
         @dataclass
         class PropertyGroupComparisonTestCase:
             input_expression: str
-            expected_printed_query: str
-            expected_context_values: Mapping[str, Any]
+            expected_printed_query: str | None
+            expected_context_values: Mapping[str, Any] = field(default_factory=dict)
             expected_skip_indexes_used: set[str] = field(default_factory=set)
 
         cases = [
@@ -384,6 +390,12 @@ class TestPrinter(BaseTest):
                 "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
                 {"hogql_val_0": "key", "hogql_val_1": "value"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+            ),
+            # NOTE: We'll want to actually support this type of expression at some point, but for right now we only want
+            # to optimize comparisons to constant values.
+            PropertyGroupComparisonTestCase(
+                "equals(properties.key, lower('value'))",
+                None,
             ),
             # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we
             # need to check whether or not the key exists in the map *and* compare the value in the map is the empty
@@ -489,15 +501,23 @@ class TestPrinter(BaseTest):
         for cases_evaluated, case in enumerate(cases, 1):  # noqa: B007 - `cases_evaluated` used below
             # XXX: Error messages within this block are not very descriptive, it would be better to use something like
             # pytest parameterization if possible, but not sure how that will play with the other test lifecycle stuff?
-            context = HogQLContext(
-                team_id=self.team.pk,
-                modifiers=HogQLQueryModifiers(
-                    materializationMode=MaterializationMode.AUTO,
-                    propertyGroupsMode=PropertyGroupsMode.ENABLED,
-                ),
-            )
+            def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
+                return HogQLContext(
+                    team_id=self.team.pk,
+                    modifiers=HogQLQueryModifiers(
+                        materializationMode=MaterializationMode.AUTO,
+                        propertyGroupsMode=property_groups_mode,
+                    ),
+                )
+
+            context = build_context(PropertyGroupsMode.OPTIMIZED)
             printed_expr = self._expr(case.input_expression, context)
-            self.assertEqual(printed_expr, case.expected_printed_query)
+            self.assertEqual(
+                printed_expr,
+                case.expected_printed_query
+                if case.expected_printed_query is not None
+                else self._expr(case.input_expression, build_context(PropertyGroupsMode.OPTIMIZED)),
+            )
             self.assertDictContainsSubset(case.expected_context_values, context.values)
 
             [[raw_explain_result]] = sync_execute(
@@ -522,7 +542,7 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             modifiers=HogQLQueryModifiers(
                 materializationMode=MaterializationMode.AUTO,
-                propertyGroupsMode=PropertyGroupsMode.ENABLED,
+                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
             ),
         )
         parsed = parse_select("SELECT properties.file_type AS ft FROM events WHERE ft = 'image/svg'")

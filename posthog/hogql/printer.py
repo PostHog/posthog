@@ -605,6 +605,8 @@ class _Printer(Visitor):
         the property group's bloom filter data skipping indices, or the expression can be optimized to avoid reading the
         property group's map ``values`` subcolumn when doing comparisons to NULL values.
         """
+        if not self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.OPTIMIZED:
+            return None
 
         def resolve_field_type(expr: ast.Expr) -> ast.Expr | None:
             expr_type = expr.type
@@ -915,6 +917,8 @@ class _Printer(Visitor):
         group value and the function can be rewritten so that it can be eligible for use by the property group's map's
         key bloom filter index, or can be optimized to avoid reading the property group's map ``values`` subcolumn.
         """
+        if not self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.OPTIMIZED:
+            return None
 
         # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
         # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
@@ -1230,6 +1234,7 @@ class _Printer(Visitor):
         """
         Find a materialized property for the first part of the property chain.
         """
+        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
         if self.context.modifiers.materializationMode == "disabled":
             return None
 
@@ -1256,7 +1261,10 @@ class _Printer(Visitor):
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column),
                 )
-            elif self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.ENABLED:
+            elif self.context.modifiers.propertyGroupsMode in (
+                PropertyGroupsMode.ENABLED,
+                PropertyGroupsMode.OPTIMIZED,
+            ):
                 property_name = str(type.chain[0])
                 # For now, we're assuming that properties are in either no groups or one group, so just using the
                 # first group returned is fine. If we start putting properties in multiple groups, this should be

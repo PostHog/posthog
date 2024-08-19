@@ -618,6 +618,7 @@ class PersonsOnEventsMode(StrEnum):
 class PropertyGroupsMode(StrEnum):
     ENABLED = "enabled"
     DISABLED = "disabled"
+    OPTIMIZED = "optimized"
 
 
 class SessionTableVersion(StrEnum):
