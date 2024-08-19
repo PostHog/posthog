@@ -24,7 +24,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 
-import { API_KEY_SCOPE_PRESETS, APIScopes, personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { API_KEY_SCOPE_PRESETS, APIScopes, MAX_API_KEYS_PER_USER, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
     const {
@@ -490,8 +490,8 @@ export function PersonalAPIKeys(): JSX.Element {
                 icon={<IconPlus />}
                 onClick={() => setEditingKeyId('new')}
                 disabledReason={
-                    keys.length >= 10
-                        ? 'You can only have 10 personal API keys. Please remove a key before creating a new one.'
+                    keys.length >= MAX_API_KEYS_PER_USER
+                        ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
                         : false
                 }
             >
