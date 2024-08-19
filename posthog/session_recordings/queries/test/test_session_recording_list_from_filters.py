@@ -1495,13 +1495,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"console_logs": ["warn"], "console_search_query": "random"}
+            {
+                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
         )
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_with_both_log_filters
 
         (session_recordings, _, _) = self._filter_recordings_by(
-            {"console_logs": ["warn"], "console_search_query": "random", "operand": "OR"}
+            {
+                "console_log_filters": '[{"key": "level", "value": ["warn"], "operator": "exact", "type": "log_entry"}, {"key": "message", "value": "random", "operator": "exact", "type": "log_entry"}]',
+                "operand": "OR",
+            }
         )
         assert len(session_recordings) == 2
 
