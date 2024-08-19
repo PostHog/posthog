@@ -1,12 +1,15 @@
-import { LemonCheckbox, LemonDivider, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
+import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlerts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+
+import { AlertType } from '~/queries/schema'
 
 import { alertLogic, AlertLogicProps } from '../alertLogic'
 import { alertsLogic } from '../alertsLogic'
@@ -16,7 +19,44 @@ interface EditAlertProps extends AlertLogicProps {
     onDelete: () => void
 }
 
-export function EditAlert(props: EditAlertProps): JSX.Element {
+export function AlertState({ alert }: { alert: AlertType }): React.ReactNode {
+    if (!alert.checks || alert.checks.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="bg-bg-3000 p-4 mt-10 rounded-lg">
+            <h3>
+                Current status {alert.state === 'firing' ? 'firing' : 'not met'}
+                <AlertStateIndicator alert={alert} />
+            </h3>
+            <table className="w-full table-auto border-spacing-2 border-collapse">
+                <thead>
+                    <tr className="text-left">
+                        <th>Status</th>
+                        <th className="text-right">Time</th>
+                        <th className="text-right pr-4">Value</th>
+                        <th>Targets notified</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {alert.checks.map((check) => (
+                        <tr key={check.id}>
+                            <td>{check.state === 'firing' ? 'Firing' : 'Not met'}</td>
+                            <td className="text-right">
+                                <TZLabel time={check.created_at} />
+                            </td>
+                            <td className="text-right pr-4">{check.calculated_value}</td>
+                            <td>{check.targets_notified ? 'Yes' : 'No'}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    )
+}
+
+export function EditAlert(props: EditAlertProps): React.ReactNode {
     const logic = alertLogic(props)
     const alertslogic = alertsLogic(props)
 
@@ -41,7 +81,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                 </div>
             </LemonModal.Header>
 
-            <LemonModal.Content className="space-y-2">
+            <LemonModal.Content>
                 {!alert ? (
                     <div className="p-4 text-center">
                         <h2>Not found</h2>
@@ -49,91 +89,65 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                     </div>
                 ) : (
                     <>
-                        {alert?.created_by ? (
-                            <UserActivityIndicator
-                                at={alert.created_at}
-                                by={alert.created_by}
-                                prefix="Created"
-                                className="mb-4"
-                            />
-                        ) : null}
+                        <div className="space-y-2">
+                            {alert?.created_by ? (
+                                <UserActivityIndicator
+                                    at={alert.created_at}
+                                    by={alert.created_by}
+                                    prefix="Created"
+                                    className="mb-4"
+                                />
+                            ) : null}
 
-                        <LemonField name="name" label="Name">
-                            <LemonInput placeholder="e.g. High error rate" data-attr="alert-name" />
-                        </LemonField>
+                            <LemonField name="name" label="Name">
+                                <LemonInput placeholder="e.g. High error rate" data-attr="alert-name" />
+                            </LemonField>
 
-                        <LemonField name="enabled">
-                            <LemonCheckbox
-                                checked={alert.enabled}
-                                data-attr="alert-enabled"
-                                fullWidth
-                                label="Enabled"
-                                defaultChecked
-                            />
-                        </LemonField>
-
-                        <Group name={['notification_targets']}>
-                            <LemonField
-                                name="email"
-                                label="Who do you want to notify"
-                                help="Enter email addresses of the users you want notify"
-                            >
-                                <LemonInputSelect
-                                    mode="multiple"
-                                    placeholder="Enter email addresses"
-                                    allowCustomValues
-                                    data-attr="alert-notification-targets"
+                            <LemonField name="enabled">
+                                <LemonCheckbox
+                                    checked={alert.enabled}
+                                    data-attr="alert-enabled"
+                                    fullWidth
+                                    label="Enabled"
+                                    defaultChecked
                                 />
                             </LemonField>
-                        </Group>
 
-                        <Group name={['threshold', 'configuration', 'absoluteThreshold']}>
-                            <span className="flex gap-10">
+                            <Group name={['notification_targets']}>
                                 <LemonField
-                                    name="lower"
-                                    label="Lower threshold"
-                                    help="Notify if the value is strictly below"
+                                    name="email"
+                                    label="Who do you want to notify"
+                                    help="Enter email addresses of the users you want notify"
                                 >
-                                    <LemonInput type="number" className="w-20" data-attr="alert-lower-threshold" />
+                                    <LemonInputSelect
+                                        mode="multiple"
+                                        placeholder="Enter email addresses"
+                                        allowCustomValues
+                                        data-attr="alert-notification-targets"
+                                    />
                                 </LemonField>
-                                <LemonField
-                                    name="upper"
-                                    label="Upper threshold"
-                                    help="Notify if the value is strictly above"
-                                >
-                                    <LemonInput type="number" className="w-20" data-attr="alert-upper-threshold" />
-                                </LemonField>
-                            </span>
-                        </Group>
+                            </Group>
 
-                        {alert.checks && alert.checks.length > 0 && (
-                            <div>
-                                <LemonDivider />
-                                <h3>Recent checks</h3>
-                                <table className="w-full table-auto border-spacing-2 border-collapse">
-                                    <thead>
-                                        <tr className="text-left">
-                                            <th>Status</th>
-                                            <th className="text-right">Time</th>
-                                            <th className="text-right pr-4">Value</th>
-                                            <th>Targets notified</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {alert.checks.map((check) => (
-                                            <tr key={check.id}>
-                                                <td>{check.state === 'firing' ? 'Firing' : 'Not met'}</td>
-                                                <td className="text-right">
-                                                    <TZLabel time={check.created_at} />
-                                                </td>
-                                                <td className="text-right pr-4">{check.calculated_value}</td>
-                                                <td>{check.targets_notified ? 'Yes' : 'No'}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                            <Group name={['threshold', 'configuration', 'absoluteThreshold']}>
+                                <span className="flex gap-10">
+                                    <LemonField
+                                        name="lower"
+                                        label="Lower threshold"
+                                        help="Notify if the value is strictly below"
+                                    >
+                                        <LemonInput type="number" className="w-20" data-attr="alert-lower-threshold" />
+                                    </LemonField>
+                                    <LemonField
+                                        name="upper"
+                                        label="Upper threshold"
+                                        help="Notify if the value is strictly above"
+                                    >
+                                        <LemonInput type="number" className="w-20" data-attr="alert-upper-threshold" />
+                                    </LemonField>
+                                </span>
+                            </Group>
+                        </div>
+                        <AlertState alert={alert} />
                     </>
                 )}
             </LemonModal.Content>

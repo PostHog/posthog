@@ -13,6 +13,14 @@ import { AlertType } from '~/queries/schema'
 
 import { alertsLogic, AlertsLogicProps } from '../alertsLogic'
 
+export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
+    return alert.state === 'firing' ? (
+        <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-danger-light" />
+    ) : (
+        <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-success-light" />
+    )
+}
+
 interface AlertListItemProps {
     alert: AlertType
     onClick: () => void
@@ -53,11 +61,7 @@ export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps):
                         {alert.name}
                         {alert.enabled ? (
                             <>
-                                {alert.state === 'firing' ? (
-                                    <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-danger-light" />
-                                ) : (
-                                    <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-success-light" />
-                                )}
+                                <AlertStateIndicator alert={alert} />
                                 <div className="text-xs text-muted">
                                     {alert.threshold?.configuration?.absoluteThreshold?.lower
                                         ? ` < ${alert.threshold?.configuration?.absoluteThreshold.lower}`
