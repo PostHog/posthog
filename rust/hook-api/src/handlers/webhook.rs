@@ -243,13 +243,20 @@ mod tests {
     use crate::handlers::app::add_routes;
 
     const MAX_BODY_SIZE: usize = 1_000_000;
+    const CONCURRENCY_LIMIT: usize = 10;
 
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_success(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
+        let app = add_routes(
+            Router::new(),
+            pg_queue,
+            hog_mode,
+            MAX_BODY_SIZE,
+            CONCURRENCY_LIMIT,
+        );
 
         let mut headers = collections::HashMap::new();
         headers.insert("Content-Type".to_owned(), "application/json".to_owned());
@@ -292,7 +299,13 @@ mod tests {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
+        let app = add_routes(
+            Router::new(),
+            pg_queue,
+            hog_mode,
+            MAX_BODY_SIZE,
+            CONCURRENCY_LIMIT,
+        );
 
         let response = app
             .oneshot(
@@ -330,7 +343,13 @@ mod tests {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
+        let app = add_routes(
+            Router::new(),
+            pg_queue,
+            hog_mode,
+            MAX_BODY_SIZE,
+            CONCURRENCY_LIMIT,
+        );
 
         let response = app
             .oneshot(
@@ -352,7 +371,13 @@ mod tests {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
+        let app = add_routes(
+            Router::new(),
+            pg_queue,
+            hog_mode,
+            MAX_BODY_SIZE,
+            CONCURRENCY_LIMIT,
+        );
 
         let response = app
             .oneshot(
@@ -374,7 +399,13 @@ mod tests {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
         let hog_mode = false;
 
-        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
+        let app = add_routes(
+            Router::new(),
+            pg_queue,
+            hog_mode,
+            MAX_BODY_SIZE,
+            CONCURRENCY_LIMIT,
+        );
 
         let bytes: Vec<u8> = vec![b'a'; MAX_BODY_SIZE + 1];
         let long_string = String::from_utf8_lossy(&bytes);
@@ -422,7 +453,13 @@ mod tests {
         let pg_queue = PgQueue::new_from_pool("test_index", db.clone()).await;
         let hog_mode = true;
 
-        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
+        let app = add_routes(
+            Router::new(),
+            pg_queue,
+            hog_mode,
+            MAX_BODY_SIZE,
+            CONCURRENCY_LIMIT,
+        );
 
         let valid_payloads = vec![
             (
@@ -507,7 +544,13 @@ mod tests {
         let pg_queue = PgQueue::new_from_pool("test_index", db.clone()).await;
         let hog_mode = true;
 
-        let app = add_routes(Router::new(), pg_queue, hog_mode, MAX_BODY_SIZE);
+        let app = add_routes(
+            Router::new(),
+            pg_queue,
+            hog_mode,
+            MAX_BODY_SIZE,
+            CONCURRENCY_LIMIT,
+        );
 
         let invalid_payloads = vec![
             r#"{}"#,

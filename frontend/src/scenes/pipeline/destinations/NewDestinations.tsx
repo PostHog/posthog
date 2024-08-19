@@ -1,16 +1,18 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'kea-forms'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
-import { AvailableFeature, PipelineStage } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { AvailableFeature, PipelineStage, SidePanelTab } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { PipelineBackend } from '../types'
+import { DestinationTag } from './DestinationTag'
 import { newDestinationsLogic } from './newDestinationsLogic'
 
 export function DestinationOptionsTable(): JSX.Element {
@@ -18,10 +20,25 @@ export function DestinationOptionsTable(): JSX.Element {
     const { loading, filteredDestinations, filters } = useValues(newDestinationsLogic)
     const { setFilters, openFeedbackDialog } = useActions(newDestinationsLogic)
     const { canEnableDestination } = useValues(pipelineAccessLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <div className="space-y-2">
             <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+
+            <FlaggedFeature flag="hog-functions" match={false}>
+                <LemonBanner
+                    type="info"
+                    action={{
+                        onClick: () => openSidePanel(SidePanelTab.FeaturePreviews),
+                        children: 'Enable feature preview',
+                    }}
+                >
+                    We're excited to announce <b>Destinations 3000</b> - the new version of our realtime destinations
+                    that include a range of pre-built templates, native filtering, templating and even customizing the
+                    code.
+                </LemonBanner>
+            </FlaggedFeature>
 
             <div className="flex items-center gap-2">
                 <LemonInput
@@ -43,7 +60,9 @@ export function DestinationOptionsTable(): JSX.Element {
                             hogFunctionsEnabled
                                 ? { label: 'Realtime (new)', value: PipelineBackend.HogFunction }
                                 : undefined,
-                            { label: 'Realtime', value: PipelineBackend.Plugin },
+                            hogFunctionsEnabled
+                                ? { label: 'Realtime (deprecated)', value: PipelineBackend.Plugin }
+                                : { label: 'Realtime', value: PipelineBackend.Plugin },
                             { label: 'Batch exports', value: PipelineBackend.BatchExport },
                         ].filter(Boolean) as { label: string; value: PipelineBackend | null }[]
                     }
@@ -75,17 +94,7 @@ export function DestinationOptionsTable(): JSX.Element {
                                     title={
                                         <>
                                             {target.name}
-                                            {target.status === 'alpha' ? (
-                                                <LemonTag type="danger">Experimental</LemonTag>
-                                            ) : target.status === 'beta' ? (
-                                                <LemonTag type="completion">Beta</LemonTag>
-                                            ) : target.status === 'stable' ? (
-                                                <LemonTag type="highlight">New</LemonTag> // Once Hog Functions are fully released we can remove the new label
-                                            ) : target.status ? (
-                                                <LemonTag type="highlight">
-                                                    {capitalizeFirstLetter(target.status)}
-                                                </LemonTag>
-                                            ) : undefined}
+                                            {target.status && <DestinationTag status={target.status} />}
                                         </>
                                     }
                                     description={target.description}

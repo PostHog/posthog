@@ -422,8 +422,15 @@ class TrendsQueryRunner(QueryRunner):
             if isinstance(timing, list):
                 timings.extend(timing)
 
+        has_more = False
+        if self.breakdown_enabled and any(item["label"] == BREAKDOWN_OTHER_STRING_LABEL for item in final_result):
+            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_hide_other_aggregation:
+                final_result = [item for item in final_result if item["label"] != BREAKDOWN_OTHER_STRING_LABEL]
+            has_more = True
+
         return TrendsQueryResponse(
             results=final_result,
+            hasMore=has_more,
             timings=timings,
             hogql=response_hogql,
             modifiers=self.modifiers,

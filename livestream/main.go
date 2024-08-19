@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/spf13/viper"
@@ -63,16 +62,14 @@ func main() {
 		log.Fatalf("Failed to open MMDB: %v", err)
 	}
 
-	teamStats := &TeamStats{
-		Store: make(map[string]*expirable.LRU[string, string]),
-	}
+	stats := newStatsKeeper()
 
 	phEventChan := make(chan PostHogEvent)
 	statsChan := make(chan PostHogEvent)
 	subChan := make(chan Subscription)
 	unSubChan := make(chan Subscription)
 
-	go teamStats.keepStats(statsChan)
+	go stats.keepStats(statsChan)
 
 	kafkaSecurityProtocol := "SSL"
 	if !isProd {
@@ -109,43 +106,14 @@ func main() {
 	// Routes
 	e.GET("/", index)
 
-	e.GET("/stats", func(c echo.Context) error {
+	e.GET("/served", servedHandler(stats))
 
-		type stats struct {
-			UsersOnProduct int    `json:"users_on_product,omitempty"`
-			Error          string `json:"error,omitempty"`
-		}
-
-		authHeader := c.Request().Header.Get("Authorization")
-		if authHeader == "" {
-			return errors.New("authorization header is required")
-		}
-
-		claims, err := decodeAuthToken(authHeader)
-		if err != nil {
-			return err
-		}
-		token := fmt.Sprint(claims["api_token"])
-
-		var hash *expirable.LRU[string, string]
-		var ok bool
-		if hash, ok = teamStats.Store[token]; !ok {
-			resp := stats{
-				Error: "no stats",
-			}
-			return c.JSON(http.StatusOK, resp)
-		}
-
-		siteStats := stats{
-			UsersOnProduct: hash.Len(),
-		}
-		return c.JSON(http.StatusOK, siteStats)
-	})
+	e.GET("/stats", statsHandler(stats))
 
 	e.GET("/events", func(c echo.Context) error {
 		e.Logger.Printf("SSE client connected, ip: %v", c.RealIP())
 
-		teamId := c.QueryParam("teamId")
+		var teamId string
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
 		geo := c.QueryParam("geo")

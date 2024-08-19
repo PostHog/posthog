@@ -1,6 +1,6 @@
 import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
@@ -17,7 +17,8 @@ interface TableProps {
 }
 
 export const Table = (props: TableProps): JSX.Element => {
-    const { tabularData, tabularColumns, responseLoading } = useValues(dataVisualizationLogic)
+    const { tabularData, tabularColumns, responseLoading, responseError, queryCancelled, response } =
+        useValues(dataVisualizationLogic)
 
     const tableColumns: LemonTableColumn<any[], any>[] = tabularColumns.map(({ column, settings }, index) => ({
         title: settings?.display?.label || column.name,
@@ -36,10 +37,24 @@ export const Table = (props: TableProps): JSX.Element => {
                 columns={tableColumns}
                 loading={responseLoading}
                 emptyState={
-                    <InsightEmptyState
-                        heading={props.context?.emptyStateHeading}
-                        detail={props.context?.emptyStateDetail}
-                    />
+                    responseError ? (
+                        <InsightErrorState
+                            query={props.query}
+                            excludeDetail
+                            title={
+                                queryCancelled
+                                    ? 'The query was cancelled'
+                                    : response && 'error' in response
+                                    ? (response as any).error
+                                    : responseError
+                            }
+                        />
+                    ) : (
+                        <InsightEmptyState
+                            heading={props.context?.emptyStateHeading}
+                            detail={props.context?.emptyStateDetail}
+                        />
+                    )
                 }
                 footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
                 rowClassName="DataVizRow"

@@ -763,7 +763,10 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+    /** Wether more breakdown values are available. */
+    hasMore?: boolean
+}
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
@@ -1679,4 +1682,13 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
+}
+
+export interface AbsoluteThreshold {
+    lower?: number | null
+    upper?: number | null
+}
+
+export interface AnomalyCondition {
+    absoluteThreshold: AbsoluteThreshold
 }

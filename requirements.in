@@ -33,8 +33,8 @@ djangorestframework==3.15.1
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
 django-fernet-encrypted-fields==0.1.3
-dlt==0.5.2a1
-dlt[deltalake]==0.5.2a1
+dlt==0.5.3
+dlt[deltalake]==0.5.3
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
@@ -58,8 +58,8 @@ pdpyras==5.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
 PyMySQL==1.1.1
-psycopg[binary]==3.1.18
-pyarrow==15.0.0
+psycopg[binary]==3.1.20
+pyarrow==17.0.0
 pydantic==2.5.3
 pyjwt==2.4.0
 python-dateutil>=2.8.2
@@ -73,6 +73,7 @@ stripe==10.3.0
 selenium==4.1.5
 sentry-sdk[clickhouse-driver,celery,openai,django]~=1.44.1
 semantic_version==2.8.5
+simple-salesforce>=1.12.6
 scikit-learn==1.5.0
 slack_sdk==3.17.1
 snowflake-connector-python==3.6.0

@@ -114,11 +114,19 @@ def snowflake_source(
 
 
 # Temp while DLT doesn't support `interval` columns
-def remove_interval(doc: dict, team_id: Optional[int]) -> dict:
-    if team_id == 1 or team_id == 2:
-        if "sync_frequency_interval" in doc:
-            del doc["sync_frequency_interval"]
-    return doc
+def remove_columns(columns_to_drop: list[str], team_id: Optional[int]):
+    def internal_remove(doc: dict) -> dict:
+        if team_id == 1 or team_id == 2:
+            if "sync_frequency_interval" in doc:
+                del doc["sync_frequency_interval"]
+
+        for col in columns_to_drop:
+            if col in doc:
+                del doc[col]
+
+        return doc
+
+    return internal_remove
 
 
 @dlt.source(max_table_nesting=0)
@@ -159,6 +167,8 @@ def sql_database(
     for table in tables:
         # TODO(@Gilbert09): Read column types, convert them to DLT types
         # and pass them in here to get empty table materialization
+        binary_columns_to_drop = get_binary_columns(engine, schema or "", table.name)
+
         yield dlt.resource(
             table_rows,
             name=table.name,
@@ -173,11 +183,33 @@ def sql_database(
             spec=SqlDatabaseTableConfiguration,
             table_format="delta",
             columns=get_column_hints(engine, schema or "", table.name),
-        ).add_map(lambda x: remove_interval(x, team_id))(
+        ).add_map(remove_columns(binary_columns_to_drop, team_id))(
             engine=engine,
             table=table,
             incremental=incremental,
         )
+
+
+def get_binary_columns(engine: Engine, schema_name: str, table_name: str) -> list[str]:
+    with engine.connect() as conn:
+        execute_result: CursorResult = conn.execute(
+            text(
+                "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = :schema_name AND table_name = :table_name"
+            ),
+            {"schema_name": schema_name, "table_name": table_name},
+        )
+
+        cursor_result = cast(CursorResult, execute_result)
+        results = cursor_result.fetchall()
+
+    binary_cols: list[str] = []
+
+    for column_name, data_type in results:
+        lower_data_type = data_type.lower()
+        if lower_data_type == "bytea" or lower_data_type == "binary" or lower_data_type == "varbinary":
+            binary_cols.append(column_name)
+
+    return binary_cols
 
 
 def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[str, TColumnSchema]:

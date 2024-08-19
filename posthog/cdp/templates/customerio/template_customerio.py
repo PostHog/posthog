@@ -12,8 +12,21 @@ template: HogFunctionTemplate = HogFunctionTemplate(
 let action := inputs.action
 let name := event.name
 
+let hasIdentifier := false
+
+for (let key, value in inputs.identifiers) {
+    if (not empty(value)) {
+        hasIdentifier := true
+    }
+}
+
+if (not hasIdentifier) {
+    print('No identifier set. Skipping as at least 1 identifier is needed.')
+    return
+}
+
 if (action == 'automatic') {
-    if (event.name == '$identify') {
+    if (event.name in ('$identify', '$set')) {
         action := 'identify'
         name := null
     } else if (event.name == '$pageview') {
@@ -27,8 +40,7 @@ if (action == 'automatic') {
     }
 }
 
-let attributes := inputs.include_all_properties ? event.properties : {}
-
+let attributes := inputs.include_all_properties ? action == 'identify' ? person.properties : event.properties : {}
 let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 
 for (let key, value in inputs.attributes) {
@@ -142,7 +154,7 @@ if (res.status >= 400) {
             "key": "include_all_properties",
             "type": "boolean",
             "label": "Include all properties as attributes",
-            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below.",
+            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below. For identify events the Person properties will be used.",
             "default": False,
             "secret": False,
             "required": True,

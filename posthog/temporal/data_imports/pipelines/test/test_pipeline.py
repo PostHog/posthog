@@ -77,6 +77,7 @@ class TestDataImportPipeline(APIBaseTest):
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
             ) as mock_validate_schema_and_update_table,
+            patch("posthog.temporal.data_imports.pipelines.pipeline.get_delta_tables"),
         ):
             pipeline = await self._create_pipeline("Customer", False)
             res = await pipeline.run()
@@ -97,6 +98,7 @@ class TestDataImportPipeline(APIBaseTest):
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
             ) as mock_validate_schema_and_update_table,
+            patch("posthog.temporal.data_imports.pipelines.pipeline.get_delta_tables"),
         ):
             pipeline = await self._create_pipeline("Customer", True)
             res = await pipeline.run()

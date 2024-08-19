@@ -69,7 +69,7 @@ const Template = (
 
     return (
         <div>
-            <div className="p-4 bg-default">
+            <div className="p-4 bg-border">
                 <SubscriptionsModal
                     {...(props as SubscriptionsModalProps)}
                     closeModal={() => {

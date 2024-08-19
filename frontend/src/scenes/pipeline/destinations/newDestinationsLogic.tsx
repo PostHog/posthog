@@ -15,11 +15,13 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BATCH_EXPORT_SERVICE_NAMES,
     BatchExportService,
+    HogFunctionTemplateStatus,
     HogFunctionTemplateType,
     PipelineStage,
     PluginType,
 } from '~/types'
 
+import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { PipelineBackend } from '../types'
 import { loadPluginsFromUrl, RenderApp, RenderBatchExportIcon } from '../utils'
@@ -31,7 +33,7 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha' | 'free'
+    status?: HogFunctionTemplateStatus
 }
 
 export type NewDestinationFilters = {
@@ -93,15 +95,14 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             (pluginsLoading, hogFunctionTemplatesLoading) => pluginsLoading || hogFunctionTemplatesLoading,
         ],
         batchExportServiceNames: [
-            (s) => [s.user],
-            (user): BatchExportService['type'][] => {
+            (s) => [s.user, s.featureFlags],
+            (user, featureFlags): BatchExportService['type'][] => {
+                const httpEnabled =
+                    featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
                 // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
-                const services: BatchExportService['type'][] = BATCH_EXPORT_SERVICE_NAMES.filter(
-                    (service) => service !== 'HTTP'
-                ) as BatchExportService['type'][]
-                if (user?.is_impersonated || user?.is_staff) {
-                    services.push('HTTP')
-                }
+                const services: BatchExportService['type'][] = BATCH_EXPORT_SERVICE_NAMES.filter((service) =>
+                    httpEnabled ? true : service !== ('HTTP' as const)
+                )
                 return services
             },
         ],
@@ -120,9 +121,8 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                 featureFlags,
                 hashParams
             ): NewDestinationItemType[] => {
-                const hogTemplates = featureFlags[FEATURE_FLAGS.HOG_FUNCTIONS]
-                    ? Object.values(hogFunctionTemplates)
-                    : []
+                const hogFunctionsEnabled = !!featureFlags[FEATURE_FLAGS.HOG_FUNCTIONS]
+                const hogTemplates = hogFunctionsEnabled ? Object.values(hogFunctionTemplates) : []
 
                 return [
                     ...hogTemplates.map((hogFunction) => ({
@@ -143,11 +143,12 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         description: plugin.description || '',
                         backend: PipelineBackend.Plugin,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
+                        status: hogFunctionsEnabled ? ('deprecated' as const) : undefined,
                     })),
 
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
-                        name: service,
+                        name: humanizeBatchExportName(service),
                         description: `${service} batch export`,
                         backend: PipelineBackend.BatchExport,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
