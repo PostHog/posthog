@@ -7,15 +7,13 @@ from rest_framework.request import Request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from django.views.decorators.csrf import csrf_exempt
-
+from posthog.auth import (
+    TemporaryTokenAuthentication,
+)
 from posthog.exceptions import generate_exception_response
 from posthog.models import Team, Experiment
 from posthog.utils_cors import cors_response
 
-
-class ExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "survey"
-    queryset = Experiment.objects.select_related("feature_flag").all()
 
 
 class ExperimentTransformSerializer(serializers.Serializer):
@@ -57,6 +55,12 @@ class ExperimentsAPISerializer(serializers.ModelSerializer):
 
         return payloads
 
+
+class ExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "experiment"
+    serializer_class = ExperimentsAPISerializer
+    authentication_classes = [TemporaryTokenAuthentication]
+    queryset = Experiment.objects.select_related("feature_flag").all()
 
 @csrf_exempt
 def experiments(request: Request):
