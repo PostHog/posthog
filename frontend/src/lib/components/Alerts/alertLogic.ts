@@ -1,12 +1,10 @@
 import { connect, kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail } from 'lib/utils'
-import { getInsightId } from 'scenes/insights/utils'
-import { urls } from 'scenes/urls'
 
 import { AlertType } from '~/queries/schema'
 
@@ -20,7 +18,7 @@ export interface AlertLogicProps extends AlertsLogicProps {
 export const alertLogic = kea<alertLogicType>([
     path(['lib', 'components', 'Alerts', 'alertLogic']),
     props({} as AlertLogicProps),
-    key(({ id, insightShortId }) => `${insightShortId}-${id ?? 'new'}`),
+    key(({ id, insightId }) => `${insightId}-${id ?? 'new'}`),
     connect(() => ({
         actions: [alertsLogic, ['loadAlerts']],
     })),
@@ -30,7 +28,7 @@ export const alertLogic = kea<alertLogicType>([
             __default: undefined as unknown as AlertType,
             loadAlert: async () => {
                 if (props.id) {
-                    return await api.alerts.get(props.id)
+                    return await api.alerts.get(props.insightId, props.id)
                 }
                 return { condition: { absoluteThreshold: {} } }
             },
@@ -49,22 +47,16 @@ export const alertLogic = kea<alertLogicType>([
                     : undefined,
             }),
             submit: async (alert) => {
-                const insightId = await getInsightId(props.insightShortId)
-
                 const payload = {
                     ...alert,
-                    insight: insightId,
+                    insight: props.insightId,
                 }
 
                 const updatedAlert: AlertType = !props.id
-                    ? await api.alerts.create(payload)
-                    : await api.alerts.update(props.id, payload)
+                    ? await api.alerts.create(props.insightId, payload)
+                    : await api.alerts.update(props.insightId, props.id, payload)
 
                 actions.resetAlert()
-
-                if (updatedAlert.id !== props.id) {
-                    router.actions.replace(urls.alerts(props.insightShortId))
-                }
 
                 actions.loadAlerts()
                 actions.loadAlertSuccess(updatedAlert)

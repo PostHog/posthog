@@ -77,7 +77,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         isOpen={insightMode === ItemMode.Subscriptions}
                         closeModal={() => push(urls.insightView(insight.short_id))}
                         insightShortId={insight.short_id}
-                        subscriptionId={itemId}
+                        subscriptionId={typeof itemId === 'number' ? itemId : null}
                     />
                     <SharingModal
                         title="Insight sharing"
@@ -97,8 +97,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         closeModal={() => push(urls.insightView(insight.short_id))}
                         isOpen={insightMode === ItemMode.Alerts}
                         insightLogicProps={insightLogicProps}
+                        insightId={insight.id}
                         insightShortId={insight.short_id}
-                        alertId={itemId}
+                        alertId={typeof itemId === 'string' ? itemId : null}
                     />
                     <NewDashboardModal />
                 </>

@@ -127,3 +127,17 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.checks = instance.alertcheck_set.all().order_by("-created_at")[:5]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+
+class ThresholdWithAlertSerializer(ThresholdSerializer):
+    alerts = AlertSerializer(many=True, read_only=True, source="alertconfiguration_set")
+
+    class Meta(ThresholdSerializer.Meta):
+        fields = [*ThresholdSerializer.Meta.fields, "alerts"]
+        read_only_fields = [*ThresholdSerializer.Meta.read_only_fields, "alerts"]
+
+
+class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = Threshold.objects.all()
+    serializer_class = ThresholdWithAlertSerializer

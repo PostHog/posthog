@@ -21,7 +21,7 @@ export interface AlertsModalProps extends AlertsLogicProps {
 }
 
 export function AlertsModal(props: AlertsModalProps): JSX.Element {
-    const { closeModal, insightShortId, insightLogicProps, alertId, isOpen } = props
+    const { closeModal, insightId, insightShortId, insightLogicProps, alertId, isOpen } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
 
@@ -32,6 +32,7 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
         <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="">
             {!alertId ? (
                 <ManageAlerts
+                    insightId={insightId}
                     insightShortId={insightShortId}
                     insightLogicProps={insightLogicProps}
                     onCancel={closeModal}
@@ -40,6 +41,7 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
             ) : (
                 <EditAlert
                     id={alertId === 'new' ? undefined : alertId}
+                    insightId={insightId}
                     insightShortId={insightShortId}
                     insightLogicProps={insightLogicProps}
                     onCancel={() => push(urls.alerts(insightShortId))}
