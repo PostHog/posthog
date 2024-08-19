@@ -91,7 +91,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
             },
         ],
     }),
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         backfillForm: {
             defaults: { end_at: dayjs() } as {
                 start_at?: Dayjs
@@ -102,6 +102,20 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 end_at: !end_at ? 'End date is required' : undefined,
             }),
             submit: async ({ start_at, end_at }) => {
+                if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
+                    // TODO: Make this generic for all minute frequencies.
+                    // Currently, only 5 minute batch exports are supported.
+                    if (
+                        !(start_at?.minute() && start_at?.minute() % 5 === 0) ||
+                        !(end_at?.minute() && end_at?.minute() % 5 === 0)
+                    ) {
+                        lemonToast.error(
+                            'Backfilling a 5 minute batch export requires bounds be multiple of five minutes'
+                        )
+                        return
+                    }
+                }
+
                 await new Promise((resolve) => setTimeout(resolve, 1000))
                 await api.batchExports
                     .createBackfill(props.id, {
@@ -198,10 +212,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
             actions.loadRuns()
         },
         retryRun: async ({ run }) => {
-            await api.batchExports.createBackfill(props.id, {
-                start_at: run.data_interval_start.toISOString(),
-                end_at: run.data_interval_end.toISOString(),
-            })
+            await api.batchExports.retryRun(props.id, run.id)
             lemonToast.success('Retry has been scheduled.')
         },
     })),

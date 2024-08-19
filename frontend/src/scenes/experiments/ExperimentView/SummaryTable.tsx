@@ -19,6 +19,7 @@ import { VariantTag } from './components'
 
 export function SummaryTable(): JSX.Element {
     const {
+        experimentId,
         experimentResults,
         tabularExperimentResults,
         experimentInsightType,
@@ -43,7 +44,7 @@ export function SummaryTable(): JSX.Element {
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="flex items-center">
-                        <VariantTag variantKey={item.key} />
+                        <VariantTag experimentId={experimentId} variantKey={item.key} />
                     </div>
                 )
             },

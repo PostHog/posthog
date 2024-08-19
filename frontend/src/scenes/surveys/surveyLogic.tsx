@@ -242,8 +242,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         surveyUserStats: {
             loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
-                const { survey } = values
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -290,14 +290,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
                 iteration?: number | null | undefined
             }): Promise<SurveyRatingResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -345,14 +344,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyRecurringNPSResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -431,8 +429,8 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
-                const { survey } = values
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -467,14 +465,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyMultipleChoiceResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.MultipleChoice) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.MultipleChoice}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -522,14 +519,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }: {
                 questionIndex: number
             }): Promise<SurveyOpenTextResults> => {
-                const { survey } = values
-
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Open) {
                     throw new Error(`Survey question type must be ${SurveyQuestionType.Open}`)
                 }
 
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const survey: Survey = values.survey as Survey
+                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
@@ -914,7 +910,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (survey.id === 'new') {
                     return null
                 }
-                const createdAt = (survey as Survey).created_at
+                const surveyWithResults = survey as Survey
+                const startDate = surveyWithResults.start_date || surveyWithResults.created_at
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -938,7 +935,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                         orderBy: ['timestamp DESC'],
                         where: [`event == 'survey sent'`],
-                        after: createdAt,
+                        after: startDate,
                         properties: [
                             {
                                 type: PropertyFilterType.Event,
