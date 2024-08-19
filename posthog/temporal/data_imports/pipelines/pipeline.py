@@ -169,11 +169,15 @@ class DataImportPipeline:
 
                     # There should only ever be one table here
                     for table in delta_tables.values():
+                        self.logger.info("Compacting delta table")
                         table.optimize.compact()
                         table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
                         file_uris = table.file_uris()
+                        self.logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
                         async_to_sync(self._prepare_s3_files_for_querying)(file_uris)
+
+                    self.logger.info(f"Table format: {table_format}")
 
                     async_to_sync(validate_schema_and_update_table)(
                         run_id=self.inputs.run_id,
@@ -183,6 +187,8 @@ class DataImportPipeline:
                         row_count=total_counts.total(),
                         table_format=table_format,
                     )
+                else:
+                    self.logger.info("No table_counts, skipping validate_schema_and_update_table")
 
                 pipeline_runs = pipeline_runs + 1
         else:
@@ -224,11 +230,15 @@ class DataImportPipeline:
 
                 # There should only ever be one table here
                 for table in delta_tables.values():
+                    self.logger.info("Compacting delta table")
                     table.optimize.compact()
                     table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
                     file_uris = table.file_uris()
+                    self.logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
                     async_to_sync(self._prepare_s3_files_for_querying)(file_uris)
+
+                self.logger.info(f"Table format: {table_format}")
 
                 async_to_sync(validate_schema_and_update_table)(
                     run_id=self.inputs.run_id,
@@ -238,6 +248,8 @@ class DataImportPipeline:
                     row_count=total_counts.total(),
                     table_format=table_format,
                 )
+            else:
+                self.logger.info("No table_counts, skipping validate_schema_and_update_table")
 
         # Delete local state from the file system
         pipeline.drop()
