@@ -32,6 +32,7 @@ sources:
         query_parameters:
             - _
         host_key: ip
+        response_body_key: '%response'
         decoding:
             codec: vrl
             vrl:
@@ -61,6 +62,8 @@ sources:
                     assert!(is_string(.message[0].distinct_id), "distinct_id is required")
                     assert!(is_string(.message[0].properties."$$session_id"), "$$session_id is required")
                     assert!(is_string(%token), "token is required")
+
+                    %response = {"status": 1}
 
 transforms:
     quota_check:
@@ -211,7 +214,7 @@ sinks:
             sticky.partitioning.linger.ms: '25'
             enable.idempotence: 'false'
             max.in.flight.requests.per.connection: '1000000'
-            partitioner: 'consistent_random'
+            partitioner: 'murmur2_random'
         message_timeout_ms: 10000
         socket_timeout_ms: 5000
     kafka_overflow:

@@ -1,0 +1,10 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+<p>
+    The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert detected following anomalies for <a href="{% absolute_uri insight_url %}">{{ insight_name }}</a>:
+    <ul>
+        {% for anomaly_description in anomalies_descriptions %}
+            <li>{{ anomaly_description }}</li>
+        {% endfor %}
+    </ul>
+</p>
+{% endblock %}{% load posthog_filters %}

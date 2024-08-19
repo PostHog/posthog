@@ -33,6 +33,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { QueryContext } from '~/queries/types'
 
 import type {
+    AnomalyCondition,
     DashboardFilter,
     DatabaseSchemaField,
     HogQLQuery,
@@ -1908,34 +1909,6 @@ export interface PluginConfigTypeNew {
     updated_at: string
     delivery_rate_24h?: number | null
     config: Record<string, any>
-    filters?: PluginConfigFilters | null
-}
-
-// subset of EntityFilter
-export interface PluginConfigFilterBase {
-    id: string
-    name: string | null
-    order: number
-    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
-}
-
-export interface PluginConfigFilterEvents extends PluginConfigFilterBase {
-    type: 'events'
-}
-
-export interface PluginConfigFilterActions extends PluginConfigFilterBase {
-    type: 'actions'
-}
-
-export interface PluginConfigFilters {
-    events?: PluginConfigFilterEvents[]
-    actions?: PluginConfigFilterActions[]
-    filter_test_accounts?: boolean
-}
-
-export interface HogConfigFilters extends PluginConfigFilters {
-    bytecode?: any[]
-    bytecode_error?: string
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
@@ -2772,7 +2745,7 @@ interface SpecificQuestionBranching {
 export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
     rollout_percentage?: number | null
-    variant: string | null
+    variant?: string | null
     users_affected?: number
 }
 
@@ -3861,7 +3834,15 @@ export enum DataWarehouseSettingsTab {
     SelfManaged = 'self-managed',
 }
 
-export const externalDataSources = ['Stripe', 'Hubspot', 'Postgres', 'MySQL', 'Zendesk', 'Snowflake'] as const
+export const externalDataSources = [
+    'Stripe',
+    'Hubspot',
+    'Postgres',
+    'MySQL',
+    'Zendesk',
+    'Snowflake',
+    'Salesforce',
+] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
@@ -4213,6 +4194,13 @@ export enum SidePanelTab {
     Exports = 'exports',
 }
 
+export interface SourceFieldOauthConfig {
+    type: 'oauth'
+    name: string
+    label: string
+    required: boolean
+}
+
 export interface SourceFieldInputConfig {
     type: LemonInputProps['type'] | 'textarea'
     name: string
@@ -4238,7 +4226,11 @@ export interface SourceFieldSwitchGroupConfig {
     fields: SourceFieldConfig[]
 }
 
-export type SourceFieldConfig = SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig
+export type SourceFieldConfig =
+    | SourceFieldInputConfig
+    | SourceFieldSwitchGroupConfig
+    | SourceFieldSelectConfig
+    | SourceFieldOauthConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
@@ -4313,11 +4305,45 @@ export type HogFunctionInputType = {
     bytecode?: any
 }
 
-export type HogFunctionFiltersMasking = {
+export type HogFunctionMasking = {
     ttl: number | null
     threshold?: number | null
     hash: string
     bytecode?: any
+}
+
+// subset of EntityFilter
+export interface HogFunctionFilterBase {
+    id: string
+    name: string | null
+    order: number
+    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface HogFunctionFilterEvents extends HogFunctionFilterBase {
+    type: 'events'
+}
+
+export interface HogFunctionFilterActions extends HogFunctionFilterBase {
+    type: 'actions'
+}
+
+export type HogFunctionFilterPropertyFilter = (
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | GroupPropertyFilter
+    | FeaturePropertyFilter
+    | HogQLPropertyFilter
+)[]
+
+export interface HogFunctionFiltersType {
+    events?: HogFunctionFilterEvents[]
+    actions?: HogFunctionFilterActions[]
+    properties?: HogFunctionFilterPropertyFilter[]
+    filter_test_accounts?: boolean
+    bytecode?: any[]
+    bytecode_error?: string
 }
 
 export type HogFunctionType = {
@@ -4333,8 +4359,8 @@ export type HogFunctionType = {
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType>
-    masking?: HogFunctionFiltersMasking | null
-    filters?: HogConfigFilters | null
+    masking?: HogFunctionMasking | null
+    filters?: HogFunctionFiltersType | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
 }
@@ -4346,11 +4372,13 @@ export type HogFunctionConfigurationType = Omit<
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
 }
 
+export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated'
+
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
     'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url'
 > & {
-    status: 'alpha' | 'beta' | 'stable' | 'free'
+    status: HogFunctionTemplateStatus
 }
 
 export type HogFunctionIconResponse = {
@@ -4406,13 +4434,6 @@ export type HogFunctionInvocationGlobals = {
             properties: Record<string, any>
         }
     >
-}
-
-export interface AnomalyCondition {
-    absoluteThreshold: {
-        lower?: number
-        upper?: number
-    }
 }
 
 export interface AlertType {
