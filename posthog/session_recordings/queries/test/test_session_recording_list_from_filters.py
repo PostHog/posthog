@@ -2617,7 +2617,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["error"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["error"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         assert sorted(
             [(sr["session_id"], sr["console_error_count"]) for sr in session_recordings],
@@ -2626,7 +2631,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _, _) = self._filter_recordings_by({"console_logs": ["info"]})
+        (session_recordings, _, _) = self._filter_recordings_by(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+            }
+        )
 
         assert session_recordings == []
 
