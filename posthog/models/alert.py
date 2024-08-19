@@ -91,6 +91,15 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
 
+    def save(self, *args, **kwargs):
+        if not self.enabled:
+            # When disabling an alert, set the state to inactive
+            self.state = "inactive"
+            if "update_fields" in kwargs:
+                kwargs["update_fields"].append("state")
+
+        super().save(*args, **kwargs)
+
     def evaluate_condition(self, calculated_value) -> list[str]:
         threshold = InsightThreshold.model_validate(self.threshold.configuration) if self.threshold else None
         condition = AlertCondition.model_validate(self.condition)

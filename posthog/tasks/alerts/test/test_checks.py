@@ -148,6 +148,22 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at").state == "firing"
             )
 
+    def test_alert_is_set_to_inactive_when_disabled(self, mock_send_notifications: MagicMock) -> None:
+        self.set_thresholds(lower=1)
+
+        check_alert(self.alert["id"])
+
+        assert mock_send_notifications.call_count == 1
+        assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at").state == "firing"
+
+        self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"enabled": False})
+
+        # Check that the alert is set to inactive and checks are not triggered
+        check_alert(self.alert["id"])
+
+        assert mock_send_notifications.call_count == 1
+        assert AlertConfiguration.objects.get(pk=self.alert["id"]).state == "inactive"
+
     def test_alert_is_not_triggered_for_normal_values(self, mock_send_notifications: MagicMock) -> None:
         self.set_thresholds(lower=0, upper=1)
 
