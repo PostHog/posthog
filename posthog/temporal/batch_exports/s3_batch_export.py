@@ -296,7 +296,7 @@ class S3MultiPartUpload:
         reader = io.BufferedReader(body)  # type: ignore
 
         try:
-            response = await self.upload_part_retryable(
+            etag = await self.upload_part_retryable(
                 reader,
                 next_part_number,
                 max_attempts=max_attempts,
@@ -304,10 +304,13 @@ class S3MultiPartUpload:
                 max_retry_delay=max_retry_delay,
                 exponential_backoff_coefficient=exponential_backoff_coefficient,
             )
+        except Exception:
+            raise
+
         finally:
             reader.detach()  # BufferedReader closes the file otherwise.
 
-        self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
+        self.parts.append({"PartNumber": next_part_number, "ETag": etag})
 
     async def upload_part_retryable(
         self,
@@ -317,7 +320,7 @@ class S3MultiPartUpload:
         initial_retry_delay: float | int = 2,
         max_retry_delay: float | int = 32,
         exponential_backoff_coefficient: int = 2,
-    ):
+    ) -> str:
         """Attempt to upload a part for this multi-part upload retrying on transient errors."""
         response = None
         attempt = 0
@@ -335,6 +338,7 @@ class S3MultiPartUpload:
 
                 except botocore.exceptions.ClientError as err:
                     error_code = err.response.get("Error", {}).get("Code", None)
+                    attempt += 1
 
                     if error_code is not None and error_code == "RequestTimeout":
                         if attempt >= max_attempts:
@@ -343,13 +347,12 @@ class S3MultiPartUpload:
                         await asyncio.sleep(
                             min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
                         )
-                        attempt += 1
 
                         continue
                     else:
                         raise
 
-        return response
+        return response["ETag"]
 
     async def __aenter__(self):
         """Asynchronous context manager protocol enter."""
@@ -570,6 +573,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 )
 
                 await s3_upload.upload_part(local_results_file)
+
                 rows_exported.add(records_since_last_flush)
                 bytes_exported.add(bytes_since_last_flush)
 
