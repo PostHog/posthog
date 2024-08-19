@@ -39,7 +39,6 @@ from posthog.utils import (
     get_machine_id,
     get_previous_day,
 )
-
 from posthog.warehouse.models import ExternalDataJob
 
 logger = structlog.get_logger(__name__)
@@ -641,6 +640,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
+        or report.rows_synced_in_period > 0
     )
 
 

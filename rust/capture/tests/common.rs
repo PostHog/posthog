@@ -98,6 +98,16 @@ impl ServerHandle {
             .await
             .expect("failed to send request")
     }
+
+    pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://{:?}/batch", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
 }
 
 impl Drop for ServerHandle {
