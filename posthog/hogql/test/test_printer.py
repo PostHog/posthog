@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 import json
 from typing import Any, Literal, Optional, cast
 from collections.abc import Mapping
@@ -362,156 +361,13 @@ class TestPrinter(BaseTest):
             "nullIf(nullIf(events.mat_foo, ''), 'null')",
         )
 
-    def test_property_groups_optimized_comparisons(self):
-        @dataclass
-        class PropertyGroupComparisonTestCase:
-            input_expression: str
-            expected_optimized_query: str | None
-            expected_context_values: Mapping[str, Any] = field(default_factory=dict)
-            expected_skip_indexes_used: set[str] = field(default_factory=set)
-
-        cases = [
-            # Comparing against a (non-empty) string value lets us avoid checking if the key exists or not, and lets us
-            # use the bloom filter indices on both keys and values to optimize the comparison operation.
-            PropertyGroupComparisonTestCase(
-                "properties.key = 'value'",
-                "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
-                {"hogql_val_0": "key", "hogql_val_1": "value"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "'value' = properties.key",
-                "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
-                {"hogql_val_0": "key", "hogql_val_1": "value"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "equals(properties.key, 'value')",
-                "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
-                {"hogql_val_0": "key", "hogql_val_1": "value"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
-            ),
-            # NOTE: We'll want to actually support this type of expression where the right hand side is trivially
-            # resolved to a constant value at some point, but for right now we only want to optimize comparisons to
-            # constant values directly for simplicity.
-            PropertyGroupComparisonTestCase(
-                "properties.key = lower('value')",
-                None,
-            ),
-            # Comparisons to non-constant values can't utilize the data skipping indexes anyway, so leave them alone.
-            PropertyGroupComparisonTestCase(
-                "properties.key1 = properties.key2",
-                None,
-            ),
-            # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we
-            # need to check whether or not the key exists in the map *and* compare the value in the map is the empty
-            # string or not. We can still utilize the bloom filter index on keys, but the empty string isn't stored in
-            # the bloom filter so it won't be used here.
-            PropertyGroupComparisonTestCase(
-                "properties.key = ''",
-                "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
-                {"hogql_val_0": "key", "hogql_val_1": ""},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "equals(properties.key, '')",
-                "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
-                {"hogql_val_0": "key", "hogql_val_1": ""},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-            ),
-            # NOT NULL comparisons should check to see if the key exists within the map (and should use the bloom filter
-            # to optimize the check), but do not need to load the values subcolumn.
-            PropertyGroupComparisonTestCase(
-                "properties.key is not null",
-                "has(events.properties_group_custom, %(hogql_val_0)s)",
-                {"hogql_val_0": "key"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "properties.key != null",
-                "has(events.properties_group_custom, %(hogql_val_0)s)",
-                {"hogql_val_0": "key"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "isNotNull(properties.key)",
-                "has(events.properties_group_custom, %(hogql_val_0)s)",
-                {"hogql_val_0": "key"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-            ),
-            # NULL comparisons don't really benefit from the bloom filter index like NOT NULL comparisons do, but like
-            # above, only need to check the keys subcolumn and not the values subcolumn.
-            PropertyGroupComparisonTestCase(
-                "properties.key is null",
-                "not(has(events.properties_group_custom, %(hogql_val_0)s))",
-                {"hogql_val_0": "key"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "properties.key = null",
-                "not(has(events.properties_group_custom, %(hogql_val_0)s))",
-                {"hogql_val_0": "key"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "isNull(properties.key)",
-                "not(has(events.properties_group_custom, %(hogql_val_0)s))",
-                {"hogql_val_0": "key"},
-            ),
-            # The IN operator works much like equality when the right hand side of the expression is all constants. Like
-            # equality, it also needs to handle the empty string special case.
-            PropertyGroupComparisonTestCase(
-                "properties.key IN ('a', 'b')",
-                "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s))",
-                {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "properties.key IN 'a'",  # strange, but syntactically valid
-                "in(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
-                {"hogql_val_0": "key", "hogql_val_1": "a"},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "properties.key IN ('a', 'b', '')",
-                (
-                    "or("
-                    "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)), "
-                    "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_3)s))"
-                    ")"
-                ),
-                {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b", "hogql_val_3": ""},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-            ),
-            PropertyGroupComparisonTestCase(
-                "properties.key IN ''",  # strange, but syntactically valid
-                "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
-                {"hogql_val_0": "key", "hogql_val_1": ""},
-                expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-            ),
-            # Leave NULL values alone when used with the ``IN`` operator as their expected behavior is not clear.
-            PropertyGroupComparisonTestCase(
-                "properties.key in NULL",
-                None,
-            ),
-            PropertyGroupComparisonTestCase(
-                "properties.key in (NULL)",
-                None,
-            ),
-            # Only direct constant comparison is supported for now -- see above.
-            PropertyGroupComparisonTestCase(
-                "properties.key in lower('value')",
-                None,
-            ),
-            PropertyGroupComparisonTestCase(
-                "properties.key in (lower('a'), lower('b'))",
-                None,
-            ),
-        ]
-
-        # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise the
-        # query is optimized to read from `NullSource` which doesn't do us much good here...
-        for _ in range(10):
-            _create_event(team=self.team, distinct_id="distinct_id", event="event")
-
+    def _test_property_group_comparison(
+        self,
+        input_expression: str,
+        expected_optimized_query: str | None,
+        expected_context_values: Mapping[str, Any] | None = None,
+        expected_skip_indexes_used: set[str] | None = None,
+    ) -> None:
         def find_node(node, condition):
             """Find the first node in a query plan meeting a given condition (using depth-first search.)"""
             if condition(node):
@@ -522,27 +378,31 @@ class TestPrinter(BaseTest):
                     if result is not None:
                         return result
 
-        for cases_evaluated, case in enumerate(cases, 1):  # noqa: B007 - `cases_evaluated` used below
-            # XXX: Error messages within this block are not very descriptive, it would be better to use something like
-            # pytest parameterization if possible, but not sure how that will play with the other test lifecycle stuff?
-            def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
-                return HogQLContext(
-                    team_id=self.team.pk,
-                    modifiers=HogQLQueryModifiers(
-                        materializationMode=MaterializationMode.AUTO,
-                        propertyGroupsMode=property_groups_mode,
-                    ),
-                )
-
-            context = build_context(PropertyGroupsMode.OPTIMIZED)
-            printed_expr = self._expr(case.input_expression, context)
-            self.assertEqual(
-                printed_expr,
-                case.expected_optimized_query
-                if case.expected_optimized_query is not None
-                else self._expr(case.input_expression, build_context(PropertyGroupsMode.OPTIMIZED)),
+        def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
+            return HogQLContext(
+                team_id=self.team.pk,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=property_groups_mode,
+                ),
             )
-            self.assertDictContainsSubset(case.expected_context_values, context.values)
+
+        context = build_context(PropertyGroupsMode.OPTIMIZED)
+        printed_expr = self._expr(input_expression, context)
+        self.assertEqual(
+            printed_expr,
+            expected_optimized_query
+            if expected_optimized_query is not None
+            else self._expr(input_expression, build_context(PropertyGroupsMode.OPTIMIZED)),
+        )
+        if expected_context_values is not None:
+            self.assertDictContainsSubset(expected_context_values, context.values)
+
+        if expected_skip_indexes_used:
+            # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
+            # the query is optimized to read from `NullSource` which doesn't do us much good here...
+            for _ in range(10):
+                _create_event(team=self.team, distinct_id="distinct_id", event="event")
 
             [[raw_explain_result]] = sync_execute(
                 f"EXPLAIN indexes = 1, json = 1 SELECT count() FROM events WHERE {printed_expr}",
@@ -553,12 +413,139 @@ class TestPrinter(BaseTest):
                 condition=lambda node: node["Node Type"] == "ReadFromMergeTree",
             )
             self.assertTrue(
-                case.expected_skip_indexes_used.issubset(
+                expected_skip_indexes_used.issubset(
                     {index["Name"] for index in read_from_merge_tree_step.get("Indexes", []) if index["Type"] == "Skip"}
                 ),
             )
 
-        self.assertEqual(cases_evaluated, len(cases))
+    def test_property_groups_optimized_basic_equality_comparisons(self) -> None:
+        # Comparing against a (non-empty) string value lets us avoid checking if the key exists or not, and lets us use
+        # the bloom filter indices on both keys and values to optimize the comparison operation.
+        self._test_property_group_comparison(
+            "properties.key = 'value'",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            {"hogql_val_0": "key", "hogql_val_1": "value"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+        self._test_property_group_comparison(
+            "'value' = properties.key",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            {"hogql_val_0": "key", "hogql_val_1": "value"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+        self._test_property_group_comparison(
+            "equals(properties.key, 'value')",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            {"hogql_val_0": "key", "hogql_val_1": "value"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+
+        # NOTE: We'll want to actually support this type of expression where the right hand side is trivially resolved
+        # to a constant value at some point, but for right now we only want to optimize comparisons to constant values
+        # directly for simplicity.
+        self._test_property_group_comparison("properties.key = lower('value')", None)
+
+        # Comparisons to non-constant values can't utilize the data skipping indexes anyway, so leave them alone.
+        self._test_property_group_comparison("properties.key1 = properties.key2", None)
+
+    def test_property_groups_optimized_empty_string_equality_comparisons(self) -> None:
+        # Keys that don't exist in a map return default values for the type -- in our case empty strings -- so we need
+        # to check whether or not the key exists in the map *and* compare the value in the map is the empty string or
+        # not. We can still utilize the bloom filter index on keys, but the empty string isn't stored in the bloom
+        # filter so it won't be used here.
+        self._test_property_group_comparison(
+            "properties.key = ''",
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
+            {"hogql_val_0": "key", "hogql_val_1": ""},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+        )
+        self._test_property_group_comparison(
+            "equals(properties.key, '')",
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
+            {"hogql_val_0": "key", "hogql_val_1": ""},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+        )
+
+    def test_property_groups_optimized_null_comparisons(self) -> None:
+        # NOT NULL comparisons should check to see if the key exists within the map (and should use the bloom filter to
+        # optimize the check), but do not need to load the values subcolumn.
+        self._test_property_group_comparison(
+            "properties.key is not null",
+            "has(events.properties_group_custom, %(hogql_val_0)s)",
+            {"hogql_val_0": "key"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+        )
+        self._test_property_group_comparison(
+            "properties.key != null",
+            "has(events.properties_group_custom, %(hogql_val_0)s)",
+            {"hogql_val_0": "key"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+        )
+        self._test_property_group_comparison(
+            "isNotNull(properties.key)",
+            "has(events.properties_group_custom, %(hogql_val_0)s)",
+            {"hogql_val_0": "key"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+        )
+
+        # NULL comparisons don't really benefit from the bloom filter index like NOT NULL comparisons do, but like
+        # above, only need to check the keys subcolumn and not the values subcolumn.
+        self._test_property_group_comparison(
+            "properties.key is null",
+            "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+            {"hogql_val_0": "key"},
+        )
+        self._test_property_group_comparison(
+            "properties.key = null",
+            "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+            {"hogql_val_0": "key"},
+        )
+        self._test_property_group_comparison(
+            "isNull(properties.key)",
+            "not(has(events.properties_group_custom, %(hogql_val_0)s))",
+            {"hogql_val_0": "key"},
+        )
+
+    def test_property_groups_optimized_in_comparisons(self) -> None:
+        # The IN operator works much like equality when the right hand side of the expression is all constants. Like
+        # equality, it also needs to handle the empty string special case.
+        self._test_property_group_comparison(
+            "properties.key IN ('a', 'b')",
+            "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s))",
+            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+        self._test_property_group_comparison(
+            "properties.key IN 'a'",  # strange, but syntactically valid
+            "in(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            {"hogql_val_0": "key", "hogql_val_1": "a"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+        )
+        self._test_property_group_comparison(
+            "properties.key IN ('a', 'b', '')",
+            (
+                "or("
+                "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)), "
+                "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_3)s))"
+                ")"
+            ),
+            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b", "hogql_val_3": ""},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+        )
+        self._test_property_group_comparison(
+            "properties.key IN ''",  # strange, but syntactically valid
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
+            {"hogql_val_0": "key", "hogql_val_1": ""},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+        )
+
+        # Leave NULL values alone when used with the ``IN`` operator as their expected behavior is not clear.
+        self._test_property_group_comparison("properties.key in NULL", None)
+        self._test_property_group_comparison("properties.key in (NULL)", None)
+
+        # Only direct constant comparison is supported for now -- see above.
+        self._test_property_group_comparison("properties.key in lower('value')", None)
+        self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
 
     def test_property_groups_select_with_aliases(self):
         context = HogQLContext(
