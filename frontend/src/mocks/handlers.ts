@@ -36,7 +36,8 @@ function posthogCORSResponse(req: RestRequest, res: ResponseComposition, ctx: Re
         // some of our tests try to make requests via posthog-js e.g. userLogic calls identify
         // they have to have CORS allowed, or they pass but print noise to the console
         ctx.set('Access-Control-Allow-Origin', req.referrer.length ? req.referrer : 'http://localhost'),
-        ctx.set('Access-Control-Allow-Credentials', 'true')
+        ctx.set('Access-Control-Allow-Credentials', 'true'),
+        ctx.set('Access-Control-Allow-Headers', '*')
     )
 }
 
@@ -142,6 +143,9 @@ export const defaultMocks: Mocks = {
     },
     patch: {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
+    },
+    options: {
+        'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
     },
 }
 export const handlers = mocksToHandlers(defaultMocks)

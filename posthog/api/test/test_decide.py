@@ -5,6 +5,7 @@ import time
 from typing import Optional
 from unittest.mock import patch
 
+from django.http import HttpRequest
 import pytest
 from django.conf import settings
 from django.core.cache import cache
@@ -16,9 +17,10 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog import redis
-from posthog.api.decide import label_for_team_id_to_track
+from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.database_healthcheck import postgres_healthcheck
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import (
     FeatureFlag,
     GroupTypeMapping,
@@ -3152,6 +3154,48 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
 
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_recordings_disabled(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_SESSION_REPLAY_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            self._update_team(
+                {
+                    "session_recording_opt_in": True,
+                }
+            )
+
+            response = self._post_decide().json()
+            assert response["sessionRecording"] is False
+            assert response["quotaLimited"] == ["recordings"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_recordings_other_token(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_SESSION_REPLAY_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token + "a"] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            self._update_team(
+                {
+                    "session_recording_opt_in": True,
+                }
+            )
+
+            response = self._post_decide().json()
+            assert response["sessionRecording"] is not False
+            assert not response.get("quotaLimited")
+
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_when_enabled(self, *args):
         FeatureFlag.objects.create(
@@ -5267,3 +5311,31 @@ class TestDecideMetricLabel(TestCase):
             self.assertEqual(label_for_team_id_to_track(20), "20")
             self.assertEqual(label_for_team_id_to_track(25), "unknown")
             self.assertEqual(label_for_team_id_to_track(31), "31")
+
+
+class TestDecideExceptions(TestCase):
+    @patch("posthog.api.decide.capture_exception")
+    @patch("posthog.api.decide.load_data_from_request")
+    def test_unspecified_compression_fallback_parsing_error(self, mock_load_data, mock_capture_exception):
+        mock_load_data.side_effect = UnspecifiedCompressionFallbackParsingError("Test error")
+
+        request = HttpRequest()
+        request.method = "POST"
+
+        response = get_decide(request)
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthog.api.decide.capture_exception")
+    @patch("posthog.api.decide.load_data_from_request")
+    def test_request_parsing_error(self, mock_load_data, mock_capture_exception):
+        mock_load_data.side_effect = RequestParsingError("Test error")
+
+        request = HttpRequest()
+        request.method = "POST"
+
+        response = get_decide(request)
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture_exception.assert_called_once()

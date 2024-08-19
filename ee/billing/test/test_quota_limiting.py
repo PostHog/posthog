@@ -134,7 +134,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         time.sleep(1)
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()

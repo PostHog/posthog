@@ -28,7 +28,7 @@ describe('Insights', () => {
             cy.contains('.Link', insightName).click()
 
             cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
-            cy.get('tr.DataTable__row').should('have.length.gte', 2)
+            cy.get('tr.DataVizRow').should('have.length.gte', 2)
 
             cy.get('[data-attr="insight-edit-button"]').click()
             insight.clickTab('RETENTION')
@@ -50,7 +50,7 @@ describe('Insights', () => {
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-            cy.get('.DataTable tr').should('have.length.gte', 2)
+            cy.get('.DataVizRow').should('have.length.gte', 2)
 
             insight.clickTab('TRENDS')
             cy.get('.TrendsInsight canvas').should('exist')
@@ -61,7 +61,7 @@ describe('Insights', () => {
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-            cy.get('.DataTable tr').should('have.length.gte', 2)
+            cy.get('.DataVizRow').should('have.length.gte', 2)
 
             insight.clickTab('TRENDS')
             cy.get('.TrendsInsight canvas').should('exist')
@@ -71,7 +71,6 @@ describe('Insights', () => {
 
         it('can open event explorer as an insight', () => {
             cy.clickNavMenu('activity')
-            cy.get('[data-attr="data-table-export-menu"]').click()
             cy.get('[data-attr="open-json-editor-button"]').click()
             cy.get('[data-attr="insight-json-tab"]').should('exist')
         })

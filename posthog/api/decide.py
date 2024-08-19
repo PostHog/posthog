@@ -1,5 +1,5 @@
 from random import random
-from typing import Union
+from typing import Union, cast
 
 import structlog
 from django.conf import settings
@@ -14,7 +14,11 @@ from posthog.api.geoip import get_geoip_properties
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import get_project_id, get_token, hostname_in_allowed_url_list, parse_domain
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import (
+    UnspecifiedCompressionFallbackParsingError,
+    RequestParsingError,
+    generate_exception_response,
+)
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
@@ -88,6 +92,15 @@ def get_decide(request: HttpRequest):
                 tags={"endpoint": "decide", "api_version_string": api_version_string},
             )
             api_version = 2
+        except UnspecifiedCompressionFallbackParsingError as error:
+            # Notably don't capture this exception as it's not caused by buggy behavior,
+            # it's just a fallback for when we can't parse the request due to a missing header
+            # that we attempted to kludge by manually setting the compression type to gzip
+            # If this kludge fails, though all we need to do is return a 400 and move on
+            return cors_response(
+                request,
+                generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
+            )
         except RequestParsingError as error:
             capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
             return cors_response(
@@ -127,6 +140,7 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            token = cast(str, token)  # we know it's not None if we found a team
             structlog.contextvars.bind_contextvars(team_id=team.id)
 
             disable_flags = process_bool(data.get("disable_flags")) is True
@@ -232,7 +246,18 @@ def get_decide(request: HttpRequest):
             ):
                 response["elementsChainAsString"] = True
 
-            response["sessionRecording"] = _session_recording_config_response(request, team)
+            response["sessionRecording"] = _session_recording_config_response(request, team, token)
+
+            if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
+                from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+                limited_tokens_recordings = list_limited_team_attributes(
+                    QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+
+                if token in limited_tokens_recordings:
+                    response["quotaLimited"] = ["recordings"]
+                    response["sessionRecording"] = False
 
             response["surveys"] = True if team.surveys_opt_in else False
             response["heatmaps"] = True if team.heatmaps_opt_in else False
@@ -278,7 +303,7 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
+def _session_recording_config_response(request: HttpRequest, team: Team, token: str) -> bool | dict:
     session_recording_config_response: bool | dict = False
 
     try:
