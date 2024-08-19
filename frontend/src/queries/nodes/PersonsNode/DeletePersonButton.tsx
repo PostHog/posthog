@@ -18,6 +18,7 @@ export function DeletePersonButton({ person }: DeletePersonButtonProps): JSX.Ele
             icon={<IconTrash />}
             status="danger"
             size="small"
+            data-attr="delete-person"
         />
     )
 }

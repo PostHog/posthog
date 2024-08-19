@@ -1219,8 +1219,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.26
@@ -1335,38 +1336,38 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
-         T4."id",
-         T4."password",
-         T4."last_login",
-         T4."first_name",
-         T4."last_name",
-         T4."is_staff",
-         T4."is_active",
-         T4."date_joined",
-         T4."uuid",
-         T4."current_organization_id",
-         T4."current_team_id",
-         T4."email",
-         T4."pending_email",
-         T4."temporary_token",
-         T4."distinct_id",
-         T4."is_email_verified",
-         T4."requested_password_reset_at",
-         T4."has_seen_product_intro_for",
-         T4."strapi_id",
-         T4."theme_mode",
-         T4."partial_notification_settings",
-         T4."anonymize_data",
-         T4."toolbar_mode",
-         T4."hedgehog_config",
-         T4."events_column_config",
-         T4."email_opt_in"
+         T5."id",
+         T5."password",
+         T5."last_login",
+         T5."first_name",
+         T5."last_name",
+         T5."is_staff",
+         T5."is_active",
+         T5."date_joined",
+         T5."uuid",
+         T5."current_organization_id",
+         T5."current_team_id",
+         T5."email",
+         T5."pending_email",
+         T5."temporary_token",
+         T5."distinct_id",
+         T5."is_email_verified",
+         T5."requested_password_reset_at",
+         T5."has_seen_product_intro_for",
+         T5."strapi_id",
+         T5."theme_mode",
+         T5."partial_notification_settings",
+         T5."anonymize_data",
+         T5."toolbar_mode",
+         T5."hedgehog_config",
+         T5."events_column_config",
+         T5."email_opt_in"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T4 ON ("posthog_dashboarditem"."last_modified_by_id" = T4."id")
+  LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_dashboarditem"."last_modified_by_id" = T5."id")
   WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100
   '''

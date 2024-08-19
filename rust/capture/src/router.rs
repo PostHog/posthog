@@ -8,7 +8,6 @@ use axum::{
     Router,
 };
 use health::HealthRegistry;
-use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -20,7 +19,6 @@ use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
-const BATCH_CONCURRENCY_LIMIT: usize = 25; // We deploy these pods with 1G of memory, this and the above lets half of that be used for batch posts
 
 #[derive(Clone)]
 pub struct State {
@@ -74,7 +72,6 @@ pub fn router<
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(ConcurrencyLimitLayer::new(BATCH_CONCURRENCY_LIMIT))
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
     let event_router = Router::new()
