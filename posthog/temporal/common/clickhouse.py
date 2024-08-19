@@ -427,7 +427,7 @@ async def get_client(
             team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
         )
 
-    with aiohttp.TCPConnector(ssl=False) as connector:
+    with aiohttp.TCPConnector(ssl=False, keepalive_timeout=0) as connector:
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             async with ClickHouseClient(
                 session,
