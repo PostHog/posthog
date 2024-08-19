@@ -591,11 +591,16 @@ export interface ChartSettings {
     stackBars100?: boolean
 }
 
+export interface TableSettings {
+    columns?: ChartAxis[]
+}
+
 export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }
 
 interface DataTableNodeViewProps {
@@ -758,7 +763,10 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+    /** Wether more breakdown values are available. */
+    hasMore?: boolean
+}
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
@@ -868,6 +876,7 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
+    cumulative?: RetentionFilterLegacy['cumulative']
 }
 
 export interface RetentionValue {
@@ -1315,7 +1324,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    fingerprint?: string
+    fingerprint?: string[]
     select?: HogQLExpression[]
     eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
@@ -1327,9 +1336,9 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingGroup {
-    fingerprint: string
+    fingerprint: string[]
     exception_type: string | null
-    merged_fingerprints: string[]
+    merged_fingerprints: string[][]
     occurrences: number
     sessions: number
     users: number
@@ -1673,4 +1682,13 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
+}
+
+export interface AbsoluteThreshold {
+    lower?: number | null
+    upper?: number | null
+}
+
+export interface AnomalyCondition {
+    absoluteThreshold: AbsoluteThreshold
 }

@@ -359,6 +359,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"success": True})
 
+    @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, renderer_classes=[SurrogatePairSafeJSONRenderer])
     def snapshots(self, request: request.Request, **kwargs):
         """

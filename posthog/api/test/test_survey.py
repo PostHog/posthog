@@ -748,6 +748,34 @@ class TestSurvey(APIBaseTest):
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
 
+    def test_survey_targeting_flag_numeric_validation(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with numeric targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "$browser_version",
+                                    "value": "10",
+                                    "operator": "gt",
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": ""},
+            },
+            format="json",
+        )
+        assert survey_with_targeting.status_code == status.HTTP_201_CREATED
+
     def test_updating_survey_to_send_none_linked_flag_removes_linking(self):
         linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
 
@@ -2657,7 +2685,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         }
 
         earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.created_at = datetime.now() - timedelta(days=101)
+        earliest_survey.start_date = datetime.now() - timedelta(days=101)
         earliest_survey.save()
 
         for survey_id, count in survey_counts.items():
@@ -2678,7 +2706,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
-    def test_responses_count_only_after_first_survey_created(self):
+    def test_responses_count_only_after_first_survey_started(self):
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
             "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
@@ -2691,7 +2719,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         }
 
         earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.created_at = datetime.now() - timedelta(days=6)
+        earliest_survey.start_date = datetime.now() - timedelta(days=6)
         earliest_survey.save()
 
         for survey_id, count in survey_counts.items():

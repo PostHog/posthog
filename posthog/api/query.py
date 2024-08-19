@@ -11,7 +11,7 @@ from rest_framework.exceptions import NotAuthenticated, ValidationError
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, set_tag
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -197,3 +197,4 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+        set_tag("client_query_id", query_id)

@@ -14,7 +14,15 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
-import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    HogQuery,
+    InsightNodeKind,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
 import { ExportContext, FilterType, InsightLogicProps, InsightType } from '~/types'
 
@@ -29,6 +37,37 @@ export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode =
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
+
+export const getDefaultQuery = (
+    insightType: InsightType,
+    filterTestAccountsDefault: boolean
+): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+    if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {
+        if (insightType === InsightType.JSON) {
+            return examples.TotalEventsTable as DataTableNode
+        } else if (insightType === InsightType.SQL) {
+            return examples.DataVisualization as DataVisualizationNode
+        } else if (insightType === InsightType.HOG) {
+            return examples.Hoggonacci as HogQuery
+        }
+    } else {
+        if (insightType === InsightType.TRENDS) {
+            return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.FUNNELS) {
+            return queryFromKind(NodeKind.FunnelsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.RETENTION) {
+            return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.PATHS) {
+            return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.STICKINESS) {
+            return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.LIFECYCLE) {
+            return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
+        }
+    }
+
+    throw new Error('encountered unexpected type for view')
+}
 
 export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -76,6 +115,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     actions({
         setQuery: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
+        toggleDebugPanel: true,
         cancelChanges: true,
     }),
 
@@ -90,6 +130,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             false,
             {
                 toggleQueryEditorPanel: (state) => !state,
+            },
+        ],
+        showDebugPanel: [
+            false,
+            {
+                toggleDebugPanel: (state) => !state,
             },
         ],
     }),

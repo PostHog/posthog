@@ -2,15 +2,17 @@ import { actions, connect, kea, key, listeners, path, props, selectors } from 'k
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
-import { InsightActorsQuery, NodeKind, PathsQuery } from '~/queries/schema'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { InsightActorsQuery, InsightVizNode, NodeKind, PathsQuery } from '~/queries/schema'
 import { isPathsQuery } from '~/queries/utils'
-import { ActionFilter, InsightLogicProps, InsightType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { pathsDataLogicType } from './pathsDataLogicType'
 import { PathNodeData } from './pathUtils'
@@ -157,14 +159,19 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             }
             events.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
-            if (events.length > 0) {
-                router.actions.push(
-                    urls.insightNew({
-                        insight: InsightType.FUNNELS,
-                        events: events.reverse(),
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: actionsAndEventsToSeries({ events: events.reverse() }, true, MathAvailability.None),
+                    dateRange: {
                         date_from: values.dateRange?.date_from,
-                    })
-                )
+                    },
+                },
+            }
+
+            if (events.length > 0) {
+                router.actions.push(urls.insightNew(undefined, undefined, query))
             }
         },
     })),
