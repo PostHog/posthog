@@ -6,7 +6,7 @@ from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointR
 from posthog.temporal.data_imports.pipelines.salesforce.auth import SalseforceAuth
 
 
-def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointResource:
+def get_resource(name: str, is_incremental: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "User": {
             "name": "User",
@@ -153,9 +153,9 @@ def get_resource(name: str, is_incremental: bool, subdomain: str) -> EndpointRes
 
 
 class SalesforceEndpointPaginator(BasePaginator):
-    def __init__(self, subdomain):
+    def __init__(self, instance_url):
         super().__init__()
-        self.subdomain = subdomain
+        self.instance_url = instance_url
 
     def update_state(self, response: Response) -> None:
         res = response.json()
@@ -173,12 +173,12 @@ class SalesforceEndpointPaginator(BasePaginator):
             self._has_next_page = False
 
     def update_request(self, request: Request) -> None:
-        request.url = f"https://{self.subdomain}.my.salesforce.com{self._next_page}"
+        request.url = f"{self.instance_url}{self._next_page}"
 
 
 @dlt.source(max_table_nesting=0)
 def salesforce_source(
-    subdomain: str,
+    instance_url: str,
     access_token: str,
     refresh_token: str,
     endpoint: str,
@@ -188,14 +188,14 @@ def salesforce_source(
 ):
     config: RESTAPIConfig = {
         "client": {
-            "base_url": f"https://{subdomain}.my.salesforce.com",
+            "base_url": instance_url,
             "auth": SalseforceAuth(refresh_token, access_token),
-            "paginator": SalesforceEndpointPaginator(subdomain=subdomain),
+            "paginator": SalesforceEndpointPaginator(instance_url=instance_url),
         },
         "resource_defaults": {
             "primary_key": "id",
         },
-        "resources": [get_resource(endpoint, is_incremental, subdomain)],
+        "resources": [get_resource(endpoint, is_incremental)],
     }
 
     yield from rest_api_resources(config, team_id, job_id)

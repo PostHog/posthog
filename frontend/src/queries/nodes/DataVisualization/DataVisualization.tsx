@@ -129,7 +129,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     return (
         <div className="DataVisualization flex flex-1 gap-2">
             {!readOnly && showEditingUI && (
-                <div className="flex max-sm:hidden">
+                <div className="max-sm:hidden max-w-xs">
                     <DatabaseTableTreeWithItems inline />
                 </div>
             )}
@@ -142,7 +142,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="flex gap-4 justify-between flex-wrap">
+                        <div className="flex gap-4 justify-between flex-wrap px-px">
                             <div className="flex gap-4 items-center">
                                 <Reload />
                                 <ElapsedTime />

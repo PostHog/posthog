@@ -6,7 +6,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
-    LemonSelect,
     LemonSwitch,
     LemonTextArea,
     Link,
@@ -18,18 +17,14 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { Sparkline } from 'lib/components/Sparkline'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { groupsModel } from '~/models/groupsModel'
-import { AvailableFeature, EntityTypes } from '~/types'
+import { AvailableFeature } from '~/types'
 
+import { DestinationTag } from '../destinations/DestinationTag'
+import { HogFunctionFilters } from './filters/HogFunctionFilters'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
@@ -55,6 +50,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         hasAddon,
         sparkline,
         sparklineLoading,
+        template,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -67,26 +63,12 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         deleteHogFunction,
     } = useActions(logic)
 
-    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
-
     if (loading && !loaded) {
         return <SpinnerOverlay />
     }
 
     if (!loaded) {
         return <NotFound object="Hog function" />
-    }
-
-    if (!hogFunctionsEnabled && !id) {
-        return (
-            <div className="space-y-3">
-                <div className="border rounded text-center p-4">
-                    <h2>Feature not enabled</h2>
-                    <p>Hog functions are not enabled for you yet. If you think they should be, contact support.</p>
-                </div>
-            </div>
-        )
     }
 
     const headerButtons = (
@@ -152,7 +134,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                 />
 
                 <LemonBanner type="info">
-                    Hog Functions are in <b>alpha</b> and are the next generation of our data pipeline destinations. You
+                    Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations. You
                     can use pre-existing templates or modify the source Hog code to create your own custom functions.
                 </LemonBanner>
 
@@ -184,8 +166,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         )}
                                     </LemonField>
 
-                                    <div className="flex flex-col py-1 flex-1 justify-start">
+                                    <div className="flex flex-col items-start py-1 flex-1 justify-start">
                                         <span className="font-semibold">{configuration.name}</span>
+                                        {template && <DestinationTag status={template.status} />}
                                     </div>
 
                                     <HogFunctionStatusIndicator />
@@ -202,11 +185,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         )}
                                     </LemonField>
                                 </div>
-                                <LemonField
-                                    name="name"
-                                    label="Name"
-                                    info="Customising the name can be useful if multiple instances of the same type are used."
-                                >
+                                <LemonField name="name" label="Name">
                                     <LemonInput type="text" disabled={loading} />
                                 </LemonField>
                                 <LemonField
@@ -218,207 +197,47 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 </LemonField>
 
                                 {hogFunction?.template ? (
-                                    <p className="border border-dashed rounded text-muted-alt p-2">
-                                        Built from template:{' '}
-                                        <LemonDropdown
-                                            showArrow
-                                            overlay={
-                                                <div className="max-w-120 p-1">
-                                                    <p>
-                                                        This function was built from the template{' '}
-                                                        <b>{hogFunction.template.name}</b>. If the template is updated,
-                                                        this function is not affected unless you choose to update it.
-                                                    </p>
+                                    <LemonDropdown
+                                        showArrow
+                                        overlay={
+                                            <div className="max-w-120 p-1">
+                                                <p>
+                                                    This function was built from the template{' '}
+                                                    <b>{hogFunction.template.name}</b>. If the template is updated, this
+                                                    function is not affected unless you choose to update it.
+                                                </p>
 
-                                                    <div className="flex flex-1 gap-2 items-center border-t pt-2">
-                                                        <div className="flex-1">
-                                                            <LemonButton>Close</LemonButton>
-                                                        </div>
-                                                        <LemonButton onClick={() => resetToTemplate()}>
-                                                            Reset to template
-                                                        </LemonButton>
-
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            onClick={() => duplicateFromTemplate()}
-                                                        >
-                                                            New function from template
-                                                        </LemonButton>
+                                                <div className="flex flex-1 gap-2 items-center border-t pt-2">
+                                                    <div className="flex-1">
+                                                        <LemonButton>Close</LemonButton>
                                                     </div>
+                                                    <LemonButton onClick={() => resetToTemplate()}>
+                                                        Reset to template
+                                                    </LemonButton>
+
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => duplicateFromTemplate()}
+                                                    >
+                                                        New function from template
+                                                    </LemonButton>
                                                 </div>
-                                            }
-                                        >
-                                            <Link subtle className="font-semibold">
-                                                {hogFunction?.template.name} <IconInfo />
+                                            </div>
+                                        }
+                                    >
+                                        <div className="border border-dashed rounded text-muted-alt text-xs">
+                                            <Link subtle className="flex items-center gap-1 flex-wrap p-2">
+                                                Built from template:
+                                                <span className="font-semibold">{hogFunction?.template.name}</span>
+                                                <DestinationTag status={hogFunction.template.status} /> <IconInfo />
                                             </Link>
-                                        </LemonDropdown>
-                                    </p>
+                                        </div>
+                                    </LemonDropdown>
                                 ) : null}
                             </div>
 
-                            <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField
-                                    name="filters"
-                                    label="Filters"
-                                    help={
-                                        <>
-                                            This destination will be triggered if <b>any of</b> the above filters match.
-                                        </>
-                                    }
-                                >
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <TestAccountFilterSwitch
-                                                checked={value?.filter_test_accounts ?? false}
-                                                onChange={(val) => onChange({ ...value, filter_test_accounts: val })}
-                                                fullWidth
-                                            />
-                                            <ActionFilter
-                                                bordered
-                                                filters={value ?? {}}
-                                                setFilters={(payload) => {
-                                                    onChange({
-                                                        ...payload,
-                                                        filter_test_accounts: value?.filter_test_accounts,
-                                                    })
-                                                }}
-                                                typeKey="plugin-filters"
-                                                mathAvailability={MathAvailability.None}
-                                                hideRename
-                                                hideDuplicate
-                                                showNestedArrow={false}
-                                                actionsTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.Events,
-                                                    TaxonomicFilterGroupType.Actions,
-                                                ]}
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.HogQLExpression,
-                                                    ...groupsTaxonomicTypes,
-                                                ]}
-                                                propertyFiltersPopover
-                                                addFilterDefaultOptions={{
-                                                    id: '$pageview',
-                                                    name: '$pageview',
-                                                    type: EntityTypes.EVENTS,
-                                                }}
-                                                buttonCopy="Add event filter"
-                                            />
-                                        </>
-                                    )}
-                                </LemonField>
+                            <HogFunctionFilters />
 
-                                <LemonField name="masking" label="Trigger options">
-                                    {({ value, onChange }) => (
-                                        <div className="flex items-center gap-1 flex-wrap">
-                                            <LemonSelect
-                                                options={[
-                                                    {
-                                                        value: null,
-                                                        label: 'Run every time',
-                                                    },
-                                                    {
-                                                        value: 'all',
-                                                        label: 'Run once per interval',
-                                                    },
-                                                    {
-                                                        value: '{person.uuid}',
-                                                        label: 'Run once per person per interval',
-                                                    },
-                                                ]}
-                                                value={value?.hash ?? null}
-                                                onChange={(val) =>
-                                                    onChange({
-                                                        hash: val,
-                                                        ttl: value?.ttl ?? 60 * 30,
-                                                    })
-                                                }
-                                            />
-                                            {configuration.masking?.hash ? (
-                                                <>
-                                                    <div className="flex items-center gap-1 flex-wrap">
-                                                        <span>of</span>
-                                                        <LemonSelect
-                                                            value={value?.ttl}
-                                                            onChange={(val) => onChange({ ...value, ttl: val })}
-                                                            options={[
-                                                                {
-                                                                    value: 5 * 60,
-                                                                    label: '5 minutes',
-                                                                },
-                                                                {
-                                                                    value: 15 * 60,
-                                                                    label: '15 minutes',
-                                                                },
-                                                                {
-                                                                    value: 30 * 60,
-                                                                    label: '30 minutes',
-                                                                },
-                                                                {
-                                                                    value: 60 * 60,
-                                                                    label: '1 hour',
-                                                                },
-                                                                {
-                                                                    value: 2 * 60 * 60,
-                                                                    label: '2 hours',
-                                                                },
-                                                                {
-                                                                    value: 4 * 60 * 60,
-                                                                    label: '4 hours',
-                                                                },
-                                                                {
-                                                                    value: 8 * 60 * 60,
-                                                                    label: '8 hours',
-                                                                },
-                                                                {
-                                                                    value: 12 * 60 * 60,
-                                                                    label: '12 hours',
-                                                                },
-                                                                {
-                                                                    value: 24 * 60 * 60,
-                                                                    label: '24 hours',
-                                                                },
-                                                            ]}
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center gap-1 flex-wrap">
-                                                        <span>or until</span>
-                                                        <LemonSelect
-                                                            value={value?.threshold}
-                                                            onChange={(val) => onChange({ ...value, threshold: val })}
-                                                            options={[
-                                                                {
-                                                                    value: null,
-                                                                    label: 'Not set',
-                                                                },
-                                                                {
-                                                                    value: 1000,
-                                                                    label: '1000 events',
-                                                                },
-                                                                {
-                                                                    value: 10000,
-                                                                    label: '10,000 events',
-                                                                },
-                                                                {
-                                                                    value: 100000,
-                                                                    label: '100,000 events',
-                                                                },
-                                                                {
-                                                                    value: 1000000,
-                                                                    label: '1,000,000 events',
-                                                                },
-                                                            ]}
-                                                        />
-                                                    </div>
-                                                </>
-                                            ) : null}
-                                        </div>
-                                    )}
-                                </LemonField>
-                            </div>
                             <div className="relative border bg-bg-light rounded p-3 space-y-2">
                                 <LemonLabel>Expected volume</LemonLabel>
                                 {sparkline && !sparklineLoading ? (
