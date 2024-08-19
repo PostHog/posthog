@@ -60,11 +60,12 @@ def create_bytecode(
     supported_functions: Optional[set[str]] = None,
     args: Optional[list[str]] = None,
     context: Optional[HogQLContext] = None,
+    enclosing: Optional["BytecodeBuilder"] = None,
 ) -> list[Any]:
     bytecode: list[Any] = []
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
-    bytecode.extend(BytecodeBuilder(supported_functions, args, context).visit(expr))
+    bytecode.extend(BytecodeBuilder(supported_functions, args, context, enclosing).visit(expr))
     return bytecode
 
 
@@ -87,8 +88,10 @@ class BytecodeBuilder(Visitor):
         supported_functions: Optional[set[str]] = None,
         args: Optional[list[str]] = None,
         context: Optional[HogQLContext] = None,
+        enclosing: Optional["BytecodeBuilder"] = None,
     ):
         super().__init__()
+        self.enclosing = enclosing
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
         # self.functions: dict[str, HogFunction] = {}
@@ -636,7 +639,7 @@ class BytecodeBuilder(Visitor):
         elif not isinstance(node.body, ast.ReturnStatement):
             body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
 
-        bytecode = create_bytecode(body, None, node.params, self.context)
+        bytecode = create_bytecode(body, None, node.params, self.context, self)
         self._declare_local(node.name)
         return [Operation.CALLABLE, node.name, len(node.params), len(bytecode), *bytecode]
 
@@ -652,7 +655,7 @@ class BytecodeBuilder(Visitor):
             else:
                 expr = ast.ReturnStatement(expr=expr)
 
-        bytecode = create_bytecode(expr, None, node.args, self.context)
+        bytecode = create_bytecode(expr, None, node.args, self.context, self)
         return [Operation.CALLABLE, "lambda", len(node.args), len(bytecode), *bytecode]
 
     def visit_dict(self, node: ast.Dict):
