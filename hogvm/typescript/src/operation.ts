@@ -1,6 +1,6 @@
 export const enum Operation {
     GET_GLOBAL = 1,
-    CALL = 2,
+    CALL_GLOBAL = 2,
     AND = 3,
     OR = 4,
     NOT = 5,
@@ -53,4 +53,5 @@ export const enum Operation {
     POP_TRY = 51,
     CALLABLE = 52,
     CLOSURE = 53,
+    CALL_LOCAL = 54,
 }

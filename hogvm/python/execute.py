@@ -269,6 +269,7 @@ def execute_bytecode(
                 if len(stack) > 0 and stack[-1] is not None:
                     ip += count
             case Operation.DECLARE_FN:
+                # DEPRECATED
                 name = next_token()
                 arg_len = next_token()
                 body_len = next_token()
@@ -286,19 +287,42 @@ def execute_bytecode(
                 }
                 push_stack(callable)
                 ip += body_length
-            case Operation.CALL:
+            case Operation.CALL_GLOBAL:
+                check_timeout()
+                name = next_token()
+                if name in declared_functions:
+                    # This is for backwards compatibility. We use a callable on the stack with local functions now.
+                    func_ip, arg_len = declared_functions[name]
+                    call_stack.append((ip + 1, len(stack) - arg_len, arg_len))
+                    ip = func_ip
+                else:
+                    # Shortcut for calling STL functions (can also be done with an STL callable)
+                    args = [pop_stack() for _ in range(next_token())]
+                    if functions is not None and name in functions:
+                        push_stack(functions[name](*args))
+                        continue
+                    if name in STL:
+                        push_stack(STL[name].fn(args, team, stdout, timeout.total_seconds()))
+                        continue
+                    raise HogVMException(f"Unsupported function call: {name}")
+            case Operation.CALL_LOCAL:
                 check_timeout()
                 callable = pop_stack()
                 if not isinstance(callable, dict) or callable.get("__hogCallable__") is None:
                     raise HogVMException(f"Invalid callable: {callable}")
-
                 args_length = next_token()
-                if args_length > len(stack):
-                    raise HogVMException("Not enough arguments on the stack")
                 if args_length > MAX_FUNCTION_ARGS_LENGTH:
                     raise HogVMException("Too many arguments")
 
                 if callable.get("__hogCallable__") == "local":
+                    if callable["argCount"] > args_length:
+                        # TODO: specify minimum required arguments somehow
+                        for _ in range(callable["argCount"] - args_length):
+                            push_stack(None)
+                    elif callable["argCount"] < args_length:
+                        raise HogVMException(
+                            f"Too many arguments. Passed {args_length}, expected {callable['argCount']}"
+                        )
                     call_stack.append((ip, len(stack) - callable["argCount"], callable["argCount"]))
                     ip = callable["ip"]
 

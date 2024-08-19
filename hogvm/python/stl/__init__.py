@@ -399,7 +399,9 @@ STL: dict[str, STLFunction] = {
         maxArgs=3,
     ),
     "Error": STLFunction(
-        fn=lambda args, team, stdout, timeout: new_hog_error("Error", args[0], args[1] if len(args) > 1 else None),
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            "Error", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
+        ),
         minArgs=0,
         maxArgs=2,
     ),

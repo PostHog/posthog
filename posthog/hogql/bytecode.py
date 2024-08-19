@@ -272,33 +272,21 @@ class BytecodeBuilder(Visitor):
             response.extend(if_null)
             return response
 
-        # if node.name not in STL and node.name not in self.functions and node.name not in self.supported_functions:
-        #     raise QueryError(f"Hog function `{node.name}` is not implemented")
-        #
-        # if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
-        #     raise QueryError(
-        #         f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
-        #     )
         response = []
-
-        # if node.name in MIN_ARGS_INCLUDING_OPTIONAL and len(node.args) < MIN_ARGS_INCLUDING_OPTIONAL[node.name]:
-        #     for _ in range(len(node.args), MIN_ARGS_INCLUDING_OPTIONAL[node.name]):
-        #         response.append(Operation.NULL)
 
         for expr in reversed(node.args):
             response.extend(self.visit(expr))
 
-        field = self.visit(ast.Field(chain=[node.name]))
+        found_local_with_name = False
+        for local in reversed(self.locals):
+            if local.name == node.name:
+                found_local_with_name = True
 
-        response.extend(
-            [
-                *field,
-                Operation.CALL,
-                len(node.args),
-                # if node.name not in MIN_ARGS_INCLUDING_OPTIONAL
-                # else MIN_ARGS_INCLUDING_OPTIONAL[node.name],
-            ]
-        )
+        if found_local_with_name:
+            field = self.visit(ast.Field(chain=[node.name]))
+            response.extend([*field, Operation.CALL_LOCAL, len(node.args)])
+        else:
+            response.extend([Operation.CALL_GLOBAL, node.name, len(node.args)])
         return response
 
     def visit_program(self, node: ast.Program):
@@ -489,16 +477,12 @@ class BytecodeBuilder(Visitor):
 
         if key_var is not None:
             expr_keys_local = self._declare_local("__H_keys_H__")  # keys
-            response.extend(
-                [Operation.GET_LOCAL, expr_local, Operation.STRING, "keys", Operation.GET_GLOBAL, 1, Operation.CALL, 1]
-            )
+            response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL_GLOBAL, "keys", 1])
         else:
             expr_keys_local = None
 
         expr_values_local = self._declare_local("__H_values_H__")  # values
-        response.extend(
-            [Operation.GET_LOCAL, expr_local, Operation.STRING, "values", Operation.GET_GLOBAL, 1, Operation.CALL, 1]
-        )
+        response.extend([Operation.GET_LOCAL, expr_local, Operation.CALL_GLOBAL, "values", 1])
 
         loop_index_local = self._declare_local("__H_index_H__")  # 0
         response.extend([Operation.INTEGER, 1])
@@ -508,11 +492,8 @@ class BytecodeBuilder(Visitor):
             [
                 Operation.GET_LOCAL,
                 expr_values_local,
-                Operation.STRING,
+                Operation.CALL_GLOBAL,
                 "length",
-                Operation.GET_GLOBAL,
-                1,
-                Operation.CALL,
                 1,
             ]
         )

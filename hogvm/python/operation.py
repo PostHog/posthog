@@ -6,7 +6,7 @@ HOGQL_BYTECODE_FUNCTION = "_f"
 
 class Operation(int, Enum):
     GET_GLOBAL = 1
-    CALL = 2
+    CALL_GLOBAL = 2
     AND = 3
     OR = 4
     NOT = 5
@@ -58,3 +58,4 @@ class Operation(int, Enum):
     POP_TRY = 51
     CALLABLE = 52
     CLOSURE = 53
+    CALL_LOCAL = 54
