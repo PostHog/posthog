@@ -1,9 +1,12 @@
+from typing import Optional
+
 from celery import shared_task
 from celery.canvas import group, chain
 from django.db import transaction
 from django.utils import timezone
 import math
 import structlog
+from sentry_sdk import capture_exception
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -42,21 +45,30 @@ def check_alert(alert_id: int) -> None:
         return
 
     insight = alert.insight
+    error: Optional[dict] = None
 
-    with conversion_to_query_based(insight):
-        calculation_result = calculate_for_query_based_insight(
-            insight,
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            user=None,
-        )
+    try:
+        with conversion_to_query_based(insight):
+            calculation_result = calculate_for_query_based_insight(
+                insight,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                user=None,
+            )
 
-    if not calculation_result.result:
-        raise RuntimeError(f"No results for alert {alert.id}")
+        if not calculation_result.result:
+            raise RuntimeError(f"No results for alert {alert.id}")
 
-    result = calculation_result.result[0]
-    aggregated_value = result["aggregated_value"]
+        result = calculation_result.result[0]
+        aggregated_value = result["aggregated_value"]
+    except Exception as e:
+        event_id = capture_exception(e)
+        error = {
+            "sentry_event_id": event_id,
+            "message": str(e),
+        }
+        aggregated_value = None
 
-    check, matches = alert.add_check(aggregated_value)
+    check, matches = alert.add_check(calculated_value=aggregated_value, error=error)
 
     if not check.state == "firing":
         logger.info("Check state is %s", check.state, alert_id=alert.id)

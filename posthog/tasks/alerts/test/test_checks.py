@@ -1,4 +1,3 @@
-import pytest
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
@@ -190,9 +189,26 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight["id"]})
 
-        with pytest.raises(KeyError):
-            check_alert(self.alert["id"])
+        check_alert(self.alert["id"])
         assert mock_send_notifications.call_count == 0
+
+        latest_alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert latest_alert_check.error["message"] == "'aggregated_value'"
+
+        # mock calculate_for_query_based_insight to raise a different exception
+        with patch(
+            "posthog.tasks.alerts.checks.calculate_for_query_based_insight"
+        ) as mock_calculate_for_query_based_insight:
+            mock_calculate_for_query_based_insight.side_effect = Exception("Some error")
+
+            with freeze_time("2024-06-02T09:00:00.000Z"):
+                check_alert(self.alert["id"])
+                assert mock_send_notifications.call_count == 0
+
+                latest_alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest(
+                    "created_at"
+                )
+                assert latest_alert_check.error["message"] == "Some error"
 
     def test_alert_with_insight_with_filter(self, mock_send_notifications: MagicMock) -> None:
         insight = self.dashboard_api.create_insight(

@@ -261,7 +261,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="*"),
+        crontab(hour="*", minute="20"),
         check_all_alerts_task.s(),
         name="check alerts for matches and send notifications",
     )

@@ -106,9 +106,11 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         validator = ConditionValidator(threshold=threshold, condition=condition)
         return validator.validate(calculated_value)
 
-    def add_check(self, calculated_value, error_message=None) -> tuple["AlertCheck", list[str]]:
+    def add_check(
+        self, *, calculated_value: Optional[float], error: Optional[dict] = None
+    ) -> tuple["AlertCheck", list[str]]:
         """Add a new AlertCheck, managing state transitions and cooldown."""
-        matches = self.evaluate_condition(calculated_value)
+        matches = self.evaluate_condition(calculated_value) if calculated_value is not None else []
         targets_notified = {}
 
         # Determine the appropriate state for this check
@@ -132,7 +134,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
             condition=self.condition,
             targets_notified=targets_notified,
             state=check_state,
-            error_message=error_message,
+            error=error,
         )
 
         # Update the Alert state
@@ -151,7 +153,7 @@ class AlertCheck(UUIDModel):
     calculated_value = models.FloatField(null=True, blank=True)
     condition = models.JSONField(default=dict)  # Snapshot of the condition at the time of the check
     targets_notified = models.JSONField(default=dict)
-    error_message = models.TextField(null=True, blank=True)
+    error = models.JSONField(null=True, blank=True)
 
     STATE_CHOICES = [
         ("firing", "Firing"),

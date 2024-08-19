@@ -19,7 +19,7 @@ interface EditAlertProps extends AlertLogicProps {
     onDelete: () => void
 }
 
-export function AlertState({ alert }: { alert: AlertType }): React.ReactNode {
+export function AlertState({ alert }: { alert: AlertType }): JSX.Element | null {
     if (!alert.checks || alert.checks.length === 0) {
         return null
     }
@@ -56,7 +56,7 @@ export function AlertState({ alert }: { alert: AlertType }): React.ReactNode {
     )
 }
 
-export function EditAlert(props: EditAlertProps): React.ReactNode {
+export function EditAlert(props: EditAlertProps): JSX.Element {
     const logic = alertLogic(props)
     const alertslogic = alertsLogic(props)
 
