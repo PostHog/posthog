@@ -168,5 +168,5 @@ class AlertCheck(UUIDModel):
     def clean_up_old_checks(cls) -> int:
         retention_days = 14
         oldest_allowed_date = datetime.now(UTC) - timedelta(days=retention_days)
-        _, rows_count = cls.objects.filter(created_at__lt=oldest_allowed_date).delete()
+        rows_count, _ = cls.objects.filter(created_at__lt=oldest_allowed_date).delete()
         return rows_count
