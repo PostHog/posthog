@@ -614,8 +614,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_level',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
                                         operator: PropertyOperator.IContains,
                                         value: ['warn', 'error'],
                                     },
@@ -637,8 +637,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_query',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'message',
                                         operator: PropertyOperator.Exact,
                                         value: 'this is a test',
                                     },
@@ -671,8 +671,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                                 type: FilterLogicalOperator.And,
                                 values: [
                                     {
-                                        type: PropertyFilterType.Recording,
-                                        key: 'console_log_level',
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
                                         operator: PropertyOperator.IContains,
                                         value: ['warn', 'error'],
                                     },

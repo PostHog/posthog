@@ -20,10 +20,6 @@ class SessionRecordingsMixin(PropertyMixin, BaseParamMixin):
     def order(self) -> str:
         return self._data.get("order", "start_time")
 
-    # @cached_property
-    # def console_search_query(self) -> str | None:
-    #     return self._data.get("console_search_query", None)
-
     # Supports a legacy use case where events were ORed not ANDed
     # Can be removed and replaced with ast_operand once the new universal replay filtering is out
     @cached_property
@@ -46,38 +42,6 @@ class SessionRecordingsMixin(PropertyMixin, BaseParamMixin):
     @cached_property
     def _operand(self) -> Literal["AND"] | Literal["OR"]:
         return self._data.get("operand", "AND")
-
-    # @cached_property
-    # def console_logs_filter(self) -> list[Literal["error", "warn", "info"]]:
-    #     user_value = self._data.get("console_logs", None) or []
-    #     if isinstance(user_value, str):
-    #         user_value = json.loads(user_value)
-    #     valid_values = [x for x in user_value if x in ["error", "warn", "info"]]
-    #     return valid_values
-
-    # @cached_property
-    # def duration_type_filter(self) -> Literal["duration", "active_seconds", "inactive_seconds"]:
-    #     user_value = self._data.get("duration_type_filter", None)
-    #     if user_value in ["duration", "active_seconds", "inactive_seconds"]:
-    #         return user_value
-    #     else:
-    #         return "duration"
-
-    # @cached_property
-    # def recording_duration_filter(self) -> Optional[Property]:
-    #     duration_filter_data_str = self._data.get("session_recording_duration", None)
-    #     if duration_filter_data_str:
-    #         filter_data = json.loads(duration_filter_data_str)
-    #         return Property(**filter_data)
-    #     return None
-
-    # @cached_property
-    # def snapshot_source_filter(self) -> Optional[Property]:
-    #     snapshot_source_data_str = self._data.get("snapshot_source", None)
-    #     if isinstance(snapshot_source_data_str, str):
-    #         filter_data = json.loads(snapshot_source_data_str)
-    #         return Property(**filter_data)
-    #     return None
 
     @cached_property
     def session_ids(self) -> Optional[list[str]]:

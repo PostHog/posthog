@@ -120,8 +120,6 @@ class SessionRecordingListFromFilters:
             modifiers=self._hogql_query_modifiers,
         )
 
-        # print(paginated_response.hogql)
-
         return SessionRecordingQueryResult(
             results=(self._data_to_return(self._paginator.results)),
             has_more_recording=self._paginator.has_more(),
@@ -214,31 +212,6 @@ class SessionRecordingListFromFilters:
             )
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
-        # console_logs_predicates: list[ast.Expr] = []
-        # if self._filter.console_logs_filter:
-        #     console_logs_predicates.append(
-        #         ast.CompareOperation(
-        #             op=ast.CompareOperationOp.In,
-        #             left=ast.Field(chain=["level"]),
-        #             right=ast.Constant(value=self._filter.console_logs_filter),
-        #         )
-        #     )
-
-        # if self._filter.console_search_query:
-        # console_logs_predicates.append(
-        #     ast.CompareOperation(
-        #         op=ast.CompareOperationOp.Gt,
-        #         left=ast.Call(
-        #             name="positionCaseInsensitive",
-        #             args=[
-        #                 ast.Field(chain=["message"]),
-        #                 ast.Constant(value=self._filter.console_search_query),
-        #             ],
-        #         ),
-        #         right=ast.Constant(value=0),
-        #     )
-        # )
-
         if self._filter.console_log_filters.values:
             # print(self._filter.console_log_filters.type)
             console_logs_subquery = ast.SelectQuery(
@@ -263,40 +236,7 @@ class SessionRecordingListFromFilters:
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
-        # exprs: list[ast.Expr] = []
-
         return property_to_expr(self._filter.having_predicates, team=self._team, scope="replay")
-
-        # if self._filter.recording_duration_filter:
-        #     op = (
-        #         ast.CompareOperationOp.GtEq
-        #         if self._filter.recording_duration_filter.operator == "gt"
-        #         or self._filter.recording_duration_filter.operator == "gte"
-        #         else ast.CompareOperationOp.LtEq
-        #     )
-        #     exprs.append(
-        #         ast.CompareOperation(
-        #             op=op,
-        #             left=ast.Field(chain=[self._filter.duration_type_filter]),
-        #             right=ast.Constant(value=self._filter.recording_duration_filter.value),
-        #         ),
-        #     )
-
-        # if self._filter.snapshot_source_filter:
-        #     op = (
-        #         ast.CompareOperationOp.In
-        #         if self._filter.snapshot_source_filter.operator == "exact"
-        #         else ast.CompareOperationOp.NotIn
-        #     )
-        #     exprs.append(
-        #         ast.CompareOperation(
-        #             op=op,
-        #             left=ast.Call(name="argMinMerge", args=[ast.Field(chain=["s", "snapshot_source"])]),
-        #             right=ast.Constant(value=self._filter.snapshot_source_filter.value),
-        #         ),
-        #     )
-
-        # return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 
     def _strip_person_and_event_properties(self, property_group: PropertyGroup) -> PropertyGroup | None:
         property_groups_to_keep = [
