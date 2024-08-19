@@ -328,7 +328,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     forms(({ actions, props, values }) => ({
         billingLimitInput: {
             errors: ({ input }) => ({
-                input: input === undefined || Number.isInteger(input) ? undefined : 'Please enter a whole number',
+                input: input === null || Number.isInteger(input) ? undefined : 'Please enter a whole number',
             }),
             submit: async ({ input }) => {
                 const addonTiers =
