@@ -199,6 +199,7 @@ impl KafkaSink {
             ),
             DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
             DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
+            DataType::SnapshotMain => (&self.exceptions_topic, Some(event_key.as_str())),
         };
 
         match self.producer.send_result(FutureRecord {

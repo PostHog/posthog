@@ -16,6 +16,7 @@ use crate::{
 };
 
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
+use crate::config::CaptureType;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -43,6 +44,7 @@ pub fn router<
     redis: Arc<R>,
     billing: BillingLimiter,
     metrics: bool,
+    capture_type: CaptureType
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -106,9 +108,27 @@ pub fn router<
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
-    let router = Router::new()
-        .merge(batch_router)
-        .merge(event_router)
+    let recordings_router = Router::new()
+        .route(
+            "/s",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/s/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        );
+
+    let router = match capture_type {
+        CaptureType::Events => Router::new()
+            .merge(batch_router)
+            .merge(event_router),
+        CaptureType::Recordings => Router::new()
+            .merge(recordings_router)
+        }
         .merge(status_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)

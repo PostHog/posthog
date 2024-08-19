@@ -2,6 +2,24 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use envconfig::Envconfig;
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum CaptureType {
+    Events,
+    Recordings,
+}
+
+impl std::str::FromStr for CaptureType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_ref() {
+            "events" => Ok(CaptureType::Events),
+            "recordings" => Ok(CaptureType::Recordings),
+            _ => Err(format!("Unknown Capture Type: {s}"))
+        }
+    }
+}
+
 #[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(default = "false")]
@@ -37,6 +55,9 @@ pub struct Config {
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
     pub redis_key_prefix: Option<String>,
+
+    #[envconfig(default = "events")]
+    pub capture_type: CaptureType
 }
 
 #[derive(Envconfig, Clone)]
