@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { IconArchive, IconCheck, IconMagicWand, IconX } from '@posthog/icons'
+import { IconArchive, IconCheck, IconInfo, IconMagicWand, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -557,7 +557,17 @@ export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['
                             <div className="w-2/5 pl-4">
                                 <LemonCheckbox
                                     id="flag-enabled-checkbox"
-                                    label="Stop experiment"
+                                    label={
+                                        <div className="inline-flex items-center space-x-1">
+                                            <div className="">Stop experiment</div>
+                                            <Tooltip
+                                                title="This will end data collection. The experiment can be
+                                                    restarted later if needed."
+                                            >
+                                                <IconInfo className="text-muted-alt text-base" />
+                                            </Tooltip>
+                                        </div>
+                                    }
                                     onChange={() => setShouldStopExperiment(!shouldStopExperiment)}
                                     checked={shouldStopExperiment}
                                 />
