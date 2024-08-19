@@ -1,7 +1,7 @@
 import copy
-from enum import StrEnum
 import json
 import re
+from enum import StrEnum
 from typing import Any, Literal
 
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
@@ -11,6 +11,7 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     ChartDisplayType,
+    CompareFilter,
     DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
@@ -18,6 +19,7 @@ from posthog.schema import (
     FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
+    FunnelVizType,
     InsightDateRange,
     LifecycleFilter,
     LifecycleQuery,
@@ -29,8 +31,6 @@ from posthog.schema import (
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
-    FunnelVizType,
-    CompareFilter,
 )
 from posthog.types import InsightQueryNode
 from posthog.utils import str_to_bool
@@ -40,6 +40,7 @@ class MathAvailability(StrEnum):
     Unavailable = ("Unavailable",)
     All = ("All",)
     ActorsOnly = "ActorsOnly"
+    FunnelsOnly = "FunnelsOnly"
 
 
 actors_only_math_types = [
@@ -48,6 +49,10 @@ actors_only_math_types = [
     BaseMathType.MONTHLY_ACTIVE,
     "unique_group",
     "hogql",
+]
+
+funnels_math_types = [
+    BaseMathType.FIRST_TIME_FOR_USER,
 ]
 
 
@@ -122,7 +127,8 @@ def legacy_entity_to_node(
         }
 
     if math_availability != MathAvailability.Unavailable:
-        #  only trends and stickiness insights support math.
+        #  only trends, funnels, and stickiness insights support math.
+        #  funnels only support a single base math type: first time for user.
         #  transition to then default math for stickiness, when an unsupported math type is encountered.
 
         if (
@@ -131,6 +137,10 @@ def legacy_entity_to_node(
             and entity.math not in actors_only_math_types
         ):
             shared = {**shared, "math": BaseMathType.DAU}
+        elif math_availability == MathAvailability.FunnelsOnly:
+            # All other math types must be skipped for funnels
+            if entity.math in funnels_math_types:
+                shared = {**shared, "math": entity.math}
         else:
             shared = {
                 **shared,
@@ -235,6 +245,8 @@ def _series(filter: dict):
 
     if _insight_type(filter) == "TRENDS":
         math_availability = MathAvailability.All
+    if _insight_type(filter) == "FUNNELS":
+        math_availability = MathAvailability.FunnelsOnly
     elif _insight_type(filter) == "STICKINESS":
         math_availability = MathAvailability.ActorsOnly
 
@@ -444,6 +456,7 @@ def _insight_filter(filter: dict):
                 ),
                 period=filter.get("period"),
                 showMean=filter.get("show_mean"),
+                cumulative=filter.get("cumulative"),
             )
         }
     elif _insight_type(filter) == "PATHS":

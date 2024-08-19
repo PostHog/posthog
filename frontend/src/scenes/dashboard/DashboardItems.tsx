@@ -28,6 +28,7 @@ export function DashboardItems(): JSX.Element {
         refreshStatus,
         canEditDashboard,
         stale,
+        itemsLoading,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -99,7 +100,7 @@ export function DashboardItems(): JSX.Element {
                             isDragging.current = false
                         }, 250)
                     }}
-                    draggableCancel=".anticon,.ant-dropdown,table,button,.Popover"
+                    draggableCancel=".anticon,table,button,.Popover"
                 >
                     {tiles?.map((tile: DashboardTile) => {
                         const { insight: legacyInsight, text } = tile
@@ -135,11 +136,11 @@ export function DashboardItems(): JSX.Element {
                             removeFromDashboard: () => removeTile(tile),
                         }
 
-                        if (insight && legacyInsight) {
+                        if (insight) {
                             return (
                                 <InsightCard
                                     key={tile.id}
-                                    insight={legacyInsight}
+                                    insight={insight}
                                     stale={stale}
                                     loadingQueued={isRefreshingQueued(insight.short_id)}
                                     loading={isRefreshing(insight.short_id)}
@@ -148,6 +149,7 @@ export function DashboardItems(): JSX.Element {
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
                                     refresh={() => refreshDashboardItem({ tile })}
+                                    refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
                                     showDetailsControls={placement != DashboardPlacement.Export}

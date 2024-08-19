@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 
 import {
     Breadcrumb,
-    DataWarehouseTab,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
@@ -25,26 +24,28 @@ import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLog
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
+const Caption = (): JSX.Element => (
+    <>
+        Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
+        <br />
+        You can find your account ID{' '}
+        <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
+            in your Stripe dashboard
+        </Link>
+        , and create a secret key{' '}
+        <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
+            here
+        </Link>
+        .
+    </>
+)
+
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
-        caption: (
-            <>
-                Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
-                <br />
-                You can find your account ID{' '}
-                <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
-                    in your Stripe dashboard
-                </Link>
-                , and create a secret key{' '}
-                <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
-                    here
-                </Link>
-                .
-            </>
-        ),
+        caption: <Caption />,
         fields: [
             {
                 name: 'account_id',
@@ -65,7 +66,8 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Hubspot: {
         name: 'Hubspot',
         fields: [],
-        caption: '',
+        caption: 'Succesfully authenticated with Hubspot. Please continue here to complete the source setup',
+        oauthPayload: ['code'],
     },
     Postgres: {
         name: 'Postgres',
@@ -420,6 +422,18 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '',
             },
         ],
+    },
+    Salesforce: {
+        name: 'Salesforce',
+        fields: [
+            {
+                name: 'integration_id',
+                label: 'Salesforce account',
+                type: 'oauth',
+                required: true,
+            },
+        ],
+        caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
     },
 }
 
@@ -843,12 +857,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             actions.cancelWizard()
-
-            if (router.values.location.pathname.includes(urls.dataWarehouseTable())) {
-                router.actions.push(urls.dataWarehouse(DataWarehouseTab.ManagedSources))
-            } else if (router.values.location.pathname.includes(urls.pipelineNodeDataWarehouseNew())) {
-                router.actions.push(urls.pipeline(PipelineTab.DataImport))
-            }
+            router.actions.push(urls.pipeline(PipelineTab.Sources))
         },
         cancelWizard: () => {
             actions.onClear()
@@ -888,6 +897,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         },
                     })
                     return
+                }
+                case 'salesforce': {
+                    actions.updateSource({
+                        source_type: 'Salesforce',
+                    })
+                    break
                 }
                 default:
                     lemonToast.error(`Something went wrong.`)
@@ -929,6 +944,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             if (kind === 'hubspot') {
                 router.actions.push(urls.dataWarehouseTable(), { kind, code: searchParams.code })
             }
+            if (kind === 'salesforce') {
+                router.actions.push(urls.dataWarehouseTable(), {
+                    kind,
+                })
+            }
         },
         '/data-warehouse/new': (_, searchParams) => {
             if (searchParams.kind == 'hubspot' && searchParams.code) {
@@ -936,6 +956,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.handleRedirect(searchParams.kind, {
                     code: searchParams.code,
                 })
+                actions.setStep(2)
+            }
+            if (searchParams.kind == 'salesforce') {
+                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
+                actions.handleRedirect(searchParams.kind, {})
                 actions.setStep(2)
             }
         },

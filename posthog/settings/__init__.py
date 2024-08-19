@@ -42,6 +42,7 @@ from posthog.settings.web import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.session_replay import *
 from posthog.settings.integrations import *
+from posthog.settings.pagerduty import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -96,8 +97,6 @@ PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", opti
 
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
-
-HOOK_EVENTS: dict[str, str] = {}
 
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED: bool = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)

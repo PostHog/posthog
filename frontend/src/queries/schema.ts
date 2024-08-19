@@ -255,6 +255,7 @@ export interface HogQueryResponse {
     bytecode?: any[]
     coloredBytecode?: any[]
     stdout?: string
+    query_status?: never
 }
 
 export interface HogQuery extends DataNode<HogQueryResponse> {
@@ -276,6 +277,7 @@ export interface HogQLMetadataResponse {
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
+    query_status?: never
 }
 
 export interface AutocompleteCompletionItem {
@@ -340,6 +342,7 @@ export interface HogQLAutocompleteResponse {
     incomplete_list: boolean
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    query_status?: never
 }
 
 export enum HogLanguage {
@@ -551,12 +554,45 @@ export interface GoalLine {
 
 export interface ChartAxis {
     column: string
+    settings?: {
+        formatting?: ChartSettingsFormatting
+        display?: ChartSettingsDisplay
+    }
 }
 
-interface ChartSettings {
+export interface ChartSettingsFormatting {
+    prefix?: string
+    suffix?: string
+    style?: 'none' | 'number' | 'percent'
+    decimalPlaces?: number
+}
+
+export interface ChartSettingsDisplay {
+    label?: string
+    trendLine?: boolean
+    yAxisPosition?: 'left' | 'right'
+    displayType?: 'auto' | 'line' | 'bar'
+}
+
+export interface YAxisSettings {
+    scale?: 'linear' | 'logarithmic'
+    /** Whether the Y axis should start at zero */
+    startAtZero?: boolean
+}
+export interface ChartSettings {
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
+    /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
+    yAxisAtZero?: boolean
+    leftYAxisSettings?: YAxisSettings
+    rightYAxisSettings?: YAxisSettings
+    /** Whether we fill the bars to 100% in stacked mode */
+    stackBars100?: boolean
+}
+
+export interface TableSettings {
+    columns?: ChartAxis[]
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -564,6 +600,7 @@ export interface DataVisualizationNode extends Node<never> {
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
+    tableSettings?: TableSettings
 }
 
 interface DataTableNodeViewProps {
@@ -726,7 +763,10 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+    /** Wether more breakdown values are available. */
+    hasMore?: boolean
+}
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
@@ -836,6 +876,7 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     showMean?: RetentionFilterLegacy['show_mean']
+    cumulative?: RetentionFilterLegacy['cumulative']
 }
 
 export interface RetentionValue {
@@ -1010,6 +1051,8 @@ export interface AnalyticsQueryResponseBase<T> {
     error?: string
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
 }
 
 interface CachedQueryResponseMixin {
@@ -1281,7 +1324,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
-    fingerprint?: string
+    fingerprint?: string[]
     select?: HogQLExpression[]
     eventColumns?: string[]
     order?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
@@ -1293,9 +1336,9 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingGroup {
-    fingerprint: string
+    fingerprint: string[]
     exception_type: string | null
-    merged_fingerprints: string[]
+    merged_fingerprints: string[][]
     occurrences: number
     sessions: number
     users: number
@@ -1639,4 +1682,13 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
+}
+
+export interface AbsoluteThreshold {
+    lower?: number | null
+    upper?: number | null
+}
+
+export interface AnomalyCondition {
+    absoluteThreshold: AbsoluteThreshold
 }

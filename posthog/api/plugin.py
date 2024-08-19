@@ -21,7 +21,6 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import FiltersSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
@@ -30,6 +29,7 @@ from posthog.models.activity_logging.activity_log import (
     Detail,
     Trigger,
     dict_changes_between,
+    load_activity,
     load_all_activity,
     log_activity,
 )
@@ -609,7 +609,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "deleted",
-            "filters",
         ]
         read_only_fields = [
             "id",
@@ -677,11 +676,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         # metrics (for fatal errors) or plugin log entries (for all errors) for
         # error details instead.
         return None
-
-    def validate_filters(self, value: dict) -> dict:
-        serializer = FiltersSerializer(data=value)
-        serializer.is_valid(raise_exception=True)
-        return serializer.validated_data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
@@ -892,6 +886,17 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         content = f"export function getFrontendApp () {'{'} return {json.dumps(obj)} {'}'}"
         return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
+
+    @action(methods=["GET"], url_path="activity", detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(
+            "PluginConfig", team_id=self.team_id, item_ids=[self.get_object().id], limit=limit, page=page
+        )
+
+        return activity_page_response(activity_page, limit, page, request)
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:

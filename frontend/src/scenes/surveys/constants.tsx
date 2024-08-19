@@ -32,6 +32,7 @@ export const SurveyUrlMatchTypeLabels = {
 export const defaultSurveyAppearance = {
     backgroundColor: '#eeeded',
     submitButtonColor: 'black',
+    submitButtonTextColor: 'white',
     ratingButtonColor: 'white',
     ratingButtonActiveColor: 'black',
     borderColor: '#c9c6c6',
@@ -269,13 +270,13 @@ export const defaultSurveyTemplates = [
         questions: [
             {
                 type: SurveyQuestionType.Rating,
-                question: 'How easy was it to use our product?',
+                question: 'PostHog made it easy for me to resolve my issue',
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 display: 'number',
                 scale: 7,
-                lowerBoundLabel: 'Very difficult',
-                upperBoundLabel: 'Very easy',
+                lowerBoundLabel: 'Strongly disagree',
+                upperBoundLabel: 'Strongly agree',
             },
         ],
         description: 'Works well with churn surveys.',

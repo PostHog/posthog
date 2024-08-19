@@ -19,6 +19,7 @@ import {
     DashboardTile,
     DashboardType,
     FilterType,
+    InsightLogicProps,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -26,6 +27,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 
 const API_FILTERS: Partial<FilterType> = {
@@ -459,11 +461,15 @@ describe('insightLogic', () => {
     })
 
     test('keeps saved name, description, tags', async () => {
-        logic = insightLogic({
+        const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
             cachedInsight: { ...createEmptyInsight(Insight43, false), filters: API_FILTERS },
-        })
+        }
+
+        logic = insightLogic(insightProps)
         logic.mount()
+
+        insightDataLogic(insightProps).mount()
 
         const expectedPartialInsight = {
             name: '',
@@ -501,10 +507,14 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight saves new insight and redirects to view mode', async () => {
-        logic = insightLogic({
+        const insightProps: InsightLogicProps = {
             dashboardItemId: 'new',
-        })
+        }
+
+        logic = insightLogic(insightProps)
         logic.mount()
+
+        insightDataLogic(insightProps).mount()
 
         await expectLogic(logic, () => {
             logic.actions.setFilters(cleanFilters({}))
@@ -514,15 +524,20 @@ describe('insightLogic', () => {
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
         savedInsightsLogic.mount()
-        logic = insightLogic({
+
+        const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
                 short_id: Insight42,
                 filters: { insight: InsightType.FUNNELS },
-                results: {},
+                result: {},
             },
-        })
+        }
+
+        logic = insightLogic(insightProps)
         logic.mount()
+
+        insightDataLogic(insightProps).mount()
 
         logic.actions.saveInsight()
         await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
@@ -538,10 +553,14 @@ describe('insightLogic', () => {
 
         savedInsightsLogic.mount()
 
-        logic = insightLogic({
+        const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
-        })
+        }
+        logic = insightLogic(insightProps)
         logic.mount()
+
+        insightDataLogic(insightProps).mount()
+
         logic.actions.saveInsight()
 
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
@@ -566,16 +585,20 @@ describe('insightLogic', () => {
         router.actions.push(url)
         savedInsightsLogic.mount()
 
-        logic = insightLogic({
+        const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             cachedInsight: {
                 filters: { insight: InsightType.FUNNELS },
             },
-        })
+        }
+
+        logic = insightLogic(insightProps)
         logic.mount()
 
+        insightDataLogic(insightProps).mount()
+
         await expectLogic(logic, () => {
-            logic.actions.saveAsNamingSuccess('New Insight (copy)')
+            logic.actions.saveAsConfirmation('New Insight (copy)')
         })
             .toDispatchActions(['setInsight'])
             .toDispatchActions(savedInsightsLogic, ['loadInsights'])
@@ -723,10 +746,11 @@ describe('insightLogic', () => {
 
     describe('saving query based insights', () => {
         beforeEach(async () => {
-            logic = insightLogic({
-                dashboardItemId: 'new',
-            })
+            const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
+            logic = insightLogic(insightProps)
             logic.mount()
+
+            insightDataLogic(insightProps).mount()
         })
 
         it('sends query when saving', async () => {
@@ -743,14 +767,23 @@ describe('insightLogic', () => {
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
-                    `api/projects/${MOCK_TEAM_ID}/insights/`,
-                    {
+                    `api/projects/${MOCK_TEAM_ID}/insights`,
+                    expect.objectContaining({
                         derived_name: 'DataTableNode query',
                         query: {
                             kind: 'DataTableNode',
                         },
                         saved: true,
-                    },
+                    }),
+                    expect.objectContaining({
+                        data: {
+                            derived_name: 'DataTableNode query',
+                            query: {
+                                kind: 'DataTableNode',
+                            },
+                            saved: true,
+                        },
+                    }),
                 ],
             ])
         })

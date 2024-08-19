@@ -56,7 +56,7 @@ class TestOauthIntegrationModel(BaseTest):
             url = OauthIntegration.authorize_url("salesforce", next="/projects/test")
             assert (
                 url
-                == "https://login.salesforce.com/services/oauth2/authorize?client_id=salesforce-client-id&scope=full&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fsalesforce%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest"
+                == "https://login.salesforce.com/services/oauth2/authorize?client_id=salesforce-client-id&scope=full+refresh_token&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fsalesforce%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest"
             )
 
     @patch("posthog.models.integration.requests.post")
