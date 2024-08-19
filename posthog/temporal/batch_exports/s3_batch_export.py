@@ -322,7 +322,7 @@ class S3MultiPartUpload:
         exponential_backoff_coefficient: int = 2,
     ) -> str:
         """Attempt to upload a part for this multi-part upload retrying on transient errors."""
-        response = None
+        response: dict[str, str] | None = None
         attempt = 0
 
         async with self.s3_client() as s3_client:

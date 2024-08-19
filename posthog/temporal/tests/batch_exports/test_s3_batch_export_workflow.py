@@ -1438,9 +1438,8 @@ async def test_s3_export_workflow_with_request_timeouts(
 
     class DoNotRetryPolicy(RetryPolicy):
         def __init__(self, *args, **kwargs):
-            if "maximum_attempts" in kwargs:
-                kwargs.pop("maximum_attempts")
-            super().__init__(*args, maximum_attempts=1, **kwargs)
+            kwargs["maximum_attempts"] = 1
+            super().__init__(*args, **kwargs)
 
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
