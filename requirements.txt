@@ -6,7 +6,9 @@ aiobotocore==2.7.0
     # via
     #   aioboto3
     #   s3fs
-aiohttp==3.9.3
+aiohappyeyeballs==2.4.0
+    # via aiohttp
+aiohttp==3.10.4
     # via
     #   -r requirements.in
     #   aiobotocore
