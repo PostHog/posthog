@@ -363,7 +363,7 @@ class TestPrinter(BaseTest):
             team_id=self.team.pk,
             modifiers=HogQLQueryModifiers(
                 materializationMode=MaterializationMode.AUTO,
-                usePropertyGroups=True,
+                propertyGroupsMode=PropertyGroupsMode.ENABLED,
             ),
         )
 

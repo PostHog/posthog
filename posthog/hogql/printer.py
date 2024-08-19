@@ -189,6 +189,32 @@ class JoinExprResponse:
     where: Optional[ast.Expr] = None
 
 
+@dataclass
+class MaterializedColumn:
+    printed_table: Optional[str]
+    printed_column: str
+
+    def __str__(self) -> str:
+        if self.printed_table is None:
+            # XXX: not really sure why this path is necessary?
+            return self.printed_column
+        else:
+            return f"{self.printed_table}.{self.printed_column}"
+
+
+@dataclass
+class MaterializedPropertyGroupItem:
+    printed_table: str
+    printed_column: str
+    printed_property_name: str
+
+    def __str__(self) -> str:
+        # If the key we're looking for doesn't exist in the map for this property group, an empty string (the default
+        # value for the `String` type) is returned. Since that is a valid property value, we need to check it here.
+        qualified_column = f"{self.printed_table}.{self.printed_column}"
+        return f"has({qualified_column}, {self.printed_property_name}) ? {qualified_column}[{self.printed_property_name}] : null"
+
+
 class _Printer(Visitor):
     # NOTE: Call "print_ast()", not this class directly.
 
@@ -1034,10 +1060,12 @@ class _Printer(Visitor):
 
         return field_sql
 
-    def visit_property_type(self, type: ast.PropertyType):
-        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
-            return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
-
+    def __get_materialized_property_source(
+        self, type: ast.PropertyType
+    ) -> MaterializedColumn | MaterializedPropertyGroupItem | None:
+        """
+        Find a materialized property for the first part of the property chain.
+        """
         field_type = type.field_type
         field = field_type.resolve_database_field(self.context)
 
@@ -1046,79 +1074,75 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
-        args: list[str] = []
+        if isinstance(table, ast.TableType):
+            if self.dialect == "clickhouse":
+                table_name = table.table.to_printed_clickhouse(self.context)
+            else:
+                table_name = table.table.to_printed_hogql()
+            if field is None:
+                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
+            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+
+            materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
+            if materialized_column:
+                return MaterializedColumn(
+                    self.visit(field_type.table_type),
+                    self._print_identifier(materialized_column),
+                )
+            elif self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.ENABLED:
+                property_name = str(type.chain[0])
+                # For now, we're assuming that properties are in either no groups or one group, so just using the
+                # first group returned is fine. If we start putting properties in multiple groups, this should be
+                # revisited to find the optimal set (i.e. smallest set) of groups to read from.
+                for property_group_column in property_groups.get_property_group_columns(
+                    table_name, field_name, property_name
+                ):
+                    return MaterializedPropertyGroupItem(
+                        self.visit(field_type.table_type),
+                        self._print_identifier(property_group_column),
+                        self.context.add_value(property_name),
+                    )
+        elif (
+            self.context.within_non_hogql_query
+            and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
+            or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
+        ):
+            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
+            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+                materialized_column = self._get_materialized_column("events", str(type.chain[0]), "person_properties")
+            else:
+                materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
+            if materialized_column:
+                return MaterializedColumn(None, self._print_identifier(materialized_column))
+
+        return None
+
+    def visit_property_type(self, type: ast.PropertyType):
+        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
+            return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
         if self.context.modifiers.materializationMode != "disabled":
-            # find a materialized property for the first part of the chain
-            materialized_property_sql: Optional[str] = None
-            from_property_group = False
-            if isinstance(table, ast.TableType):
-                if self.dialect == "clickhouse":
-                    table_name = table.table.to_printed_clickhouse(self.context)
-                else:
-                    table_name = table.table.to_printed_hogql()
-                if field is None:
-                    raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
-                field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-                materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
-                if materialized_column:
-                    property_sql = self._print_identifier(materialized_column)
-                    property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
-                    materialized_property_sql = property_sql
-                elif self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.ENABLED:
-                    property_name = str(type.chain[0])
-                    # For now, we're assuming that properties are in either no groups or one group, so just using the
-                    # first group returned is fine. If we start putting properties in multiple groups, this should be
-                    # revisited to find the optimal set (i.e. smallest set) of groups to read from.
-                    for property_group_column in property_groups.get_property_group_columns(
-                        table_name, field_name, property_name
-                    ):
-                        printed_column = (
-                            f"{self.visit(field_type.table_type)}.{self._print_identifier(property_group_column)}"
-                        )
-                        printed_property_name = self.context.add_value(property_name)
-                        # If the key we're looking for doesn't exist in the map for this property group, an empty string
-                        # (the default value for the `String` type) is returned. Since that is a valid property value,
-                        # we need to check it here.
-                        materialized_property_sql = f"has({printed_column}, {printed_property_name}) ? {printed_column}[{printed_property_name}] : null"
-                        from_property_group = True
-                        break
-            elif (
-                self.context.within_non_hogql_query
-                and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
-                or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
-            ):
-                # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                    materialized_column = self._get_materialized_column(
-                        "events", str(type.chain[0]), "person_properties"
-                    )
-                else:
-                    materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
-                if materialized_column:
-                    materialized_property_sql = self._print_identifier(materialized_column)
-
-            if materialized_property_sql is not None:
-                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                # (Property values that were retrieved from a property group correctly distinguish between these, so
-                # these checks are not necessary for those values.)
-                if not from_property_group:
+            materialized_property_source = self.__get_materialized_property_source(type)
+            if materialized_property_source is not None:
+                if isinstance(materialized_property_source, MaterializedColumn):
+                    # TODO: rematerialize all columns to properly support empty strings and "null" string values.
                     if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                        materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
+                        materialized_property_sql = f"nullIf({materialized_property_source}, '')"
                     else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                        materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+                        materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
+                else:
+                    materialized_property_sql = str(materialized_property_source)
 
                 if len(type.chain) == 1:
                     return materialized_property_sql
                 else:
-                    for name in type.chain[1:]:
-                        args.append(self.context.add_value(name))
-                    return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
+                    return self._unsafe_json_extract_trim_quotes(
+                        materialized_property_sql, [self.context.add_value(name) for name in type.chain[1:]]
+                    )
 
-        for name in type.chain:
-            args.append(self.context.add_value(name))
-        return self._unsafe_json_extract_trim_quotes(self.visit(field_type), args)
+        return self._unsafe_json_extract_trim_quotes(
+            self.visit(type.field_type), [self.context.add_value(name) for name in type.chain]
+        )
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
