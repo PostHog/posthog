@@ -74,12 +74,20 @@ pub fn construct_job(parameters: FetchParameters) -> JobInit {
     }
 }
 
-pub async fn wait_on_return(worker: &Worker, count: usize) -> Result<Vec<Job>, QueueError> {
+pub async fn wait_on_return(
+    worker: &Worker,
+    count: usize,
+    with_vm: bool,
+) -> Result<Vec<Job>, QueueError> {
     let timeout = Duration::seconds(1);
     let start = Utc::now();
     let mut returned = vec![];
     while start + timeout > Utc::now() {
-        let mut jobs = worker.dequeue_jobs(RETURN_QUEUE, 1).await?;
+        let mut jobs = if with_vm {
+            worker.dequeue_with_vm_state(RETURN_QUEUE, 1).await?
+        } else {
+            worker.dequeue_jobs(RETURN_QUEUE, 1).await?
+        };
         returned.append(&mut jobs);
         if returned.len() == count {
             return Ok(returned);

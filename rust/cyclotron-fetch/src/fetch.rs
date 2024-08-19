@@ -285,11 +285,13 @@ impl<'a> TryFrom<&'a Job> for FetchJob<'a> {
         let metadata = match &job.metadata {
             Some(m) => match serde_json::from_str(m) {
                 Ok(m) => m,
-                Err(e) => {
-                    return Err(FetchFailure::new(
-                        FetchFailureKind::InvalidParameters,
-                        format!("Failed to parse metadata: {}", e),
-                    ))
+                Err(_) => {
+                    // If we can't decode the metadata, assume this is the first time we've seen the job
+                    // TODO - this is maybe too lenient, I'm not sure.
+                    FetchMetadata {
+                        tries: 0,
+                        trace: vec![],
+                    }
                 }
             },
             None => FetchMetadata {
