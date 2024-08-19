@@ -641,7 +641,6 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
- "tower",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
