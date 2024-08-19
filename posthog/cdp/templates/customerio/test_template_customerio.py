@@ -71,6 +71,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
     def test_automatic_action_mapping(self):
         for event_name, expected_action in [
             ("$identify", "identify"),
+            ("$set", "identify"),
             ("$pageview", "page"),
             ("$screen", "screen"),
             ("$autocapture", "event"),
