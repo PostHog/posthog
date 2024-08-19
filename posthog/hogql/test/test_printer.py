@@ -366,7 +366,7 @@ class TestPrinter(BaseTest):
         @dataclass
         class PropertyGroupComparisonTestCase:
             input_expression: str
-            expected_printed_query: str | None
+            expected_optimized_query: str | None
             expected_context_values: Mapping[str, Any] = field(default_factory=dict)
             expected_skip_indexes_used: set[str] = field(default_factory=set)
 
@@ -538,8 +538,8 @@ class TestPrinter(BaseTest):
             printed_expr = self._expr(case.input_expression, context)
             self.assertEqual(
                 printed_expr,
-                case.expected_printed_query
-                if case.expected_printed_query is not None
+                case.expected_optimized_query
+                if case.expected_optimized_query is not None
                 else self._expr(case.input_expression, build_context(PropertyGroupsMode.OPTIMIZED)),
             )
             self.assertDictContainsSubset(case.expected_context_values, context.values)
