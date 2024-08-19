@@ -146,8 +146,16 @@ class CreatedMetaFields(models.Model):
         abstract = True
 
 
+class UpdatedMetaFields(models.Model):
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True, null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+
 class DeletedMetaFields(models.Model):
-    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
+    deleted: models.BooleanField = models.BooleanField(null=True, blank=True, default=False)
+    deleted_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         abstract = True

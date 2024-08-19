@@ -1,5 +1,5 @@
 import { IconLock } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -25,10 +25,12 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 import {
     ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
+    BaseMathType,
     FeatureFlagFilters,
     FeatureFlagType,
     ProductKey,
@@ -59,6 +61,28 @@ export function OverViewTab({
         useValues(flagLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+
+    const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
+        const query: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        event: '$pageview',
+                        name: '$pageview',
+                        kind: NodeKind.EventsNode,
+                        math: BaseMathType.UniqueUsers,
+                    },
+                ],
+                breakdownFilter: {
+                    breakdown_type: 'event',
+                    breakdown: `$feature/${featureFlag.key}`,
+                },
+            },
+        }
+        return urls.insightNew(undefined, undefined, query)
+    }
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -160,12 +184,31 @@ export function OverViewTab({
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => {
-                                        featureFlag.id
-                                            ? updateFeatureFlag({
-                                                  id: featureFlag.id,
-                                                  payload: { active: !featureFlag.active },
-                                              })
-                                            : null
+                                        const newValue = !featureFlag.active
+                                        LemonDialog.open({
+                                            title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                            description: `This flag will be immediately ${
+                                                newValue === true ? 'rolled out to' : 'rolled back from'
+                                            } the users matching the release conditions.`,
+                                            primaryButton: {
+                                                children: 'Confirm',
+                                                type: 'primary',
+                                                onClick: () => {
+                                                    featureFlag.id
+                                                        ? updateFeatureFlag({
+                                                              id: featureFlag.id,
+                                                              payload: { active: newValue },
+                                                          })
+                                                        : null
+                                                },
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
                                     }}
                                     id={`feature-flag-${featureFlag.id}-switch`}
                                     disabled={!featureFlag.can_edit}
@@ -184,15 +227,7 @@ export function OverViewTab({
                                         Edit
                                     </LemonButton>
                                 )}
-                                <LemonButton
-                                    to={urls.insightNew({
-                                        events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
-                                        breakdown_type: 'event',
-                                        breakdown: `$feature/${featureFlag.key}`,
-                                    })}
-                                    data-attr="usage"
-                                    fullWidth
-                                >
+                                <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth>
                                     Try out in Insights
                                 </LemonButton>
                                 <LemonDivider />

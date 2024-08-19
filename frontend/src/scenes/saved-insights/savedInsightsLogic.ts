@@ -13,6 +13,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -66,7 +68,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], sceneLogic, ['activeScene']],
         logic: [eventUsageLogic],
     }),
     actions({
@@ -121,7 +123,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 // scroll to top if the page changed, except if changed via back/forward
                 if (
-                    router.values.location.pathname === urls.savedInsights() &&
+                    sceneLogic.values.activeScene === Scene.SavedInsights &&
                     router.values.lastMethod !== 'POP' &&
                     values.insights.filters?.page !== filters.page
                 ) {
@@ -169,7 +171,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors({
         queryBasedInsightSaving: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_INSIGHTS_SAVING],
@@ -233,18 +235,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     pageSize: INSIGHTS_PER_PAGE,
                     currentPage: filters.page,
                     entryCount: count,
-                    onBackward: () =>
-                        actions.setSavedInsightsFilters({
-                            page: filters.page - 1,
-                        }),
-                    onForward: () =>
-                        actions.setSavedInsightsFilters({
-                            page: filters.page + 1,
-                        }),
                 }
             },
         ],
-    })),
+    }),
     listeners(({ actions, asyncActions, values, selectors }) => ({
         setSavedInsightsFilters: async ({ merge, debounce }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
@@ -327,7 +321,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                   }
               ]
             | void => {
-            if (router.values.location.pathname === urls.savedInsights()) {
+            const currentScene = sceneLogic.findMounted()?.values
+            if (currentScene?.activeScene === Scene.SavedInsights) {
                 const nextValues = cleanFilters(values.filters)
                 const urlValues = cleanFilters(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {
@@ -362,10 +357,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())
                 }
-                return
-            } else if (searchParams.insight) {
-                // old URL with `?insight=TRENDS` in query
-                router.actions.replace(urls.insightNew(searchParams))
                 return
             }
 

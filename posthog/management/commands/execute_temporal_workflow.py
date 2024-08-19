@@ -6,8 +6,10 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
+from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
 from posthog.temporal.common.client import connect
-from posthog.temporal.batch_exports import WORKFLOWS
+from posthog.temporal.data_imports import WORKFLOWS as DATA_IMPORT_WORKFLOWS
+from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 
 
 class Command(BaseCommand):
@@ -49,7 +51,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--task-queue",
             default=settings.TEMPORAL_TASK_QUEUE,
-            help="Task queue to service",
+            help=(
+                "Temporal task queue that will handle the Workflow. This should be a "
+                "task queue that is configured to run the Workflow, as different task "
+                "queues are used for different workflows."
+            ),
         )
         parser.add_argument(
             "--server-root-ca-cert",
@@ -98,13 +104,14 @@ class Command(BaseCommand):
         )
         retry_policy = RetryPolicy(maximum_attempts=int(options["max_attempts"]))
 
+        WORKFLOWS = BATCH_EXPORT_WORKFLOWS + DATA_IMPORT_WORKFLOWS + PROXY_SERVICE_WORKFLOWS
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
-        except IndexError:
+        except StopIteration:
             raise ValueError(f"No workflow with name '{workflow_name}'")
         except AttributeError:
             raise TypeError(
-                f"Workflow '{workflow_name}' is not a CommandableWorkflow that can invoked by execute_temporal_workflow."
+                f"Workflow '{workflow_name}' is not a `PostHogWorkflow` that can invoked by `execute_temporal_workflow`."
             )
 
         logging.info("Executing Temporal Workflow %s with ID %s", workflow_name, workflow_id)

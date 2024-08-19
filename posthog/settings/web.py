@@ -45,6 +45,9 @@ DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
     "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
 )
 
+# if `true` we disable session replay if over quota
+DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -380,3 +383,6 @@ PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
+
+# disables frontend side navigation hooks to make hot-reload work seamlessly
+DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)

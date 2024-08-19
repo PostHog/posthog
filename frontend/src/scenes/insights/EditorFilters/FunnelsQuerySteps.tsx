@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -23,18 +25,23 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
-    if (!isInsightQueryNode(querySource)) {
-        return null
-    }
+    const { featureFlags } = useValues(featureFlagLogic)
+    const mathAvailability = featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]
+        ? MathAvailability.FunnelsOnly
+        : MathAvailability.None
 
-    const actionFilters = queryNodeToFilter(querySource)
+    const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
         updateQuerySource({
-            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.None),
+            series: actionsAndEventsToSeries(payload as any, true, mathAvailability),
         } as FunnelsQuery)
     }
 
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
+
+    if (!actionFilters) {
+        return null
+    }
 
     const filterSteps = series || []
     const showSeriesIndicator = (series || []).length > 0
@@ -55,7 +62,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 filters={actionFilters}
                 setFilters={setActionFilters}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
-                mathAvailability={MathAvailability.None}
+                mathAvailability={mathAvailability}
                 hideDeleteBtn={filterSteps.length === 1}
                 buttonCopy="Add step"
                 showSeriesIndicator={showSeriesIndicator}
@@ -70,6 +77,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.HogQLExpression,
                 ]}
             />

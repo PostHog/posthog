@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest import mock
 import uuid
 import psycopg
@@ -370,7 +371,7 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-            sync_frequency=ExternalDataSchema.SyncFrequency.DAILY,
+            sync_frequency_interval=timedelta(hours=24),
         )
 
         with (
@@ -385,11 +386,11 @@ class TestExternalDataSchema(APIBaseTest):
 
             response = self.client.patch(
                 f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_frequency": "week"},
+                data={"sync_frequency": "7day"},
             )
 
             assert response.status_code == 200
             mock_sync_external_data_job_workflow.assert_called_once()
 
             schema.refresh_from_db()
-            assert schema.sync_frequency == ExternalDataSchema.SyncFrequency.WEEKLY
+            assert schema.sync_frequency_interval == timedelta(days=7)

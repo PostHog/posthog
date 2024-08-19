@@ -1,3 +1,28 @@
+import { toHogDate, toHogDateTime } from './stl/date'
+
+export class HogVMException extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = this.constructor.name
+    }
+}
+
+export class UncaughtHogVMException extends HogVMException {
+    type: any
+    payload: any
+
+    constructor(type: string, message: string, payload: any = null) {
+        super(message)
+        this.type = type
+        this.payload = payload
+    }
+
+    toString(): string {
+        const msg = this.message.replaceAll("'", "\\'")
+        return `${this.type}('${msg}')`
+    }
+}
+
 /** Fixed cost per object in memory */
 const COST_PER_UNIT = 8
 
@@ -17,7 +42,10 @@ export function getNestedValue(obj: any, chain: any[], nullish = false): any {
             if (obj instanceof Map) {
                 obj = obj.get(key) ?? null
             } else if (typeof key === 'number') {
-                obj = obj[key] ?? null
+                if (key <= 0) {
+                    throw new Error(`Hog arrays start from index 1`)
+                }
+                obj = obj[key - 1] ?? null
             } else {
                 obj = obj[key] ?? null
             }
@@ -35,7 +63,10 @@ export function setNestedValue(obj: any, chain: any[], value: any): void {
         if (obj instanceof Map) {
             obj = obj.get(key) ?? null
         } else if (Array.isArray(obj) && typeof key === 'number') {
-            obj = obj[key]
+            if (key <= 0) {
+                throw new Error(`Hog arrays start from index 1`)
+            }
+            obj = obj[key - 1]
         } else {
             throw new Error(`Can not get ${chain} on element of type ${typeof obj}`)
         }
@@ -44,7 +75,10 @@ export function setNestedValue(obj: any, chain: any[], value: any): void {
     if (obj instanceof Map) {
         obj.set(lastKey, value)
     } else if (Array.isArray(obj) && typeof lastKey === 'number') {
-        obj[lastKey] = value
+        if (lastKey <= 0) {
+            throw new Error(`Hog arrays start from index 1`)
+        }
+        obj[lastKey - 1] = value
     } else {
         throw new Error(`Can not set ${chain} on element of type ${typeof obj}`)
     }
@@ -55,6 +89,11 @@ export function convertJSToHog(x: any): any {
     if (Array.isArray(x)) {
         return x.map(convertJSToHog)
     } else if (typeof x === 'object' && x !== null) {
+        if (x.__hogDateTime__) {
+            return toHogDateTime(x.dt, x.zone)
+        } else if (x.__hogDate__) {
+            return toHogDate(x.year, x.month, x.day)
+        }
         const map = new Map()
         for (const key in x) {
             map.set(key, convertJSToHog(x[key]))
@@ -74,6 +113,9 @@ export function convertHogToJS(x: any): any {
     } else if (typeof x === 'object' && Array.isArray(x)) {
         return x.map(convertHogToJS)
     } else if (typeof x === 'object' && x !== null) {
+        if (x.__hogDateTime__ || x.__hogDate__) {
+            return x
+        }
         const obj: Record<string, any> = {}
         for (const key in x) {
             obj[key] = convertHogToJS(x[key])

@@ -1,6 +1,6 @@
 from typing import Any
 
-from rest_framework import filters, request, response, serializers, status, viewsets
+from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -8,11 +8,11 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.schema import DatabaseSerializedFieldType
+from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
-    DataWarehouseJoin,
 )
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
 from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING, SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
@@ -67,7 +67,11 @@ class TableSerializer(serializers.ModelSerializer):
             fields = table.hogql_definition().fields
 
         serializes_fields = serialize_fields(
-            fields, HogQLContext(database=database, team_id=self.context["team_id"]), table.name, table.columns
+            fields,
+            HogQLContext(database=database, team_id=self.context["team_id"]),
+            table.name,
+            table.columns,
+            table_type="external",
         )
 
         return [
@@ -89,11 +93,21 @@ class TableSerializer(serializers.ModelSerializer):
         return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
 
     def create(self, validated_data):
-        validated_data["team_id"] = self.context["team_id"]
+        team_id = self.context["team_id"]
+
+        table_name_exists = (
+            DataWarehouseTable.objects.exclude(deleted=True)
+            .filter(team_id=team_id, name=validated_data["name"])
+            .exists()
+        )
+        if table_name_exists:
+            raise exceptions.ValidationError("Table name already exists.")
+
+        validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
         if validated_data.get("credential"):
             validated_data["credential"] = DataWarehouseCredential.objects.create(
-                team_id=self.context["team_id"],
+                team_id=team_id,
                 access_key=validated_data["credential"]["access_key"],
                 access_secret=validated_data["credential"]["access_secret"],
             )
@@ -104,9 +118,7 @@ class TableSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(str(err))
         table.save()
 
-        for column in table.columns.keys():
-            table.columns[column]["valid"] = table.validate_column_type(column)
-        table.save()
+        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))  # type: ignore
 
         return table
 
@@ -127,7 +139,10 @@ class SimpleTableSerializer(serializers.ModelSerializer):
             database = create_hogql_database(team_id=self.context["team_id"])
 
         fields = serialize_fields(
-            table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id), table.name
+            table.hogql_definition().fields,
+            HogQLContext(database=database, team_id=team_id),
+            table.name,
+            table_type="external",
         )
         return [
             SerializedField(
@@ -171,10 +186,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
-        DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
-        DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
         DataWarehouseSavedQuery.objects.filter(external_tables__icontains=instance.name).delete()
-        self.perform_destroy(instance)
+
+        instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

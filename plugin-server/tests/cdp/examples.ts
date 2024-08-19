@@ -243,6 +243,43 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             35,
         ],
     },
+    posthog_capture: {
+        hog: "postHogCapture({\n    'event': f'{event.name} (copy)',\n    'distinct_id': event.distinct_id,\n    'properties': {}\n})",
+        bytecode: [
+            '_h',
+            32,
+            'event',
+            32,
+            ' (copy)',
+            32,
+            'name',
+            32,
+            'event',
+            1,
+            2,
+            2,
+            'concat',
+            2,
+            32,
+            'distinct_id',
+            32,
+            'distinct_id',
+            32,
+            'event',
+            1,
+            2,
+            32,
+            'properties',
+            42,
+            0,
+            42,
+            3,
+            2,
+            'postHogCapture',
+            1,
+            35,
+        ],
+    },
 }
 
 export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' | 'inputs_schema'>> = {
@@ -375,6 +412,25 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                 4,
                 2,
             ],
+        },
+    },
+}
+
+export const HOG_MASK_EXAMPLES: Record<string, Pick<HogFunctionType, 'masking'>> = {
+    all: {
+        masking: {
+            ttl: 30,
+            hash: 'all',
+            bytecode: ['_h', 32, 'all'],
+            threshold: null,
+        },
+    },
+    person: {
+        masking: {
+            ttl: 30,
+            hash: '{person.uuid}',
+            bytecode: ['_h', 32, 'uuid', 32, 'person', 1, 2],
+            threshold: null,
         },
     },
 }

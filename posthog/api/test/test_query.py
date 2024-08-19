@@ -840,16 +840,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {
                     "query_status": {
                         "complete": False,
+                        "pickup_time": None,
                         "end_time": None,
                         "error": False,
                         "error_message": None,
-                        "expiration_time": None,
+                        "expiration_time": mock.ANY,
                         "id": mock.ANY,
                         "query_async": True,
                         "results": None,
                         "start_time": "2020-01-10T12:14:00Z",
                         "task_id": mock.ANY,
                         "team_id": mock.ANY,
+                        "insight_id": mock.ANY,
+                        "dashboard_id": mock.ANY,
                         "query_progress": None,
                         "labels": None,
                     }

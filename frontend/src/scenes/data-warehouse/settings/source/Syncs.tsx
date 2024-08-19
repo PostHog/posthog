@@ -1,10 +1,11 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 
 import { ExternalDataJob } from '~/types'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
+import { LogsView } from './Logs'
 
 const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Running: 'primary',
@@ -13,13 +14,19 @@ const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Cancelled: 'default',
 }
 
-export const Syncs = (): JSX.Element => {
-    const { jobs, jobsLoading } = useValues(dataWarehouseSourceSettingsLogic)
+interface SyncsProps {
+    id: string
+}
+
+export const Syncs = ({ id }: SyncsProps): JSX.Element => {
+    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(dataWarehouseSourceSettingsLogic({ id }))
+    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id }))
 
     return (
         <LemonTable
             dataSource={jobs}
             loading={jobsLoading}
+            disableTableWhileLoading={false}
             columns={[
                 {
                     title: 'Schema',
@@ -46,6 +53,30 @@ export const Syncs = (): JSX.Element => {
                     },
                 },
             ]}
+            expandable={
+                jobs.length > 0
+                    ? {
+                          expandedRowRender: (job) => (
+                              <div className="p-4">
+                                  <LogsView job={job} />
+                              </div>
+                          ),
+                          rowExpandable: () => true,
+                          noIndent: true,
+                      }
+                    : undefined
+            }
+            footer={
+                <LemonButton
+                    onClick={loadMoreJobs}
+                    type="secondary"
+                    fullWidth
+                    center
+                    disabledReason={!canLoadMoreJobs ? "There's nothing more to load" : undefined}
+                >
+                    {canLoadMoreJobs ? `Load older jobs` : 'No older jobs'}
+                </LemonButton>
+            }
         />
     )
 }

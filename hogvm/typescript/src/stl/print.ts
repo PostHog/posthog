@@ -1,3 +1,5 @@
+import { isHogDate, isHogDateTime, isHogError } from '../objects'
+
 const escapeCharsMap: Record<string, string> = {
     '\b': '\\b',
     '\f': '\\f',
@@ -44,7 +46,7 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
         marked = new Set()
     }
     if (typeof obj === 'object' && obj !== null) {
-        if (marked.has(obj)) {
+        if (marked.has(obj) && !isHogDateTime(obj) && !isHogDate(obj) && !isHogError(obj)) {
             return 'null'
         }
         marked.add(obj)
@@ -57,6 +59,18 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
                     return `(${obj.map((o) => printHogValue(o, marked)).join(', ')})`
                 }
                 return `[${obj.map((o) => printHogValue(o, marked)).join(', ')}]`
+            }
+            if (isHogDateTime(obj)) {
+                const millis = String(obj.dt)
+                return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${escapeString(obj.zone)})`
+            }
+            if (isHogDate(obj)) {
+                return `Date(${obj.year}, ${obj.month}, ${obj.day})`
+            }
+            if (isHogError(obj)) {
+                return `${String(obj.type)}(${escapeString(obj.message)}${
+                    obj.payload ? `, ${printHogValue(obj.payload, marked)}` : ''
+                })`
             }
             if (obj instanceof Map) {
                 return `{${Array.from(obj.entries())

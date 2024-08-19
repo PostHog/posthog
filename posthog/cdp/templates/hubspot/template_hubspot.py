@@ -2,11 +2,11 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     id="template-hubspot",
     name="Create Hubspot contact",
     description="Creates a new contact in Hubspot whenever an event is triggered.",
-    icon_url="/api/projects/@current/hog_functions/icon/?id=hubspot.com",
+    icon_url="/static/services/hubspot.png",
     hog="""
 let properties := inputs.properties
 properties.email := inputs.email
@@ -16,19 +16,17 @@ if (empty(properties.email)) {
     return
 }
 
-let body := {
-    'properties': properties
-}
-
 let headers := {
-    'Authorization': f'Bearer {inputs.access_token}',
+    'Authorization': f'Bearer {inputs.oauth.access_token}',
     'Content-Type': 'application/json'
 }
 
 let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
   'method': 'POST',
   'headers': headers,
-  'body': body
+  'body': {
+    'properties': properties
+  }
 })
 
 if (res.status == 409) {
@@ -36,7 +34,9 @@ if (res.status == 409) {
     let updateRes := fetch(f'https://api.hubapi.com/crm/v3/objects/contacts/{existingId}', {
         'method': 'PATCH',
         'headers': headers,
-        'body': body
+        'body': {
+            'properties': properties
+        }
     })
 
     if (updateRes.status != 200 or updateRes.body.status == 'error') {
@@ -45,22 +45,20 @@ if (res.status == 409) {
     }
     print('Contact updated successfully!')
     return
-} else if (res.status != 200 or res.body.status == 'error') {
+} else if (res.status >= 300 or res.body.status == 'error') {
     print('Error creating contact:', res.body)
     return
 } else {
     print('Contact created successfully!')
 }
-
-
 """.strip(),
     inputs_schema=[
         {
-            "key": "access_token",
-            "type": "string",
-            "label": "Access token",
-            "description": "Can be acquired under Profile Preferences -> Integrations -> Private Apps",
-            "secret": True,
+            "key": "oauth",
+            "type": "integration",
+            "integration": "hubspot",
+            "label": "Hubspot connection",
+            "secret": False,
             "required": True,
         },
         {

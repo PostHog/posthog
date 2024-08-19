@@ -102,7 +102,12 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     },
     questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
     appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
-    conditions: { url: 'posthog', selector: '', events: { values: [{ name: 'user_subscribed' }] } },
+    conditions: {
+        url: 'posthog',
+        selector: '',
+        events: { values: [{ name: 'user_subscribed' }] },
+        actions: { values: [] },
+    },
     linked_flag: {
         id: 7,
         team_id: 1,
@@ -357,8 +362,7 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
 
 NewSurveyWithHTMLQuestionDescription.parameters = {
     testOptions: {
-        waitForSelector:
-            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div > div:nth-child(2) > div.description > strong',
+        waitForSelector: '.survey-question-description strong',
     },
 }
 
@@ -381,8 +385,7 @@ export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn 
 
 NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
     testOptions: {
-        waitForSelector:
-            '#survey > div.flex.flex-row.gap-4 > div.max-w-80.mx-4.flex.flex-col.items-center.h-full.w-full.sticky.top-0.pt-16 > div > div:nth-child(1) > form > div > div > div:nth-child(2) > div.description',
+        waitForSelector: '.survey-question-description',
     },
 }
 

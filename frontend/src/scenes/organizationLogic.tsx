@@ -13,7 +13,7 @@ import type { organizationLogicType } from './organizationLogicType'
 import { userLogic } from './userLogic'
 
 export type OrganizationUpdatePayload = Partial<
-    Pick<OrganizationType, 'name' | 'is_member_join_email_enabled' | 'enforce_2fa'>
+    Pick<OrganizationType, 'name' | 'logo_media_id' | 'is_member_join_email_enabled' | 'enforce_2fa'>
 >
 
 export const organizationLogic = kea<organizationLogicType>([

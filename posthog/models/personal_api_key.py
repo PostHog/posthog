@@ -75,7 +75,6 @@ class PersonalAPIKey(models.Model):
 
 # WARNING: Make sure to keep in sync with the frontend!
 APIScopeObject = Literal[
-    "alert",
     "action",
     "activity_log",
     "annotation",

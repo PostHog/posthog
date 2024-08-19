@@ -1,69 +1,57 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { PipelineTab } from '~/types'
+
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID, dataWarehouseExternalSceneLogic } from './dataWarehouseExternalSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
 export const scene: SceneExport = {
     component: DataWarehouseExternalScene,
-    logic: dataWarehouseSceneLogic,
+    logic: dataWarehouseExternalSceneLogic,
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { insightProps, insightChanged, insightSaving, hasDashboardItemId } = useValues(
-        insightLogic({
-            dashboardItemId: 'new',
-            cachedInsight: null,
-        })
-    )
+    const { viewLoading } = useValues(dataWarehouseExternalSceneLogic)
 
-    const { saveInsight, saveAs } = useActions(insightDataLogic(insightProps))
+    const logic = insightLogic({
+        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+        cachedInsight: null,
+    })
+    const { insightSaving, insightProps } = useValues(logic)
+    const { saveAs } = useActions(logic)
+
+    const insightDataLogicProps = {
+        ...insightProps,
+    }
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        <InsightSaveButton
-                            saveAs={saveAs}
-                            saveInsight={saveInsight}
-                            isSaved={hasDashboardItemId}
-                            addingToDashboard={false}
-                            insightSaving={insightSaving}
-                            insightChanged={insightChanged}
-                        />
-
                         <LemonButton
                             type="primary"
-                            data-attr="new-data-warehouse-easy-link"
-                            key="new-data-warehouse-easy-link"
-                            to={urls.dataWarehouseTable()}
+                            data-attr="save-exploration"
+                            onClick={() => saveAs(true, false)}
+                            loading={insightSaving}
                         >
-                            Link source
+                            Save as insight
                         </LemonButton>
-
-                        <LemonButton
-                            type="primary"
-                            icon={<IconGear />}
-                            data-attr="new-data-warehouse-settings-link"
-                            key="new-data-warehouse-settings-link"
-                            onClick={() => router.actions.push(urls.dataWarehouseSettings())}
-                        />
+                        <LemonButton type="secondary" to={urls.pipeline(PipelineTab.Sources)}>
+                            Manage sources
+                        </LemonButton>
                     </>
                 }
                 caption={
                     <div>
-                        Below are all the sources that can be queried within PostHog with{' '}
+                        Explore all your data in PostHog with{' '}
                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </Link>
@@ -73,9 +61,13 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
             />
             <DataWarehouseInitialBillingLimitNotice />
-            <BindLogic logic={insightSceneLogic} props={{}}>
-                <DataWarehouseTables />
-            </BindLogic>
+            {viewLoading ? (
+                <Spinner />
+            ) : (
+                <BindLogic logic={insightSceneLogic} props={{}}>
+                    <DataWarehouseTables insightProps={insightDataLogicProps} />
+                </BindLogic>
+            )}
         </div>
     )
 }

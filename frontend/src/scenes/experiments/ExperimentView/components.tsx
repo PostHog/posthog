@@ -1,11 +1,14 @@
 import '../Experiment.scss'
 
-import { IconArchive, IconCheck, IconX } from '@posthog/icons'
+import { IconArchive, IconCheck, IconMagicWand, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
     LemonTag,
     LemonTagType,
     Link,
@@ -15,23 +18,38 @@ import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
+import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
-import { ExperimentResults, FilterType, InsightShortId, InsightType } from '~/types'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
+import {
+    Experiment,
+    Experiment as ExperimentType,
+    ExperimentResults,
+    FilterType,
+    InsightShortId,
+    InsightType,
+} from '~/types'
 
-import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour, transformResultFilters } from '../utils'
 
-export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element {
-    const { experimentResults, getIndexForVariant } = useValues(experimentLogic)
+export function VariantTag({
+    experimentId,
+    variantKey,
+}: {
+    experimentId: number | 'new'
+    variantKey: string
+}): JSX.Element {
+    const { experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
 
     return (
         <span className="flex items-center space-x-1">
@@ -120,29 +138,27 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         properties: [],
     }
 
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: filtersToQueryNode(
+            transformResultFilters(
+                experimentResults?.filters
+                    ? { ...experimentResults.filters, explicit_date: true }
+                    : filtersFromExperiment
+            )
+        ),
+        showTable: true,
+        showLastComputation: true,
+        showLastComputationRefresh: false,
+    }
+
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
             size="small"
             type="primary"
             icon={icon}
-            to={urls.insightNew(
-                undefined,
-                undefined,
-                JSON.stringify({
-                    kind: NodeKind.InsightVizNode,
-                    source: filtersToQueryNode(
-                        transformResultFilters(
-                            experimentResults?.filters
-                                ? { ...experimentResults.filters, explicit_date: true }
-                                : filtersFromExperiment
-                        )
-                    ),
-                    showTable: true,
-                    showLastComputation: true,
-                    showLastComputationRefresh: false,
-                })
-            )}
+            to={urls.insightNew(undefined, undefined, query)}
         >
             Explore results
         </LemonButton>
@@ -169,10 +185,19 @@ export function ResultsHeader(): JSX.Element {
 }
 
 export function NoResultsEmptyState(): JSX.Element {
+    type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant'
+
     const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
 
-    function ChecklistItem({ failureReason, checked }: { failureReason: string; checked: boolean }): JSX.Element {
-        const failureReasonToText = {
+    function ChecklistItem({ errorCode, value }: { errorCode: ErrorCode; value: boolean }): JSX.Element {
+        const failureText = {
+            'no-events': 'Experiment events not received',
+            'no-flag-info': 'Feature flag information not present on the events',
+            'no-control-variant': 'Events with the control variant not received',
+            'no-test-variant': 'Events with at least one test variant not received',
+        }
+
+        const successText = {
             'no-events': 'Experiment events have been received',
             'no-flag-info': 'Feature flag information is present on the events',
             'no-control-variant': 'Events with the control variant received',
@@ -181,12 +206,17 @@ export function NoResultsEmptyState(): JSX.Element {
 
         return (
             <div className="flex items-center space-x-2">
-                {checked ? (
-                    <IconCheck className="text-success" fontSize={16} />
+                {value === false ? (
+                    <>
+                        <IconCheck className="text-success" fontSize={16} />
+                        <span className="text-muted">{successText[errorCode]}</span>
+                    </>
                 ) : (
-                    <IconX className="text-danger" fontSize={16} />
+                    <>
+                        <IconX className="text-danger" fontSize={16} />
+                        <span>{failureText[errorCode]}</span>
+                    </>
                 )}
-                <span className={checked ? 'text-muted' : ''}>{failureReasonToText[failureReason]}</span>
             </div>
         )
     }
@@ -197,7 +227,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // Validation errors return 400 and are rendered as a checklist
     if (experimentResultCalculationError?.statusCode === 400) {
-        let parsedDetail = {}
+        let parsedDetail: Record<ErrorCode, boolean>
         try {
             parsedDetail = JSON.parse(experimentResultCalculationError.detail)
         } catch (error) {
@@ -212,8 +242,8 @@ export function NoResultsEmptyState(): JSX.Element {
         }
 
         const checklistItems = []
-        for (const [failureReason, value] of Object.entries(parsedDetail)) {
-            checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
+        for (const [errorCode, value] of Object.entries(parsedDetail)) {
+            checklistItems.push(<ChecklistItem key={errorCode} errorCode={errorCode as ErrorCode} value={value} />)
         }
 
         return (
@@ -294,7 +324,15 @@ export function ExperimentLoadingAnimation(): JSX.Element {
 }
 
 export function PageHeaderCustom(): JSX.Element {
-    const { experiment, isExperimentRunning, isExperimentStopped } = useValues(experimentLogic)
+    const {
+        experimentId,
+        experiment,
+        isExperimentRunning,
+        isExperimentStopped,
+        areResultsSignificant,
+        isSingleVariantShipped,
+        featureFlags,
+    } = useValues(experimentLogic)
     const {
         launchExperiment,
         resetRunningExperiment,
@@ -304,8 +342,8 @@ export function PageHeaderCustom(): JSX.Element {
         loadExperimentResults,
         loadSecondaryMetricResults,
         createExposureCohort,
+        openMakeDecisionModal,
     } = useActions(experimentLogic)
-
     const exposureCohortId = experiment?.exposure_cohort
 
     return (
@@ -459,9 +497,93 @@ export function PageHeaderCustom(): JSX.Element {
                             )}
                         </div>
                     )}
+                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION] &&
+                        areResultsSignificant &&
+                        !isSingleVariantShipped && (
+                            <>
+                                <LemonButton
+                                    type="primary"
+                                    status="alt"
+                                    icon={<IconMagicWand />}
+                                    onClick={() => openMakeDecisionModal()}
+                                >
+                                    <b>Make decision</b>
+                                </LemonButton>
+                                <MakeDecisionModal experimentId={experimentId} />
+                            </>
+                        )}
                 </>
             }
         />
+    )
+}
+
+export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { experiment, sortedWinProbabilities, isMakeDecisionModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeMakeDecisionModal, shipVariant } = useActions(experimentLogic({ experimentId }))
+    const { aggregationLabel } = useValues(groupsModel)
+
+    const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
+    useEffect(() => setSelectedVariantKey(sortedWinProbabilities[0]?.key), [sortedWinProbabilities])
+
+    const aggregationTargetName =
+        experiment.filters.aggregation_group_type_index != null
+            ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
+            : 'users'
+
+    return (
+        <LemonModal
+            isOpen={isMakeDecisionModalOpen}
+            onClose={closeMakeDecisionModal}
+            width={600}
+            title="Make decision"
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={closeMakeDecisionModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton onClick={() => shipVariant(selectedVariantKey)} type="primary">
+                        Ship variant
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div className="text-sm">
+                    This action will roll out the selected variant to <b>100% of {aggregationTargetName}.</b>
+                </div>
+                <LemonSelect
+                    data-attr="metrics-selector"
+                    value={selectedVariantKey}
+                    onChange={(variantKey) => setSelectedVariantKey(variantKey)}
+                    options={sortedWinProbabilities.map(({ key }) => ({
+                        value: key,
+                        label: (
+                            <div className="space-x-2 inline-flex">
+                                <VariantTag experimentId={experimentId} variantKey={key} />
+                                {key === sortedWinProbabilities[0]?.key && (
+                                    <LemonTag type="success">
+                                        <b className="uppercase">Winning</b>
+                                    </LemonTag>
+                                )}
+                            </div>
+                        ),
+                    }))}
+                />
+                <LemonBanner type="info" className="mb-4">
+                    For more precise control over your release, adjust the rollout percentage and release conditions in
+                    the{' '}
+                    <Link
+                        target="_blank"
+                        className="font-semibold"
+                        to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                    >
+                        {experiment.feature_flag?.key}
+                    </Link>{' '}
+                    feature flag.
+                </LemonBanner>
+            </div>
+        </LemonModal>
     )
 }
 
@@ -478,15 +600,49 @@ export function ActionBanner(): JSX.Element {
         funnelResultsPersonsTotal,
         actualRunningTime,
         getHighestProbabilityVariant,
+        isSingleVariantShipped,
+        featureFlags,
     } = useValues(experimentLogic)
 
     const { archiveExperiment } = useActions(experimentLogic)
+
+    const { aggregationLabel } = useValues(groupsModel)
+    const aggregationTargetName =
+        experiment.filters.aggregation_group_type_index != null
+            ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
+            : 'users'
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     if (!experiment || experimentLoading || experimentResultsLoading) {
         return <></>
+    }
+
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION]) {
+        if (isSingleVariantShipped) {
+            const shippedVariant = experiment.feature_flag?.filters.multivariate?.variants.find(
+                ({ rollout_percentage }) => rollout_percentage === 100
+            )
+            if (!shippedVariant) {
+                return <></>
+            }
+
+            return (
+                <LemonBanner type="info" className="mt-4">
+                    <span className="inline-flex items-center">
+                        <span
+                            className="border rounded px-2"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ backgroundColor: 'var(--bg-table)' }}
+                        >
+                            <VariantTag experimentId={experiment.id} variantKey={shippedVariant.key} />
+                        </span>
+                        &nbsp; has been released to 100% of {aggregationTargetName}.
+                    </span>
+                </LemonBanner>
+            )
+        }
     }
 
     // Draft
@@ -620,4 +776,65 @@ export function ActionBanner(): JSX.Element {
     }
 
     return <></>
+}
+
+export const ResetButton = ({
+    experiment,
+    onConfirm,
+}: {
+    experiment: ExperimentType
+    onConfirm: () => void
+}): JSX.Element => {
+    const onClickReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset this experiment?',
+            content: (
+                <>
+                    <div className="text-sm text-muted">
+                        All collected data so far will be discarded and the experiment will go back to draft mode.
+                    </div>
+                    {experiment.archived && (
+                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                    )}
+                </>
+            ),
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                onClick: onConfirm,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    return (
+        <LemonButton type="secondary" onClick={onClickReset}>
+            Reset
+        </LemonButton>
+    )
+}
+
+export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
+    const status = getExperimentStatus(experiment)
+    return (
+        <LemonTag type={getExperimentStatusColor(status)}>
+            <b className="uppercase">{status}</b>
+        </LemonTag>
+    )
+}
+
+export function LoadingState(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/3 h-4" />
+            <LemonSkeleton />
+            <LemonSkeleton />
+            <LemonSkeleton className="w-2/3 h-4" />
+        </div>
+    )
 }

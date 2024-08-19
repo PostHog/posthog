@@ -1,6 +1,6 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
+import { Hub, PluginConfig, PluginMethodsConcrete, PluginTaskType, PostIngestionEvent } from '../../types'
 import { processError } from '../../utils/db/error'
 import {
     convertToOnEventPayload,
@@ -19,7 +19,7 @@ async function runSingleTeamPluginOnEvent(
     hub: Hub,
     event: PostIngestionEvent,
     pluginConfig: PluginConfig,
-    onEvent: VMMethodsConcrete['onEvent']
+    onEvent: PluginMethodsConcrete['onEvent']
 ): Promise<void> {
     const timeout = setTimeout(() => {
         status.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
@@ -85,7 +85,7 @@ async function runSingleTeamPluginComposeWebhook(
     hub: Hub,
     postIngestionEvent: PostIngestionEvent,
     pluginConfig: PluginConfig,
-    composeWebhook: VMMethodsConcrete['composeWebhook']
+    composeWebhook: PluginMethodsConcrete['composeWebhook']
 ): Promise<void> {
     // 1. Calls `composeWebhook` for the plugin, send `composeWebhook` appmetric success/fail if applicable.
     // 2. Send via Rusty-Hook if enabled.
@@ -234,8 +234,7 @@ async function runSingleTeamPluginComposeWebhook(
 
 export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Promise<void> {
     // Runs composeWebhook for all plugins for this team in parallel
-    let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
-    pluginMethodsToRun = await filterPluginMethods(hub, event, pluginMethodsToRun)
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
 
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
@@ -329,7 +328,7 @@ export async function runPluginTask(
     let shouldQueueAppMetric = false
 
     try {
-        const task = await pluginConfig?.vm?.getTask(taskName, taskType)
+        const task = await pluginConfig?.instance?.getTask(taskName, taskType)
         if (!task) {
             throw new Error(
                 `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfigId}`
@@ -381,65 +380,24 @@ export async function runPluginTask(
     return response
 }
 
-async function getPluginMethodsForTeam<M extends keyof VMMethodsConcrete>(
+async function getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(
     hub: Hub,
     teamId: number,
     method: M
-): Promise<[PluginConfig, VMMethodsConcrete[M]][]> {
+): Promise<[PluginConfig, PluginMethodsConcrete[M]][]> {
     const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
     if (pluginConfigs.length === 0) {
         return []
     }
 
     const methodsObtained = await Promise.all(
-        pluginConfigs.map(async (pluginConfig) => [pluginConfig, await pluginConfig?.vm?.getVmMethod(method)])
+        pluginConfigs.map(async (pluginConfig) => [pluginConfig, await pluginConfig?.instance?.getPluginMethod(method)])
     )
 
     const methodsObtainedFiltered = methodsObtained.filter(([_, method]) => !!method) as [
         PluginConfig,
-        VMMethodsConcrete[M]
+        PluginMethodsConcrete[M]
     ][]
 
     return methodsObtainedFiltered
-}
-
-async function filterPluginMethods<T>(
-    hub: Hub,
-    event: PostIngestionEvent,
-    pluginMethods: [PluginConfig, T][]
-): Promise<[PluginConfig, T][]> {
-    const filteredList: [PluginConfig, T][] = []
-
-    await Promise.all(
-        pluginMethods.map(async ([pluginConfig, method]) => {
-            if (pluginConfig.filters) {
-                try {
-                    const matchedFilters = await hub.actionMatcher.checkFilters(event, pluginConfig.filters)
-                    if (!matchedFilters) {
-                        return
-                    }
-                } catch (error) {
-                    // We consider an exception to be bad enough to drop the event (we should also log it as a processing error)
-
-                    await hub.appMetrics.queueError(
-                        {
-                            teamId: event.teamId,
-                            pluginConfigId: pluginConfig.id,
-                            category: 'composeWebhook',
-                            failures: 1,
-                        },
-                        {
-                            error: `Error occurred when processing filters: ${error}`,
-                            event,
-                        }
-                    )
-                    return
-                }
-            }
-
-            filteredList.push([pluginConfig, method])
-        })
-    )
-
-    return filteredList
 }

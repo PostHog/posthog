@@ -37,6 +37,16 @@ def reload_hog_functions_on_workers(team_id: int, hog_function_ids: list[str]):
     publish_message("reload-hog-functions", {"teamId": team_id, "hogFunctionIds": hog_function_ids})
 
 
+def reload_all_hog_functions_on_workers():
+    logger.info(f"Reloading all hog functionson workers")
+    publish_message("reload-all-hog-functions", {})
+
+
+def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
+    logger.info(f"Reloading integrations {integration_ids} on workers")
+    publish_message("reload-integrations", {"teamId": team_id, "integrationIds": integration_ids})
+
+
 def reset_available_product_features_cache_on_workers(organization_id: str):
     logger.info(f"Resetting available product features cache for organization {organization_id} on workers")
     publish_message(

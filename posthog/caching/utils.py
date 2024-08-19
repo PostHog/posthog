@@ -28,6 +28,21 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
     return parser().parse(candidate)
 
 
+def largest_teams(limit: int) -> set[int]:
+    teams_by_event_count = sync_execute(
+        """
+            SELECT team_id, COUNT(*) AS event_count
+            FROM events
+            WHERE timestamp > subtractDays(now(), 7)
+            GROUP BY team_id
+            ORDER BY event_count DESC
+            LIMIT %(limit)s
+        """,
+        {"limit": limit},
+    )
+    return {int(team_id) for team_id, _ in teams_by_event_count}
+
+
 def active_teams() -> set[int]:
     """
     Teams are stored in a sorted set. [{team_id: score}, {team_id: score}].
@@ -124,9 +139,9 @@ staleness_threshold_map = {
     ThresholdMode.LAZY: {
         None: timedelta(hours=1),
         "minute": timedelta(hours=1),
-        "hour": timedelta(hours=6),
-        "day": timedelta(hours=24),
-        "week": timedelta(days=2),
+        "hour": timedelta(hours=1),
+        "day": timedelta(hours=6),
+        "week": timedelta(days=1),
         "month": timedelta(days=2),
     },
 }
@@ -156,7 +171,7 @@ def is_stale(
         return False
 
     if last_refresh is None:
-        raise Exception("Cached results require a last_refresh")
+        raise ValueError("Cached results require a last_refresh")
 
     # If the date_to is in the past of the last refresh, the data cannot be stale
     # Use a buffer in case last_refresh from cache.set happened slightly after the actual query

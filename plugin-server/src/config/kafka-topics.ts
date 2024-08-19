@@ -2,7 +2,7 @@
 
 import { isTestEnv } from '../utils/env-utils'
 
-const suffix = isTestEnv() ? '_test' : ''
+export const suffix = isTestEnv() ? '_test' : ''
 export const prefix = process.env.KAFKA_PREFIX || ''
 
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
@@ -20,6 +20,7 @@ export const KAFKA_GROUPS = `${prefix}clickhouse_groups${suffix}`
 export const KAFKA_BUFFER = `${prefix}conversion_events_buffer${suffix}`
 export const KAFKA_INGESTION_WARNINGS = `${prefix}clickhouse_ingestion_warnings${suffix}`
 export const KAFKA_APP_METRICS = `${prefix}clickhouse_app_metrics${suffix}`
+export const KAFKA_APP_METRICS_2 = `${prefix}clickhouse_app_metrics2${suffix}`
 export const KAFKA_JOBS = `${prefix}jobs${suffix}`
 export const KAFKA_JOBS_DLQ = `${prefix}jobs_dlq${suffix}`
 export const KAFKA_SCHEDULED_TASKS = `${prefix}scheduled_tasks${suffix}`

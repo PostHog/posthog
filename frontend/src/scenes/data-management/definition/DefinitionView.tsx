@@ -1,7 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router/lib/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -21,7 +20,7 @@ import { urls } from 'scenes/urls'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { PropertyDefinition } from '~/types'
+import { FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -53,20 +52,24 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         {isEvent && (
                             <LemonButton
                                 type="secondary"
-                                to={
-                                    combineUrl(urls.replay(), {
-                                        filters: {
-                                            events: [
-                                                {
-                                                    id: definition.name,
-                                                    type: 'events',
-                                                    order: 0,
-                                                    name: definition.name,
-                                                },
-                                            ],
-                                        },
-                                    }).url
-                                }
+                                to={urls.replay(ReplayTabs.Recent, {
+                                    filter_group: {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        id: definition.name,
+                                                        type: 'events',
+                                                        order: 0,
+                                                        name: definition.name,
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                })}
                                 sideIcon={<IconPlayCircle />}
                                 data-attr="event-definition-view-recordings"
                             >

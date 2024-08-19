@@ -17,6 +17,7 @@ import {
     IconStickiness,
     IconTrends,
     IconUserPaths,
+    IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -316,6 +317,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.ErrorTrackingQuery]: {
+        name: 'Error Tracking',
+        description: 'List and explore exception groups',
+        icon: IconWarning,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
@@ -323,7 +330,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
     ...Object.entries(INSIGHT_TYPES_METADATA).map(([value, meta]) => ({
         value,
         label: meta.name,
-        icon: meta.icon ? <meta.icon color="#747EA2" noBackground /> : undefined,
+        icon: meta.icon ? <meta.icon /> : undefined,
     })),
 ]
 
@@ -392,7 +399,7 @@ function SavedInsightsGrid(): JSX.Element {
                     return (
                         <InsightCard
                             key={insight.short_id}
-                            insight={{ ...legacyInsight }}
+                            insight={insight}
                             rename={() => renameInsight(insight)}
                             duplicate={() => duplicateInsight(insight)}
                             deleteWithUndo={async () =>

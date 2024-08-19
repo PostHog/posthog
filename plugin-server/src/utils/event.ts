@@ -2,14 +2,7 @@ import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin
 import { Message } from 'node-rdkafka'
 
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
-import {
-    ClickHouseEvent,
-    GroupTypeToColumnIndex,
-    HookPayload,
-    PipelineEvent,
-    PostIngestionEvent,
-    RawClickHouseEvent,
-} from '../types'
+import { ClickHouseEvent, HookPayload, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
@@ -110,34 +103,10 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
 
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 // that we can keep to as a contract
-export function convertToPostIngestionEvent(
-    event: RawClickHouseEvent,
-    groupTypes?: GroupTypeToColumnIndex
-): PostIngestionEvent {
+export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
-    }
-
-    let groups: PostIngestionEvent['groups'] = undefined
-
-    if (groupTypes) {
-        groups = {}
-
-        for (const [groupType, columnIndex] of Object.entries(groupTypes)) {
-            const groupKey = (properties[`$groups`] || {})[groupType]
-            const groupProperties = event[`group${columnIndex}_properties`]
-
-            // TODO: Check that groupProperties always exist if the event is in that group
-            if (groupKey && groupProperties) {
-                groups[groupType] = {
-                    index: columnIndex,
-                    key: groupKey,
-                    type: groupType,
-                    properties: JSON.parse(groupProperties),
-                }
-            }
-        }
     }
 
     return {
@@ -153,7 +122,6 @@ export function convertToPostIngestionEvent(
             ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
             : null,
         person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
-        groups,
     }
 }
 

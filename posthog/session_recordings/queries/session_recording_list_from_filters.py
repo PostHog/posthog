@@ -265,6 +265,7 @@ class SessionRecordingListFromFilters:
             op = (
                 ast.CompareOperationOp.GtEq
                 if self._filter.recording_duration_filter.operator == "gt"
+                or self._filter.recording_duration_filter.operator == "gte"
                 else ast.CompareOperationOp.LtEq
             )
             exprs.append(

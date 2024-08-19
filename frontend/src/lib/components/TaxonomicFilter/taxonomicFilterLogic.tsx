@@ -16,7 +16,7 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -497,6 +497,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'Replay',
                         type: TaxonomicFilterGroupType.Replay,
                         render: ReplayTaxonomicFilters,
+                        valuesEndpoint: (key) => {
+                            if (key === 'visited_page') {
+                                return (
+                                    'api/event/values/?key=' +
+                                    encodeURIComponent('$current_url') +
+                                    '&event_name=' +
+                                    encodeURIComponent('$pageview')
+                                )
+                            }
+                        },
                         getPopoverHeader: () => 'Replay',
                     },
                     ...groupAnalyticsTaxonomicGroups,
@@ -544,7 +554,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         group_type_index: type.group_type_index,
                     }).url,
                     valuesEndpoint: (key) =>
-                        `api/projects/${teamId}/groups/property_values/?${toParams({
+                        `api/projects/${teamId}/groups/property_values?${toParams({
                             key,
                             group_type_index: type.group_type_index,
                         })}`,
