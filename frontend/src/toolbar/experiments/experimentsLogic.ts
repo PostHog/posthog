@@ -22,6 +22,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     const response = await toolbarFetch('/api/projects/@current/experiments/')
                     const results = await response.json()
 
+                    console.log(`loaded experiments `, results)
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
                         return []
@@ -56,6 +57,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         sortedExperiments: [
             (s) => [s.allExperiments, s.searchTerm],
             (allExperiments, searchTerm) => {
+                console.log(`sorting experiments `, allExperiments)
                 const filteredExperiments = searchTerm
                     ? new Fuse(allExperiments, {
                           threshold: 0.3,
@@ -64,7 +66,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
                           .search(searchTerm)
                           .map(({ item }) => item)
                     : allExperiments
-                return [...filteredExperiments].sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
+                return [...filteredExperiments].sort((a, b) =>
+                    (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
+                )
             },
         ],
         experimentCount: [(s) => [s.allExperiments], (allExperiments) => allExperiments.length],

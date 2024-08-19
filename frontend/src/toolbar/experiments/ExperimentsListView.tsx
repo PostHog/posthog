@@ -5,7 +5,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 // import { actionsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import {Experiment} from '~/types'
 import {experimentsLogic} from "~/toolbar/experiments/experimentsLogic";
-import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
+// import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 
 interface ExperimentsListViewProps {
     experiments: Experiment[]
@@ -13,7 +13,7 @@ interface ExperimentsListViewProps {
 
 export function ExperimentsListView({ experiments }: ExperimentsListViewProps): JSX.Element {
     const { allExperimentsLoading, searchTerm } = useValues(experimentsLogic)
-    const { selectExperiment } = useActions(experimentsTabLogic)
+    // const { selectExperiment } = useActions(experimentsTabLogic)
 
     return (
         <div className="flex flex-col h-full overflow-y-scoll space-y-px">
@@ -23,7 +23,7 @@ export function ExperimentsListView({ experiments }: ExperimentsListViewProps): 
                         <Link
                             subtle
                             key={experiment.id}
-                            onClick={() => selectExperiment(experiment.id)}
+                            // onClick={() => selectExperiment(experiment.id)}
                             className="font-medium my-1 w-full"
                         >
                             <span className="min-w-[2rem] inline-block text-left">{index + 1}.</span>

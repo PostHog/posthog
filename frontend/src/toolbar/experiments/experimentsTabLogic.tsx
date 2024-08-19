@@ -56,7 +56,7 @@ function toElementsChain(element: HTMLElement): ElementType[] {
 export const experimentsTabLogic = kea<experimentsTabLogicType>([
     path(['toolbar', 'experiments', 'experimentsTabLogic']),
     actions({
-        selectExperiment: (id: number | "new" | null) => ({ id: id || null }),
+        selectExperiment: (id: number | 'new' | null) => ({ id: id || null }),
         newExperiment: (element?: HTMLElement) => ({
             element: element || null,
         }),
@@ -81,7 +81,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 'temporaryToken',
                 'buttonVisible',
                 'userIntent',
-                'experimentId',
+                'selectedExperimentId',
                 'dataAttributes',
             ],
             experimentsLogic,
@@ -245,7 +245,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.setExperimentFormValues({
                     ...selectedExperiment,
                     elements: selectedExperiment.elements
-                        ? selectedExperiment.elements.map((element) => experimentStepToExperimentStepFormItem(step, false))
+                        ? selectedExperiment.elements.map((element) =>
+                              experimentStepToExperimentStepFormItem(step, false)
+                          )
                         : [{}],
                 })
             }
@@ -309,9 +311,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'experiments', enabled: false })
         },
         [experimentsLogic.actionTypes.getExperimentsSuccess]: () => {
-            const { userIntent, experimentId } = values
+            const { userIntent, selectedExperimentId } = values
             if (userIntent === 'edit-experiment') {
-                actions.selectExperiment(experimentId)
+                actions.selectExperiment(selectedExperimentId)
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-experiment') {
                 actions.newExperiment()

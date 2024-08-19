@@ -18,15 +18,18 @@ import {experimentsLogic} from "~/toolbar/experiments/experimentsLogic";
 
 const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(actionsLogic)
-    const { setSearchTerm, getActions } = useActions(actionsLogic)
+    // const { setSearchTerm, getActions } = useActions(actionsLogic)
 
     const { newAction } = useActions(actionsTabLogic)
-    const { allExperiments, sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
+    const { getExperiments } = useActions(experimentsLogic)
+    const { allExperiments,  sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
+
+    console.log(`rendering experiments toolbar menu item`)
 
     const { apiURL } = useValues(toolbarConfigLogic)
 
     useEffect(() => {
-        getActions()
+        getExperiments()
     }, [])
 
     return (
