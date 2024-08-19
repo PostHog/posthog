@@ -25,7 +25,7 @@ class PropertyMixin(BaseParamMixin):
             try:
                 loaded_props = json.loads(_props)
             except json.decoder.JSONDecodeError:
-                raise ValidationError("Properties are unparsable!")
+                raise ValidationError("Data is unparsable!")
         else:
             loaded_props = _props
 
