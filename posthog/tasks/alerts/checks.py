@@ -11,11 +11,13 @@ from sentry_sdk import capture_exception
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.email import EmailMessage
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -82,12 +84,23 @@ def check_alert(alert_id: int) -> None:
     send_notifications(alert, matches)
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    expires=60 * 60,
+)
 def check_all_alerts_task() -> None:
     check_all_alerts()
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=1,
+    retry_backoff_max=10,
+    max_retries=10,
+    expires=60 * 60,
+)
 def check_alert_task(alert_id: int) -> None:
     check_alert(alert_id)
 
