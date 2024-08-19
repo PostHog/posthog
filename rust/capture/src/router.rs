@@ -8,7 +8,6 @@ use axum::{
     Router,
 };
 use health::HealthRegistry;
-use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
