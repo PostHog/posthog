@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
 import {
@@ -110,7 +111,9 @@ export function ResultsQuery({
                     dashboardItemId: targetResults?.fakeInsightId as InsightShortId,
                     cachedInsight: {
                         short_id: targetResults?.fakeInsightId as InsightShortId,
-                        filters: transformResultFilters(targetResults?.filters ?? {}),
+                        query: targetResults?.filters
+                            ? queryFromFilters(transformResultFilters(targetResults.filters))
+                            : null,
                         result: targetResults?.insight,
                         disable_baseline: true,
                         last_refresh: targetResults?.last_refresh,
