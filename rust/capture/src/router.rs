@@ -15,8 +15,8 @@ use crate::{
     limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
 };
 
-use crate::prometheus::{setup_metrics_recorder, track_metrics};
 use crate::config::CaptureType;
+use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -44,7 +44,7 @@ pub fn router<
     redis: Arc<R>,
     billing: BillingLimiter,
     metrics: bool,
-    capture_type: CaptureType
+    capture_type: CaptureType,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -123,17 +123,14 @@ pub fn router<
         );
 
     let router = match capture_type {
-        CaptureType::Events => Router::new()
-            .merge(batch_router)
-            .merge(event_router),
-        CaptureType::Recordings => Router::new()
-            .merge(recordings_router)
-        }
-        .merge(status_router)
-        .layer(TraceLayer::new_for_http())
-        .layer(cors)
-        .layer(axum::middleware::from_fn(track_metrics))
-        .with_state(state);
+        CaptureType::Events => Router::new().merge(batch_router).merge(event_router),
+        CaptureType::Recordings => Router::new().merge(recordings_router),
+    }
+    .merge(status_router)
+    .layer(TraceLayer::new_for_http())
+    .layer(cors)
+    .layer(axum::middleware::from_fn(track_metrics))
+    .with_state(state);
 
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)

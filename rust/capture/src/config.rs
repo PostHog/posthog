@@ -15,7 +15,7 @@ impl std::str::FromStr for CaptureType {
         match s.trim().to_lowercase().as_ref() {
             "events" => Ok(CaptureType::Events),
             "recordings" => Ok(CaptureType::Recordings),
-            _ => Err(format!("Unknown Capture Type: {s}"))
+            _ => Err(format!("Unknown Capture Type: {s}")),
         }
     }
 }
@@ -57,7 +57,7 @@ pub struct Config {
     pub redis_key_prefix: Option<String>,
 
     #[envconfig(default = "events")]
-    pub capture_type: CaptureType
+    pub capture_type: CaptureType,
 }
 
 #[derive(Envconfig, Clone)]

@@ -9,9 +9,9 @@ use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
 use metrics::counter;
-use tracing::instrument;
-use serde_json::{Value};
 use serde_json::json;
+use serde_json::Value;
+use tracing::instrument;
 
 use crate::limiters::billing::QuotaResource;
 use crate::prometheus::report_dropped_events;
@@ -156,7 +156,18 @@ pub async fn event(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    match handle_common(&state, &ip, &meta, &headers, &method, &path, QuotaResource::Events, body).await {
+    match handle_common(
+        &state,
+        &ip,
+        &meta,
+        &headers,
+        &method,
+        &path,
+        QuotaResource::Events,
+        body,
+    )
+    .await
+    {
         Err(CaptureError::BillingLimit) => {
             // for v0 we want to just return ok 🙃
             // this is because the clients are pretty dumb and will just retry over and over and
@@ -168,9 +179,7 @@ pub async fn event(
                 status: CaptureResponseCode::Ok,
             }))
         }
-        Err(err) => {
-            Err(err)
-        }
+        Err(err) => Err(err),
         Ok((context, events)) => {
             if let Err(err) = process_events(state.sink.clone(), &events, &context).await {
                 let cause = match err {
@@ -215,7 +224,17 @@ pub async fn recording(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    let (context, events) = handle_common(&state, &ip, &meta, &headers, &method, &path, QuotaResource::Recordings, body).await?;
+    let (context, events) = handle_common(
+        &state,
+        &ip,
+        &meta,
+        &headers,
+        &method,
+        &path,
+        QuotaResource::Recordings,
+        body,
+    )
+    .await?;
 
     if let Err(err) = process_replay_events(state.sink.clone(), &events, &context).await {
         let cause = match err {
@@ -235,7 +254,6 @@ pub async fn recording(
         status: CaptureResponseCode::Ok,
     }))
 }
-
 
 pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
     Ok(Json(CaptureResponse {
@@ -311,11 +329,19 @@ pub async fn process_replay_events<'a>(
             Some(Value::Object(value)) => Ok([Value::Object(value.clone())].to_vec()),
             _ => Err(CaptureError::MissingSnapshotData),
         })
-        .collect::<Result<Vec<Vec<_>>,CaptureError>>()?
-        .into_iter().flatten().collect();
+        .collect::<Result<Vec<Vec<_>>, CaptureError>>()?
+        .into_iter()
+        .flatten()
+        .collect();
 
-    let session_id = events[0].properties.get("$session_id").ok_or(CaptureError::MissingSessionId)?;
-    let window_id = events[0].properties.get("$window_id").ok_or(CaptureError::MissingWindowId)?;
+    let session_id = events[0]
+        .properties
+        .get("$session_id")
+        .ok_or(CaptureError::MissingSessionId)?;
+    let window_id = events[0]
+        .properties
+        .get("$window_id")
+        .ok_or(CaptureError::MissingWindowId)?;
     let event = ProcessedEvent {
         data_type: DataType::SnapshotMain,
         uuid: events[0].uuid.unwrap_or_else(uuid_v7),

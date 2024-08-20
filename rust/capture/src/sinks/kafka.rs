@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use health::HealthHandle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::message::{Header, OwnedHeaders};
+use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tokio::task::JoinSet;
@@ -202,10 +202,10 @@ impl KafkaSink {
             ),
             DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
             DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
-            DataType::SnapshotMain => {
-                (&self.main_topic, Some(session_id.ok_or(CaptureError::MissingSessionId)?))
-            }
-
+            DataType::SnapshotMain => (
+                &self.main_topic,
+                Some(session_id.ok_or(CaptureError::MissingSessionId)?),
+            ),
         };
 
         match self.producer.send_result(FutureRecord {
@@ -214,7 +214,10 @@ impl KafkaSink {
             partition: None,
             key: partition_key,
             timestamp: None,
-            headers: Some(OwnedHeaders::new().insert(Header{key: "token", value: Some(&event.token)})),
+            headers: Some(OwnedHeaders::new().insert(Header {
+                key: "token",
+                value: Some(&event.token),
+            })),
         }) {
             Ok(ack) => Ok(ack),
             Err((e, _)) => match e.rdkafka_error_code() {
