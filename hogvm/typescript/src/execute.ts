@@ -12,7 +12,7 @@ import {
     setNestedValue,
     UncaughtHogVMException,
 } from './utils'
-import { HogCallable, isHogError } from './objects'
+import { HogCallable, isHogCallable, isHogClosure, isHogError, newHogClosure } from './objects'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
@@ -319,25 +319,31 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     Object.hasOwn(options.asyncFunctions, chain[0]) &&
                     options.asyncFunctions[chain[0]]
                 ) {
-                    pushStack({
-                        __hogCallable__: 'async',
-                        name: chain[0],
-                        argCount: 0, // TODO
-                        ip: -1,
-                    } satisfies HogCallable)
+                    pushStack(
+                        newHogClosure({
+                            __hogCallable__: 'async',
+                            name: chain[0],
+                            argCount: 0, // TODO
+                            ip: -1,
+                        } satisfies HogCallable)
+                    )
                 } else if (chain.length == 1 && chain[0] in ASYNC_STL && Object.hasOwn(ASYNC_STL, chain[0])) {
-                    pushStack({
-                        __hogCallable__: 'async',
-                        argCount: 0, // TODO
-                        ip: -1,
-                    } satisfies HogCallable)
+                    pushStack(
+                        newHogClosure({
+                            __hogCallable__: 'async',
+                            argCount: 0, // TODO
+                            ip: -1,
+                        } satisfies HogCallable)
+                    )
                 } else if (chain.length == 1 && chain[0] in STL && Object.hasOwn(STL, chain[0])) {
-                    pushStack({
-                        __hogCallable__: 'stl',
-                        argCount: 0, // TODO
-                        ip: -1,
-                        name: chain[0],
-                    } satisfies HogCallable)
+                    pushStack(
+                        newHogClosure({
+                            __hogCallable__: 'stl',
+                            argCount: 0, // TODO
+                            ip: -1,
+                            name: chain[0],
+                        } satisfies HogCallable)
+                    )
                 } else {
                     throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
                 }
@@ -432,7 +438,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             }
             case Operation.CALLABLE: {
-                const name = next() // TODO: do we need it?
+                const name = next() // TODO: do we need it? it could change as the variable is reassigned
                 const argCount = next()
                 const bodyLength = next()
                 const callable = {
@@ -445,16 +451,20 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 ip += bodyLength
                 break
             }
+            case Operation.CLOSURE: {
+                pushStack(newHogClosure(popStack(), []))
+                break
+            }
             case Operation.CALL_GLOBAL: {
                 checkTimeout()
                 const name = next()
                 if (name in declaredFunctions && name !== 'toString') {
-                    // This is for backwards compatibility. We use a callable on the stack with local functions now.
+                    // This is for backwards compatibility. We use a closure on the stack with local functions now.
                     const [funcIp, argLen] = declaredFunctions[name]
                     callStack.push([ip + 1, stack.length - argLen, argLen])
                     ip = funcIp
                 } else {
-                    // Shortcut for calling STL functions (can also be done with an STL callable)
+                    // Shortcut for calling STL functions (can also be done with an STL function closure)
                     temp = next() // args.length
                     if (temp > stack.length) {
                         throw new HogVMException('Not enough arguments on the stack')
@@ -507,9 +517,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             }
             case Operation.CALL_LOCAL: {
                 checkTimeout()
-                const callable = popStack()
-                if (!callable || !callable.__hogCallable__) {
-                    throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`)
+                const closure = popStack()
+                if (!isHogClosure(closure)) {
+                    throw new HogVMException(`Invalid closure: ${JSON.stringify(closure)}`)
+                }
+                if (!isHogCallable(closure.callable)) {
+                    throw new HogVMException(`Invalid callable: ${JSON.stringify(closure.callable)}`)
                 }
                 temp = next() // args.length
                 if (temp > stack.length) {
@@ -518,29 +531,31 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (temp > MAX_FUNCTION_ARGS_LENGTH) {
                     throw new HogVMException('Too many arguments')
                 }
-                if (callable.__hogCallable__ === 'local') {
-                    if (callable.argCount > temp) {
-                        for (let i = temp; i < callable.argCount; i++) {
+                if (closure.callable.__hogCallable__ === 'local') {
+                    if (closure.callable.argCount > temp) {
+                        for (let i = temp; i < closure.callable.argCount; i++) {
                             pushStack(null)
                         }
-                    } else if (callable.argCount < temp) {
-                        throw new HogVMException(`Too many arguments. Passed ${temp}, expected ${callable.argCount}`)
+                    } else if (closure.callable.argCount < temp) {
+                        throw new HogVMException(
+                            `Too many arguments. Passed ${temp}, expected ${closure.callable.argCount}`
+                        )
                     }
-                    callStack.push([ip, stack.length - callable.argCount, callable.argCount])
-                    ip = callable.ip
-                } else if (callable.__hogCallable__ === 'stl') {
-                    if (!(callable.name in STL)) {
-                        throw new HogVMException(`Unsupported function call: ${callable.name}`)
+                    callStack.push([ip, stack.length - closure.callable.argCount, closure.callable.argCount])
+                    ip = closure.callable.ip
+                } else if (closure.callable.__hogCallable__ === 'stl') {
+                    if (!closure.callable.name || !(closure.callable.name in STL)) {
+                        throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
                     }
-                    const stlFn = STL[callable.name]
+                    const stlFn = STL[closure.callable.name]
                     if (stlFn.minArgs !== undefined && temp < stlFn.minArgs) {
                         throw new HogVMException(
-                            `Function ${callable.name} requires at least ${stlFn.minArgs} arguments`
+                            `Function ${closure.callable.name} requires at least ${stlFn.minArgs} arguments`
                         )
                     }
                     if (stlFn.maxArgs !== undefined && temp > stlFn.maxArgs) {
                         throw new HogVMException(
-                            `Function ${callable.name} requires at most ${stlFn.maxArgs} arguments`
+                            `Function ${closure.callable.name} requires at most ${stlFn.maxArgs} arguments`
                         )
                     }
                     const args = Array(temp)
@@ -551,8 +566,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             args.push(null)
                         }
                     }
-                    pushStack(stlFn.fn(args, callable.name, timeout))
-                } else if (callable.__hogCallable__ === 'async') {
+                    pushStack(stlFn.fn(args, closure.callable.name, timeout))
+                } else if (closure.callable.__hogCallable__ === 'async') {
                     if (asyncSteps >= maxAsyncSteps) {
                         throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
                     }
@@ -562,7 +577,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     return {
                         result: undefined,
                         finished: false,
-                        asyncFunctionName: callable.name,
+                        asyncFunctionName: closure.callable.name,
                         asyncFunctionArgs: args,
                         state: {
                             bytecode,
@@ -578,9 +593,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         },
                     } satisfies ExecResult
                 } else {
-                    throw new HogVMException(`Unsupported function call: ${callable.name}`)
+                    throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
                 }
-
                 break
             }
             case Operation.TRY:

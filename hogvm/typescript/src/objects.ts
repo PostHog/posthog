@@ -26,6 +26,12 @@ export interface HogCallable {
     ip: number
 }
 
+export interface HogClosure {
+    __hogClosure__: true
+    callable: HogCallable
+    captured: any[]
+}
+
 export function isHogDate(obj: any): obj is HogDate {
     return obj && typeof obj === 'object' && '__hogDate__' in obj && 'year' in obj && 'month' in obj && 'day' in obj
 }
@@ -48,5 +54,17 @@ export function newHogError(type: string, message: string, payload?: Record<stri
 }
 
 export function isHogCallable(obj: any): obj is HogCallable {
-    return obj && typeof obj === 'object' && '__hogCallable__' in obj && 'args' in obj && 'body' in obj
+    return obj && typeof obj === 'object' && '__hogCallable__' in obj && 'argCount' in obj && 'ip' in obj
+}
+
+export function isHogClosure(obj: any): obj is HogClosure {
+    return obj && typeof obj === 'object' && '__hogClosure__' in obj && 'callable' in obj && 'captured' in obj
+}
+
+export function newHogClosure(callable: HogCallable, captured?: any[]): HogClosure {
+    return {
+        __hogClosure__: true,
+        callable,
+        captured: captured ?? [],
+    }
 }

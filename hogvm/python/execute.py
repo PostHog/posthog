@@ -6,7 +6,7 @@ from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.debugger import debugger, color_bytecode
-from hogvm.python.objects import is_hog_error
+from hogvm.python.objects import is_hog_error, new_hog_closure
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
@@ -175,21 +175,25 @@ def execute_bytecode(
                     push_stack(deepcopy(get_nested_value(globals, chain)))
                 elif functions and chain[0] in functions:
                     push_stack(
-                        {
-                            "__hogCallable__": "stl",
-                            "argCount": 0,  # TODO
-                            "ip": -1,
-                            "name": chain[0],
-                        }
+                        new_hog_closure(
+                            {
+                                "__hogCallable__": "stl",
+                                "argCount": 0,  # TODO
+                                "ip": -1,
+                                "name": chain[0],
+                            }
+                        )
                     )
                 elif chain[0] in STL and len(chain) == 1:
                     push_stack(
-                        {
-                            "__hogCallable__": "stl",
-                            "argCount": STL[chain[0]].maxArgs,
-                            "ip": -1,
-                            "name": chain[0],
-                        }
+                        new_hog_closure(
+                            {
+                                "__hogCallable__": "stl",
+                                "argCount": STL[chain[0]].maxArgs,
+                                "ip": -1,
+                                "name": chain[0],
+                            }
+                        )
                     )
                 else:
                     raise HogVMException(f"Global variable not found: {chain[0]}")
@@ -276,7 +280,7 @@ def execute_bytecode(
                 declared_functions[name] = (ip, arg_len)
                 ip += body_len
             case Operation.CALLABLE:
-                name = next_token()
+                name = next_token()  # TODO: do we need it? it could change as the variable is reassigned
                 arg_count = next_token()
                 body_length = next_token()
                 callable = {
@@ -287,16 +291,18 @@ def execute_bytecode(
                 }
                 push_stack(callable)
                 ip += body_length
+            case Operation.CLOSURE:
+                push_stack(new_hog_closure(pop_stack()))
             case Operation.CALL_GLOBAL:
                 check_timeout()
                 name = next_token()
                 if name in declared_functions:
-                    # This is for backwards compatibility. We use a callable on the stack with local functions now.
+                    # This is for backwards compatibility. We use a closure on the stack with local functions now.
                     func_ip, arg_len = declared_functions[name]
                     call_stack.append((ip + 1, len(stack) - arg_len, arg_len))
                     ip = func_ip
                 else:
-                    # Shortcut for calling STL functions (can also be done with an STL callable)
+                    # Shortcut for calling STL functions (can also be done with an STL function closure)
                     args = [pop_stack() for _ in range(next_token())]
                     if functions is not None and name in functions:
                         push_stack(functions[name](*args))
@@ -307,7 +313,10 @@ def execute_bytecode(
                     raise HogVMException(f"Unsupported function call: {name}")
             case Operation.CALL_LOCAL:
                 check_timeout()
-                callable = pop_stack()
+                closure = pop_stack()
+                if not isinstance(closure, dict) or closure.get("__hogClosure__") is None:
+                    raise HogVMException(f"Invalid closure: {closure}")
+                callable = closure.get("callable")
                 if not isinstance(callable, dict) or callable.get("__hogCallable__") is None:
                     raise HogVMException(f"Invalid callable: {callable}")
                 args_length = next_token()

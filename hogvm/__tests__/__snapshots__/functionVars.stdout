@@ -3,6 +3,6 @@ execFunctionNested
 execFunctionNew
 execFunction
 --------
-{'__hogCallable__': 'local', 'argCount': 1, 'ip': 67, 'name': 'lambda'}
+{'__hogClosure__': true, 'callable': {'__hogCallable__': 'local', 'argCount': 1, 'ip': 70, 'name': 'lambda'}, 'captured': []}
 4
 16

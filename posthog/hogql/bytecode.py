@@ -622,7 +622,7 @@ class BytecodeBuilder(Visitor):
 
         bytecode = create_bytecode(body, None, node.params, self.context, self)
         self._declare_local(node.name)
-        return [Operation.CALLABLE, node.name, len(node.params), len(bytecode), *bytecode]
+        return [Operation.CALLABLE, node.name, len(node.params), len(bytecode), *bytecode, Operation.CLOSURE]
 
     def visit_lambda(self, node: ast.Lambda):
         # add an implicit return if none at the end of the function
@@ -637,7 +637,7 @@ class BytecodeBuilder(Visitor):
                 expr = ast.ReturnStatement(expr=expr)
 
         bytecode = create_bytecode(expr, None, node.args, self.context, self)
-        return [Operation.CALLABLE, "lambda", len(node.args), len(bytecode), *bytecode]
+        return [Operation.CALLABLE, "lambda", len(node.args), len(bytecode), *bytecode, Operation.CLOSURE]
 
     def visit_dict(self, node: ast.Dict):
         response = []
@@ -679,5 +679,5 @@ def execute_hog(
         if not source_code.endswith(";"):
             source_code = f"{source_code};"
     program = parse_program(source_code)
-    bytecode = create_bytecode(program)
+    bytecode = create_bytecode(program, supported_functions=set(functions.keys()), context=HogQLContext(team.id))
     return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)

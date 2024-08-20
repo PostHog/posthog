@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 
 def is_hog_date(obj: Any) -> bool:
@@ -19,4 +19,20 @@ def new_hog_error(type: str, message: Any, payload: Any = None) -> dict:
         "type": type or "Error",
         "message": message or "An error occurred",
         "payload": payload,
+    }
+
+
+def is_hog_callable(obj: Any) -> bool:
+    return isinstance(obj, dict) and "__hogCallable__" in obj and "args" in obj and "body" in obj
+
+
+def is_hog_closure(obj: Any) -> bool:
+    return isinstance(obj, dict) and "__hogClosure__" in obj and "callable" in obj and "captured" in obj
+
+
+def new_hog_closure(callable: dict, captured: Optional[dict] = None) -> dict:
+    return {
+        "__hogClosure__": True,
+        "callable": callable,
+        "captured": captured or [],
     }

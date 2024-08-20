@@ -1,5 +1,5 @@
-["_h", 52, "execFunction", 0, 8, 32, "execFunction", 2, "print", 1, 35, 31, 38, 52, "execFunctionNested", 0, 26, 52,
-"execFunction", 0, 8, 32, "execFunctionNew", 2, "print", 1, 35, 31, 38, 32, "execFunctionNested", 2, "print", 1, 35, 36,
-0, 54, 0, 35, 31, 38, 35, 36, 0, 54, 0, 35, 36, 1, 54, 0, 35, 36, 0, 54, 0, 35, 32, "--------", 2, "print", 1, 35, 52,
-"lambda", 1, 6, 33, 2, 36, 0, 8, 38, 36, 2, 2, "print", 1, 35, 33, 2, 36, 2, 54, 1, 2, "print", 1, 35, 33, 8, 36, 2, 54,
-1, 2, "print", 1, 35, 35, 35, 35]
+["_h", 52, "execFunction", 0, 8, 32, "execFunction", 2, "print", 1, 35, 31, 38, 53, 52, "execFunctionNested", 0, 27, 52,
+"execFunction", 0, 8, 32, "execFunctionNew", 2, "print", 1, 35, 31, 38, 53, 32, "execFunctionNested", 2, "print", 1, 35,
+36, 0, 54, 0, 35, 31, 38, 35, 53, 36, 0, 54, 0, 35, 36, 1, 54, 0, 35, 36, 0, 54, 0, 35, 32, "--------", 2, "print", 1,
+35, 52, "lambda", 1, 6, 33, 2, 36, 0, 8, 38, 53, 36, 2, 2, "print", 1, 35, 33, 2, 36, 2, 54, 1, 2, "print", 1, 35, 33,
+8, 36, 2, 54, 1, 2, "print", 1, 35, 35, 35, 35]
