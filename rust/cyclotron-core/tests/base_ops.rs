@@ -1,47 +1,16 @@
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
+use common::{assert_job_matches_init, create_new_job, dates_match};
 use cyclotron_core::{
-    base_ops::{bulk_create_jobs, Job, JobInit, JobState},
+    base_ops::{bulk_create_jobs, JobState},
     manager::QueueManager,
     worker::Worker,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
 
-fn create_new_job() -> JobInit {
-    JobInit {
-        team_id: 1,
-        function_id: Some(Uuid::now_v7()), // Lets us uniquely identify jobs without having the Uuid
-        queue_name: "test".to_string(),
-        priority: 0,
-        scheduled: Utc::now() - Duration::minutes(1),
-        vm_state: None,
-        parameters: None,
-        metadata: None,
-    }
-}
-
-fn dates_match(left: &DateTime<Utc>, right: &DateTime<Utc>) -> bool {
-    // Roundtripping a datetime to PG can cause sub-ms differences, so we need to check within a margin of error
-    // Seeing errors like this in CI:
-    //      assertion `left == right` failed
-    //          left: 2024-08-08T20:41:55.964936Z
-    //         right: 2024-08-08T20:41:55.964936997Z
-    let diff = *left - *right;
-    diff.abs() < Duration::milliseconds(1)
-}
-
-fn assert_job_matches_init(job: &Job, init: &JobInit) {
-    assert_eq!(job.team_id, init.team_id);
-    assert_eq!(job.function_id, init.function_id);
-    assert_eq!(job.queue_name, init.queue_name);
-    assert_eq!(job.priority, init.priority);
-    assert!(dates_match(&job.scheduled, &init.scheduled));
-    assert_eq!(job.vm_state, init.vm_state);
-    assert_eq!(job.parameters, init.parameters);
-    assert_eq!(job.metadata, init.metadata);
-}
+mod common;
 
 // I know this should be a bunch of tests, but for hacking together stuff right now, it'll do
 #[sqlx::test(migrations = "./migrations")]
@@ -275,7 +244,7 @@ pub async fn test_bulk_insert(db: PgPool) {
         })
         .collect::<Vec<_>>();
 
-    bulk_create_jobs(&db, jobs).await.unwrap();
+    bulk_create_jobs(&db, &jobs).await.unwrap();
 
     let dequeue_jobs = worker
         .dequeue_jobs(&job_template.queue_name, 1000)

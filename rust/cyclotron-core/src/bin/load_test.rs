@@ -50,7 +50,7 @@ async fn producer_loop(manager: QueueManager, shared_context: Arc<SharedContext>
         }
 
         let start = Instant::now();
-        manager.bulk_create_jobs(to_insert).await.unwrap();
+        manager.bulk_create_jobs(to_insert).await;
         let elapsed = start.elapsed();
         time_spent_inserting += Duration::from_std(elapsed).unwrap();
 
@@ -142,6 +142,8 @@ async fn main() {
 
     let manager_config = ManagerConfig {
         shards: vec![pool_config.clone()],
+        shard_depth_limit: None,
+        shard_depth_check_interval_seconds: None,
     };
 
     let shared_context = Arc::new(SharedContext {

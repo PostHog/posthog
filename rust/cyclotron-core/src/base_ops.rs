@@ -143,7 +143,7 @@ VALUES
     Ok(())
 }
 
-pub async fn bulk_create_jobs<'c, E>(executor: E, jobs: Vec<JobInit>) -> Result<(), QueueError>
+pub async fn bulk_create_jobs<'c, E>(executor: E, jobs: &[JobInit]) -> Result<(), QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -176,13 +176,13 @@ where
         janitor_touch_counts.push(0);
         transition_counts.push(0);
         last_transitions.push(now);
-        queue_names.push(d.queue_name);
+        queue_names.push(d.queue_name.clone());
         states.push(JobState::Available);
         scheduleds.push(d.scheduled);
         priorities.push(d.priority);
-        vm_states.push(d.vm_state);
-        metadatas.push(d.metadata);
-        parameters.push(d.parameters);
+        vm_states.push(d.vm_state.clone());
+        metadatas.push(d.metadata.clone());
+        parameters.push(d.parameters.clone());
     }
 
     // Using the "unnest" function to turn an array of rows into a set of rows
@@ -672,6 +672,20 @@ where
         lock_id
     );
     assert_does_update(executor, job_id, lock_id, q).await
+}
+
+pub async fn count_total_waiting_jobs<'c, E>(executor: E) -> Result<u64, QueueError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    let res = sqlx::query!(
+        "SELECT COUNT(*) FROM cyclotron_jobs WHERE state = 'available' AND scheduled <= NOW()",
+    )
+    .fetch_one(executor)
+    .await?;
+
+    let res = res.count.unwrap_or(0);
+    Ok(res as u64)
 }
 
 fn throw_if_no_rows(res: PgQueryResult, job: Uuid, lock: Uuid) -> Result<(), QueueError> {
