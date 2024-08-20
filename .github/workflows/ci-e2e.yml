@@ -169,7 +169,6 @@ jobs:
                   tags: ${{ needs.container.outputs.tag }}
             - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
               run: |
-                  CERT_CONTENT=$(cat decoded_cert.txt)
                   cat <<EOT >> .env
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
                   REDIS_URL=redis://localhost
