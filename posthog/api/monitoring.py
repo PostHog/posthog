@@ -1,6 +1,7 @@
 from enum import StrEnum
 from prometheus_client import Counter
 from sentry_sdk import set_tag
+from collections.abc import Callable
 
 
 class Feature(StrEnum):
@@ -17,13 +18,13 @@ API_REQUESTS_COUNTER = Counter(
 )
 
 
-def monitor(*, feature: Feature | None, endpoint: str, method: str) -> callable:
+def monitor(*, feature: Feature | None, endpoint: str, method: str) -> Callable:
     """
     Decorator to increment the API requests counter
     Sets sentry tags for the endpoint and method
     """
 
-    def decorator(func: callable) -> callable:
+    def decorator(func: Callable) -> Callable:
         def wrapper(*args, **kwargs):
             API_REQUESTS_COUNTER.labels(endpoint=endpoint, method=method).inc()
 
