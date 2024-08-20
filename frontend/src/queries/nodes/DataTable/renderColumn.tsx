@@ -240,7 +240,11 @@ export function renderColumn(
     } else if (key === 'group' && typeof value === 'object') {
         return <GroupActorDisplay actor={value} />
     } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
-        const personRecord = record as PersonType
+        if (!Array.isArray(record)) {
+            console.error('Expected record to be an array for person.$delete column')
+            return ''
+        }
+        const personRecord = record[0] as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
