@@ -78,6 +78,12 @@ impl ServerHandle {
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
+    pub async fn for_recordings(main: &EphemeralTopic) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        Self::for_config(config).await
+    }
     pub async fn for_config(config: Config) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -104,6 +110,16 @@ impl ServerHandle {
         let client = reqwest::Client::new();
         client
             .post(format!("http://{:?}/batch", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://{:?}/s/", self.addr))
             .body(body)
             .send()
             .await
