@@ -264,7 +264,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 color=existing_tile.color,
             )
 
-    @monitor(feature=Feature.DASHBOARD, endpoint="update", method="PATCH")
+    @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:

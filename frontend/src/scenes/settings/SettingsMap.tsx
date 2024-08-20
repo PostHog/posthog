@@ -112,7 +112,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'web-vitals-autocapture',
                 title: 'Web vitals autocapture',
                 component: <WebVitalsAutocaptureSettings />,
-                flag: 'WEB_VITALS_AUTOCAPTURE',
             },
             {
                 id: 'autocapture-data-attributes',

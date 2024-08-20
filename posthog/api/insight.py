@@ -372,7 +372,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         return insight
 
     @transaction.atomic()
-    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
         dashboards_before_change: list[Union[str, dict]] = []
         try:
