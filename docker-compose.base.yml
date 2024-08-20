@@ -165,7 +165,6 @@ services:
             KAFKA_TOPIC: 'events_plugin_ingestion'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
-            RUST_BACKTRACE: 'full'
             CAPTURE_TYPE: events
 
     replay-capture:
