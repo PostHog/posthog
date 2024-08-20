@@ -41,7 +41,7 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
             data={
                 "name": "alert name",
                 "insight": self.insight["id"],
-                "notification_targets": {"email": ["a@b.c", "d@e.f"]},
+                "subscribed_users": [self.user.id],
                 "threshold": {"configuration": {"absoluteThreshold": {}}},
             },
         ).json()
@@ -237,8 +237,7 @@ class TestCheckAlertsTasks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert len(mocked_email_messages) == 1
         email = mocked_email_messages[0]
-        assert len(email.to) == 2
-        assert email.to[0]["recipient"] == "a@b.c"
-        assert email.to[1]["recipient"] == "d@e.f"
+        assert len(email.to) == 1
+        assert email.to[0]["recipient"] == "user1@posthog.com"
         assert "first anomaly description" in email.html_body
         assert "second anomaly description" in email.html_body

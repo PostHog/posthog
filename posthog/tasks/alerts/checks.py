@@ -127,7 +127,7 @@ def send_notifications(alert: AlertConfiguration, matches: list[str]) -> None:
             "alert_name": alert.name,
         },
     )
-    targets = alert.notification_targets.get("email")
+    targets = alert.subscribed_users.all().values_list("email", flat=True)
     if not targets:
         raise RuntimeError(f"no targets configured for the alert {alert.id}")
     for target in targets:

@@ -23,6 +23,14 @@ class ThresholdSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
+    def validate(self, data):
+        instance = Threshold(**data)
+        try:
+            instance.clean()
+            return data
+        except ValueError as e:
+            raise ValidationError(str(e))
+
 
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
@@ -65,7 +73,7 @@ class AlertSerializer(serializers.ModelSerializer):
     checks = AlertCheckSerializer(many=True, read_only=True)
     threshold = ThresholdSerializer()
     subscribed_users = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.filter(is_active=True), many=True, required=True, read_only=False
+        queryset=User.objects.filter(is_active=True), many=True, required=True, write_only=True
     )
 
     class Meta:
@@ -90,6 +98,11 @@ class AlertSerializer(serializers.ModelSerializer):
             "state",
             "last_notified_at",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
+        return data
 
     def add_threshold(self, threshold_data, validated_data):
         threshold_instance = Threshold.objects.create(

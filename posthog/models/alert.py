@@ -2,6 +2,7 @@ from datetime import datetime, UTC, timedelta
 from typing import Any, Optional
 
 from django.db import models
+
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
 from posthog.schema import AlertCondition, InsightThreshold
@@ -67,6 +68,14 @@ class Threshold(CreatedMetaFields, UUIDModel):
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
 
+    def clean(self):
+        config = InsightThreshold.model_validate(self.configuration)
+        if not config or not config.absoluteThreshold:
+            return
+        if config.absoluteThreshold.lower is not None and config.absoluteThreshold.upper is not None:
+            if config.absoluteThreshold.lower > config.absoluteThreshold.upper:
+                raise ValueError("Lower threshold must be less than upper threshold")
+
 
 class AlertConfiguration(CreatedMetaFields, UUIDModel):
     ALERTS_PER_TEAM = 10
@@ -76,7 +85,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
     name = models.CharField(max_length=255, blank=True)
     subscribed_users = models.ManyToManyField(
-        "User",
+        "posthog.User",
         through="AlertSubscription",
         through_fields=("alert_configuration", "user"),
         related_name="alert_configurations",
@@ -126,7 +135,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
                 # Transition to firing state and send a notification
                 check_state = "firing"
                 self.last_notified_at = datetime.now(UTC)
-                targets_notified = self.notification_targets
+                targets_notified = {"users": list(self.subscribed_users.all().values_list("email", flat=True))}
             else:
                 check_state = "firing"  # Already firing, no new notification
                 matches = []  # Don't send duplicate notifications

@@ -1685,17 +1685,13 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
 }
 
-export interface AlertNotificationTarget {
-    email: string[]
-}
-
 export interface InsightsThresholdAbsolute {
     lower?: number
     upper?: number
 }
 
 export interface InsightThreshold {
-    absoluteThreshold: InsightsThresholdAbsolute
+    absoluteThreshold?: InsightsThresholdAbsolute
     // More types of thresholds or conditions can be added here
 }
 
@@ -1712,17 +1708,24 @@ export interface AlertCheck {
     targets_notified: boolean
 }
 
-export interface AlertType {
-    id: string
+export interface AlertTypeBase {
     name: string
-    insight?: number
-    notification_targets: AlertNotificationTarget
-    threshold?: { configuration: InsightThreshold }
     condition: AlertCondition
-    created_by?: UserBasicType
-    created_at?: string
-    state?: string
     enabled: boolean
-    last_notified_at?: string
-    checks?: AlertCheck[]
+    insight: number
+}
+
+export interface AlertTypeWrite extends AlertTypeBase {
+    subscribed_users: integer[]
+}
+
+export interface AlertType extends AlertTypeBase {
+    id: string
+    subscribed_users: UserBasicType[]
+    threshold: { configuration: InsightThreshold }
+    created_by: UserBasicType
+    created_at: string
+    state: string
+    last_notified_at: string
+    checks: AlertCheck[]
 }

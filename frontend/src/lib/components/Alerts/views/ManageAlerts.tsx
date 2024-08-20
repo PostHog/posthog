@@ -28,6 +28,7 @@ interface AlertListItemProps {
 }
 
 export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps): JSX.Element {
+    const absoluteThreshold = alert.threshold?.configuration?.absoluteThreshold
     return (
         <LemonButton
             type="secondary"
@@ -63,12 +64,9 @@ export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps):
                             <>
                                 <AlertStateIndicator alert={alert} />
                                 <div className="text-xs text-muted">
-                                    {alert.threshold?.configuration?.absoluteThreshold?.lower
-                                        ? ` < ${alert.threshold?.configuration?.absoluteThreshold.lower}`
-                                        : ''}{' '}
-                                    {alert.threshold?.configuration?.absoluteThreshold?.upper
-                                        ? ` > ${alert.threshold?.configuration?.absoluteThreshold.upper}`
-                                        : ''}
+                                    {absoluteThreshold?.lower && `Low ${absoluteThreshold.lower}`}
+                                    {absoluteThreshold?.lower && absoluteThreshold?.upper ? ' · ' : ''}
+                                    {absoluteThreshold?.upper && `High ${absoluteThreshold.upper}`}
                                 </div>
                             </>
                         ) : (
@@ -76,7 +74,7 @@ export function AlertListItem({ alert, onClick, onDelete }: AlertListItemProps):
                         )}
                     </div>
                 </div>
-                <ProfileBubbles limit={4} people={alert.notification_targets?.email?.map((email) => ({ email }))} />
+                <ProfileBubbles limit={4} people={alert.subscribed_users?.map(({ email }) => ({ email }))} />
             </div>
         </LemonButton>
     )

@@ -46,11 +46,25 @@ class AlertCondition(BaseModel):
     )
 
 
-class AlertNotificationTarget(BaseModel):
+class AlertTypeBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    email: list[str]
+    condition: AlertCondition
+    enabled: bool
+    insight: float
+    name: str
+
+
+class AlertTypeWrite(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: AlertCondition
+    enabled: bool
+    insight: float
+    name: str
+    subscribed_users: list[int]
 
 
 class Kind(StrEnum):
@@ -2523,7 +2537,7 @@ class InsightThreshold(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    absoluteThreshold: InsightsThresholdAbsolute
+    absoluteThreshold: Optional[InsightsThresholdAbsolute] = None
 
 
 class LifecycleFilter(BaseModel):
@@ -3367,18 +3381,18 @@ class AlertType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    checks: Optional[list[AlertCheck]] = None
+    checks: list[AlertCheck]
     condition: AlertCondition
-    created_at: Optional[str] = None
-    created_by: Optional[UserBasicType] = None
+    created_at: str
+    created_by: UserBasicType
     enabled: bool
     id: str
-    insight: Optional[float] = None
-    last_notified_at: Optional[str] = None
+    insight: float
+    last_notified_at: str
     name: str
-    notification_targets: AlertNotificationTarget
-    state: Optional[str] = None
-    threshold: Optional[Threshold] = None
+    state: str
+    subscribed_users: list[UserBasicType]
+    threshold: Threshold
 
 
 class AnyResponseType(

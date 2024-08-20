@@ -11,6 +11,7 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import {
     AlertType,
+    AlertTypeWrite,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
     QuerySchema,
@@ -2260,10 +2261,10 @@ const api = {
         async get(insightId: number, alertId: AlertType['id']): Promise<AlertType> {
             return await new ApiRequest().alert(alertId, insightId).get()
         },
-        async create(insightId: number, data: Partial<AlertType>): Promise<AlertType> {
+        async create(insightId: number, data: Partial<AlertTypeWrite>): Promise<AlertType> {
             return await new ApiRequest().alerts(insightId).create({ data })
         },
-        async update(insightId: number, alertId: AlertType['id'], data: Partial<AlertType>): Promise<AlertType> {
+        async update(insightId: number, alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
             return await new ApiRequest().alert(alertId, insightId).update({ data })
         },
         async list(insightId: number): Promise<PaginatedResponse<AlertType>> {

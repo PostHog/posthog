@@ -209,19 +209,6 @@
             "additionalProperties": false,
             "type": "object"
         },
-        "AlertNotificationTarget": {
-            "additionalProperties": false,
-            "properties": {
-                "email": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["email"],
-            "type": "object"
-        },
         "AlertType": {
             "additionalProperties": false,
             "properties": {
@@ -255,11 +242,14 @@
                 "name": {
                     "type": "string"
                 },
-                "notification_targets": {
-                    "$ref": "#/definitions/AlertNotificationTarget"
-                },
                 "state": {
                     "type": "string"
+                },
+                "subscribed_users": {
+                    "items": {
+                        "$ref": "#/definitions/UserBasicType"
+                    },
+                    "type": "array"
                 },
                 "threshold": {
                     "additionalProperties": false,
@@ -272,7 +262,64 @@
                     "type": "object"
                 }
             },
-            "required": ["id", "name", "notification_targets", "condition", "enabled"],
+            "required": [
+                "checks",
+                "condition",
+                "created_at",
+                "created_by",
+                "enabled",
+                "id",
+                "insight",
+                "last_notified_at",
+                "name",
+                "state",
+                "subscribed_users",
+                "threshold"
+            ],
+            "type": "object"
+        },
+        "AlertTypeBase": {
+            "additionalProperties": false,
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/AlertCondition"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "insight": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["name", "condition", "enabled", "insight"],
+            "type": "object"
+        },
+        "AlertTypeWrite": {
+            "additionalProperties": false,
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/AlertCondition"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "insight": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "subscribed_users": {
+                    "items": {
+                        "type": "integer"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["condition", "enabled", "insight", "name", "subscribed_users"],
             "type": "object"
         },
         "AnyDataNode": {
@@ -5552,7 +5599,6 @@
                     "$ref": "#/definitions/InsightsThresholdAbsolute"
                 }
             },
-            "required": ["absoluteThreshold"],
             "type": "object"
         },
         "InsightVizNode": {

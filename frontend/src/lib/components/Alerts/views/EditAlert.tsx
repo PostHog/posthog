@@ -1,7 +1,8 @@
-import { LemonCheckbox, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlerts'
+import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
@@ -62,6 +63,7 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
 
     const { alert, isAlertSubmitting, alertChanged } = useValues(logic)
     const { deleteAlert } = useActions(alertslogic)
+    const { setAlertValue } = useActions(logic)
     const id = props.id
 
     const _onDelete = (): void => {
@@ -112,20 +114,11 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                                 />
                             </LemonField>
 
-                            <Group name={['notification_targets']}>
-                                <LemonField
-                                    name="email"
-                                    label="Who do you want to notify"
-                                    help="Enter email addresses of the users you want notify"
-                                >
-                                    <LemonInputSelect
-                                        mode="multiple"
-                                        placeholder="Enter email addresses"
-                                        allowCustomValues
-                                        data-attr="alert-notification-targets"
-                                    />
-                                </LemonField>
-                            </Group>
+                            <MemberSelectMultiple
+                                value={alert.subscribed_users?.map((u) => u.id) ?? []}
+                                idKey="id"
+                                onChange={(value) => setAlertValue('subscribed_users', value)}
+                            />
 
                             <Group name={['threshold', 'configuration', 'absoluteThreshold']}>
                                 <span className="flex gap-10">

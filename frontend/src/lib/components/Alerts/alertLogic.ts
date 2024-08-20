@@ -4,10 +4,9 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isEmail } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertType } from '~/queries/schema'
+import { AlertType, AlertTypeWrite } from '~/queries/schema'
 
 import type { alertLogicType } from './alertLogicType'
 import { alertsLogic, AlertsLogicProps } from './alertsLogic'
@@ -41,17 +40,13 @@ export const alertLogic = kea<alertLogicType>([
     forms(({ props, actions }) => ({
         alert: {
             defaults: {} as unknown as AlertType,
-            errors: ({ name, notification_targets }) => ({
+            errors: ({ name }) => ({
                 name: !name ? 'You need to give your alert a name' : undefined,
-                notification_targets: !notification_targets?.email?.every((email) => isEmail(email))
-                    ? {
-                          email: ['All emails must be valid'],
-                      }
-                    : undefined,
             }),
             submit: async (alert) => {
-                const payload = {
+                const payload: AlertTypeWrite = {
                     ...alert,
+                    subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                 }
 
