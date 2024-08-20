@@ -440,7 +440,6 @@ export const redirects: Record<
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/pipeline/:stage/:id': ({ stage, id }) => urls.pipelineNode(stage as PipelineStage, id),
 }
 
 export const routes: Record<string, Scene> = {
@@ -491,6 +490,7 @@ export const routes: Record<string, Scene> = {
     [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
+    [urls.pipelineNode(':stage', ':id')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,

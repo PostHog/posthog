@@ -12,8 +12,7 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { insightsModel } from '~/models/insightsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -101,9 +100,8 @@ export function DashboardItems(): JSX.Element {
                     }}
                     draggableCancel=".anticon,table,button,.Popover"
                 >
-                    {tiles?.map((tile: DashboardTile) => {
-                        const { insight: legacyInsight, text } = tile
-                        const insight = legacyInsight ? getQueryBasedInsightModel(legacyInsight) : undefined
+                    {tiles?.map((tile) => {
+                        const { insight, text } = tile
                         const smLayout = layouts['sm']?.find((l) => {
                             return l.i == tile.id.toString()
                         })

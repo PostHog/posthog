@@ -12,14 +12,14 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
     id?: string
-    dashboard?: DashboardType
+    dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
 }
 

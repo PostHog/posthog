@@ -2,10 +2,15 @@ import api from 'lib/api'
 
 import { getInsightFilterOrQueryForPersistance } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel, QueryBasedInsightModel } from '~/types'
+import { RefreshType } from '~/queries/schema'
+import { InsightModel, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 export type InsightsApiOptions<Flag> = {
     writeAsQuery: boolean
+    readAsQuery: Flag
+}
+
+export type ReadOnlyInsightsApiOptions<Flag> = {
     readAsQuery: Flag
 }
 
@@ -38,6 +43,29 @@ async function _perform<Flag extends boolean>(
 
 export const insightsApi = {
     _perform,
+    async getByShortId<Flag extends boolean>(
+        shortId: InsightShortId,
+        options: ReadOnlyInsightsApiOptions<Flag>,
+        basic?: boolean,
+        refresh?: RefreshType
+    ): Promise<ReturnedInsightModelByFlag<Flag> | null> {
+        const legacyInsights = await api.insights.loadInsight(shortId, basic, refresh)
+        if (legacyInsights.results.length === 0) {
+            return null
+        }
+        const legacyInsight = legacyInsights.results[0]
+        const response = options.readAsQuery ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
+        return response as ReturnedInsightModelByFlag<Flag>
+    },
+    async getByNumericId<Flag extends boolean>(
+        numericId: number,
+        options: ReadOnlyInsightsApiOptions<Flag>
+    ): Promise<ReturnedInsightModelByFlag<Flag> | null> {
+        const legacyInsight = await api.insights.get(numericId)
+        const response =
+            options.readAsQuery && legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : legacyInsight
+        return response as ReturnedInsightModelByFlag<Flag>
+    },
     async create<Flag extends boolean>(
         insight: Partial<QueryBasedInsightModel>,
         options: InsightsApiOptions<Flag>

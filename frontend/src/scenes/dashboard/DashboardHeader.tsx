@@ -26,7 +26,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardMode, DashboardType, ExporterFormat } from '~/types'
+import { DashboardMode, DashboardType, ExporterFormat, QueryBasedInsightModel } from '~/types'
 
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
@@ -365,7 +365,7 @@ function CollaboratorBubbles({
     dashboard,
     onClick,
 }: {
-    dashboard: DashboardType
+    dashboard: DashboardType<QueryBasedInsightModel>
     onClick: () => void
 }): JSX.Element | null {
     const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId: dashboard.id }))

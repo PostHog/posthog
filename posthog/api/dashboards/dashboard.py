@@ -525,13 +525,13 @@ class DashboardsViewSet(
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"
 
     def get_parents_query_dict(self) -> dict[str, Any]:
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
             return {}
-        return {"team_id": self.team_id}
+        return {"team__project_id": self.project_id}
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"

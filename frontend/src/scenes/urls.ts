@@ -118,8 +118,8 @@ export const urls = {
         id: string | number,
         nodeTab?: PipelineNodeTab | ':nodeTab'
     ): string =>
-        `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}/${
-            nodeTab ?? PipelineNodeTab.Configuration
+        `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
+            nodeTab ? `/${nodeTab}` : ''
         }`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
