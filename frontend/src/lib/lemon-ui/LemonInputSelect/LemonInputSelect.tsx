@@ -1,8 +1,7 @@
 import { IconPencil } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
@@ -68,11 +67,11 @@ export function LemonInputSelect({
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
+    const [itemBeingEditedIndex, setItemBeingEditedIndex] = useState<number | null>(null)
     const popoverFocusRef = useRef<boolean>(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
     const values = value ?? []
-    const altKeyHeld = useKeyHeld('Alt')
 
     const fuseRef = useRef<Fuse<LemonInputSelectOption>>(
         new Fuse(options, {
@@ -172,55 +171,63 @@ export function LemonInputSelect({
         onInputChange?.(newValue)
     }
 
-    const _removeItem = (item: string): void => {
-        let newValues = [...values]
+    const _removeItem = (item: string, currentValues: string[] = values): string[] => {
         // Remove the item
         if (mode === 'single') {
-            newValues = []
-        } else {
-            newValues.splice(values.indexOf(item), 1)
+            return []
         }
-
-        onChange?.(newValues)
+        const newValues = currentValues.slice()
+        newValues.splice(newValues.indexOf(item), 1)
+        return newValues
     }
 
-    const _addItem = (item: string): void => {
-        let newValues = [...values]
-        // Add the item
+    const _addItem = (item: string, atIndex?: number | null, currentValues: string[] = values): string[] => {
+        setInputValue('')
         if (mode === 'single') {
-            newValues = [item]
-        } else {
-            if (!newValues.includes(item)) {
+            return [item]
+        }
+        const newValues = currentValues.slice()
+        if (!newValues.includes(item)) {
+            if (atIndex != undefined) {
+                newValues.splice(atIndex, 0, item)
+            } else {
                 newValues.push(item)
             }
         }
-
-        setInputValue('')
-        onChange?.(newValues)
+        return newValues
     }
 
-    const _onActionItem = (item: string, popoverOptionClickEvent?: MouseEvent): void => {
-        if (altKeyHeld && allowCustomValues) {
+    const _onActionItem = (item: string, clickEvent: MouseEvent | null): void => {
+        if (clickEvent?.altKey && allowCustomValues) {
             // In this case we want to remove it if added and set input to it
-            if (values.includes(item)) {
-                _removeItem(item)
+            let currentValues = values
+            if (itemBeingEditedIndex !== null) {
+                // If we're already editing another item, make sure we don't lose it
+                currentValues = _addItem(inputValue, itemBeingEditedIndex, currentValues)
             }
+            const indexOfValue = values.indexOf(item)
+            if (indexOfValue > -1) {
+                setItemBeingEditedIndex(indexOfValue)
+                currentValues = _removeItem(item, currentValues)
+            }
+            onChange?.(currentValues)
             _setInputValue(item)
             onInputChange?.(item)
             inputRef.current?.focus()
             return
         }
+        setItemBeingEditedIndex(null)
         if (mode === 'single') {
             setShowPopover(false)
             popoverFocusRef.current = false
             // Prevent propagating to Popover's onClickInside, which would set popoverFocusRef.current back to true
-            popoverOptionClickEvent?.stopPropagation()
+            clickEvent?.stopPropagation()
         }
 
         if (values.includes(item)) {
-            _removeItem(item)
+            onChange?.(_removeItem(item))
         } else {
-            _addItem(item)
+            onChange?.(_addItem(item, itemBeingEditedIndex))
         }
     }
 
@@ -234,7 +241,7 @@ export function LemonInputSelect({
                 return
             }
             if (allowCustomValues && inputValue.trim() && !values.includes(inputValue)) {
-                _onActionItem(inputValue.trim())
+                _onActionItem(inputValue.trim(), null)
             } else {
                 setInputValue('')
             }
@@ -255,8 +262,9 @@ export function LemonInputSelect({
             const itemToAdd = visibleOptions[selectedIndex]?.key
 
             if (itemToAdd) {
-                _onActionItem(visibleOptions[selectedIndex]?.key)
+                _onActionItem(visibleOptions[selectedIndex]?.key, null)
             }
+            e.currentTarget.blur()
         } else if (e.key === 'Backspace') {
             if (!inputValue) {
                 e.preventDefault()
@@ -277,66 +285,75 @@ export function LemonInputSelect({
         if (mode !== 'multiple' || values.length === 0) {
             return null // Not rendering values as a suffix in single-select mode, or if there are no values selected
         }
+        const preInputValues = itemBeingEditedIndex !== null ? values.slice(0, itemBeingEditedIndex) : values
 
+        // TRICKY: We don't want the popover to affect the snack buttons
         return (
-            // TRICKY: We don't want the popover to affect the snack buttons
             <PopoverReferenceContext.Provider value={null}>
-                <>
-                    {values.map((value) => {
-                        const option = options.find((option) => option.key === value) ?? {
-                            label: value,
-                            labelComponent: null,
-                        }
-                        const snack = (
-                            <LemonSnack
-                                key={value}
-                                title={option?.label}
-                                onClose={() => _onActionItem(value)}
-                                onClick={allowCustomValues ? () => _onActionItem(value) : undefined}
-                            >
-                                {option?.labelComponent ?? option?.label}
-                            </LemonSnack>
-                        )
-                        return allowCustomValues ? (
-                            <Tooltip
-                                key={value}
-                                title={
-                                    <>
-                                        Click to delete. Click with <KeyboardShortcut option /> to edit.
-                                    </>
-                                }
-                            >
-                                {snack}
-                            </Tooltip>
-                        ) : (
-                            snack
-                        )
-                    })}
-                </>
+                {preInputValues.map((value) => {
+                    const option = options.find((option) => option.key === value) ?? {
+                        label: value,
+                        labelComponent: null,
+                    }
+                    return (
+                        <LemonSnack
+                            key={value}
+                            title={option?.label}
+                            onClose={(e) => _onActionItem(value, e)}
+                            onEdit={allowCustomValues ? (e) => _onActionItem(value, e) : undefined}
+                        >
+                            {option?.labelComponent ?? option?.label}
+                        </LemonSnack>
+                    )
+                })}
             </PopoverReferenceContext.Provider>
         )
-    }, [allOptionsMap, altKeyHeld, allowCustomValues])
+    }, [allOptionsMap, allowCustomValues, itemBeingEditedIndex])
 
-    const editButtonSuffix = useMemo(() => {
-        if (mode === 'multiple' || !allowCustomValues || !values.length || inputValue) {
-            // The edit button only applies to single-select mode with custom values allowed, when in no-input state
+    const valuesAndEditButtonSuffix = useMemo(() => {
+        // The edit button only applies to single-select mode with custom values allowed, when in no-input state
+        const isEditButtonVisible = mode !== 'multiple' && allowCustomValues && values.length && !inputValue
+        const postInputValues = itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
+
+        if (!isEditButtonVisible && postInputValues.length === 0) {
             return null
         }
+
         return (
             <PopoverReferenceContext.Provider value={null}>
-                <LemonButton
-                    icon={<IconPencil />}
-                    onClick={() => {
-                        setInputValue(values[0])
-                        inputRef.current?.focus()
-                        _onFocus()
-                    }}
-                    tooltip="Edit current value"
-                    noPadding
-                />
+                {postInputValues.map((value) => {
+                    const option = options.find((option) => option.key === value) ?? {
+                        label: value,
+                        labelComponent: null,
+                    }
+                    return (
+                        <LemonSnack
+                            key={value}
+                            title={option?.label}
+                            onClose={(e) => _onActionItem(value, e)}
+                            onEdit={allowCustomValues ? (e) => _onActionItem(value, e) : undefined}
+                        >
+                            {option?.labelComponent ?? option?.label}
+                        </LemonSnack>
+                    )
+                })}
+                {isEditButtonVisible && (
+                    <div className="grow flex flex-col items-end">
+                        <LemonButton
+                            icon={<IconPencil />}
+                            onClick={() => {
+                                setInputValue(values[0])
+                                inputRef.current?.focus()
+                                _onFocus()
+                            }}
+                            tooltip="Edit current value"
+                            noPadding
+                        />
+                    </div>
+                )}
             </PopoverReferenceContext.Provider>
         )
-    }, [mode, values, allowCustomValues, inputValue])
+    }, [mode, values, allowCustomValues, itemBeingEditedIndex, inputValue])
 
     return (
         <LemonDropdown
@@ -378,21 +395,25 @@ export function LemonInputSelect({
                                             <LemonCheckbox checked={isSelected} className="pointer-events-none" />
                                         ) : undefined
                                     }
-                                    sideAction={{
-                                        // To reduce visual clutter we only show the button for the focused item,
-                                        // but we do want the side action present to make sure the layout is stable
-                                        icon: isFocused ? <IconPencil /> : undefined,
-                                        tooltip: (
-                                            <>
-                                                Edit this value <KeyboardShortcut option enter />
-                                            </>
-                                        ),
-                                        onClick: () => {
-                                            setInputValue(option.key)
-                                            inputRef.current?.focus()
-                                            _onFocus()
-                                        },
-                                    }}
+                                    sideAction={
+                                        !option.__isInput
+                                            ? {
+                                                  // To reduce visual clutter we only show the button for the focused item,
+                                                  // but we do want the side action present to make sure the layout is stable
+                                                  icon: isFocused ? <IconPencil /> : undefined,
+                                                  tooltip: (
+                                                      <>
+                                                          Edit this value <KeyboardShortcut option enter />
+                                                      </>
+                                                  ),
+                                                  onClick: () => {
+                                                      setInputValue(option.key)
+                                                      inputRef.current?.focus()
+                                                      _onFocus()
+                                                  },
+                                              }
+                                            : undefined
+                                    }
                                 >
                                     <span className="whitespace-nowrap ph-no-capture truncate">
                                         {!option.__isInput
@@ -435,8 +456,9 @@ export function LemonInputSelect({
                         ? 'Add value'
                         : 'Pick value'
                 }
+                autoWidth
                 prefix={valuesPrefix}
-                suffix={editButtonSuffix}
+                suffix={valuesAndEditButtonSuffix}
                 onFocus={_onFocus}
                 onBlur={_onBlur}
                 value={inputValue}
@@ -445,13 +467,14 @@ export function LemonInputSelect({
                 disabled={disabled}
                 autoFocus={autoFocus}
                 className={clsx(
-                    'flex-wrap h-auto min-w-24',
+                    'flex-wrap h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
-                    mode === 'single' && values.length > 0 && 'placeholder:*:font-medium',
+                    // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
+                    mode === 'single' && values.length > 0 && '*:*:font-medium placeholder:*:*:font-medium',
                     mode === 'single' &&
                         values.length > 0 &&
                         !showPopover &&
-                        'cursor-pointer placeholder:*:text-default'
+                        'cursor-pointer placeholder:*:*:text-default'
                 )}
                 data-attr={dataAttr}
             />
