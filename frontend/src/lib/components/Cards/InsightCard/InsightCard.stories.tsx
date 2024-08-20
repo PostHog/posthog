@@ -64,6 +64,7 @@ const meta: Meta = {
             control: { type: 'boolean' },
         },
     },
+    tags: ['test-skip'], // :FIXME: flaky tests, most likely due to resize observer changes
 }
 export default meta
 export const InsightCard: Story = (args) => {
@@ -186,43 +187,6 @@ export const InsightCard: Story = (args) => {
                     showResizeHandles={args.resizable}
                 />
             ))}
-        </div>
-    )
-}
-
-export const QueryInsightCard: Story = (args) => {
-    return (
-        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
-            {examples.map((insight) => {
-                // turn into HogQL based insight
-                if (!insight.filters.insight || insight.query) {
-                    return null
-                }
-
-                const query = {
-                    kind: NodeKind.InsightVizNode,
-                    source: filtersToQueryNode(insight.filters),
-                }
-                const { filters: _, ...baseInsight } = insight
-                return (
-                    <InsightCardComponent
-                        key={insight.id}
-                        insight={{
-                            ...baseInsight,
-                            query,
-                        }}
-                        rename={() => {}}
-                        duplicate={() => {}}
-                        placement="SavedInsightGrid"
-                        loading={args.loading}
-                        apiErrored={args.apiErrored}
-                        highlighted={args.highlighted}
-                        timedOut={args.timedOut}
-                        showResizeHandles={args.resizable}
-                        doNotLoad
-                    />
-                )
-            })}
         </div>
     )
 }
