@@ -104,6 +104,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
         [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
+        [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntry,
     }
 
 export function formatPropertyLabel(

@@ -109,6 +109,7 @@ export enum TaxonomicFilterGroupType {
     SessionProperties = 'session_properties',
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
+    LogEntry = 'log_entry',
     // Misc
     Replay = 'replay',
 }
