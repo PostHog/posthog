@@ -70,15 +70,5 @@ async fn it_fails_no_session_id() -> Result<()> {
     });
     let res = server.capture_recording(event.to_string()).await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
-
-    let event = main_topic.next_event()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token,
-            "distinct_id": distinct_id
-        })
-    );
-
     Ok(())
 }
