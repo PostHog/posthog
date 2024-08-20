@@ -47,9 +47,6 @@ if [ $? -ne 0 ]; then
 fi
 
 if [[ -n $DEBUG ]]; then
-
-  pnpm build:cyclotron
-
   if [[ -n $NO_WATCH ]]; then
     cmd="pnpm start:devNoWatch"
   else
