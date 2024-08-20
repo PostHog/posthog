@@ -129,7 +129,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 }
                                 tabIndex={9}
                             >
-                                Discard Changes
+                                Cancel
                             </LemonButton>
                             <LemonButton
                                 data-attr="dashboard-edit-mode-save"
@@ -140,7 +140,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 tabIndex={10}
                                 disabled={dashboardLoading}
                             >
-                                Save Dashboard
+                                Save
                             </LemonButton>
                         </>
                     ) : dashboardMode === DashboardMode.Fullscreen ? (
