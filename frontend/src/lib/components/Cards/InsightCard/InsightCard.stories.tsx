@@ -73,8 +73,7 @@ export const InsightCard: Story = (args) => {
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {!wasItemRemoved && (
                 <InsightCardComponent
                     insight={getQueryBasedInsightModel({
@@ -178,7 +177,7 @@ export const InsightCard: Story = (args) => {
             {examples.map((e) => (
                 <InsightCardComponent
                     key={e.id}
-                    insight={getQueryBasedInsightModel(e)}
+                    insight={getQueryBasedInsightModel(e as unknown as InsightModel)}
                     rename={() => {}}
                     duplicate={() => {}}
                     placement="SavedInsightGrid"
@@ -195,8 +194,7 @@ export const InsightCard: Story = (args) => {
 
 export const QueryInsightCard: Story = (args) => {
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {examples.map((insight) => {
                 // turn into HogQL based insight
                 if (!insight.filters.insight || insight.query) {
