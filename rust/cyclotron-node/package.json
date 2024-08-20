@@ -16,6 +16,7 @@
     "license": "MIT",
     "devDependencies": {
         "@neon-rs/cli": "0.1.73",
+        "@types/node": "^22.4.1",
         "typescript": "^4.7.4"
     },
     "files": [
