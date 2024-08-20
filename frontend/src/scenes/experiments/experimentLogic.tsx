@@ -1151,19 +1151,18 @@ export const experimentLogic = kea<experimentLogicType>([
         countDataForVariant: [
             (s) => [s.experimentMathAggregationForTrends],
             (experimentMathAggregationForTrends) =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): string => {
+                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
                     const usingMathAggregationType = experimentMathAggregationForTrends(
                         experimentResults?.filters || {}
                     )
-                    const errorResult = '--'
                     if (!experimentResults || !experimentResults.insight) {
-                        return errorResult
+                        return null
                     }
                     const variantResults = (experimentResults.insight as TrendResult[]).find(
                         (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
                     )
                     if (!variantResults) {
-                        return errorResult
+                        return null
                     }
 
                     let result = variantResults.count
@@ -1190,35 +1189,26 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                     }
 
-                    if (result % 1 !== 0) {
-                        // not an integer, so limit to 2 digits post decimal
-                        return result.toFixed(2)
-                    }
-                    return result.toString()
+                    return result
                 },
         ],
         exposureCountDataForVariant: [
             () => [],
             () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): string => {
-                    const errorResult = '--'
+                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
                     if (!experimentResults || !experimentResults.variants) {
-                        return errorResult
+                        return null
                     }
                     const variantResults = (experimentResults.variants as TrendExperimentVariant[]).find(
                         (variantTrend: TrendExperimentVariant) => variantTrend.key === variant
                     )
                     if (!variantResults || !variantResults.absolute_exposure) {
-                        return errorResult
+                        return null
                     }
 
                     const result = variantResults.absolute_exposure
 
-                    if (result % 1 !== 0) {
-                        // not an integer, so limit to 2 digits post decimal
-                        return result.toFixed(2)
-                    }
-                    return result.toString()
+                    return result
                 },
         ],
         getHighestProbabilityVariant: [
@@ -1230,29 +1220,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
                     )
                 }
-            },
-        ],
-        areTrendResultsConfusing: [
-            (s) => [s.experimentResults, s.getHighestProbabilityVariant],
-            (experimentResults, getHighestProbabilityVariant): boolean => {
-                // Results are confusing when the top variant has a lower
-                // absolute count than other variants. This happens because
-                // exposure is invisible to the user
-                if (!experimentResults) {
-                    return false
-                }
-
-                // find variant with highest count
-                const variantResults: TrendResult = (experimentResults?.insight as TrendResult[]).reduce(
-                    (bestVariant, currentVariant) =>
-                        currentVariant.count > bestVariant.count ? currentVariant : bestVariant,
-                    { count: 0, breakdown_value: '' } as TrendResult
-                )
-                if (!variantResults.count) {
-                    return false
-                }
-
-                return variantResults.breakdown_value !== getHighestProbabilityVariant(experimentResults)
             },
         ],
         sortedExperimentResultVariants: [
