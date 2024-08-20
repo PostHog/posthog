@@ -23,7 +23,7 @@
         "prettier:check": "prettier --check .",
         "prepublishOnly": "pnpm build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
-        "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment",
+        "setup:test": "npm run build:cyclotron && cd .. && TEST=1 python manage.py setup_test_environment",
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
