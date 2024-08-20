@@ -235,7 +235,7 @@ jobs:
                   cd plugin-server
                   pnpm install --frozen-lockfile
                   ls -al node_modules/
-                  la -al node_modules/cyclotron-node/
+                  ls -al node_modules/cyclotron-node/
                   pnpm build
 
             - name: Wait for Clickhouse, Redis & Kafka
