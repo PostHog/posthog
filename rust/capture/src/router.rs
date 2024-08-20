@@ -20,6 +20,7 @@ use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
+const RECORDING_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
 
 #[derive(Clone)]
 pub struct State {
@@ -120,7 +121,8 @@ pub fn router<
             post(v0_endpoint::recording)
                 .get(v0_endpoint::recording)
                 .options(v0_endpoint::options),
-        );
+        )
+        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
 
     let router = match capture_mode {
         CaptureMode::Events => Router::new().merge(batch_router).merge(event_router),
