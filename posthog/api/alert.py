@@ -5,7 +5,8 @@ from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.alert import AlertConfiguration, AlertCheck, Threshold
+from posthog.models import User
+from posthog.models.alert import AlertConfiguration, AlertCheck, Threshold, AlertSubscription
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -41,10 +42,31 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         return instance.targets_notified != {}
 
 
+class AlertSubscriptionSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(is_active=True), required=True)
+
+    class Meta:
+        model = AlertSubscription
+        fields = ["id", "user", "alert_configuration"]
+        read_only_fields = ["id", "alert_configuration"]
+
+    def validate(self, data):
+        user: User = data["user"]
+        alert_configuration = data["alert_configuration"]
+
+        if not user.teams.filter(pk=alert_configuration.team_id).exists():
+            raise serializers.ValidationError("User does not belong to the same organization as the alert's team.")
+
+        return data
+
+
 class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(many=True, read_only=True)
     threshold = ThresholdSerializer()
+    subscribed_users = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(is_active=True), many=True, required=True, read_only=False
+    )
 
     class Meta:
         model = AlertConfiguration
@@ -54,7 +76,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "created_at",
             "insight",
             "name",
-            "notification_targets",
+            "subscribed_users",
             "threshold",
             "condition",
             "state",
@@ -81,13 +103,20 @@ class AlertSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
-
+        subscribed_users = validated_data.pop("subscribed_users")
         threshold_data = validated_data.pop("threshold", None)
+
         if threshold_data:
             threshold_instance = self.add_threshold(threshold_data, validated_data)
             validated_data["threshold"] = threshold_instance
 
         instance: AlertConfiguration = super().create(validated_data)
+
+        for user in subscribed_users:
+            AlertSubscription.objects.create(
+                user=user, alert_configuration=instance, created_by=self.context["request"].user
+            )
+
         return instance
 
     def update(self, instance, validated_data):
@@ -103,7 +132,22 @@ class AlertSerializer(serializers.ModelSerializer):
             else:
                 threshold_instance = self.add_threshold(threshold_data, validated_data)
                 validated_data["threshold"] = threshold_instance
+
+        subscribed_users = validated_data.pop("subscribed_users", None)
+        if subscribed_users is not None:
+            AlertSubscription.objects.filter(alert_configuration=instance).exclude(user__in=subscribed_users).delete()
+            for user in subscribed_users:
+                AlertSubscription.objects.get_or_create(
+                    user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
+                )
+
         return super().update(instance, validated_data)
+
+    def validate_subscribed_users(self, value):
+        for user in value:
+            if not user.teams.filter(pk=self.context["team_id"]).exists():
+                raise ValidationError("User does not belong to the same organization as the alert's team.")
+        return value
 
     def validate(self, attrs):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:

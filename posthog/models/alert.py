@@ -75,7 +75,12 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
-    notification_targets = models.JSONField(default=dict)  # Object with list of emails or other notification targets
+    subscribed_users = models.ManyToManyField(
+        "User",
+        through="AlertSubscription",
+        through_fields=("alert_configuration", "user"),
+        related_name="alert_configurations",
+    )
 
     # The threshold to evaluate the alert against. If null, the alert must have other conditions to trigger.
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
@@ -147,6 +152,26 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
         self.save()
         return alert_check, matches
+
+
+class AlertSubscription(CreatedMetaFields, UUIDModel):
+    user = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        limit_choices_to={
+            "is_active": True,
+            "organization_id": models.OuterRef("alert_configuration__team__organization_id"),
+        },
+        related_name="alert_subscriptions",
+    )
+    alert_configuration = models.ForeignKey(AlertConfiguration, on_delete=models.CASCADE)
+    subscribed = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"AlertSubscription for {self.alert_configuration.name} by {self.user.email}"
+
+    class Meta:
+        unique_together = ["user", "alert_configuration"]
 
 
 class AlertCheck(UUIDModel):

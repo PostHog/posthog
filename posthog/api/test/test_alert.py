@@ -28,9 +28,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
     def test_create_and_delete_alert(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
-            "notification_targets": {
-                "email": ["test@posthog.com"],
-            },
+            "subscribed_users": [
+                self.user.id,
+            ],
             "name": "alert name",
             "threshold": {"configuration": {}},
         }
@@ -45,7 +45,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "insight": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",
-            "notification_targets": {"email": ["test@posthog.com"]},
+            "subscribed_users": mock.ANY,
             "state": "inactive",
             "threshold": {
                 "configuration": {},
@@ -54,7 +54,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "name": "",
             },
         }
-        assert response.status_code == status.HTTP_201_CREATED
+        assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
 
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
@@ -68,9 +68,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     def test_incorrect_creation(self) -> None:
         creation_request = {
-            "notification_targets": {
-                "email": ["test@posthog.com"],
-            },
+            "subscribed_users": [
+                self.user.id,
+            ],
             "threshold": {"configuration": {}},
             "name": "alert name",
         }
@@ -86,9 +86,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         ).json()
         creation_request = {
             "insight": str(another_team_insight["id"]),
-            "notification_targets": {
-                "email": ["test@posthog.com"],
-            },
+            "subscribed_users": [
+                self.user.id,
+            ],
             "threshold": {"configuration": {}},
             "name": "alert name",
         }
@@ -98,9 +98,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
     def test_create_and_list_alert(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
-            "notification_targets": {
-                "email": ["test@posthog.com"],
-            },
+            "subscribed_users": [
+                self.user.id,
+            ],
             "threshold": {"configuration": {}},
             "name": "alert name",
         }
@@ -124,9 +124,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
             creation_request = {
                 "insight": self.insight["id"],
-                "notification_targets": {
-                    "email": ["test@posthog.com"],
-                },
+                "subscribed_users": [
+                    self.user.id,
+                ],
                 "threshold": {"configuration": {}},
                 "name": "alert name",
             }
@@ -142,9 +142,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         ).json()
         creation_request = {
             "insight": another_insight["id"],
-            "notification_targets": {
-                "email": ["test@posthog.com"],
-            },
+            "subscribed_users": [
+                self.user.id,
+            ],
             "threshold": {"configuration": {}},
             "name": "alert name",
         }
