@@ -368,6 +368,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            session_id: None,
         };
 
         // Wait for producer to be healthy, to keep kafka_message_timeout_ms short and tests faster
@@ -400,6 +401,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            session_id: None,
         };
         match sink.send(big_event).await {
             Err(CaptureError::EventTooBig) => {} // Expected

@@ -5,6 +5,7 @@ use axum_test_helper::TestClient;
 use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent};
+use capture::config::CaptureType;
 use capture::limiters::billing::BillingLimiter;
 use capture::redis::MockRedisClient;
 use capture::router::router;
@@ -110,6 +111,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             redis,
             billing,
             false,
+            CaptureType::Events,
         );
 
         let client = TestClient::new(app);
