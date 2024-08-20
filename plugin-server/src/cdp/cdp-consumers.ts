@@ -703,14 +703,14 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected topic = 'UNUSED-CdpCyclotronWorker'
     protected consumerGroupId = 'UNUSED-CdpCyclotronWorker'
-
     private runningWorker: Promise<void> | undefined
+    private isUnhealthy = false
 
     public async _handleEachBatch(_: Message[]): Promise<void> {
         // Not called, we override `start` below to use Cyclotron instead.
     }
 
-    public async innerStart() {
+    private async innerStart() {
         try {
             const limit = 100 // TODO: Make configurable.
             while (!this.isStopping) {
@@ -722,6 +722,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 }
             }
         } catch (err) {
+            this.isUnhealthy = true
             console.error('Error in Cyclotron worker', err)
             throw err
         }
@@ -732,5 +733,14 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         // indefinitely.
         this.runningWorker = this.innerStart()
         return Promise.resolve()
+    }
+
+    public async stop() {
+        await super.stop()
+        await this.runningWorker
+    }
+
+    public isHealthy() {
+        return this.isUnhealthy
     }
 }

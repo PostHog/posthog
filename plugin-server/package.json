@@ -27,7 +27,8 @@
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
-        "services": "pnpm services:stop && pnpm services:clean && pnpm services:start"
+        "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
+        "preinstall": "cd ../rust/cyclotron-node && npm i && npm run build"
     },
     "graphile-worker": {
         "maxContiguousErrors": 300
@@ -134,7 +135,8 @@
         "prettier": "^2.8.8",
         "supertest": "^7.0.0",
         "ts-node": "^10.9.1",
-        "typescript": "^4.7.4"
+        "typescript": "^4.7.4",
+        "cyclotron-node": "file:../rust/cyclotron-node"
     },
     "pnpm": {
         "patchedDependencies": {

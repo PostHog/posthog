@@ -4,3 +4,4 @@ index.node
 **/.DS_Store
 npm-debug.log*cargo.log
 cross.log
+dist/

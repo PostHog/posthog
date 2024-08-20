@@ -2,20 +2,24 @@
     "name": "cyclotron-node",
     "version": "0.1.0",
     "description": "Node bindings for cyclotron",
-    "main": "index.node",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
     "scripts": {
         "test": "cargo test",
-        "cargo-build": "cargo build --message-format=json > cargo.log",
-        "cross-build": "cross build --message-format=json > cross.log",
-        "postcargo-build": "neon dist < cargo.log",
-        "postcross-build": "neon dist -m /target < cross.log",
-        "debug": "npm run cargo-build --",
-        "build": "npm run cargo-build -- --release",
-        "cross": "npm run cross-build -- --release"
+        "build": "npm run build:cargo -- --release && npm run build:lib",
+        "build:cargo": "cargo build --message-format=json > cargo.log",
+        "build:cargo:debug": "npm run build:cargo --",
+        "build:cross": "cross build --message-format=json > cross.log",
+        "build:lib": "tsc"
     },
     "author": "",
     "license": "MIT",
     "devDependencies": {
-        "@neon-rs/cli": "0.1.73"
-    }
+        "@neon-rs/cli": "0.1.73",
+        "typescript": "^4.7.4"
+    },
+    "files": [
+        "dist",
+        "index.node"
+    ]
 }

@@ -46,8 +46,7 @@ FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS cy
 WORKDIR /code
 COPY ./rust ./rust
 RUN cd rust/cyclotron-node && \
-    cargo build -r && \
-    mv ../target/release/libcyclotron_node.so /code/index.node
+    npm install && npm run build
 
 
 #
@@ -56,6 +55,9 @@ RUN cd rust/cyclotron-node && \
 FROM node:18.19.1-bullseye-slim AS plugin-server-build
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Copy the Rust cyclotron-node module.
+COPY --from=cyclotron-node-build --chown=posthog:posthog /code/rust/cyclotron-node /code/rust/cyclotron-node
 
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
@@ -193,8 +195,6 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 
-# Copy the Rust cyclotron-node module.
-COPY --from=cyclotron-node-build --chown=posthog:posthog /code/index.node /code/plugin-server/node_modules/cyclotron/index.node
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
