@@ -103,6 +103,7 @@ from posthog.utils import (
     relative_date_parse,
     str_to_bool,
 )
+from posthog.api.monitoring import monitor, Feature
 
 logger = structlog.get_logger(__name__)
 
@@ -329,6 +330,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
         )
 
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
@@ -368,6 +370,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         return insight
 
     @transaction.atomic()
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
         dashboards_before_change: list[Union[str, dict]] = []
         try:
@@ -786,6 +789,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             ),
         ],
     )
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="GET")
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
