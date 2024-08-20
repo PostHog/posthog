@@ -17,15 +17,6 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
     const inputRef = useRef<HTMLInputElement>(null)
     const mergedRefs = useMergeRefs([ref, inputRef])
 
-    const copyStyles = (styles: CSSStyleDeclaration, node: HTMLDivElement): void => {
-        node.style.fontSize = styles.fontSize
-        node.style.fontFamily = styles.fontFamily
-        node.style.fontWeight = styles.fontWeight
-        node.style.fontStyle = styles.fontStyle
-        node.style.letterSpacing = styles.letterSpacing
-        node.style.textTransform = styles.textTransform
-    }
-
     useLayoutEffect(() => {
         if (inputRef.current) {
             setInputStyles(getComputedStyle(inputRef.current))
@@ -78,3 +69,12 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
         </div>
     )
 })
+
+function copyStyles(styles: CSSStyleDeclaration, node: HTMLDivElement): void {
+    node.style.fontSize = styles.fontSize
+    node.style.fontFamily = styles.fontFamily
+    node.style.fontWeight = styles.fontWeight
+    node.style.fontStyle = styles.fontStyle
+    node.style.letterSpacing = styles.letterSpacing
+    node.style.textTransform = styles.textTransform
+}
