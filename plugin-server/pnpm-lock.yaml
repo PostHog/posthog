@@ -73,6 +73,9 @@ dependencies:
   aws-sdk:
     specifier: ^2.927.0
     version: 2.1366.0
+  cyclotron-node:
+    specifier: file:../rust/cyclotron-node
+    version: file:../rust/cyclotron-node
   detect-browser:
     specifier: ^5.3.0
     version: 5.3.0
@@ -243,9 +246,6 @@ devDependencies:
   c8:
     specifier: ^7.12.0
     version: 7.13.0
-  cyclotron-node:
-    specifier: file:../rust/cyclotron-node
-    version: file:../rust/cyclotron-node
   deepmerge:
     specifier: ^4.2.2
     version: 4.3.1
@@ -10738,4 +10738,4 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: cyclotron-node
-    dev: true
+    dev: false
