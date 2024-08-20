@@ -1,10 +1,10 @@
+import cyclotron from 'cyclotron-node'
 import { Histogram } from 'prom-client'
 
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'
 import { trackedFetch } from '../utils/fetch'
 import { status } from '../utils/status'
-import * as cyclotron from '../worker/cyclotron'
 import { RustyHook } from '../worker/rusty-hook'
 import { HogFunctionInvocationAsyncRequest, HogFunctionInvocationAsyncResponse } from './types'
 

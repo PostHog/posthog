@@ -444,7 +444,12 @@ abstract class CdpConsumerBase {
         const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.hub)
         const globalProducerConfig = createRdProducerConfigFromEnvVars(this.hub)
 
-        await Promise.all([this.hogFunctionManager.start()])
+        await Promise.all([
+            this.hogFunctionManager.start(),
+            this.hub.CYCLOTRON_DATABASE_URL
+                ? cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+                : Promise.resolve(),
+        ])
 
         this.kafkaProducer = new KafkaProducerWrapper(
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
@@ -729,9 +734,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     public async start() {
+        await cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+        await cyclotron.initWorker({ dbUrl: this.hub.CYCLOTRON_DATABASE_URL })
+
         // Consumer `start` expects an async task is started, and not that `start` itself blocks
         // indefinitely.
         this.runningWorker = this.innerStart()
+
         return Promise.resolve()
     }
 
