@@ -15,6 +15,9 @@ pub enum CaptureResponseCode {
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct CaptureResponse {
     pub status: CaptureResponseCode,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>,
 }
 
 #[derive(Error, Debug)]

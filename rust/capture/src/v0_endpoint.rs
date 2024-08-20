@@ -177,6 +177,7 @@ pub async fn event(
             // something meaningful with that error
             Ok(Json(CaptureResponse {
                 status: CaptureResponseCode::Ok,
+                quota_limited: None,
             }))
         }
         Err(err) => Err(err),
@@ -195,6 +196,7 @@ pub async fn event(
 
             Ok(Json(CaptureResponse {
                 status: CaptureResponseCode::Ok,
+                quota_limited: None,
             }))
         }
     }
@@ -224,7 +226,7 @@ pub async fn recording(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    let (context, events) = handle_common(
+    match handle_common(
         &state,
         &ip,
         &meta,
@@ -234,30 +236,39 @@ pub async fn recording(
         QuotaResource::Recordings,
         body,
     )
-    .await?;
-
-    if let Err(err) = process_replay_events(state.sink.clone(), &events, &context).await {
-        let cause = match err {
-            CaptureError::EmptyDistinctId => "empty_distinct_id",
-            CaptureError::MissingDistinctId => "missing_distinct_id",
-            CaptureError::MissingSessionId => "missing_event_name",
-            CaptureError::MissingWindowId => "missing_event_name",
-            CaptureError::MissingEventName => "missing_event_name",
-            _ => "process_events_error",
-        };
-        report_dropped_events(cause, events.len() as u64);
-        tracing::log::warn!("rejected invalid payload: {}", err);
-        return Err(err);
+    .await
+    {
+        Err(CaptureError::BillingLimit) => Ok(Json(CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: Some(vec!["recordings".to_string()]),
+        })),
+        Err(err) => Err(err),
+        Ok((context, events)) => {
+            if let Err(err) = process_replay_events(state.sink.clone(), &events, &context).await {
+                let cause = match err {
+                    CaptureError::EmptyDistinctId => "empty_distinct_id",
+                    CaptureError::MissingDistinctId => "missing_distinct_id",
+                    CaptureError::MissingSessionId => "missing_event_name",
+                    CaptureError::MissingWindowId => "missing_event_name",
+                    CaptureError::MissingEventName => "missing_event_name",
+                    _ => "process_events_error",
+                };
+                report_dropped_events(cause, events.len() as u64);
+                tracing::log::warn!("rejected invalid payload: {}", err);
+                return Err(err);
+            }
+            Ok(Json(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            }))
+        }
     }
-
-    Ok(Json(CaptureResponse {
-        status: CaptureResponseCode::Ok,
-    }))
 }
 
 pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
     Ok(Json(CaptureResponse {
         status: CaptureResponseCode::Ok,
+        quota_limited: None,
     }))
 }
 
