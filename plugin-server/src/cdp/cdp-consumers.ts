@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import cyclotron from 'cyclotron-node'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
@@ -20,7 +21,6 @@ import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
-import * as cyclotron from '../worker/cyclotron'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
