@@ -190,40 +190,40 @@ class JoinExprResponse:
 
 
 @dataclass
-class MaterializedColumn:
-    printed_table: Optional[str]
-    printed_column: str
+class PrintableMaterializedColumn:
+    table: Optional[str]
+    column: str
 
     def __str__(self) -> str:
-        if self.printed_table is None:
-            # XXX: not really sure why this path is necessary?
-            return self.printed_column
+        if self.table is None:
+            # XXX: For legacy person properties handling (see comment at instantiation site.)
+            return self.column
         else:
-            return f"{self.printed_table}.{self.printed_column}"
+            return f"{self.table}.{self.column}"
 
 
 @dataclass
-class MaterializedPropertyGroupItem:
-    printed_table: str
-    printed_column: str
-    printed_property_name: str
+class PrintableMaterializedPropertyGroupItem:
+    table: str
+    column: str
+    property_name: str
 
     def __str__(self) -> str:
         # If the key we're looking for doesn't exist in the map for this property group, an empty string (the default
         # value for the `String` type) is returned. Since that is a valid property value, we need to check it here.
-        return f"{self.printed_has_expr} ? {self.printed_value_expr} : null"
+        return f"{self.has_expr} ? {self.value_expr} : null"
 
     @property
-    def __printed_qualified_column(self) -> str:
-        return f"{self.printed_table}.{self.printed_column}"
+    def __qualified_column(self) -> str:
+        return f"{self.table}.{self.column}"
 
     @property
-    def printed_has_expr(self) -> str:
-        return f"has({self.__printed_qualified_column}, {self.printed_property_name})"
+    def has_expr(self) -> str:
+        return f"has({self.__qualified_column}, {self.property_name})"
 
     @property
-    def printed_value_expr(self) -> str:
-        return f"{self.__printed_qualified_column}[{self.printed_property_name}]"
+    def value_expr(self) -> str:
+        return f"{self.__qualified_column}[{self.property_name}]"
 
 
 class _Printer(Visitor):
@@ -644,22 +644,22 @@ class _Printer(Visitor):
                 assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
 
             property_source = self.__get_materialized_property_source(property_type)
-            if not isinstance(property_source, MaterializedPropertyGroupItem):
+            if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
             if node.op == ast.CompareOperationOp.Eq:
                 if constant_expr.value is None:
                     # "IS NULL" can be interpreted as "does not exist in the map" -- this avoids unnecessarily reading
                     # the ``values`` subcolumn of the map.
-                    return f"not({property_source.printed_has_expr})"
+                    return f"not({property_source.has_expr})"
 
-                printed_expr = f"equals({property_source.printed_value_expr}, {self.visit(constant_expr)})"
+                printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
                 if constant_expr.value == "":  # TODO: check type?
                     # If we're comparing to an empty string literal, we need to disambiguate this from the default value
                     # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
                     # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
                     # still use the data skipping index on keys, even though the values index cannot be used.
-                    printed_expr = f"and({property_source.printed_has_expr}, {printed_expr})"
+                    printed_expr = f"and({property_source.has_expr}, {printed_expr})"
 
                 return printed_expr
 
@@ -667,7 +667,7 @@ class _Printer(Visitor):
                 if constant_expr.value is None:
                     # "IS NOT NULL" can be interpreted as "does exist in the map" -- this avoids unnecessarily reading
                     # the ``values`` subcolumn of the map, and also allows us to use the data skipping index on keys.
-                    return property_source.printed_has_expr
+                    return property_source.has_expr
 
         elif node.op in (ast.CompareOperationOp.In):
             # ``IN`` is _not_ commutative, so we only need to check the left side operand (in contrast with above.)
@@ -680,7 +680,7 @@ class _Printer(Visitor):
                 return None
 
             property_source = self.__get_materialized_property_source(left_type)
-            if not isinstance(property_source, MaterializedPropertyGroupItem):
+            if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
             if isinstance(node.right, ast.Constant):
@@ -688,9 +688,9 @@ class _Printer(Visitor):
                     return "0"
                 elif node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
-                    return f"and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(node.right)}))"
+                    return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
                 else:
-                    return f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
+                    return f"in({property_source.value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
                 # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
                 # value for missing keys. NULLs should also be dropped, but everything else can be passed through as-is.
@@ -705,11 +705,11 @@ class _Printer(Visitor):
                         node.right.exprs.remove(expr)  # XXX: safe to mutate?
                 if len(node.right.exprs) > 0:
                     # TODO: Check to see if it'd be faster to do equality comparison here instead?
-                    printed_expr = f"in({property_source.printed_value_expr}, {self.visit(node.right)})"
+                    printed_expr = f"in({property_source.value_expr}, {self.visit(node.right)})"
                     if default_value_expr is not None:
-                        printed_expr = f"or({printed_expr}, and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(default_value_expr)})))"
+                        printed_expr = f"or({printed_expr}, and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(default_value_expr)})))"
                 elif default_value_expr is not None:
-                    printed_expr = f"and({property_source.printed_has_expr}, equals({property_source.printed_value_expr}, {self.visit(default_value_expr)}))"
+                    printed_expr = f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(default_value_expr)}))"
                 else:
                     printed_expr = "0"
                 return printed_expr
@@ -944,13 +944,13 @@ class _Printer(Visitor):
             # TODO: can probably optimize chained operations, but will need more thought
             if isinstance(arg_type, ast.PropertyType) and len(arg_type.chain) == 1:
                 property_source = self.__get_materialized_property_source(arg_type)
-                if not isinstance(property_source, MaterializedPropertyGroupItem):
+                if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                     return None
 
                 if node.name == "isNull":
-                    return f"not({property_source.printed_has_expr})"
+                    return f"not({property_source.has_expr})"
                 elif node.name == "isNotNull":
-                    return property_source.printed_has_expr
+                    return property_source.has_expr
                 else:
                     raise ValueError("unexpected node name")
 
@@ -1239,7 +1239,7 @@ class _Printer(Visitor):
 
     def __get_materialized_property_source(
         self, type: ast.PropertyType
-    ) -> MaterializedColumn | MaterializedPropertyGroupItem | None:
+    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
         Find a materialized property for the first part of the property chain.
         """
@@ -1266,7 +1266,7 @@ class _Printer(Visitor):
 
             materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
             if materialized_column:
-                return MaterializedColumn(
+                return PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column),
                 )
@@ -1281,7 +1281,7 @@ class _Printer(Visitor):
                 for property_group_column in property_groups.get_property_group_columns(
                     table_name, field_name, property_name
                 ):
-                    return MaterializedPropertyGroupItem(
+                    return PrintableMaterializedPropertyGroupItem(
                         self.visit(field_type.table_type),
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
@@ -1297,7 +1297,7 @@ class _Printer(Visitor):
             else:
                 materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
             if materialized_column:
-                return MaterializedColumn(None, self._print_identifier(materialized_column))
+                return PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
 
         return None
 
@@ -1307,7 +1307,7 @@ class _Printer(Visitor):
 
         materialized_property_source = self.__get_materialized_property_source(type)
         if materialized_property_source is not None:
-            if isinstance(materialized_property_source, MaterializedColumn):
+            if isinstance(materialized_property_source, PrintableMaterializedColumn):
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
                 if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_source}, '')"
