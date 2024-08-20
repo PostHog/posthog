@@ -439,7 +439,7 @@ def cleanup_materialized_columns():
             ]
         )
         if drops:
-            sync_execute(f"ALTER TABLE {table} {drops}")
+            sync_execute(f"ALTER TABLE {table} {drops} SETTINGS mutations_sync = 2")
 
     default_columns = default_materialised_columns()
     optionally_drop("events", lambda name: name not in default_columns)
