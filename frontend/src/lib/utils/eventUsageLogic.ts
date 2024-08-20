@@ -3,7 +3,7 @@ import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import {
     convertPropertyGroupToProperties,
     isGroupPropertyFilter,
-    isRecordingPropertyFilter,
+    isLogEntryPropertyFilter,
     isValidPropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -930,9 +930,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             const eventFilters = filterValues.filter(isEventFilter)
             const actionFilters = filterValues.filter(isActionFilter)
             const propertyFilters = filterValues.filter(isValidPropertyFilter)
-            const consoleLogFilters = propertyFilters
-                .filter(isRecordingPropertyFilter)
-                .filter((f) => ['console_log_level', 'console_log_query'].includes(f.key))
+            const consoleLogFilters = propertyFilters.filter(isLogEntryPropertyFilter)
 
             const filterBreakdown =
                 filters && defaultDurationFilter
