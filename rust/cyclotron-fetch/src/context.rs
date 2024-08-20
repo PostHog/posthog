@@ -24,10 +24,14 @@ impl AppContext {
 
         let resolver = Arc::new(common_dns::PublicIPv4Resolver {});
 
-        let client = reqwest::Client::builder()
-            .timeout(config.fetch_timeout.to_std().unwrap())
-            .dns_resolver(resolver)
-            .build();
+        let mut client = reqwest::Client::builder().timeout(config.fetch_timeout.to_std().unwrap());
+
+        if !config.allow_internal_ips {
+            client = client.dns_resolver(resolver);
+        }
+
+        let client = client.build();
+
         let client = match client {
             Ok(c) => c,
             Err(e) => {

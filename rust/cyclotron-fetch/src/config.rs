@@ -29,6 +29,9 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub pg_idle_timeout_seconds: u64,
 
+    #[envconfig(default = "false")]
+    pub allow_internal_ips: bool,
+
     pub worker_id: Option<String>,              // Default to a UUID
     pub job_poll_interval_seconds: Option<u32>, // Defaults to 1
     pub concurrent_requests_limit: Option<u32>, // Defaults to 1000
@@ -58,6 +61,7 @@ pub struct AppConfig {
     pub batch_size: usize,
     pub max_response_bytes: usize,
     pub retry_backoff_base: Duration, // Job retry backoff times are this * attempt count
+    pub allow_internal_ips: bool,
 }
 
 impl Config {
@@ -83,6 +87,7 @@ impl Config {
             retry_backoff_base: Duration::milliseconds(
                 self.retry_backoff_base_ms.unwrap_or(4000) as i64
             ),
+            allow_internal_ips: self.allow_internal_ips,
         };
 
         let pool_config = PoolConfig {
