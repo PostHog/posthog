@@ -12,6 +12,7 @@ import pyarrow as pa
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
+from snowflake.connector.errors import OperationalError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -178,16 +179,21 @@ class SnowflakeClient:
 
         Methods that require a connection should be ran within this block.
         """
-        connection = await asyncio.to_thread(
-            snowflake.connector.connect,
-            user=self.user,
-            password=self.password,
-            account=self.account,
-            warehouse=self.warehouse,
-            database=self.database,
-            schema=self.schema,
-            role=self.role,
-        )
+        try:
+            connection = await asyncio.to_thread(
+                snowflake.connector.connect,
+                user=self.user,
+                password=self.password,
+                account=self.account,
+                warehouse=self.warehouse,
+                database=self.database,
+                schema=self.schema,
+                role=self.role,
+            )
+
+        except OperationalError as err:
+            raise SnowflakeConnectionError("Could not connect to Snowflake") from err
+
         self._connection = connection
 
         await self.use_namespace()
@@ -606,8 +612,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+        )
 
-        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
         async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
             async with (
                 snow_client.managed_table(inputs.table_name, table_fields, delete=False) as snow_table,
@@ -755,6 +764,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 "ProgrammingError",
                 # Raised by Snowflake with an incorrect account name.
                 "ForbiddenError",
+                # Our own exception when we can't connect to Snowflake, usually due to invalid parameters.
+                "SnowflakeConnectionError",
             ],
             finish_inputs=finish_inputs,
         )

@@ -228,6 +228,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
 class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
+    hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -293,6 +294,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "cache_target_age",
             "next_allowed_client_refresh",
             "result",
+            "hasMore",
             "columns",
             "created_at",
             "created_by",
@@ -484,6 +486,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
+
+    def get_hasMore(self, insight: Insight):
+        return self.insight_result(insight).has_more
 
     def get_columns(self, insight: Insight):
         return self.insight_result(insight).columns
@@ -1095,4 +1100,4 @@ Using the correct cache and enriching the response with dashboard specific confi
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"

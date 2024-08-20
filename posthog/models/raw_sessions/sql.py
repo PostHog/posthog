@@ -16,7 +16,7 @@ DROP_RAW_SESSION_TABLE_SQL = (
     lambda: f"DROP TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL = (
-    lambda: f"DROP MATERIALISED VIEW IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    lambda: f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
 DROP_RAW_SESSION_VIEW_SQL = (
     lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
     screen_count SimpleAggregateFunction(sum, Int64),
     screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+    -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
 
     -- replay
     maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
@@ -212,6 +214,7 @@ SELECT
     initializeAggregation('uniqState', if(event='autocapture', uuid, NULL)) as autocapture_uniq,
     if(event='$screen', 1, 0) as screen_count,
     initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
+    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
 
     -- replay
     false as maybe_has_session_replay
@@ -318,6 +321,7 @@ SELECT
     uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
     sumIf(1, event='$screen') as screen_count,
     uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
+    uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
 
     -- replay
     false as maybe_has_session_replay

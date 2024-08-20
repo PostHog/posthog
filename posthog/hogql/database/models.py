@@ -128,7 +128,11 @@ class Table(FieldOrTable):
         return []
 
     def get_asterisk(self):
-        fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
+        if isinstance(self, FunctionCallTable):
+            fields_to_avoid = self.avoid_asterisk_fields()
+        else:
+            fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
+
         asterisk: dict[str, FieldOrTable] = {}
         for key, field_ in self.fields.items():
             if key in fields_to_avoid:

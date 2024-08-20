@@ -43,7 +43,6 @@ tests:
                 .timestamp = now()
                 ."_" = "123456789"
                 %token = "limited_token"
-
       outputs:
           - conditions:
                 - source: |

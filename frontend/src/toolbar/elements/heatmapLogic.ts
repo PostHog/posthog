@@ -437,7 +437,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
             (posthog: PostHog): 'version' | 'disabled' | null => {
-                const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
+                const posthogVersion =
+                    posthog?._calculate_event_properties('test', {}, new Date())?.['$lib_version'] ?? '0.0.0'
                 const majorMinorVersion = posthogVersion.split('.')
                 const majorVersion = parseInt(majorMinorVersion[0], 10)
                 const minorVersion = parseInt(majorMinorVersion[1], 10)

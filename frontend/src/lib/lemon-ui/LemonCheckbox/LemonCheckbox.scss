@@ -6,7 +6,7 @@
     line-height: 1.5rem;
 
     .LemonCheckbox__input {
-        width: 0 !important; // Some ant-form styles override this so we mark as important
+        width: 0 !important;
         height: 0 !important;
         appearance: none !important;
     }

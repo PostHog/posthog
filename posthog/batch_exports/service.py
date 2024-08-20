@@ -649,6 +649,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
             jitter=(batch_export.interval_time_delta / 12),
+            time_zone_name=batch_export.team.timezone,
         ),
         state=state,
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
@@ -657,7 +658,11 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     if created:
         create_schedule(temporal, id=str(batch_export.id), schedule=schedule)
     else:
-        update_schedule(temporal, id=str(batch_export.id), schedule=schedule)
+        # For the time being, do not update existing time_zone_name to avoid losing
+        # data due to the shift in start times.
+        # TODO: This should require input from the user for example when changing a project's timezone.
+        # With user's input, then we can more confidently do the update.
+        update_schedule(temporal, id=str(batch_export.id), schedule=schedule, keep_tz=True)
 
     return batch_export
 

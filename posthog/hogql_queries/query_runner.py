@@ -596,10 +596,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # This would be a possible place to decide to not ever keep this cache warm
                 # Example: Not for super quickly calculated insights
                 # Set target_age to None in that case
-                target_age=self.cache_target_age(
-                    last_refresh=last_refresh,
-                    lazy=True,  # Attention: Currently using extended/lazy cache age as warming target
-                ),
+                target_age=target_age,
             )
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 

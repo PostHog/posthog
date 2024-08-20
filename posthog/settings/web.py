@@ -45,6 +45,9 @@ DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
     "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
 )
 
+# if `true` we disable session replay if over quota
+DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
+
 # Application definition
 
 INSTALLED_APPS = [

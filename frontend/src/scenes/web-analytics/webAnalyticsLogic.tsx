@@ -533,7 +533,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 event: '$pageview',
                                                 kind: NodeKind.EventsNode,
                                                 math: BaseMathType.UniqueUsers,
-                                                name: '$pageview',
+                                                name: 'Pageview',
                                                 custom_name: 'Unique visitors',
                                             },
                                         ],
@@ -927,6 +927,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         series: [
                                             {
                                                 event: '$pageview',
+                                                name: 'Pageview',
                                                 kind: NodeKind.EventsNode,
                                                 math: BaseMathType.UniqueUsers,
                                             },
@@ -1020,6 +1021,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               series: [
                                                   {
                                                       event: '$pageview',
+                                                      name: 'Pageview',
                                                       kind: NodeKind.EventsNode,
                                                       math: BaseMathType.UniqueUsers,
                                                   },
@@ -1156,6 +1158,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   filterGroup: replayFilters.filter_group,
                                   sparklineSelectedPeriod: null,
                                   columns: ['error', 'users', 'occurrences'],
+                                  limit: 4,
                               }),
                           }
                         : null,
@@ -1282,8 +1285,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         getNewInsightUrl: [
-            (s) => [s.webAnalyticsFilters, s.dateFilter, s.tiles],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters, { dateTo, dateFrom }, tiles) => {
+            (s) => [s.tiles],
+            (tiles) => {
                 return function getNewInsightUrl(tileId: TileId, tabId?: string): string | undefined {
                     const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
                         if (query.kind === NodeKind.InsightVizNode) {
@@ -1305,17 +1308,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         if (!tab) {
                             throw new Error('Developer Error, tab not found')
                         }
-                        return urls.insightNew(
-                            { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                            null,
-                            formatQueryForNewInsight(tab.query)
-                        )
+                        return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tab.query))
                     } else if (tile.kind === 'query') {
-                        return urls.insightNew(
-                            { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                            null,
-                            formatQueryForNewInsight(tile.query)
-                        )
+                        return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tile.query))
                     } else if (tile.kind === 'replay') {
                         return urls.replay()
                     }

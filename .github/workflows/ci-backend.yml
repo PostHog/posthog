@@ -45,7 +45,6 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
         # Set job outputs to values from filter step
         outputs:
@@ -274,7 +273,7 @@ jobs:
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
-              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               with:
                   add: '["ee", "./**/*.ambr", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
                   message: 'Update query snapshots'
@@ -284,7 +283,7 @@ jobs:
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
@@ -371,7 +370,11 @@ jobs:
         name: Calculate running time
         needs: [django, async-migrations]
         runs-on: ubuntu-latest
-        if: needs.changes.outputs.backend == 'true'
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            needs.changes.outputs.backend == 'true' &&
+            (
+            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository
+            ) == 'PostHog/posthog'
         steps:
             - name: Calculate running time
               run: |
@@ -396,7 +399,6 @@ jobs:
                   echo running_time_run_id=${run_id} >> $GITHUB_ENV
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
-              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}

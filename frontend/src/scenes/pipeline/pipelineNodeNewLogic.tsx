@@ -5,14 +5,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    BATCH_EXPORT_SERVICE_NAMES,
-    BatchExportService,
-    Breadcrumb,
-    PipelineStage,
-    PipelineTab,
-    PluginType,
-} from '~/types'
+import { Breadcrumb, PipelineStage, PipelineTab, PluginType } from '~/types'
 
 import type { pipelineNodeNewLogicType } from './pipelineNodeNewLogicType'
 import { loadPluginsFromUrl } from './utils'
@@ -69,19 +62,6 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
                     name: pluginId ? 'New' : batchDestination ? `New ${batchDestination} destination` : 'New',
                 },
             ],
-        ],
-        batchExportServiceNames: [
-            (s) => [s.user],
-            (user): BatchExportService['type'][] => {
-                // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
-                const services: BatchExportService['type'][] = BATCH_EXPORT_SERVICE_NAMES.filter(
-                    (service) => service !== 'HTTP'
-                ) as BatchExportService['type'][]
-                if (user?.is_impersonated || user?.is_staff) {
-                    services.push('HTTP')
-                }
-                return services
-            },
         ],
     })),
 ])

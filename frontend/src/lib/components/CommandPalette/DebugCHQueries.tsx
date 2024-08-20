@@ -1,7 +1,11 @@
 import { IconCodeInsert, IconCopy } from '@posthog/icons'
+import { ChartConfiguration, ChartDataset } from 'chart.js'
+import ChartDataLabels from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import { actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { Chart, ChartItem } from 'lib/Chart'
 import { dayjs } from 'lib/dayjs'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -12,7 +16,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { CodeSnippet, Language } from '../CodeSnippet'
@@ -25,6 +29,21 @@ export function openCHQueriesDebugModal(): void {
         primaryButton: null,
         width: 1600,
     })
+}
+
+export interface Stats {
+    total_queries: number
+    total_exceptions: number
+    average_query_duration_ms: number | null
+    max_query_duration_ms: number
+    exception_percentage: number | null
+}
+
+interface DataPoint {
+    hour: string
+    successful_queries: number
+    exceptions: number
+    avg_response_time_ms: number
 }
 
 export interface Query {
@@ -40,10 +59,13 @@ export interface Query {
     status: 1 | 2 | 3 | 4
     execution_time: number
     path: string
-    logComment: {
-        query: any
-        [key: string]: any
-    }
+    logComment: Record<string, unknown>
+}
+
+export interface DebugResponse {
+    queries: Query[]
+    stats: Stats
+    hourly_stats: DataPoint[]
 }
 
 const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
@@ -59,23 +81,27 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
     }),
-    loaders({
-        queries: [
-            [] as Query[],
+    loaders(({ props }: { props: { insightId: string } }) => ({
+        debugResponse: [
+            {} as DebugResponse,
             {
-                loadQueries: async () => {
-                    return (await api.get('api/debug_ch_queries/')).queries
+                loadDebugResponse: async () => {
+                    const params = new URLSearchParams()
+                    if (props.insightId) {
+                        params.append('insight_id', props.insightId)
+                    }
+                    return await api.get(`api/debug_ch_queries/?${params.toString()}`)
                 },
             },
         ],
-    }),
+    })),
     selectors({
         paths: [
-            (s) => [s.queries],
-            (queries: Query[]): [string, number][] | null => {
-                return queries
+            (s) => [s.debugResponse],
+            (debugResponse: DebugResponse): [string, number][] | null => {
+                return debugResponse.queries
                     ? Object.entries(
-                          queries
+                          debugResponse.queries
                               .map((result) => result.path)
                               .reduce((acc: { [path: string]: number }, val: string) => {
                                   acc[val] = acc[val] === undefined ? 1 : (acc[val] += 1)
@@ -86,40 +112,182 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             },
         ],
         filteredQueries: [
-            (s) => [s.queries, s.pathFilter],
-            (queries: Query[], pathFilter: string | null) => {
-                return pathFilter && queries ? queries.filter((item) => item.path === pathFilter) : queries
+            (s) => [s.debugResponse, s.pathFilter],
+            (debugReponse: DebugResponse, pathFilter: string | null) => {
+                return pathFilter && debugReponse?.queries
+                    ? debugReponse.queries.filter((item) => item.path === pathFilter)
+                    : debugReponse.queries
             },
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadQueries()
+        actions.loadDebugResponse()
     }),
 ])
 
-function DebugCHQueries(): JSX.Element {
-    const { queriesLoading, filteredQueries, pathFilter, paths } = useValues(debugCHQueriesLogic)
-    const { setPathFilter, loadQueries } = useActions(debugCHQueriesLogic)
+const generateHourlyLabels = (days: number): string[] => {
+    const labels = []
+    const now = dayjs().startOf('hour') // current hour
+    for (let i = 0; i < days * 24; i++) {
+        labels.push(now.subtract(i, 'hour').format('YYYY-MM-DDTHH:00:00'))
+    }
+    return labels.reverse()
+}
+
+const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null)
+    const labels = generateHourlyLabels(14)
+
+    useEffect(() => {
+        if (canvasRef.current) {
+            Chart.register(ChartjsPluginStacked100, ChartDataLabels)
+
+            const dataMap = new Map(data.map((d) => [d.hour, d]))
+
+            const successfulQueries = labels.map((label) => dataMap.get(label)?.successful_queries || 0)
+            const exceptions = labels.map((label) => dataMap.get(label)?.exceptions || 0)
+            const avgResponseTime = labels.map((label) => dataMap.get(label)?.avg_response_time_ms || 0)
+
+            const datasets: ChartDataset[] = [
+                {
+                    label: 'Successful Queries',
+                    data: successfulQueries,
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    stack: 'Stack 0',
+                },
+                {
+                    label: 'Exceptions',
+                    data: exceptions,
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1,
+                    stack: 'Stack 0',
+                },
+                {
+                    label: 'Avg Response Time (ms)',
+                    data: avgResponseTime,
+                    type: 'line',
+                    fill: false,
+                    borderColor: 'rgba(153, 102, 255, 0.5)',
+                    yAxisID: 'y-axis-2',
+                },
+            ]
+
+            const maxQueryCount = Math.max(...successfulQueries, ...exceptions)
+            const maxResponseTime = Math.max(...avgResponseTime)
+            const options: ChartConfiguration['options'] = {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        display: false,
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        max: maxQueryCount * 1.1,
+                    },
+                    'y-axis-2': {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        max: maxResponseTime * 2, // Double to have more room for the other bars
+                    },
+                },
+                plugins: {
+                    datalabels: { display: false },
+                },
+            }
+
+            const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
+                type: 'bar',
+                data: { labels, datasets },
+                options,
+                plugins: [ChartDataLabels],
+            })
+
+            return () => newChart.destroy()
+        }
+    }, [data])
+
+    // eslint-disable-next-line react/forbid-dom-props
+    return <canvas ref={canvasRef} style={{ height: '300px', width: '100%' }} />
+}
+
+interface DebugCHQueriesProps {
+    insightId?: number | null
+}
+
+export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element {
+    const logic = debugCHQueriesLogic({ insightId })
+    const { debugResponseLoading, filteredQueries, pathFilter, paths, debugResponse } = useValues(logic)
+    const { setPathFilter, loadDebugResponse } = useActions(logic)
 
     return (
         <>
-            <div className="flex gap-4 items-end justify-between mb-4">
+            {!debugResponseLoading && !!debugResponse.hourly_stats ? (
+                <div>
+                    <BarChartWithLine data={debugResponse.hourly_stats} />
+                </div>
+            ) : null}
+            <div className="flex gap-4 items-start justify-between mb-4">
                 <div className="flex flex-wrap gap-2">
-                    {paths?.map(([path, count]) => (
-                        <LemonButton
-                            key={path}
-                            type={pathFilter === path ? 'primary' : 'tertiary'}
-                            size="small"
-                            onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
-                        >
-                            {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
-                        </LemonButton>
-                    ))}
+                    {!debugResponse.stats
+                        ? paths?.map(([path, count]) => (
+                              <LemonButton
+                                  key={path}
+                                  type={pathFilter === path ? 'primary' : 'tertiary'}
+                                  size="small"
+                                  onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
+                              >
+                                  {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
+                              </LemonButton>
+                          ))
+                        : null}
+                    {!debugResponseLoading && !!debugResponse.stats ? (
+                        <div className="flex flex-row space-x-4 p-4 border rounded bg-bg-light">
+                            <div className="flex flex-col items-center">
+                                <span className="text-sm font-bold">last 14 days</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">{debugResponse.stats.total_queries}</span>
+                                <span className="text-sm text-gray-600">Total queries</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">{debugResponse.stats.total_exceptions}</span>
+                                <span className="text-sm text-gray-600">Total exceptions</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">
+                                    {debugResponse.stats.average_query_duration_ms?.toFixed(2)} ms
+                                </span>
+                                <span className="text-sm text-gray-600">Avg query duration</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">
+                                    {debugResponse.stats.max_query_duration_ms} ms
+                                </span>
+                                <span className="text-sm text-gray-600">Max query duration</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-xl font-bold">
+                                    {debugResponse.stats.exception_percentage?.toFixed(2)}%
+                                </span>
+                                <span className="text-sm text-gray-600">Exception %</span>
+                            </div>
+                        </div>
+                    ) : null}
                 </div>
                 <LemonButton
                     icon={<IconRefresh />}
-                    disabledReason={queriesLoading ? 'Loading…' : null}
-                    onClick={() => loadQueries()}
+                    disabledReason={debugResponseLoading ? 'Loading…' : null}
+                    onClick={() => loadDebugResponse()}
                     size="small"
                     type="secondary"
                 >
@@ -161,48 +329,48 @@ function DebugCHQueries(): JSX.Element {
                                             <span className="font-bold tracking-wide">ID:</span>{' '}
                                             <span className="font-mono">{item.query_id}</span>
                                         </LemonTag>{' '}
-                                        {item.logComment.cache_key ? (
+                                        {typeof item.logComment.cache_key === 'string' ? (
                                             <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Cache key:</span>{' '}
                                                 <span className="font-mono">{item.logComment.cache_key}</span>{' '}
                                                 <Link
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+cache_key%3A${item.logComment.cache_key}&referrer=issue-list&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+cache_key%3A${item.logComment.cache_key}&statsPeriod=7d`}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
                                                 />
                                             </LemonTag>
                                         ) : null}{' '}
-                                        {item.logComment.insight_id ? (
+                                        {typeof item.logComment.insight_id === 'number' ? (
                                             <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Insight ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.insight_id}</span>{' '}
                                                 <Link
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+insight_id%3A${item.logComment.insight_id}&referrer=issue-list&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+insight_id%3A${item.logComment.insight_id}&statsPeriod=7d`}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
                                                 />
                                             </LemonTag>
                                         ) : null}{' '}
-                                        {item.logComment.dashboard_id ? (
+                                        {typeof item.logComment.dashboard_id === 'number' ? (
                                             <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">Dashboard ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.dashboard_id}</span>{' '}
                                                 <Link
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+dashboard_id%3A${item.logComment.dashboard_id}&referrer=issue-list&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+dashboard_id%3A${item.logComment.dashboard_id}&statsPeriod=7d`}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
                                                 />
                                             </LemonTag>
                                         ) : null}{' '}
-                                        {item.logComment.user_id ? (
+                                        {typeof item.logComment.user_id === 'number' ? (
                                             <LemonTag className="inline-block">
                                                 <span className="font-bold tracking-wide">User ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.user_id}</span>{' '}
                                                 <Link
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+user%3A%22id%3A${item.logComment.user_id}%22&referrer=issue-list&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+user%3A%22id%3A${item.logComment.user_id}%22&statsPeriod=7d`}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -213,15 +381,19 @@ function DebugCHQueries(): JSX.Element {
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
                                             <div>{item.exception}</div>
-                                            <LemonButton
-                                                type="secondary"
-                                                size="xsmall"
-                                                to={`https://sentry.io/issues/?query=is%3Aunresolved+issue.priority%3A%5Bhigh%2C+medium%5D+trace%3A${item.logComment.sentry_trace}&statsPeriod=1d`}
-                                                targetBlank
-                                                className="mt-4 mb-1"
-                                            >
-                                                View in Sentry
-                                            </LemonButton>
+                                            {typeof item.logComment.sentry_trace === 'string' ? (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="xsmall"
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+trace%3A${
+                                                        item.logComment.sentry_trace.split('-')[0]
+                                                    }&statsPeriod=7d`}
+                                                    targetBlank
+                                                    className="mt-4 mb-1"
+                                                >
+                                                    View in Sentry
+                                                </LemonButton>
+                                            ) : null}
                                         </LemonBanner>
                                     )}
                                     <CodeSnippet
@@ -232,7 +404,7 @@ function DebugCHQueries(): JSX.Element {
                                     >
                                         {item.query}
                                     </CodeSnippet>
-                                    {item.logComment.query ? (
+                                    {typeof item.logComment.query === 'object' && item.logComment.query !== null ? (
                                         <LemonButton
                                             type="primary"
                                             size="small"
@@ -252,7 +424,9 @@ function DebugCHQueries(): JSX.Element {
                                             }}
                                             className="my-0"
                                         >
-                                            Debug {item.logComment.query.kind || 'query'} in new tab
+                                            Debug{' '}
+                                            {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'} in
+                                            new tab
                                         </LemonButton>
                                     ) : null}
                                 </div>
@@ -352,7 +526,7 @@ function DebugCHQueries(): JSX.Element {
                     },
                 ]}
                 dataSource={filteredQueries}
-                loading={queriesLoading}
+                loading={debugResponseLoading}
                 loadingSkeletonRows={5}
                 pagination={undefined}
                 rowClassName="align-top"

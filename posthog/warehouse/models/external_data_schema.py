@@ -1,11 +1,11 @@
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
 import snowflake.connector
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
 import psycopg2
 import pymysql
@@ -21,7 +21,7 @@ from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
 
 
-class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -71,6 +71,11 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
 
+    def soft_delete(self):
+        self.deleted = True
+        self.deleted_at = datetime.now()
+        self.save()
+
 
 @database_sync_to_async
 def asave_external_data_schema(schema: ExternalDataSchema) -> None:
@@ -78,7 +83,11 @@ def asave_external_data_schema(schema: ExternalDataSchema) -> None:
 
 
 def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
-    schema = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema_name).first()
+    schema = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id=team_id, source_id=source_id, name=schema_name)
+        .first()
+    )
     return schema
 
 
@@ -114,11 +123,15 @@ def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exte
 
 @database_sync_to_async
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).all())
+    return list(
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id=team_id, source_id=source_id, should_sync=True)
+        .all()
+    )
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).all())
+    return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
 def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):

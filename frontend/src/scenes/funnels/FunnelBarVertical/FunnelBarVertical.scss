@@ -171,11 +171,6 @@
 
 .StepLegend {
     height: 100%;
-
-    // overwrite antd-styles for legends without persons modal
-    // e.g. in exported insights
-    font-feature-settings: normal;
-    font-variant-numeric: normal;
     white-space: nowrap;
     border-left: 1px solid var(--border);
 

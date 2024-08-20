@@ -588,7 +588,10 @@ async fn process_webhook_job<W: WebhookJob>(
 
             match request_error {
                 WebhookRequestError::RetryableRequestError {
-                    error, retry_after, ..
+                    error,
+                    retry_after,
+                    response, // Grab the response so we can send it back to hog for debug
+                    ..
                 } => {
                     let retry_interval =
                         retry_policy.retry_interval(webhook_job.attempt() as u32, retry_after);
@@ -623,7 +626,7 @@ async fn process_webhook_job<W: WebhookJob>(
                                 Some(status) => Ok(WebhookResult::BadResponse(WebhookResponse {
                                     duration: now.elapsed(),
                                     status_code: status,
-                                    body: None,
+                                    body: response,
                                 })),
                                 None => Ok(WebhookResult::Error(error.to_string())),
                             }
@@ -634,7 +637,9 @@ async fn process_webhook_job<W: WebhookJob>(
                         }
                     }
                 }
-                WebhookRequestError::NonRetryableRetryableRequestError { error, .. } => {
+                WebhookRequestError::NonRetryableRetryableRequestError {
+                    error, response, ..
+                } => {
                     webhook_job
                         .fail(webhook_job_error)
                         .await
@@ -649,7 +654,7 @@ async fn process_webhook_job<W: WebhookJob>(
                         Some(status) => Ok(WebhookResult::BadResponse(WebhookResponse {
                             duration: now.elapsed(),
                             status_code: status,
-                            body: None,
+                            body: response,
                         })),
                         None => Ok(WebhookResult::Error(error.to_string())),
                     }
@@ -1126,7 +1131,7 @@ mod tests {
         let received_response = async_function_response.get("response").unwrap();
         assert_eq!(
             json!({
-                "body": None::<String>, // TODO: We should still return the response.
+                "body": Some("{\"message\": \"bad response\"}"),
                 "status": 500
             }),
             *received_response

@@ -43,7 +43,7 @@ CELERY_TASK_FAILURE_COUNTER = Counter(
 CELERY_TASK_RETRY_COUNTER = Counter(
     "posthog_celery_task_retry",
     "task retry signal is dispatched when a task will be retried.",
-    labelnames=["task_name", "reason"],
+    labelnames=["task_name", "reason"],  # Attention: Keep reason as low cardinality as possible
 )
 
 
@@ -146,7 +146,9 @@ def failure_signal_handler(sender, **kwargs):
 
 @task_retry.connect
 def retry_signal_handler(sender, reason, **kwargs):
-    CELERY_TASK_RETRY_COUNTER.labels(task_name=sender.name, reason=str(reason)).inc()
+    # Make reason low cardinality (e.g. only the exception type)
+    reason = reason.__class__.__name__
+    CELERY_TASK_RETRY_COUNTER.labels(task_name=sender.name, reason=reason).inc()
 
 
 @app.on_after_finalize.connect

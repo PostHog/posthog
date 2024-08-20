@@ -1,7 +1,6 @@
-import { captureException } from '@sentry/node'
 import * as schedule from 'node-schedule'
 
-import { Action, Hook, PluginConfig, PluginsServerConfig, RawAction, Team } from '../../types'
+import { Action, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
@@ -115,9 +114,7 @@ export async function fetchAllActionsGroupedByTeam(
 ): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
     const restHooks = await fetchActionRestHooks(client)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
-
-    const pluginConfigFiltersActionIds = await fetchPluginConfigsRelatedActionIds(client)
-    const additionalActionIds = [...restHookActionIds, ...pluginConfigFiltersActionIds]
+    const additionalActionIds = [...restHookActionIds]
 
     const rawActions = (
         await client.query<RawAction>(
@@ -208,32 +205,4 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
 
     const action: Action = { ...rawActions[0], steps: rawActions[0].steps_json ?? [], hooks }
     return action.post_to_slack || action.hooks.length > 0 ? action : null
-}
-
-async function fetchPluginConfigsRelatedActionIds(postgres: PostgresRouter): Promise<number[]> {
-    // TODO: Do we need to trigger a reload when the plugin config changes?
-    const { rows }: { rows: Pick<PluginConfig, 'id' | 'team_id' | 'filters'>[] } = await postgres.query(
-        PostgresUse.COMMON_READ,
-        `SELECT id, team_id, filters 
-            FROM posthog_pluginconfig
-            WHERE filters IS NOT NULL 
-            AND enabled`,
-        undefined,
-        'fetchPluginConfigsRelatedActionIds'
-    )
-
-    const actionIds: number[] = []
-
-    for (const row of rows) {
-        try {
-            row.filters?.actions?.forEach((filter) => {
-                actionIds.push(parseInt(filter.id))
-            })
-        } catch (e) {
-            // Badly formatted actions in the list
-            captureException(e)
-        }
-    }
-
-    return actionIds
 }

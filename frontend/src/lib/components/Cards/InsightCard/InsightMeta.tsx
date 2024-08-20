@@ -37,6 +37,7 @@ interface InsightMetaProps
         | 'removeFromDashboard'
         | 'deleteWithUndo'
         | 'refresh'
+        | 'refreshEnabled'
         | 'loading'
         | 'rename'
         | 'duplicate'
@@ -59,6 +60,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshEnabled,
     loading,
     rename,
     duplicate,
@@ -82,7 +84,7 @@ export function InsightMeta({
     const refreshDisabledReason =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
-            : loading
+            : loading || !refreshEnabled
             ? 'Refreshing...'
             : undefined
 

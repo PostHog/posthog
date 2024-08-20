@@ -495,7 +495,10 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
-        stagle_table_name = f"stage_{inputs.table_name}" if requires_merge else inputs.table_name
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stagle_table_name = (
+            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+        )
 
         if requires_merge:
             primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
@@ -655,6 +658,9 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "InsufficientPrivilege",
                 # Issue with exported data compared to schema, retrying won't help.
                 "NotNullViolation",
+                # A user added a unique constraint on their table, but batch exports (particularly events)
+                # can cause duplicates.
+                "UniqueViolation",
             ],
             finish_inputs=finish_inputs,
         )
