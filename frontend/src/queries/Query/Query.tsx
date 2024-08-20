@@ -31,7 +31,7 @@ export interface QueryProps<Q extends Node> {
     setQuery?: (query: Q, isSourceUpdate?: boolean) => void
 
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
-    context?: QueryContext
+    context?: QueryContext<any>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType

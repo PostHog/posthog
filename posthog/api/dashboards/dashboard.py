@@ -18,6 +18,7 @@ from posthog.api.dashboards.dashboard_template_json_schema_parser import (
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
+from posthog.api.monitoring import monitor, Feature
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -29,9 +30,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import (
-    filters_override_requested_by_client,
-)
+from posthog.utils import filters_override_requested_by_client
 
 logger = structlog.get_logger(__name__)
 
@@ -165,6 +164,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return value
 
+    @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -264,6 +264,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 color=existing_tile.color,
             )
 
+    @monitor(feature=Feature.DASHBOARD, endpoint="update", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
@@ -468,6 +469,7 @@ class DashboardsViewSet(
 
         return queryset
 
+    @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
