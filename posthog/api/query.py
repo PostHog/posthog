@@ -28,6 +28,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_fro
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
+from posthog.api.monitoring import monitor, Feature
 
 
 class QueryThrottle(PersonalApiKeyRateThrottle):
@@ -55,6 +56,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             200: QueryResponseAlternative,
         },
     )
+    @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
         client_query_id = data.client_query_id or uuid.uuid4().hex
@@ -95,6 +97,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         description="(Experimental)",
         responses={200: QueryStatusResponse},
     )
+    @monitor(feature=Feature.QUERY, endpoint="query", method="GET")
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
         show_progress: bool = request.query_params.get("show_progress", False) == "true"
         show_progress = (
@@ -120,6 +123,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             204: OpenApiResponse(description="Query cancelled"),
         },
     )
+    @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         cancel_query(self.team.pk, pk)
         return Response(status=204)
