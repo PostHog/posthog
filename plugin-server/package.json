@@ -29,7 +29,7 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "cd ../rust/cyclotron-node && pnpm i && pnpm run build",
-        "pnpm:devPreinstall": "pnpm run build:cyclotron"
+        "preinstall": "pnpm run build:cyclotron"
     },
     "graphile-worker": {
         "maxContiguousErrors": 300
