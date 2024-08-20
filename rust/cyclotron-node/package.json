@@ -7,7 +7,7 @@
     "scripts": {
         "test": "cargo test",
         "build": "pnpm run build:cargo --release && pnpm run build:move-lib && pnpm run build:typescript",
-        "build:move-lib": "cp ../target/release/libcyclotron_node.so index.node || cp ../target/release/libcyclotron_node.dylib index.node",
+        "build:move-lib": "cp ../target/release/libcyclotron_node.dylib index.node || cp ../target/release/libcyclotron_node.so index.node",
         "build:cargo": "cargo build --message-format=json > cargo.log",
         "build:cargo:debug": "pnpm run build:cargo",
         "build:cross": "cross build --message-format=json > cross.log",
