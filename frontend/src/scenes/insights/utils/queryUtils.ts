@@ -1,14 +1,52 @@
 import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
 
-import { InsightQueryNode } from '~/queries/schema'
+import { DataNode, InsightQueryNode, Node } from '~/queries/schema'
 import {
     filterForQuery,
     filterKeyForQuery,
     isEventsNode,
+    isFunnelsQuery,
+    isInsightQueryNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
+    isInsightVizNode,
 } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+
+type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
+
+export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {
+    if (isInsightVizNode(a) && isInsightVizNode(b)) {
+        const { source: sourceA, ...restA } = a
+        const { source: sourceB, ...restB } = b
+        return (
+            objectsEqual(objectCleanWithEmpty(restA), objectCleanWithEmpty(restB)) &&
+            compareDataNodeQuery(sourceA, sourceB, opts)
+        )
+    } else if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
+        return compareDataNodeQuery(a, b, opts)
+    }
+
+    return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+}
+
+/** Compares two queries for semantic equality to prevent double-fetching of data. */
+export const compareDataNodeQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {
+    if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
+        return objectsEqual(cleanInsightQuery(a, opts), cleanInsightQuery(b, opts))
+    }
+
+    return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+}
+
+/** Tests wether a query is valid to prevent unnecessary requests.  */
+export const validateQuery = (q: DataNode): boolean => {
+    if (isFunnelsQuery(q)) {
+        // funnels require at least two steps
+        return q.series.length >= 2
+    }
+    return true
+}
 
 const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     // time series
@@ -29,7 +67,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
-const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChanges: boolean): InsightQueryNode => {
+const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
     const dupQuery = JSON.parse(JSON.stringify(query))
 
     // remove undefined values, empty arrays and empty objects
@@ -44,7 +82,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
         })
     }
 
-    if (ignoreVisualizationOnlyChanges) {
+    if (opts?.ignoreVisualizationOnlyChanges) {
         // Keep this in sync with the backend side clean_insight_queries method
         const insightFilter = filterForQuery(cleanedQuery)
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
@@ -81,19 +119,4 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
     }
 
     return cleanedQuery
-}
-
-/** compares two insight queries for semantical equality */
-export function compareInsightQuery(
-    a: InsightQueryNode,
-    b: InsightQueryNode,
-    /** Ignores changes that only alter frontend-side display and not how the
-     * underlying data is generated. This is useful to prevent unnecessary
-     * requests to the backend. */
-    ignoreVisualizationOnlyChanges: boolean
-): boolean {
-    return objectsEqual(
-        cleanInsightQuery(a, ignoreVisualizationOnlyChanges),
-        cleanInsightQuery(b, ignoreVisualizationOnlyChanges)
-    )
 }

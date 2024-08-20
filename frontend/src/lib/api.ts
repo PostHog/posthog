@@ -82,6 +82,7 @@ import {
     PluginLogEntry,
     PropertyDefinition,
     PropertyDefinitionType,
+    QueryBasedInsightModel,
     RawAnnotationType,
     RawBatchExportRun,
     RoleMemberType,
@@ -307,7 +308,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
     }
 
-    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent(id)
     }
 
@@ -315,7 +316,7 @@ class ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
 
-    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
@@ -914,6 +915,9 @@ const api = {
                     })
                 )
                 .get()
+        },
+        async get(id: number): Promise<InsightModel | null> {
+            return await new ApiRequest().insight(id).get()
         },
         async create(data: any): Promise<InsightModel> {
             return await new ApiRequest().insights().create({ data })
@@ -1559,7 +1563,7 @@ const api = {
             recordingId,
         }: {
             dashboardId?: DashboardType['id']
-            insightId?: InsightModel['id']
+            insightId?: QueryBasedInsightModel['id']
             recordingId?: SessionRecordingType['id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
@@ -1578,7 +1582,7 @@ const api = {
                 recordingId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: InsightModel['id']
+                insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
             },
             data: Partial<SharingConfigurationType>

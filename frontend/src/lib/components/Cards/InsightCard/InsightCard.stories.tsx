@@ -177,7 +177,7 @@ export const InsightCard: Story = (args) => {
             {examples.map((e) => (
                 <InsightCardComponent
                     key={e.id}
-                    insight={getQueryBasedInsightModel(e)}
+                    insight={getQueryBasedInsightModel(e as unknown as InsightModel)}
                     rename={() => {}}
                     duplicate={() => {}}
                     placement="SavedInsightGrid"
