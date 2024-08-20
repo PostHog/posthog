@@ -203,6 +203,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredInspectorStacking: (stacking: InspectorStacking) => ({ stacking }),
         setPlaybackViewMode: (mode: PlaybackViewMode) => ({ mode }),
+        setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
     }),
     connect({
         values: [teamLogic, ['currentTeam']],
@@ -287,6 +288,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
+            },
+        ],
+        showMouseTail: [
+            true,
+            { persist: true },
+            {
+                setShowMouseTail: (_, { showMouseTail }) => showMouseTail,
             },
         ],
 

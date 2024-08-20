@@ -20,7 +20,7 @@ export interface LemonMenuItemBase
     custom?: boolean
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
-    items: (LemonMenuItemLeaf | false | null)[]
+    items: (LemonMenuItem | false | null)[]
     keyboardShortcut?: never
 }
 export type LemonMenuItemLeaf =
