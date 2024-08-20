@@ -38,6 +38,7 @@ pub async fn get_app_test_context(db: PgPool) -> AppContext {
         batch_size: 1000,
         max_response_bytes: 1024 * 1024,
         retry_backoff_base: Duration::milliseconds(1000),
+        allow_internal_ips: true,
     };
 
     AppContext {
