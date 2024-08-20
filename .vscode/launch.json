@@ -12,7 +12,8 @@
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
-            }
+            },
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
         },
         {
             "name": "Frontend (https)",
@@ -50,7 +51,6 @@
             },
             "envFile": "${workspaceFolder}/.env",
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
@@ -77,7 +77,6 @@
                 "CLOUD_DEPLOYMENT": "dev"
             },
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
@@ -96,7 +95,6 @@
             "program": "${workspaceFolder}/manage.py",
             "args": ["run_autoreload_celery", "--type=worker"],
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
             "env": {
                 "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
@@ -146,7 +144,6 @@
                 "PRINT_SQL": "1"
             },
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"

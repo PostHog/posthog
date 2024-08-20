@@ -205,6 +205,7 @@ export interface HogQLQueryModifiers {
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls'
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
+    propertyGroupsMode?: 'enabled' | 'disabled'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -673,9 +674,9 @@ export interface VizSpecificOptions {
     }
 }
 
-export interface InsightVizNode extends Node<never>, InsightVizNodeViewProps {
+export interface InsightVizNode<T = InsightQueryNode> extends Node<never>, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
-    source: InsightQueryNode
+    source: T
 }
 
 interface InsightVizNodeViewProps {

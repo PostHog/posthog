@@ -5155,6 +5155,10 @@
                     ],
                     "type": "string"
                 },
+                "propertyGroupsMode": {
+                    "enum": ["enabled", "disabled"],
+                    "type": "string"
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },

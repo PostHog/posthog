@@ -1662,9 +1662,9 @@ export interface Tileable {
     color: InsightColor | null
 }
 
-export interface DashboardTile extends Tileable {
+export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
-    insight?: InsightModel
+    insight?: T
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
@@ -1748,19 +1748,19 @@ export interface DashboardTemplateListParams {
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
-export interface DashboardType extends DashboardBasicType {
-    tiles: DashboardTile[]
+export interface DashboardType<T = InsightModel> extends DashboardBasicType {
+    tiles: DashboardTile<T>[]
     filters: DashboardFilter
 }
 
-export interface DashboardTemplateType {
+export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
     created_at?: string
     template_name: string
     dashboard_description?: string
     dashboard_filters?: DashboardFilter
-    tiles: DashboardTile[]
+    tiles: DashboardTile<T>[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
@@ -1973,9 +1973,9 @@ export interface RawAnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number | null
-    insight_short_id?: InsightModel['short_id'] | null
-    insight_name?: InsightModel['name'] | null
-    insight_derived_name?: InsightModel['derived_name'] | null
+    insight_short_id?: QueryBasedInsightModel['short_id'] | null
+    insight_name?: QueryBasedInsightModel['name'] | null
+    insight_derived_name?: QueryBasedInsightModel['derived_name'] | null
     dashboard_id?: DashboardBasicType['id'] | null
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
@@ -2310,7 +2310,7 @@ export interface InsightEditorFilter {
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
-    valueSelector?: (insight: Partial<InsightModel>) => any
+    valueSelector?: (insight: Partial<QueryBasedInsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: EditorFilterProps) => JSX.Element | null
 }
@@ -2549,7 +2549,7 @@ export interface InsightLogicProps {
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** cached insight */
-    cachedInsight?: Partial<InsightModel> | null
+    cachedInsight?: Partial<QueryBasedInsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
@@ -2564,7 +2564,7 @@ export interface InsightLogicProps {
 
 export interface SetInsightOptions {
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
-    overrideFilter?: boolean
+    overrideQuery?: boolean
     /** calling with this updates the "last saved" filters */
     fromPersistentApi?: boolean
 }
@@ -2744,7 +2744,7 @@ interface SpecificQuestionBranching {
 export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
     rollout_percentage?: number | null
-    variant: string | null
+    variant?: string | null
     users_affected?: number
 }
 

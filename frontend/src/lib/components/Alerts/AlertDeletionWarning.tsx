@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { alertsLogic } from './alertsLogic'
 
 export function AlertDeletionWarning(): JSX.Element | null {
-    const { insightProps, queryBasedInsight: insight } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
 
     const { shouldShowAlertDeletionWarning } = useValues(
         alertsLogic({
