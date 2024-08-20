@@ -3,18 +3,18 @@ use std::{net::SocketAddr, num::NonZeroU32};
 use envconfig::Envconfig;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum CaptureType {
+pub enum CaptureMode {
     Events,
     Recordings,
 }
 
-impl std::str::FromStr for CaptureType {
+impl std::str::FromStr for CaptureMode {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_lowercase().as_ref() {
-            "events" => Ok(CaptureType::Events),
-            "recordings" => Ok(CaptureType::Recordings),
+            "events" => Ok(CaptureMode::Events),
+            "recordings" => Ok(CaptureMode::Recordings),
             _ => Err(format!("Unknown Capture Type: {s}")),
         }
     }
@@ -57,7 +57,7 @@ pub struct Config {
     pub redis_key_prefix: Option<String>,
 
     #[envconfig(default = "events")]
-    pub capture_type: CaptureType,
+    pub capture_mode: CaptureMode,
 }
 
 #[derive(Envconfig, Clone)]

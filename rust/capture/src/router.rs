@@ -15,7 +15,7 @@ use crate::{
     limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
 };
 
-use crate::config::CaptureType;
+use crate::config::CaptureMode;
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
@@ -44,7 +44,7 @@ pub fn router<
     redis: Arc<R>,
     billing: BillingLimiter,
     metrics: bool,
-    capture_type: CaptureType,
+    capture_mode: CaptureMode,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -122,9 +122,9 @@ pub fn router<
                 .options(v0_endpoint::options),
         );
 
-    let router = match capture_type {
-        CaptureType::Events => Router::new().merge(batch_router).merge(event_router),
-        CaptureType::Recordings => Router::new().merge(recordings_router),
+    let router = match capture_mode {
+        CaptureMode::Events => Router::new().merge(batch_router).merge(event_router),
+        CaptureMode::Recordings => Router::new().merge(recordings_router),
     }
     .merge(status_router)
     .layer(TraceLayer::new_for_http())

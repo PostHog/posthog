@@ -165,7 +165,7 @@ services:
             KAFKA_TOPIC: 'events_plugin_ingestion'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
-            CAPTURE_TYPE: events
+            CAPTURE_MODE: events
 
     replay-capture:
         image: ghcr.io/posthog/posthog/capture:master
@@ -179,7 +179,7 @@ services:
             KAFKA_TOPIC: 'session_recording_snapshot_item_events'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
-            CAPTURE_TYPE: recordings
+            CAPTURE_MODE: recordings
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop

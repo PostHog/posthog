@@ -25,7 +25,7 @@ use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use capture::config::{CaptureType, Config, KafkaConfig};
+use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::limiters::billing::QuotaResource;
 use capture::server::serve;
 
@@ -55,7 +55,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     otel_service_name: "capture-testing".to_string(),
     export_prometheus: false,
     redis_key_prefix: None,
-    capture_type: CaptureType::Events,
+    capture_mode: CaptureMode::Events,
 });
 
 static TRACING_INIT: Once = Once::new();
