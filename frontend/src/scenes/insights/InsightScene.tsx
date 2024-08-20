@@ -6,7 +6,7 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export function InsightScene(): JSX.Element {
-    const { insightId, queryBasedInsight: insight, insightLogicRef } = useValues(insightSceneLogic)
+    const { insightId, insight, insightLogicRef } = useValues(insightSceneLogic)
 
     if (insightId === 'new' || (insightId && insight?.id && insight?.short_id)) {
         return <Insight insightId={insightId} />

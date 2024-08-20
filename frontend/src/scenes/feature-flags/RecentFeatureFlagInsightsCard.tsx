@@ -4,7 +4,7 @@ import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind } from '~/queries/schema'
-import { BaseMathType, InsightModel } from '~/types'
+import { BaseMathType, QueryBasedInsightModel } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
@@ -34,7 +34,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
                 buttonTo: urls.insightNew(undefined, undefined, query),
             }}
             items={relatedInsights.slice(0, 5)}
-            renderRow={(insight: InsightModel, index) => <InsightRow key={index} insight={insight} />}
+            renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
         />
     )
 }
