@@ -136,7 +136,8 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         );
         assert_eq!(
             Some(CaptureResponse {
-                status: CaptureResponseCode::Ok
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
             }),
             res.json().await
         );
