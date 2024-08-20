@@ -1,5 +1,3 @@
-import 'react'
-
 // This fixes TS errors when importing a .svg file
 declare module '*.svg' {
     const content: any
@@ -22,10 +20,4 @@ declare module '*.mp3' {
 declare module '*.lottie' {
     const content: any
     export default content
-}
-
-declare module 'react' {
-    interface HTMLAttributes<T> extends AriaAttributes, DOMAttributes<T> {
-        inert?: ''
-    }
 }

@@ -42,7 +42,7 @@ export function SurveyTemplates(): JSX.Element {
                             </span>
                             <div
                                 className="SurveyTemplateContainer"
-                                tabIndex={0}
+                                tabIndex={idx + 1}
                                 data-attr="survey-template"
                                 onClick={() => {
                                     setSurveyTemplateValues({
@@ -58,7 +58,7 @@ export function SurveyTemplates(): JSX.Element {
                                     }
                                 }}
                             >
-                                <div className="SurveyTemplate" inert="">
+                                <div className="SurveyTemplate">
                                     <SurveyAppearancePreview
                                         key={idx}
                                         survey={
