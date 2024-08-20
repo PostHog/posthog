@@ -6,11 +6,12 @@
     "types": "dist/index.d.ts",
     "scripts": {
         "test": "cargo test",
-        "build": "npm run build:cargo -- --release && npm run build:lib",
+        "build": "npm run build:cargo -- --release && npm run build:move-lib && npm run build:typescript",
+        "build:move-lib": "cp ../target/release/libcyclotron_node.so index.node || cp ../target/release/libcyclotron_node.dylib index.node",
         "build:cargo": "cargo build --message-format=json > cargo.log",
         "build:cargo:debug": "npm run build:cargo --",
         "build:cross": "cross build --message-format=json > cross.log",
-        "build:lib": "tsc"
+        "build:typescript": "tsc"
     },
     "author": "",
     "license": "MIT",
