@@ -1,5 +1,5 @@
 import { captureException } from '@sentry/node'
-import cyclotron from 'cyclotron-node'
+const cyclotron = require('cyclotron-node')
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 

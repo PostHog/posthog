@@ -1,4 +1,4 @@
-import cyclotron from 'cyclotron-node'
+const cyclotron = require('cyclotron-node')
 import { Histogram } from 'prom-client'
 
 import { buildIntegerMatcher } from '../config/config'
