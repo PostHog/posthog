@@ -23,12 +23,12 @@
         "prettier:check": "prettier --check .",
         "prepublishOnly": "pnpm build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
-        "setup:test": "npm run build:cyclotron && cd .. && TEST=1 python manage.py setup_test_environment",
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
-        "build:cyclotron": "cd ../rust/cyclotron-node && npm i && npm run build"
+        "build:cyclotron": "cd ../rust/cyclotron-node && pnpm i && pnpm run build",
+        "preinstall": "pnpm run build:cyclotron"
     },
     "graphile-worker": {
         "maxContiguousErrors": 300

@@ -1,0 +1,103 @@
+lockfileVersion: '6.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+devDependencies:
+  '@neon-rs/cli':
+    specifier: 0.1.73
+    version: 0.1.73
+  '@types/node':
+    specifier: ^22.4.1
+    version: 22.4.1
+  typescript:
+    specifier: ^4.7.4
+    version: 4.9.5
+
+packages:
+
+  /@cargo-messages/android-arm-eabi@0.1.72:
+    resolution: {integrity: sha512-gGZxIM1mj+Y5x+ULND6ZCNr7f70OJi9wDlycSK8hGONy9wrChN6JAIHryddC5cqcwlYAoQ6IDcDFElnhAYbybA==}
+    cpu: [arm]
+    os: [android]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@cargo-messages/darwin-arm64@0.1.72:
+    resolution: {integrity: sha512-EAzN5MLaXPljZKZDO5qR+aBs44eSq2ZbEnS7AI/FziE3MzeXbrGOS3fLba5+7yWPFXJyZolXzePm8N1EBv8ovg==}
+    cpu: [arm64]
+    os: [darwin]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@cargo-messages/darwin-x64@0.1.72:
+    resolution: {integrity: sha512-RLo6j8s3nYbjdd1LDct4wamfChyRit7zokUuxtIYCu9XOlltkN5vnj1vwnrPvoqCMZ/7CbbuHFwSTn9A71de/w==}
+    cpu: [x64]
+    os: [darwin]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@cargo-messages/linux-arm-gnueabihf@0.1.72:
+    resolution: {integrity: sha512-tHsRshuzfjrX6SDW3jg6al8vMNLTMgczGnVYl5RuBZf/yrAUuwe30KxA9ge6w6mW6Ox797DyBchzAc9OLgTgmQ==}
+    cpu: [arm]
+    os: [linux]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@cargo-messages/linux-x64-gnu@0.1.72:
+    resolution: {integrity: sha512-VGtL6CCnUbhsP4aYuBNT5kfrAL7o0qjrxw97a+ax13t+nJd26tVEEIKHMu5drvvS/Nm/hn7sLT8zMnnCv0pvHg==}
+    cpu: [x64]
+    os: [linux]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@cargo-messages/win32-arm64-msvc@0.1.72:
+    resolution: {integrity: sha512-V93Cgz39K+yqa3MveNbhh29pYCp8izK5uEavjPoxlNxAbsMCWH+s0verGDdUcfGxjR1H2V7oZ4FszPqR2SqMRQ==}
+    cpu: [arm64]
+    os: [win32]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@cargo-messages/win32-x64-msvc@0.1.72:
+    resolution: {integrity: sha512-knz3uSrO0OSbq3U5VWfCY8FB4NsM43BOWLZ7x4sfaMOC1XWv+IyvDdkLe6DhJx8KUw46KIAimYs9YROrp6l46Q==}
+    cpu: [x64]
+    os: [win32]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@neon-rs/cli@0.1.73:
+    resolution: {integrity: sha512-1kv8S/feB6UQWQQwsnGfkSkEBOtlFDNExnioL81E2BwvUWgjQPaseHgpi2EpWVgsPUgur5eBm4QowmlpWkD4/w==}
+    hasBin: true
+    optionalDependencies:
+      '@cargo-messages/android-arm-eabi': 0.1.72
+      '@cargo-messages/darwin-arm64': 0.1.72
+      '@cargo-messages/darwin-x64': 0.1.72
+      '@cargo-messages/linux-arm-gnueabihf': 0.1.72
+      '@cargo-messages/linux-x64-gnu': 0.1.72
+      '@cargo-messages/win32-arm64-msvc': 0.1.72
+      '@cargo-messages/win32-x64-msvc': 0.1.72
+    dev: true
+
+  /@types/node@22.4.1:
+    resolution: {integrity: sha512-1tbpb9325+gPnKK0dMm+/LMriX0vKxf6RnB0SZUqfyVkQ4fMgUSySqhxE/y8Jvs4NyF1yHzTfG9KlnkIODxPKg==}
+    dependencies:
+      undici-types: 6.19.8
+    dev: true
+
+  /typescript@4.9.5:
+    resolution: {integrity: sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==}
+    engines: {node: '>=4.2.0'}
+    hasBin: true
+    dev: true
+
+  /undici-types@6.19.8:
+    resolution: {integrity: sha512-ve2KP6f/JnbPBFyobGHuerC9g1FYGn/F8n1LWTwNxCEzd6IfqTwUQcNXgEtmmQ6DlRrC1hrSrBnCZPokRrDHjw==}
+    dev: true
