@@ -29,7 +29,7 @@ use crate::{
 ///
 /// Because it must accommodate several shapes, it is inefficient in places. A v1
 /// endpoint should be created, that only accepts the BatchedRequest payload shape.
-
+#[allow(clippy::too_many_arguments)]
 async fn handle_common(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -323,7 +323,7 @@ pub async fn process_replay_events<'a>(
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
     let snapshot_items: Vec<Value> = events
-        .into_iter()
+        .iter()
         .map(|e| match e.properties.get("$snapshot_data") {
             Some(Value::Array(value)) => Ok(value.to_vec()),
             Some(Value::Object(value)) => Ok([Value::Object(value.clone())].to_vec()),
