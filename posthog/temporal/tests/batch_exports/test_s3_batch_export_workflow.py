@@ -387,6 +387,89 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     )
 
 
+@pytest.mark.parametrize("model", [model for model in TEST_S3_MODELS if model is not None])
+async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
+    clickhouse_client,
+    bucket_name,
+    minio_client,
+    activity_environment,
+    compression,
+    exclude_events,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema,
+    generate_test_data,
+    ateam,
+):
+    """Test that the insert_into_s3_activity function ends up with data into S3.
+
+    We use the generate_test_events_in_clickhouse function to generate several sets
+    of events. Some of these sets are expected to be exported, and others not. Expected
+    events are those that:
+    * Are created for the team_id of the batch export.
+    * Are created in the date range of the batch export.
+    * Are not duplicates of other events that are in the same batch.
+    * Do not have an event name contained in the batch export's exclude_events.
+
+    Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
+    that they appear in the expected S3 bucket and key.
+    """
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+
+    prefix = str(uuid.uuid4())
+
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        compression=compression,
+        exclude_events=exclude_events,
+        file_format=file_format,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+    )
+
+    with override_settings(
+        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
+        ASYNC_ARROW_STREAMING_TEAM_IDS=[str(ateam.pk)],
+    ):  # 5MB, the minimum for Multipart uploads
+        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    events_to_export_created, persons_to_export_created = generate_test_data
+    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+
+    await assert_clickhouse_records_in_s3(
+        s3_compatible_client=minio_client,
+        clickhouse_client=clickhouse_client,
+        bucket_name=bucket_name,
+        key_prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        include_events=None,
+        compression=compression,
+        file_format=file_format,
+        is_backfill=False,
+    )
+
+
 @pytest_asyncio.fixture
 async def s3_batch_export(
     ateam,

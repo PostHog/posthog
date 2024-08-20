@@ -60,7 +60,7 @@ def build_function_call(
         return return_expr(expr)
 
     # Delta format
-    if format == "Delta" or format == "DeltaS3Wrapper":
+    if format == "Delta":
         escaped_url = add_param(url)
         if structure:
             escaped_structure = add_param(structure, False)

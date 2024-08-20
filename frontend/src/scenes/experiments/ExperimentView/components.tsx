@@ -1,9 +1,10 @@
 import '../Experiment.scss'
 
-import { IconArchive, IconCheck, IconMagicWand, IconX } from '@posthog/icons'
+import { IconArchive, IconCheck, IconInfo, IconMagicWand, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonDialog,
     LemonDivider,
     LemonModal,
@@ -338,7 +339,6 @@ export function PageHeaderCustom(): JSX.Element {
     } = useValues(experimentLogic)
     const {
         launchExperiment,
-        resetRunningExperiment,
         endExperiment,
         archiveExperiment,
         setEditExperiment,
@@ -407,36 +407,7 @@ export function PageHeaderCustom(): JSX.Element {
                                     <LemonDivider vertical />
                                 </>
                             )}
-                            <ResetButton
-                                experiment={experiment}
-                                onConfirm={() => {
-                                    LemonDialog.open({
-                                        title: 'Reset this experiment?',
-                                        content: (
-                                            <div className="text-sm text-muted">
-                                                All collected data so far will be discarded and the experiment will go
-                                                back to draft mode.
-                                                {experiment.archived && (
-                                                    <div className="mt-2">
-                                                        Resetting will also unarchive the experiment.
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Reset',
-                                            type: 'primary',
-                                            onClick: () => resetRunningExperiment(),
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
-                            />
+                            <ResetButton experimentId={experiment.id} />
                             {!experiment.end_date && (
                                 <LemonButton
                                     type="secondary"
@@ -522,11 +493,14 @@ export function PageHeaderCustom(): JSX.Element {
 }
 
 export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, sortedWinProbabilities, isMakeDecisionModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { experiment, sortedWinProbabilities, isMakeDecisionModalOpen, isExperimentStopped } = useValues(
+        experimentLogic({ experimentId })
+    )
     const { closeMakeDecisionModal, shipVariant } = useActions(experimentLogic({ experimentId }))
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
+    const [shouldStopExperiment, setShouldStopExperiment] = useState(true)
     useEffect(() => setSelectedVariantKey(sortedWinProbabilities[0]?.key), [sortedWinProbabilities])
 
     const aggregationTargetName =
@@ -545,34 +519,65 @@ export function MakeDecisionModal({ experimentId }: { experimentId: Experiment['
                     <LemonButton type="secondary" onClick={closeMakeDecisionModal}>
                         Cancel
                     </LemonButton>
-                    <LemonButton onClick={() => shipVariant(selectedVariantKey)} type="primary">
+                    <LemonButton
+                        onClick={() => shipVariant({ selectedVariantKey, shouldStopExperiment })}
+                        type="primary"
+                    >
                         Ship variant
                     </LemonButton>
                 </div>
             }
         >
-            <div className="space-y-4">
+            <div className="space-y-6">
                 <div className="text-sm">
                     This action will roll out the selected variant to <b>100% of {aggregationTargetName}.</b>
                 </div>
-                <LemonSelect
-                    data-attr="metrics-selector"
-                    value={selectedVariantKey}
-                    onChange={(variantKey) => setSelectedVariantKey(variantKey)}
-                    options={sortedWinProbabilities.map(({ key }) => ({
-                        value: key,
-                        label: (
-                            <div className="space-x-2 inline-flex">
-                                <VariantTag experimentId={experimentId} variantKey={key} />
-                                {key === sortedWinProbabilities[0]?.key && (
-                                    <LemonTag type="success">
-                                        <b className="uppercase">Winning</b>
-                                    </LemonTag>
-                                )}
+                <div className="flex items-center">
+                    <div className="w-1/2 pr-4">
+                        <LemonSelect
+                            className="w-full"
+                            data-attr="metrics-selector"
+                            value={selectedVariantKey}
+                            onChange={(variantKey) => setSelectedVariantKey(variantKey)}
+                            options={sortedWinProbabilities.map(({ key }) => ({
+                                value: key,
+                                label: (
+                                    <div className="space-x-2 inline-flex">
+                                        <VariantTag experimentId={experimentId} variantKey={key} />
+                                        {key === sortedWinProbabilities[0]?.key && (
+                                            <LemonTag type="success">
+                                                <b className="uppercase">Winning</b>
+                                            </LemonTag>
+                                        )}
+                                    </div>
+                                ),
+                            }))}
+                        />
+                    </div>
+                    {!isExperimentStopped && (
+                        <>
+                            <LemonDivider className="my-0" vertical />
+                            <div className="w-2/5 pl-4">
+                                <LemonCheckbox
+                                    id="flag-enabled-checkbox"
+                                    label={
+                                        <div className="inline-flex items-center space-x-1">
+                                            <div className="">Stop experiment</div>
+                                            <Tooltip
+                                                title="This will end data collection. The experiment can be
+                                                    restarted later if needed."
+                                            >
+                                                <IconInfo className="text-muted-alt text-base" />
+                                            </Tooltip>
+                                        </div>
+                                    }
+                                    onChange={() => setShouldStopExperiment(!shouldStopExperiment)}
+                                    checked={shouldStopExperiment}
+                                />
                             </div>
-                        ),
-                    }))}
-                />
+                        </>
+                    )}
+                </div>
                 <LemonBanner type="info" className="mb-4">
                     For more precise control over your release, adjust the rollout percentage and release conditions in
                     the{' '}
@@ -781,20 +786,17 @@ export function ActionBanner(): JSX.Element {
     return <></>
 }
 
-export const ResetButton = ({
-    experiment,
-    onConfirm,
-}: {
-    experiment: ExperimentType
-    onConfirm: () => void
-}): JSX.Element => {
+export const ResetButton = ({ experimentId }: { experimentId: number | 'new' }): JSX.Element => {
+    const { experiment } = useValues(experimentLogic({ experimentId }))
+    const { resetRunningExperiment } = useActions(experimentLogic)
+
     const onClickReset = (): void => {
         LemonDialog.open({
             title: 'Reset this experiment?',
             content: (
                 <>
                     <div className="text-sm text-muted">
-                        All collected data so far will be discarded and the experiment will go back to draft mode.
+                        All data collected so far will be discarded and the experiment will go back to draft mode.
                     </div>
                     {experiment.archived && (
                         <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
@@ -804,7 +806,7 @@ export const ResetButton = ({
             primaryButton: {
                 children: 'Confirm',
                 type: 'primary',
-                onClick: onConfirm,
+                onClick: resetRunningExperiment,
                 size: 'small',
             },
             secondaryButton: {
