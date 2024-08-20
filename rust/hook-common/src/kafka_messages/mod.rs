@@ -1,4 +1,5 @@
 pub mod app_metrics;
+pub mod app_metrics2;
 pub mod plugin_logs;
 
 use chrono::{DateTime, NaiveDateTime, Utc};

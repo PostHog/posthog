@@ -2,7 +2,6 @@ import './ExportedInsight.scss'
 
 import clsx from 'clsx'
 import { BindLogic } from 'kea'
-import { FilterBasedCardContent } from 'lib/components/Cards/InsightCard/InsightCard'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import {
@@ -48,7 +47,7 @@ export function ExportedInsight({
 
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
-        cachedInsight: legacyInsight, // TODO: use query based insight here
+        cachedInsight: insight,
         doNotLoad: true,
     }
 
@@ -97,11 +96,13 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    {legacyInsight.query ? (
-                        <Query query={legacyInsight.query} cachedResults={legacyInsight} readOnly />
-                    ) : (
-                        <FilterBasedCardContent insight={legacyInsight} insightProps={insightLogicProps} />
-                    )}
+                    <Query
+                        query={insight.query}
+                        cachedResults={insight}
+                        readOnly
+                        context={{ insightProps: insightLogicProps }}
+                        embedded
+                    />
                     {showLegend && (
                         <div className="p-4">
                             <InsightLegend horizontal readOnly />

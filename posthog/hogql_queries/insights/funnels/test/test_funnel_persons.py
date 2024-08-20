@@ -1,10 +1,9 @@
 from datetime import datetime, timedelta
-from typing import Optional, cast, Any
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.utils import timezone
 from freezegun import freeze_time
-
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
@@ -13,7 +12,7 @@ from posthog.models import Cohort
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.models.team.team import Team
-from posthog.schema import ActorsQuery, FunnelsActorsQuery, FunnelsQuery
+from posthog.schema import ActorsQuery, BaseMathType, FunnelsActorsQuery, FunnelsQuery
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
@@ -669,3 +668,144 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(filters, self.team, funnel_step=1, funnel_step_breakdown=["test'123"])
         self.assertCountEqual([results[0][0]], [person1.uuid])
+
+    def test_first_time_math_basic(self):
+        person1 = _create_person(
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+        )
+        journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                    },
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 12),
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 13),
+                    },
+                ],
+            },
+            self.team,
+            create_people=False,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "sign up", "order": 0, "math": BaseMathType.FIRST_TIME_FOR_USER},
+                {"id": "play movie", "order": 1},
+            ],
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        results = get_actors(filters, self.team, funnel_step=1)
+        self.assertCountEqual([results[0][0]], [person1.uuid])
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-02",
+            "date_to": "2020-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "sign up", "order": 0, "math": BaseMathType.FIRST_TIME_FOR_USER},
+                {"id": "play movie", "order": 1},
+            ],
+        }
+
+        results = get_actors(filters, self.team, funnel_step=1)
+        self.assertEqual(len(results), 0)
+
+    def test_first_time_math_multiple_ids(self):
+        _create_person(
+            distinct_ids=["anon1", "person1"],
+            team_id=self.team.pk,
+        )
+        _create_person(
+            distinct_ids=["anon2", "person2"],
+            team_id=self.team.pk,
+        )
+        journeys_for(
+            {
+                "anon1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                    },
+                ],
+                "person1": [
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                    },
+                ],
+                "anon2": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2019, 1, 1, 12),
+                    },
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                    },
+                ],
+            },
+            self.team,
+            create_people=False,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "sign up", "order": 0, "math": BaseMathType.FIRST_TIME_FOR_USER},
+                {"id": "play movie", "order": 1},
+            ],
+        }
+
+        results = get_actors(filters, self.team, funnel_step=1)
+        self.assertEqual(len(results), 1)
+        self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2019-01-01",
+            "date_to": "2020-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "sign up", "order": 0, "math": BaseMathType.FIRST_TIME_FOR_USER},
+                {"id": "play movie", "order": 1},
+            ],
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        results = get_actors(filters, self.team, funnel_step=1)
+        self.assertEqual(len(results), 2)
+        self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
+        self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})

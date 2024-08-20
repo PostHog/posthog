@@ -45,7 +45,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
-        customLimitUsd,
+        hasCustomLimitSet,
         showTierBreakdown,
         billingGaugeItems,
         isPricingModalOpen,
@@ -152,7 +152,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         <LemonButton
                                                             fullWidth
                                                             onClick={() => {
-                                                                setSurveyResponse(product.type, '$survey_response_1')
+                                                                setSurveyResponse('$survey_response_1', product.type)
                                                                 reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                                                             }}
                                                         >
@@ -178,7 +178,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 <div className="px-8 pb-8 sm:pb-0">
                     {product.percentage_usage > 1 && (
                         <LemonBanner className="mt-6" type="error">
-                            You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
+                            You have exceeded the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
                     )}

@@ -45,7 +45,7 @@ def redis_heartbeat() -> None:
     ),
     retry_backoff=1,
     retry_backoff_max=10,
-    max_retries=3,
+    max_retries=10,
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
 )

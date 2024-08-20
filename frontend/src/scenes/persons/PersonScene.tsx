@@ -101,6 +101,7 @@ export function PersonScene(): JSX.Element | null {
         feedEnabled,
         person,
         personLoading,
+        personError,
         currentTab,
         splitMergeModalShown,
         urlId,
@@ -113,6 +114,9 @@ export function PersonScene(): JSX.Element | null {
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    if (personError) {
+        throw new Error(personError)
+    }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
     }

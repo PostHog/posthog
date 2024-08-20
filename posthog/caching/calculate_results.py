@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional, Union
 
-from pydantic import BaseModel
 import structlog
+from pydantic import BaseModel
 from sentry_sdk import capture_exception
 
+from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.caching.utils import ensure_is_date
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
@@ -41,7 +42,6 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.schema import CacheMissResponse, DashboardFilter
 from posthog.types import FilterType
-from posthog.api.services.query import process_query_dict, ExecutionMode
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
@@ -123,7 +123,7 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 
 
 def calculate_for_query_based_insight(
-    insight: Insight, *, dashboard: Optional[Dashboard] = None, execution_mode: ExecutionMode, user: User
+    insight: Insight, *, dashboard: Optional[Dashboard] = None, execution_mode: ExecutionMode, user: Optional[User]
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -164,6 +164,7 @@ def calculate_for_query_based_insight(
         # Translating `QueryResponse` to legacy insights shape
         # The response may not be conformant with that, hence these are all `.get()`s
         result=response.get("results"),
+        has_more=response.get("hasMore"),
         columns=response.get("columns"),
         last_refresh=last_refresh,
         cache_key=cache_key,
@@ -174,6 +175,7 @@ def calculate_for_query_based_insight(
         timings=response.get("timings"),
         query_status=response.get("query_status"),
         hogql=response.get("hogql"),
+        types=response.get("types"),
     )
 
 

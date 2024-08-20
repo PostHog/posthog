@@ -483,6 +483,10 @@ const MOCK_EXPERIMENT_RESULTS: FunnelExperimentResults = {
                 failure_count: 28,
             },
         ],
+        credible_intervals: {
+            control: [0.0126, 0.0526],
+            test: [0.0526, 0.0826],
+        },
     },
 }
 
@@ -687,6 +691,10 @@ const MOCK_TREND_EXPERIMENT_RESULTS: TrendsExperimentResults = {
                 absolute_exposure: 24,
             },
         ],
+        credible_intervals: {
+            control: [1.5678, 3.8765],
+            test: [1.2345, 3.4567],
+        },
     },
     last_refresh: '2023-02-11T10:37:17.634000Z',
     is_cached: true,
@@ -1201,6 +1209,14 @@ const MOCK_TREND_EXPERIMENT_MANY_VARIANTS_RESULTS: TrendsExperimentResults = {
                 absolute_exposure: 64,
             },
         ],
+        credible_intervals: {
+            control: [1.5678, 3.8765],
+            test_1: [1.2345, 3.4567],
+            test_2: [1.3345, 3.5567],
+            test_3: [1.4345, 3.5567],
+            test_4: [1.5345, 3.5567],
+            test_5: [1.6345, 3.6567],
+        },
     },
     last_refresh: '2023-02-11T10:37:17.634000Z',
     is_cached: true,

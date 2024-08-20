@@ -1,0 +1,105 @@
+name: Build and deploy replay capture container images
+
+on:
+    workflow_dispatch:
+    push:
+        paths:
+            - 'vector/**'
+            - '.github/workflows/vector-docker-build-deploy.yml'
+        branches:
+            - 'master'
+
+jobs:
+    build:
+        name: Build and publish container image
+        runs-on: depot-ubuntu-22.04-4
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow reading the repo contents
+            packages: write # allow push to ghcr.io
+
+        outputs:
+            digest: ${{ steps.docker_build.outputs.digest }}
+
+        defaults:
+            run:
+                working-directory: vector/
+
+        steps:
+            - name: Check Out Repo
+              # Checkout project code
+              # Use sparse checkout to only select files in vector directory
+              # Turning off cone mode ensures that files in the project root are not included during checkout
+              uses: actions/checkout@v4
+              with:
+                  sparse-checkout: 'vector/'
+                  sparse-checkout-cone-mode: false
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@v2
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
+
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/posthog/posthog/replay-capture
+                  tags: |
+                      type=ref,event=pr
+                      type=ref,event=branch
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=sha
+
+            - name: Set up Docker Buildx
+              id: buildx
+              uses: docker/setup-buildx-action@v2
+
+            - name: Build and push image
+              id: docker_build
+              uses: docker/build-push-action@v5
+              with:
+                  context: ./vector/replay-capture/
+                  file: ./vector/replay-capture/Dockerfile
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+
+    deploy:
+        runs-on: ubuntu-latest
+        needs: build
+        if: github.ref == 'refs/heads/master'
+        steps:
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+
+            - name: Trigger livestream deployment
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ needs.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "replay-capture-vector",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": []
+                      }

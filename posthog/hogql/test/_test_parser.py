@@ -1843,6 +1843,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node2 = self._expr("f'strings\\' to {'strings'}'")
             assert node2 == node
 
+            node = self._string_template("strings\\{ to {'strings'}")
+            assert node == ast.Call(
+                name="concat", args=[ast.Constant(value="strings{ to "), ast.Constant(value="strings")]
+            )
+            node2 = self._expr("f'strings\\{ to {'strings'}'")
+            assert node2 == node
+
         def test_template_strings_full_multiline(self):
             node = self._string_template("hello \n{event}")
             assert node == ast.Call(name="concat", args=[ast.Constant(value="hello \n"), ast.Field(chain=["event"])])

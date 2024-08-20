@@ -127,7 +127,9 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
     const breadcrumbName = isOnboarding && here ? 'Onboarding' : (breadcrumb.name as string)
 
     let nameElement: JSX.Element
-    if (breadcrumb.name != null && breadcrumb.onRename) {
+    if (breadcrumb.symbol) {
+        nameElement = breadcrumb.symbol
+    } else if (breadcrumb.name != null && breadcrumb.onRename) {
         nameElement = (
             <EditableField
                 name="item-name-small"
@@ -170,7 +172,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             to={breadcrumb.path}
         >
             {nameElement}
-            {breadcrumb.popover && <IconChevronDown />}
+            {breadcrumb.popover && !breadcrumb.symbol && <IconChevronDown />}
         </Component>
     )
 

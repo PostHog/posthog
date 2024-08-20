@@ -5,6 +5,7 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
+from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import (
@@ -41,7 +42,13 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsOnEventsMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    InCohortVia,
+    MaterializationMode,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
+)
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -1044,6 +1051,7 @@ class _Printer(Visitor):
         if self.context.modifiers.materializationMode != "disabled":
             # find a materialized property for the first part of the chain
             materialized_property_sql: Optional[str] = None
+            from_property_group = False
             if isinstance(table, ast.TableType):
                 if self.dialect == "clickhouse":
                     table_name = table.table.to_printed_clickhouse(self.context)
@@ -1058,6 +1066,24 @@ class _Printer(Visitor):
                     property_sql = self._print_identifier(materialized_column)
                     property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                     materialized_property_sql = property_sql
+                elif self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.ENABLED:
+                    property_name = str(type.chain[0])
+                    # For now, we're assuming that properties are in either no groups or one group, so just using the
+                    # first group returned is fine. If we start putting properties in multiple groups, this should be
+                    # revisited to find the optimal set (i.e. smallest set) of groups to read from.
+                    for property_group_column in property_groups.get_property_group_columns(
+                        table_name, field_name, property_name
+                    ):
+                        printed_column = (
+                            f"{self.visit(field_type.table_type)}.{self._print_identifier(property_group_column)}"
+                        )
+                        printed_property_name = self.context.add_value(property_name)
+                        # If the key we're looking for doesn't exist in the map for this property group, an empty string
+                        # (the default value for the `String` type) is returned. Since that is a valid property value,
+                        # we need to check it here.
+                        materialized_property_sql = f"has({printed_column}, {printed_property_name}) ? {printed_column}[{printed_property_name}] : null"
+                        from_property_group = True
+                        break
             elif (
                 self.context.within_non_hogql_query
                 and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
@@ -1075,10 +1101,13 @@ class _Printer(Visitor):
 
             if materialized_property_sql is not None:
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                    materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
-                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                    materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+                # (Property values that were retrieved from a property group correctly distinguish between these, so
+                # these checks are not necessary for those values.)
+                if not from_property_group:
+                    if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
+                        materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
+                    else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
+                        materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
 
                 if len(type.chain) == 1:
                     return materialized_property_sql

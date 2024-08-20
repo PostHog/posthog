@@ -105,6 +105,7 @@
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",

@@ -14,7 +14,7 @@ describe('Dashboard', () => {
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'H') // "H" as the lettermark of "Hogflix"
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
     })
@@ -233,7 +233,7 @@ describe('Dashboard', () => {
 
         cy.get('.InsightCard').its('length').should('be.gte', 2)
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'H') // "H" as the lettermark of "Hogflix"
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
         cy.get('[data-attr^="breadcrumb-Dashboard:"]').should('have.text', TEST_DASHBOARD_NAME + 'UnnamedCancelSave')

@@ -128,7 +128,7 @@ export function Surveys(): JSX.Element {
             ) : (
                 <>
                     <div className="space-y-2">
-                        <VersionCheckerBanner minVersionAccepted="1.83.0" />
+                        <VersionCheckerBanner />
 
                         {showSurveysDisabledBanner ? (
                             <LemonBanner

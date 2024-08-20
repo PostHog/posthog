@@ -4,20 +4,11 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    FilterType,
-    PipelineNodeTab,
-    PipelineStage,
-    PluginConfigFilters,
-    PluginConfigTypeNew,
-    PluginConfigWithPluginInfoNew,
-    PluginType,
-} from '~/types'
+import { PipelineNodeTab, PipelineStage, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import {
     defaultConfigForPlugin,
@@ -31,6 +22,7 @@ import { importAppsLogic } from './importAppsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
+import { loadPluginsFromUrl } from './utils'
 
 export interface PipelinePluginConfigurationLogicProps {
     stage: PipelineStage | null
@@ -38,12 +30,9 @@ export interface PipelinePluginConfigurationLogicProps {
     pluginConfigId: number | null
 }
 
-const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
-
 function getConfigurationFromPluginConfig(pluginConfig: PluginConfigWithPluginInfoNew): Record<string, any> {
     return {
         ...pluginConfig.config,
-        filters: pluginConfig.filters,
         enabled: pluginConfig.enabled,
         order: pluginConfig.order,
         name: pluginConfig.name ? pluginConfig.name : pluginConfig.plugin_info.name,
@@ -58,39 +47,6 @@ function getDefaultConfiguration(plugin: PluginType): Record<string, any> {
         name: plugin.name,
         description: plugin.description,
     }
-}
-
-function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
-    if (!filters) {
-        return null
-    }
-    const sanitized: PluginConfigFilters = {}
-
-    if (filters.events) {
-        sanitized.events = filters.events.map((f) => ({
-            id: f.id,
-            type: 'events',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.actions) {
-        sanitized.actions = filters.actions.map((f) => ({
-            id: f.id,
-            type: 'actions',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.filter_test_accounts) {
-        sanitized.filter_test_accounts = filters.filter_test_accounts
-    }
-
-    return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
 // Should likely be somewhat similar to pipelineBatchExportConfigurationLogic
@@ -108,7 +64,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             teamLogic,
             ['currentTeamId'],
             pipelineTransformationsLogic,
-            ['nextAvailableOrder'],
+            ['plugins as transformationPlugins', 'nextAvailableOrder'],
             featureFlagLogic,
             ['featureFlags'],
             pipelineAccessLogic,
@@ -123,7 +79,18 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     if (!props.pluginId) {
                         return null
                     }
-                    return await api.get(`api/organizations/@current/plugins/${props.pluginId}`)
+
+                    let plugins: Record<number, PluginType> = {}
+
+                    // TRICKY: We load from the list as the permissions are a not quite right for getting one.
+                    // As we are moving away from plugins opting for this quick fix for now.
+                    if (props.stage === PipelineStage.Transformation) {
+                        plugins = await loadPluginsFromUrl('api/organizations/@current/pipeline_transformations')
+                    } else if (props.stage === PipelineStage.Destination) {
+                        plugins = await loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
+                    }
+
+                    return plugins[props.pluginId] || api.get(`api/organizations/@current/plugins/${props.pluginId}`)
                 },
             },
         ],
@@ -149,7 +116,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         return values.pluginConfig
                     }
                     const { enabled, order, name, description, ...config } = formdata
-                    const { filters } = formdata // This is to make sure the config object includes the filters field
 
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
@@ -159,11 +125,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
-
-                    const sanitizedFilters = sanitizeFilters(filters)
-                    if (filters && !formData.has('add_attachment[filters]')) {
-                        formData.append('filters', sanitizedFilters ? JSON.stringify(sanitizedFilters) : '')
-                    }
 
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
@@ -275,17 +236,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         ],
         isNew: [(_, p) => [p.pluginConfigId], (pluginConfigId): boolean => !pluginConfigId],
         stage: [(_, p) => [p.stage], (stage) => stage],
-
-        pluginFilteringEnabled: [
-            (s) => [s.featureFlags, s.pluginConfig, s.plugin],
-            (featureFlags, pluginConfig, plugin) => {
-                const pluginFilteringEnabled = featureFlags[FEATURE_FLAGS.PLUGINS_FILTERING]
-                return (
-                    (pluginFilteringEnabled || pluginConfig?.filters) &&
-                    plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK
-                )
-            },
-        ],
     })),
     forms(({ asyncActions, values }) => ({
         configuration: {

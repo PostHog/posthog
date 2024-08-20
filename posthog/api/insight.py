@@ -75,6 +75,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.alert import are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -102,6 +103,7 @@ from posthog.utils import (
     relative_date_parse,
     str_to_bool,
 )
+from posthog.api.monitoring import monitor, Feature
 
 logger = structlog.get_logger(__name__)
 
@@ -227,6 +229,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
 class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
+    hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -273,6 +276,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
+    types = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -291,6 +295,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "cache_target_age",
             "next_allowed_client_refresh",
             "result",
+            "hasMore",
             "columns",
             "created_at",
             "created_by",
@@ -308,6 +313,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
             "query_status",
             "hogql",
+            "types",
         ]
         read_only_fields = (
             "created_at",
@@ -324,6 +330,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
         )
 
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
@@ -362,6 +369,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return insight
 
+    @transaction.atomic()
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
         dashboards_before_change: list[Union[str, dict]] = []
         try:
@@ -394,6 +403,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
+        if not are_alerts_supported_for_insight(updated_insight):
+            instance.alert_set.all().delete()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
@@ -415,18 +426,17 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
         changes = detected_changes + synthetic_dashboard_changes
 
-        with transaction.atomic():
-            log_insight_activity(
-                activity="updated",
-                insight=updated_insight,
-                insight_id=updated_insight.id,
-                insight_short_id=updated_insight.short_id,
-                organization_id=self.context["request"].user.current_organization_id,
-                team_id=self.context["team_id"],
-                user=self.context["request"].user,
-                was_impersonated=is_impersonated_session(self.context["request"]),
-                changes=changes,
-            )
+        log_insight_activity(
+            activity="updated",
+            insight=updated_insight,
+            insight_id=updated_insight.id,
+            insight_short_id=updated_insight.short_id,
+            organization_id=self.context["request"].user.current_organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
+            changes=changes,
+        )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
         artificial_dashboard_changes = self.context.get("after_dashboard_changes", [])
@@ -480,6 +490,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
 
+    def get_hasMore(self, insight: Insight):
+        return self.insight_result(insight).has_more
+
     def get_columns(self, insight: Insight):
         return self.insight_result(insight).columns
 
@@ -508,6 +521,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_hogql(self, insight: Insight):
         return self.insight_result(insight).hogql
+
+    def get_types(self, insight: Insight):
+        return self.insight_result(insight).types
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
@@ -773,6 +789,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             ),
         ],
     )
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="GET")
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
@@ -1087,4 +1104,4 @@ Using the correct cache and enriching the response with dashboard specific confi
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"

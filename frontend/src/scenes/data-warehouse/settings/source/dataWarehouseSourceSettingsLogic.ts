@@ -1,31 +1,15 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import posthog from 'posthog-js'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
-import {
-    Breadcrumb,
-    DataWarehouseSettingsTab,
-    DataWarehouseTab,
-    ExternalDataJob,
-    ExternalDataSourceSchema,
-    ExternalDataStripeSource,
-} from '~/types'
+import { ExternalDataJob, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 
-export enum DataWarehouseSourceSettingsTabs {
-    Schemas = 'schemas',
-    Syncs = 'syncs',
-}
-
 export interface DataWarehouseSourceSettingsLogicProps {
     id: string
-    parentSettingsTab: DataWarehouseSettingsTab
 }
 
 const REFRESH_INTERVAL = 5000
@@ -35,8 +19,6 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     props({} as DataWarehouseSourceSettingsLogicProps),
     key(({ id }) => id),
     actions({
-        setCurrentTab: (tab: DataWarehouseSourceSettingsTabs) => ({ tab }),
-        setParentSettingsTab: (tab: DataWarehouseTab) => ({ tab }),
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -97,21 +79,9 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         ],
     })),
-    reducers({
-        currentTab: [
-            DataWarehouseSourceSettingsTabs.Schemas as DataWarehouseSourceSettingsTabs,
-            {
-                setCurrentTab: (_, { tab }) => tab,
-            },
-        ],
-        parentSettingsTab: [
-            DataWarehouseTab.ManagedSources as DataWarehouseTab,
-            {
-                setParentSettingsTab: (_, { tab }) => tab,
-            },
-        ],
+    reducers(({ props }) => ({
         sourceId: [
-            '' as string,
+            props.id,
             {
                 setSourceId: (_, { id }) => id,
             },
@@ -123,29 +93,8 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 setSourceId: () => true,
             },
         ],
-    }),
-    selectors({
-        breadcrumbs: [
-            (s) => [s.parentSettingsTab, s.sourceId],
-            (parentSettingsTab, sourceId): Breadcrumb[] => [
-                {
-                    key: Scene.DataWarehouse,
-                    name: 'Data Warehouse',
-                    path: urls.dataWarehouse(),
-                },
-                {
-                    key: Scene.DataWarehouseSettings,
-                    name: 'Data Warehouse Settings',
-                    path: urls.dataWarehouse(parentSettingsTab),
-                },
-                {
-                    key: Scene.dataWarehouseSourceSettings,
-                    name: 'Data Warehouse Source Settings',
-                    path: urls.dataWarehouseSourceSettings(sourceId, parentSettingsTab),
-                },
-            ],
-        ],
-    }),
+    })),
+
     listeners(({ values, actions, cache }) => ({
         loadSourceSuccess: () => {
             clearTimeout(cache.sourceRefreshTimeout)
@@ -215,17 +164,6 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 } else {
                     lemonToast.error('Cant refresh schema at this time')
                 }
-            }
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '/data-warehouse/settings/:parentTab/:id': ({ parentTab, id }) => {
-            if (id) {
-                actions.setSourceId(id)
-            }
-
-            if (parentTab !== values.parentSettingsTab) {
-                actions.setParentSettingsTab(parentTab as DataWarehouseTab)
             }
         },
     })),

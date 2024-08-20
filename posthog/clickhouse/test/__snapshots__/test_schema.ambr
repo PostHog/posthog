@@ -599,6 +599,7 @@
       , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
       , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
       , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
+      , properties_group_custom Map(String, String), properties_group_feature_flags Map(String, String)
   
       
   , _timestamp DateTime
@@ -1757,6 +1758,8 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- replay
       maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
@@ -1830,6 +1833,7 @@
       uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
       sumIf(1, event='$screen') as screen_count,
       uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
+      uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
   
       -- replay
       false as maybe_has_session_replay
@@ -2188,6 +2192,19 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+      ,                 properties_group_custom Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid'),
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,                 properties_group_feature_flags Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key like '$feature/%',
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter
   
       
   , _timestamp DateTime
@@ -2405,6 +2422,8 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- replay
       maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
@@ -2704,6 +2723,8 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- replay
       maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
@@ -3282,6 +3303,19 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+      ,                 properties_group_custom Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid'),
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,                 properties_group_feature_flags Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key like '$feature/%',
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter
   
       
   , _timestamp DateTime
@@ -3499,6 +3533,8 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- replay
       maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv

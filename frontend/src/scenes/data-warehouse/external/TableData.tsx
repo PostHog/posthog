@@ -8,7 +8,7 @@ import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
 import { DatabaseSchemaTable } from '~/queries/schema'
 
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 
 export function TableData(): JSX.Element {
     const {

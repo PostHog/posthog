@@ -220,6 +220,7 @@ export function CodeEditor({
 
     return (
         <MonacoEditor // eslint-disable-line react/forbid-elements
+            key={queryKey}
             theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
             loading={<Spinner />}
             options={{

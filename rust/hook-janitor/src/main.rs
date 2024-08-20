@@ -63,6 +63,7 @@ async fn main() {
                     &config.database_url,
                     kafka_producer,
                     config.app_metrics_topic.to_owned(),
+                    config.app_metrics2_topic.to_owned(),
                     config.hog_mode,
                 )
                 .expect("unable to create webhook cleaner"),

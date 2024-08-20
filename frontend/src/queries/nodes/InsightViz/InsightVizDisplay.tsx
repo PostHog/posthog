@@ -94,7 +94,7 @@ export function InsightVizDisplay({
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
-                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
+                return <FunnelSingleStepState actionable={!embedded && insightMode === ItemMode.Edit} />
             }
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />

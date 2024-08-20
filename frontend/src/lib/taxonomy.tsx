@@ -462,6 +462,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The manufacturer of the device',
             examples: ['Apple', 'Samsung'],
         },
+        $is_emulator: {
+            label: 'Is Emulator',
+            description: 'Indicates whether the app is running on an emulator or a physical device',
+            examples: ['true', 'false'],
+        },
         $device_name: {
             label: 'Device Name',
             description: 'Name of the device',

@@ -219,18 +219,14 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                         <IconUploadFile
                                                             style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
                                                         />
-                                                        <div className="ant-upload-text">
-                                                            {cohort.csv?.name ?? 'File chosen'}
-                                                        </div>
+                                                        <div>{cohort.csv?.name ?? 'File chosen'}</div>
                                                     </>
                                                 ) : (
                                                     <>
                                                         <IconUploadFile
                                                             style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
                                                         />
-                                                        <div className="ant-upload-text">
-                                                            Drag a file here or click to browse for a file
-                                                        </div>
+                                                        <div>Drag a file here or click to browse for a file</div>
                                                     </>
                                                 )}
                                             </div>

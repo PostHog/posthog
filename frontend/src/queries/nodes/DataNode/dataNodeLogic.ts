@@ -18,10 +18,10 @@ import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
+import { shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
+import { compareDataNodeQuery, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,14 +42,7 @@ import {
     PersonsNode,
     QueryTiming,
 } from '~/queries/schema'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isFunnelsQuery,
-    isInsightActorsQuery,
-    isInsightQueryNode,
-    isPersonsNode,
-} from '~/queries/utils'
+import { isActorsQuery, isEventsQuery, isInsightActorsQuery, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
@@ -76,23 +69,6 @@ export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(1)
-
-/** Compares two queries for semantic equality to prevent double-fetching of data. */
-const queryEqual = (a: DataNode, b: DataNode): boolean => {
-    if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
-        return compareInsightQuery(a, b, true)
-    }
-    return objectsEqual(a, b)
-}
-
-/** Tests wether a query is valid to prevent unnecessary requests.  */
-const queryValid = (q: DataNode): boolean => {
-    if (isFunnelsQuery(q)) {
-        // funnels require at least two steps
-        return q.series.length >= 2
-    }
-    return true
-}
 
 function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNode {
     if (!modifiers) {
@@ -128,7 +104,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        const hasQueryChanged = !queryEqual(props.query, oldProps.query)
+        const hasQueryChanged = !compareDataNodeQuery(props.query, oldProps.query)
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
         if (hasQueryChanged && queryStatus?.complete === false) {
             // If there is an incomplete query, load the data with the same query_id which should return its status
@@ -158,6 +134,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
+        setLocalCache: (response: Record<string, any>) => response,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -178,6 +155,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
 
+                    // if query based and locally cached, return the cached results
+                    if ('query' in props.query) {
+                        const stringifiedQuery = JSON.stringify(props.query.query)
+                        if (cache.localResults[stringifiedQuery] && !refresh) {
+                            return cache.localResults[stringifiedQuery]
+                        }
+                    }
+
                     if (!values.currentTeamId) {
                         // if shared/exported, the team is not loaded
                         return null
@@ -188,7 +173,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (!queryValid(props.query)) {
+                    if (!validateQuery(props.query)) {
                         return null
                     }
 
@@ -430,11 +415,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => null,
             },
         ],
+        localCache: [
+            {} as Record<string, any>,
+            {
+                setLocalCache: (state, response) => ({ ...state, ...response }),
+            },
+        ],
     })),
-    selectors({
+    selectors(({ cache }) => ({
         isShowingCachedResults: [
-            () => [(_, props) => props.cachedResults ?? null],
-            (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
+            () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
+            (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
+                return !!cachedResults || ('query' in query && JSON.stringify(query.query) in cache.localResults)
+            },
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
@@ -617,7 +610,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
-    }),
+    })),
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
@@ -642,6 +635,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadDataSuccess: ({ response }) => {
             props.onData?.(response)
             actions.collectionNodeLoadDataSuccess(props.key)
+            if ('query' in props.query) {
+                cache.localResults[JSON.stringify(props.query.query)] = response
+            }
         },
         loadDataFailure: () => {
             actions.collectionNodeLoadDataFailure(props.key)
@@ -669,7 +665,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.localResults = {}
         if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount

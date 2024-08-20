@@ -1,6 +1,18 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "AbsoluteThreshold": {
+            "additionalProperties": false,
+            "properties": {
+                "lower": {
+                    "type": ["number", "null"]
+                },
+                "upper": {
+                    "type": ["number", "null"]
+                }
+            },
+            "type": "object"
+        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -182,6 +194,16 @@
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
+        },
+        "AnomalyCondition": {
+            "additionalProperties": false,
+            "properties": {
+                "absoluteThreshold": {
+                    "$ref": "#/definitions/AbsoluteThreshold"
+                }
+            },
+            "required": ["absoluteThreshold"],
+            "type": "object"
         },
         "AnyDataNode": {
             "anyOf": [
@@ -1702,6 +1724,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "description": "Wether more breakdown values are available.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -2001,6 +2027,9 @@
                 "settings": {
                     "additionalProperties": false,
                     "properties": {
+                        "display": {
+                            "$ref": "#/definitions/ChartSettingsDisplay"
+                        },
                         "formatting": {
                             "$ref": "#/definitions/ChartSettingsFormatting"
                         }
@@ -2035,6 +2064,16 @@
                     },
                     "type": "array"
                 },
+                "leftYAxisSettings": {
+                    "$ref": "#/definitions/YAxisSettings"
+                },
+                "rightYAxisSettings": {
+                    "$ref": "#/definitions/YAxisSettings"
+                },
+                "stackBars100": {
+                    "description": "Whether we fill the bars to 100% in stacked mode",
+                    "type": "boolean"
+                },
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
                 },
@@ -2043,6 +2082,30 @@
                         "$ref": "#/definitions/ChartAxis"
                     },
                     "type": "array"
+                },
+                "yAxisAtZero": {
+                    "description": "Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "ChartSettingsDisplay": {
+            "additionalProperties": false,
+            "properties": {
+                "displayType": {
+                    "enum": ["auto", "line", "bar"],
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "trendLine": {
+                    "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["left", "right"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -2766,6 +2829,9 @@
                 },
                 "source": {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                "tableSettings": {
+                    "$ref": "#/definitions/TableSettings"
                 }
             },
             "required": ["kind", "source"],
@@ -3347,7 +3413,10 @@
                     "type": ["string", "null"]
                 },
                 "fingerprint": {
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "first_seen": {
                     "format": "date-time",
@@ -3359,7 +3428,10 @@
                 },
                 "merged_fingerprints": {
                     "items": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -3412,7 +3484,10 @@
                     "type": "boolean"
                 },
                 "fingerprint": {
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -4957,6 +5032,10 @@
                         "person_id_override_properties_on_events",
                         "person_id_override_properties_joined"
                     ],
+                    "type": "string"
+                },
+                "propertyGroupsMode": {
+                    "enum": ["enabled", "disabled"],
                     "type": "string"
                 },
                 "s3TableUseInvalidColumns": {
@@ -7466,6 +7545,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "description": "Wether more breakdown values are available.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -8053,6 +8136,9 @@
         "RetentionFilter": {
             "additionalProperties": false,
             "properties": {
+                "cumulative": {
+                    "type": "boolean"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
@@ -8084,6 +8170,9 @@
             "additionalProperties": false,
             "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
             "properties": {
+                "cumulative": {
+                    "type": "boolean"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
                 },
@@ -8739,6 +8828,18 @@
             "required": ["results"],
             "type": "object"
         },
+        "TableSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/ChartAxis"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "TaxonomicFilterGroupType": {
             "enum": [
                 "metadata",
@@ -9100,6 +9201,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "hasMore": {
+                    "description": "Wether more breakdown values are available.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -9520,6 +9625,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "YAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "scale": {
+                    "enum": ["linear", "logarithmic"],
+                    "type": "string"
+                },
+                "startAtZero": {
+                    "description": "Whether the Y axis should start at zero",
+                    "type": "boolean"
+                }
+            },
             "type": "object"
         }
     }

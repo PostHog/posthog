@@ -3,6 +3,45 @@
 #
 
 services:
+    proxy:
+        image: caddy
+        entrypoint: sh
+        restart: always
+        command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
+        volumes:
+            - /root/.caddy
+        environment:
+            CADDYFILE: |
+                http://localhost:8000 {
+                    @replay-capture {
+                        path /s
+                        path /s/*
+                    }
+
+                    @capture {
+                        path /e
+                        path /e/*
+                        path /i/v0/e
+                        path /i/v0/e*
+                        path /batch
+                        path /batch*
+                        path /capture
+                        path /capture*
+                    }
+
+                    handle @capture {
+                        reverse_proxy capture:3000
+                    }
+
+                    handle @replay-capture {
+                        reverse_proxy replay-capture:8000
+                    }
+
+                    handle {
+                        reverse_proxy web:8000
+                    }
+                }
+
     db:
         image: postgres:12-alpine
         restart: on-failure
@@ -17,6 +56,16 @@ services:
 
     redis:
         image: redis:6.2.7-alpine
+        restart: on-failure
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 3s
+            timeout: 10s
+            retries: 10
+
+    redis7:
+        image: redis:7.2-alpine
         restart: on-failure
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
         healthcheck:
@@ -105,12 +154,32 @@ services:
         restart: on-failure
 
     capture:
-        image: ghcr.io/posthog/capture:main
+        image: ghcr.io/posthog/posthog/capture:master
         restart: on-failure
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
             KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis:6379/'
+
+    replay-capture:
+        image: ghcr.io/posthog/posthog/replay-capture:master
+        build:
+            context: vector/replay-capture
+        restart: on-failure
+        entrypoint: ['sh', '-c']
+        command:
+            - |
+                set -x
+                # seed empty required data files
+                mkdir -p /etc/vector/data
+                echo "token" > /etc/vector/data/quota_limited_teams.csv
+                echo "session_id" > /etc/vector/data/overflow_sessions.csv
+                exec vector -v --watch-config
+        environment:
+            KAFKA_EVENTS_TOPIC: session_recording_snapshot_item_events
+            KAFKA_OVERFLOW_TOPIC: session_recording_snapshot_item_overflow
+            KAFKA_BOOSTRAP_SERVERS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
 
     plugins:

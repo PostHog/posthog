@@ -13,7 +13,7 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingGroupQuery } from './queries'
 
 export interface ErrorTrackingGroupSceneLogicProps {
-    fingerprint: string
+    fingerprint: string[]
 }
 
 export enum ErrorGroupTab {
@@ -78,8 +78,9 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     selectors({
         breadcrumbs: [
-            (_, p) => [p.fingerprint],
-            (fingerprint): Breadcrumb[] => {
+            (s) => [s.group],
+            (group): Breadcrumb[] => {
+                const exceptionType = group?.exception_type || 'Unknown Type'
                 return [
                     {
                         key: Scene.ErrorTracking,
@@ -87,8 +88,8 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                         path: urls.errorTracking(),
                     },
                     {
-                        key: [Scene.ErrorTrackingGroup, fingerprint],
-                        name: fingerprint,
+                        key: [Scene.ErrorTrackingGroup, exceptionType],
+                        name: exceptionType,
                     },
                 ]
             },

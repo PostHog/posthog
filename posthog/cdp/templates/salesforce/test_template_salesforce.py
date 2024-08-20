@@ -12,6 +12,7 @@ class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
     def _inputs(self, **kwargs):
         inputs = {
             "oauth": {
+                "instance_url": "https://example.my.salesforce.com",
                 "access_token": "oauth-1234",
             },
             "path": "Contact",
@@ -27,7 +28,7 @@ class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
         self.run_function(self._inputs())
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
-                "https://posthog.my.salesforce.com/services/data/v61.0/sobjects/Contact",
+                "https://example.my.salesforce.com/services/data/v61.0/sobjects/Contact",
                 {
                     "body": {"foo": "bar"},
                     "method": "POST",
@@ -43,6 +44,7 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
     def _inputs(self, **kwargs):
         inputs = {
             "oauth": {
+                "instance_url": "https://example.my.salesforce.com",
                 "access_token": "oauth-1234",
             },
             "path": "Lead/Email/example@posthog.com",
@@ -58,7 +60,7 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
         self.run_function(self._inputs())
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
-                "https://posthog.my.salesforce.com/services/data/v61.0/sobjects/Lead/Email/example@posthog.com",
+                "https://example.my.salesforce.com/services/data/v61.0/sobjects/Lead/Email/example@posthog.com",
                 {
                     "body": {"foo": "bar"},
                     "method": "PATCH",

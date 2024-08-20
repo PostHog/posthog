@@ -4,9 +4,20 @@ import './LineGraph.scss'
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
-import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
+import {
+    ChartData,
+    ChartType,
+    ChartTypeRegistry,
+    Color,
+    GridLineOptions,
+    ScaleOptionsByType,
+    TickOptions,
+    TooltipModel,
+} from 'chart.js'
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
+import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
@@ -17,12 +28,64 @@ import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { ChartSettings, YAxisSettings } from '~/queries/schema'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import { dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { AxisSeriesSettings, dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
 
 Chart.register(annotationPlugin)
+Chart.register(ChartjsPluginStacked100)
+Chart.register(chartTrendline)
+
+const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): GraphType => {
+    if (!settings || !settings.display || settings.display?.displayType === 'auto') {
+        return chartType === ChartDisplayType.ActionsBar || chartType === ChartDisplayType.ActionsStackedBar
+            ? GraphType.Bar
+            : GraphType.Line
+    }
+
+    if (settings.display?.displayType === 'bar') {
+        return GraphType.Bar
+    }
+
+    return GraphType.Line
+}
+
+const getYAxisSettings = (
+    chartSettings: ChartSettings,
+    settings: YAxisSettings | undefined,
+    stacked: boolean,
+    position: 'left' | 'right',
+    tickOptions: Partial<TickOptions>,
+    gridOptions: Partial<GridLineOptions>
+): ScaleOptionsByType<ChartTypeRegistry['line']['scales']> => {
+    if (settings?.scale === 'logarithmic') {
+        // @ts-expect-error - needless complaining from chart.js types
+        return {
+            display: true,
+            stacked: stacked,
+            type: 'logarithmic',
+            grid: gridOptions,
+            position,
+        }
+    }
+
+    return {
+        display: true,
+        beginAtZero: settings?.startAtZero ?? chartSettings.yAxisAtZero ?? true,
+        stacked: stacked,
+        type: 'linear',
+        // @ts-expect-error - needless complaining from chart.js types
+        ticks: {
+            display: true,
+            ...tickOptions,
+            precision: 1,
+        },
+        grid: gridOptions,
+        position,
+    }
+}
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -31,7 +94,8 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, presetChartHeight, visualizationType, showEditingUI } = useValues(dataVisualizationLogic)
+    const { xData, yData, presetChartHeight, visualizationType, showEditingUI, chartSettings } =
+        useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
@@ -44,24 +108,40 @@ export const LineGraph = (): JSX.Element => {
             return
         }
 
+        const hasRightYAxis = !!yData.find((n) => n.settings?.display?.yAxisPosition === 'right')
+        const hasLeftYAxis = !hasRightYAxis || !!yData.find((n) => n.settings?.display?.yAxisPosition === 'left')
+
         const data: ChartData = {
             labels: xData.data,
-            datasets: yData.map(({ data }, index) => {
+            datasets: yData.map(({ data, settings }, index) => {
                 const color = getSeriesColor(index)
                 const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
+
+                const graphType = getGraphType(visualizationType, settings)
 
                 return {
                     data,
                     borderColor: color,
                     backgroundColor: backgroundColor,
-                    borderWidth: isBarChart ? 0 : 2,
+                    borderWidth: graphType === GraphType.Bar ? 0 : 2,
                     pointRadius: 0,
                     hitRadius: 0,
                     order: 1,
-                    hoverBorderWidth: isBarChart ? 0 : 2,
-                    hoverBorderRadius: isBarChart ? 0 : 2,
-                    type: isBarChart ? GraphType.Bar : GraphType.Line,
+                    hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
+                    hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
+                    type: graphType,
                     fill: isAreaChart ? 'origin' : false,
+                    yAxisID: settings?.display?.yAxisPosition === 'right' ? 'yRight' : 'yLeft',
+                    ...(settings?.display?.trendLine
+                        ? {
+                              trendlineLinear: {
+                                  colorMin: hexToRGBA(color, 0.6),
+                                  colorMax: hexToRGBA(color, 0.6),
+                                  lineStyle: 'dotted',
+                                  width: 3,
+                              },
+                          }
+                        : {}),
                 } as ChartData['datasets'][0]
             }),
         }
@@ -74,7 +154,7 @@ export const LineGraph = (): JSX.Element => {
                         content: cur.label,
                         position: 'end',
                     },
-                    scaleID: 'y',
+                    scaleID: hasLeftYAxis ? 'yLeft' : 'yRight',
                     value: cur.value,
                 }
 
@@ -112,6 +192,7 @@ export const LineGraph = (): JSX.Element => {
                 },
             },
             plugins: {
+                stacked100: { enable: isStackedBarChart && chartSettings.stackBars100, precision: 1 },
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
@@ -124,6 +205,17 @@ export const LineGraph = (): JSX.Element => {
                     display: () => {
                         // TODO: Update when "show values on chart" becomes an option
                         return false
+                    },
+                    formatter: () => {
+                        // TODO: Update when "show values on chart" becomes an option
+                        // const data = context.chart.data as ExtendedChartData
+                        // const { datasetIndex, dataIndex } = context
+                        // const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
+                        // if (isStackedBarChart && chartSettings.stackBars100) {
+                        //     value = Number(percentageValue)
+                        //     return percentage(value / 100)
+                        // }
+                        // return value
                     },
                     borderWidth: 2,
                     borderRadius: 4,
@@ -180,8 +272,10 @@ export const LineGraph = (): JSX.Element => {
                                 <div className="InsightTooltip">
                                     <LemonTable
                                         dataSource={yData.map(({ data, column, settings }) => ({
-                                            series: column.name,
+                                            series: settings?.display?.label || column.name,
                                             data: formatDataWithSettings(data[referenceDataPoint.dataIndex], settings),
+                                            rawData: data[referenceDataPoint.dataIndex],
+                                            dataIndex: referenceDataPoint.dataIndex,
                                         }))}
                                         columns={[
                                             {
@@ -205,7 +299,22 @@ export const LineGraph = (): JSX.Element => {
                                             {
                                                 title: '',
                                                 dataIndex: 'data',
-                                                render: (value) => {
+                                                render: (value, record) => {
+                                                    if (isStackedBarChart && chartSettings.stackBars100) {
+                                                        const total = yData
+                                                            .map((n) => n.data[record.dataIndex])
+                                                            .reduce((acc, cur) => acc + cur, 0)
+                                                        const percentageLabel: number = parseFloat(
+                                                            ((record.rawData / total) * 100).toFixed(1)
+                                                        )
+
+                                                        return (
+                                                            <div className="series-data-cell">
+                                                                {value} ({percentageLabel}%)
+                                                            </div>
+                                                        )
+                                                    }
+
                                                     return <div className="series-data-cell">{value}</div>
                                                 },
                                             },
@@ -252,17 +361,30 @@ export const LineGraph = (): JSX.Element => {
                         tickLength: 12,
                     },
                 },
-                y: {
-                    display: true,
-                    beginAtZero: true,
-                    stacked: isAreaChart || isStackedBarChart,
-                    ticks: {
-                        display: true,
-                        ...tickOptions,
-                        precision: 1,
-                    },
-                    grid: gridOptions,
-                },
+                ...(hasLeftYAxis
+                    ? {
+                          yLeft: getYAxisSettings(
+                              chartSettings,
+                              chartSettings.leftYAxisSettings,
+                              isAreaChart || isStackedBarChart,
+                              'left',
+                              tickOptions,
+                              gridOptions
+                          ),
+                      }
+                    : {}),
+                ...(hasRightYAxis
+                    ? {
+                          yRight: getYAxisSettings(
+                              chartSettings,
+                              chartSettings.rightYAxisSettings,
+                              isAreaChart || isStackedBarChart,
+                              'right',
+                              tickOptions,
+                              gridOptions
+                          ),
+                      }
+                    : {}),
             },
         }
 
@@ -273,7 +395,7 @@ export const LineGraph = (): JSX.Element => {
             plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
-    }, [xData, yData, visualizationType, goalLines])
+    }, [xData, yData, visualizationType, goalLines, chartSettings])
 
     return (
         <div

@@ -22,7 +22,11 @@ from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
 from posthog.constants import EventDefinitionType
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+    generate_exception_response,
+)
 from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
@@ -182,7 +186,7 @@ def get_data(request):
     data = None
     try:
         data = load_data_from_request(request)
-    except RequestParsingError as error:
+    except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
         statsd.incr("capture_endpoint_invalid_payload")
         logger.exception(f"Invalid payload", error=error)
         return (

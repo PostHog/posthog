@@ -20,11 +20,11 @@ common_inputs = {
 template_create: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-salesforce-create",
-    name="Salesforce",
+    name="Create Salesforce objects",
     description="Create objects in Salesforce",
     icon_url="/static/services/salesforce.png",
     hog="""
-let res := fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.path}', {
+let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inputs.path}', {
   'body': inputs.properties,
   'method': 'POST',
   'headers': {
@@ -68,11 +68,11 @@ if (res.status >= 400) {
 template_update: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-salesforce-update",
-    name="Salesforce",
+    name="Update Salesforce objects",
     description="Update objects in Salesforce",
     icon_url="/static/services/salesforce.png",
     hog="""
-let res := fetch(f'https://posthog.my.salesforce.com/services/data/v61.0/sobjects/{inputs.path}', {
+let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inputs.path}', {
   'body': inputs.properties,
   'method': 'PATCH',
   'headers': {

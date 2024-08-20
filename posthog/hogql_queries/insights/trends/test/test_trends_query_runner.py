@@ -4735,3 +4735,60 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["count"] == 2
         assert response.results[0]["data"] == [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    def test_multiple_breakdowns_work_with_formula(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A*10"),
+            BreakdownFilter(breakdowns=[Breakdown(property="$browser", type=MultipleBreakdownType.EVENT)]),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert breakdown_labels == [["Chrome"], ["Firefox"], ["Edge"], ["Safari"]]
+        assert [result["data"] for result in response.results] == [
+            [0, 0, 10, 10, 10, 0, 10, 0, 10, 0, 10, 0],
+            [10, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0],
+        ]
+
+    def test_multiple_series_and_multiple_breakdowns_work_with_formula(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A/B*100"),
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+                    Breakdown(property="prop", type=MultipleBreakdownType.EVENT, histogram_bin_count=2),
+                ]
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+        assert len(response.results) == 4
+        assert breakdown_labels == [
+            ["Chrome", "[10,25]"],
+            ["Firefox", "[10,25]"],
+            ["Edge", "[25,40.01]"],
+            ["Safari", "[25,40.01]"],
+        ]
+        assert [result["data"] for result in response.results] == [
+            [0, 0, 100, 100, 100, 0, 100, 0, 100, 0, 100, 0],
+            [100, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0],
+        ]

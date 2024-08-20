@@ -23,24 +23,33 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { ExporterFormat, InsightLogicProps, ItemMode, NotebookNodeType } from '~/types'
+import {
+    ExporterFormat,
+    InsightLogicProps,
+    InsightShortId,
+    ItemMode,
+    NotebookNodeType,
+    QueryBasedInsightModel,
+} from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
-    const { insightMode, subscriptionId } = useValues(insightSceneLogic)
+    const { insightMode, itemId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
     const {
         insightProps,
         canEditInsight,
-        queryBasedInsight: insight,
+        insight,
         queryBasedInsightSaving,
         insightChanged,
         insightSaving,
@@ -52,12 +61,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { queryChanged, showQueryEditor, hogQL, exportContext } = useValues(insightDataLogic(insightProps))
-    const { toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const { queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
     const { tags } = useValues(tagsModel)
+    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
@@ -69,14 +82,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
-                        subscriptionId={subscriptionId}
+                        subscriptionId={itemId}
                     />
                     <SharingModal
                         title="Insight sharing"
                         isOpen={insightMode === ItemMode.Sharing}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
@@ -88,10 +101,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         canEditInsight={canEditInsight}
                     />
                     <AlertsModal
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         isOpen={insightMode === ItemMode.Alerts}
-                        closeModal={() => push(urls.insightView(insight.short_id))}
-                        insightShortId={insight.short_id}
-                        alertId={subscriptionId}
+                        insightLogicProps={insightLogicProps}
+                        insightShortId={insight.short_id as InsightShortId}
+                        alertId={itemId}
                     />
                     <NewDashboardModal />
                 </>
@@ -105,7 +119,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() => duplicateInsight(insight, true)}
+                                                onClick={() =>
+                                                    duplicateInsight(insight as QueryBasedInsightModel, true)
+                                                }
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -183,6 +199,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         fullWidth
                                         label="View source"
                                     />
+                                    {hasDashboardItemId &&
+                                    (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
+                                        <LemonSwitch
+                                            data-attr="toggle-debug-panel"
+                                            className="px-2 py-1"
+                                            checked={showDebugPanel}
+                                            onChange={() => {
+                                                toggleDebugPanel()
+                                            }}
+                                            fullWidth
+                                            label="Debug panel"
+                                        />
+                                    ) : null}
                                     {hogQL && (
                                         <>
                                             <LemonDivider />
@@ -190,18 +219,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 data-attr="edit-insight-sql"
                                                 onClick={() => {
                                                     router.actions.push(
-                                                        urls.insightNew(
-                                                            undefined,
-                                                            undefined,
-                                                            JSON.stringify({
-                                                                kind: NodeKind.DataTableNode,
-                                                                source: {
-                                                                    kind: NodeKind.HogQLQuery,
-                                                                    query: hogQL,
-                                                                },
-                                                                full: true,
-                                                            } as DataTableNode)
-                                                        )
+                                                        urls.insightNew(undefined, undefined, {
+                                                            kind: NodeKind.DataTableNode,
+                                                            source: {
+                                                                kind: NodeKind.HogQLQuery,
+                                                                query: hogQL,
+                                                            },
+                                                            full: true,
+                                                        } as DataTableNode)
                                                     )
                                                 }}
                                                 fullWidth
@@ -217,7 +242,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 status="danger"
                                                 onClick={() =>
                                                     void deleteInsightWithUndo({
-                                                        object: insight,
+                                                        object: insight as QueryBasedInsightModel,
                                                         endpoint: `projects/${currentTeamId}/insights`,
                                                         callback: () => {
                                                             loadInsights()
@@ -241,7 +266,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         <LemonDivider vertical />
 
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
-                            <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => setInsightMode(ItemMode.View, null)}
+                                data-attr="insight-cancel-edit-button"
+                            >
                                 Cancel
                             </LemonButton>
                         )}

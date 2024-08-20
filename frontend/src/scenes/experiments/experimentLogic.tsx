@@ -8,6 +8,7 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactElement } from 'react'
@@ -35,6 +36,7 @@ import {
     CountPerActorMathType,
     Experiment,
     ExperimentResults,
+    FeatureFlagType,
     FilterType,
     FunnelExperimentVariant,
     FunnelStep,
@@ -52,7 +54,7 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
-import { getMinimumDetectableEffect } from './utils'
+import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -108,6 +110,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['results as trendResults'],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['insightDataLoading as goalInsightDataLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             experimentsLogic,
@@ -121,6 +125,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentArchived',
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
+                'reportExperimentVariantShipped',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -160,6 +165,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentExposureModal: true,
         openExperimentCollectionGoalModal: true,
         closeExperimentCollectionGoalModal: true,
+        openMakeDecisionModal: true,
+        closeMakeDecisionModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
     }),
@@ -296,6 +303,13 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openExperimentCollectionGoalModal: () => true,
                 closeExperimentCollectionGoalModal: () => false,
+            },
+        ],
+        isMakeDecisionModalOpen: [
+            false,
+            {
+                openMakeDecisionModal: () => true,
+                closeMakeDecisionModal: () => false,
             },
         ],
         experimentValuesChangedLocally: [
@@ -690,6 +704,19 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
+        shipVariantSuccess: ({ payload }) => {
+            lemonToast.success('The selected variant has been shipped')
+            actions.closeMakeDecisionModal()
+            if (payload.shouldStopExperiment) {
+                actions.endExperiment()
+            }
+            actions.loadExperiment()
+            actions.reportExperimentVariantShipped(values.experiment)
+        },
+        shipVariantFailure: ({ error }) => {
+            lemonToast.error(error)
+            actions.closeMakeDecisionModal()
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -780,6 +807,26 @@ export const experimentLogic = kea<experimentLogicType>([
                         return (await api.experiments.createExposureCohort(props.experimentId)).cohort
                     }
                     return null
+                },
+            },
+        ],
+        featureFlag: [
+            null as FeatureFlagType | null,
+            {
+                shipVariant: async ({ selectedVariantKey, shouldStopExperiment }) => {
+                    if (!values.experiment.feature_flag) {
+                        throw new Error('Experiment does not have a feature flag linked')
+                    }
+
+                    const currentFlagFilters = values.experiment.feature_flag?.filters
+                    const newFilters = transformFiltersForWinningVariant(currentFlagFilters, selectedVariantKey)
+
+                    await api.update(
+                        `api/projects/${values.currentTeamId}/feature_flags/${values.experiment.feature_flag?.id}`,
+                        { filters: newFilters }
+                    )
+
+                    return shouldStopExperiment
                 },
             },
         ],
@@ -1051,20 +1098,21 @@ export const experimentLogic = kea<experimentLogicType>([
         conversionRateForVariant: [
             () => [],
             () =>
-                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): string => {
-                    const errorResult = '--'
+                (experimentResults: Partial<ExperimentResults['result']> | null, variantKey: string): number | null => {
                     if (!experimentResults || !experimentResults.insight) {
-                        return errorResult
+                        return null
                     }
                     const variantResults = (experimentResults.insight as FunnelStep[][]).find(
-                        (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                        (variantFunnel: FunnelStep[]) => {
+                            const breakdownValue = variantFunnel[0]?.breakdown_value
+                            return Array.isArray(breakdownValue) && breakdownValue[0] === variantKey
+                        }
                     )
+
                     if (!variantResults) {
-                        return errorResult
+                        return null
                     }
-                    return ((variantResults[variantResults.length - 1].count / variantResults[0].count) * 100).toFixed(
-                        1
-                    )
+                    return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
                 },
         ],
         getIndexForVariant: [
@@ -1285,7 +1333,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (
                 experimentResults,
                 conversionRateForVariant
-            ): { key: string; winProbability: number; conversionRate: number }[] => {
+            ): { key: string; winProbability: number; conversionRate: number | null }[] => {
                 if (!experimentResults) {
                     return []
                 }
@@ -1294,7 +1342,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     .map((key) => ({
                         key,
                         winProbability: experimentResults.probability[key],
-                        conversionRate: parseFloat(conversionRateForVariant(experimentResults, key)),
+                        conversionRate: conversionRateForVariant(experimentResults, key),
                     }))
                     .sort((a, b) => b.winProbability - a.winProbability)
             },
@@ -1327,6 +1375,21 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
 
                 return dayjs().diff(experiment.start_date, 'day')
+            },
+        ],
+        isSingleVariantShipped: [
+            (s) => [s.experiment],
+            (experiment: Experiment): boolean => {
+                const filters = experiment.feature_flag?.filters
+
+                return (
+                    !!filters &&
+                    Array.isArray(filters.groups?.[0]?.properties) &&
+                    filters.groups?.[0]?.properties?.length === 0 &&
+                    filters.groups?.[0]?.rollout_percentage === 100 &&
+                    (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) ||
+                        false)
+                )
             },
         ],
     }),

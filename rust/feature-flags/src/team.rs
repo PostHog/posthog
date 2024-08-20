@@ -23,7 +23,7 @@ impl Team {
         client: Arc<dyn RedisClient + Send + Sync>,
         token: String,
     ) -> Result<Team, FlagError> {
-        // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
+        // NB: if this lookup fails, we fall back to the database before returning an error
         let serialized_team = client
             .get(format!("{TEAM_TOKEN_CACHE_PREFIX}{}", token))
             .await?;
@@ -35,6 +35,30 @@ impl Team {
         })?;
 
         Ok(team)
+    }
+
+    #[instrument(skip_all)]
+    pub async fn update_redis_cache(
+        client: Arc<dyn RedisClient + Send + Sync>,
+        team: Team,
+    ) -> Result<(), FlagError> {
+        let serialized_team = serde_json::to_string(&team).map_err(|e| {
+            tracing::error!("Failed to serialize team: {}", e);
+            FlagError::DataParsingError
+        })?;
+
+        client
+            .set(
+                format!("{TEAM_TOKEN_CACHE_PREFIX}{}", team.api_token),
+                serialized_team,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update Redis cache: {}", e);
+                FlagError::CacheUpdateError
+            })?;
+
+        Ok(())
     }
 
     pub async fn from_pg(

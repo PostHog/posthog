@@ -368,6 +368,16 @@ class RetentionQueryRunner(QueryRunner):
 
         return refresh_frequency
 
+    def get_date(self, first_interval):
+        date = self.query_date_range.date_from() + self.query_date_range.determine_time_delta(
+            first_interval, self.query_date_range.interval_name.title()
+        )
+        if self.query_date_range.interval_type == IntervalType.HOUR:
+            utfoffset = self.team.timezone_info.utcoffset(date)
+            if utfoffset is not None:
+                date = date + utfoffset
+        return date
+
     def calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
@@ -388,7 +398,6 @@ class RetentionQueryRunner(QueryRunner):
             }
             for (breakdown_values, intervals_from_base, count) in response.results
         }
-
         results = [
             {
                 "values": [
@@ -396,12 +405,7 @@ class RetentionQueryRunner(QueryRunner):
                     for return_interval in range(self.query_date_range.total_intervals - first_interval)
                 ],
                 "label": f"{self.query_date_range.interval_name.title()} {first_interval}",
-                "date": (
-                    self.query_date_range.date_from()
-                    + self.query_date_range.determine_time_delta(
-                        first_interval, self.query_date_range.interval_name.title()
-                    )
-                ),
+                "date": self.get_date(first_interval),
             }
             for first_interval in range(self.query_date_range.total_intervals)
         ]
