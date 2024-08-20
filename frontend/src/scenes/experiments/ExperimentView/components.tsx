@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { IconArchive, IconCheck, IconInfo, IconMagicWand, IconX } from '@posthog/icons'
+import { IconArchive, IconCheck, IconInfo, IconRocket, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -475,14 +475,16 @@ export function PageHeaderCustom(): JSX.Element {
                         areResultsSignificant &&
                         !isSingleVariantShipped && (
                             <>
-                                <LemonButton
-                                    type="primary"
-                                    status="alt"
-                                    icon={<IconMagicWand />}
-                                    onClick={() => openMakeDecisionModal()}
-                                >
-                                    <b>Make decision</b>
-                                </LemonButton>
+                                <Tooltip title="Choose a variant and roll out to all users.">
+                                    <LemonButton
+                                        type="primary"
+                                        status="alt"
+                                        icon={<IconRocket />}
+                                        onClick={() => openMakeDecisionModal()}
+                                    >
+                                        <b>Make decision</b>
+                                    </LemonButton>
+                                </Tooltip>
                                 <MakeDecisionModal experimentId={experimentId} />
                             </>
                         )}
