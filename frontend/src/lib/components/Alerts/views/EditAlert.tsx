@@ -109,7 +109,6 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                                     data-attr="alert-enabled"
                                     fullWidth
                                     label="Enabled"
-                                    defaultChecked
                                 />
                             </LemonField>
 

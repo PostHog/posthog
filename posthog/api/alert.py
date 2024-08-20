@@ -108,12 +108,21 @@ class AlertSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        if attrs.get("enabled") is not False and (
+            AlertConfiguration.objects.filter(team_id=self.context["team_id"], enabled=True).count()
+            >= AlertConfiguration.ALERTS_PER_TEAM
+        ):
+            raise ValidationError(
+                {"alert": [f"Your team has reached the limit of {AlertConfiguration.ALERTS_PER_TEAM} enabled alerts."]}
+            )
+
         return attrs
 
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = AlertConfiguration.objects.all()
+    queryset = AlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:

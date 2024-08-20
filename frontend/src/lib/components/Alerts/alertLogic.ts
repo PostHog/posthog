@@ -1,10 +1,11 @@
-import { connect, kea, key, path, props } from 'kea'
+import { connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { AlertType } from '~/queries/schema'
 
@@ -20,7 +21,7 @@ export const alertLogic = kea<alertLogicType>([
     props({} as AlertLogicProps),
     key(({ id, insightId }) => `${insightId}-${id ?? 'new'}`),
     connect(() => ({
-        actions: [alertsLogic, ['loadAlerts']],
+        actions: [alertsLogic, ['loadAlerts'], router, ['push']],
     })),
 
     loaders(({ props }) => ({
@@ -30,7 +31,9 @@ export const alertLogic = kea<alertLogicType>([
                 if (props.id) {
                     return await api.alerts.get(props.insightId, props.id)
                 }
-                return { condition: { absoluteThreshold: {} } }
+                return {
+                    enabled: true,
+                }
             },
         },
     })),
@@ -52,18 +55,29 @@ export const alertLogic = kea<alertLogicType>([
                     insight: props.insightId,
                 }
 
-                const updatedAlert: AlertType = !props.id
-                    ? await api.alerts.create(props.insightId, payload)
-                    : await api.alerts.update(props.insightId, props.id, payload)
+                try {
+                    const updatedAlert: AlertType = !props.id
+                        ? await api.alerts.create(props.insightId, payload)
+                        : await api.alerts.update(props.insightId, props.id, payload)
 
-                actions.resetAlert()
+                    actions.resetAlert()
 
-                actions.loadAlerts()
-                actions.loadAlertSuccess(updatedAlert)
-                lemonToast.success(`Alert saved.`)
+                    actions.loadAlerts()
+                    actions.loadAlertSuccess(updatedAlert)
+                    lemonToast.success(`Alert saved.`)
 
-                return updatedAlert
+                    return updatedAlert
+                } catch (error: any) {
+                    lemonToast.error(`Error saving alert: ${error.detail}`)
+                    throw error
+                }
             },
+        },
+    })),
+
+    listeners(({ props }) => ({
+        submitAlertSuccess: () => {
+            router.actions.push(urls.alerts(props.insightShortId))
         },
     })),
 

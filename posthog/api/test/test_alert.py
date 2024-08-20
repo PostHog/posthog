@@ -118,6 +118,24 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert list_for_another_insight.status_code == status.HTTP_200_OK
         assert len(list_for_another_insight.json()["results"]) == 0
 
+    def test_alert_limit(self) -> None:
+        with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_PER_TEAM") as alert_limit:
+            alert_limit.__get__ = mock.Mock(return_value=1)
+
+            creation_request = {
+                "insight": self.insight["id"],
+                "notification_targets": {
+                    "email": ["test@posthog.com"],
+                },
+                "threshold": {"configuration": {}},
+                "name": "alert name",
+            }
+            self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+
+            alert_2 = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+
+            assert alert_2["code"] == "invalid_input"
+
     def test_alert_is_deleted_on_insight_update(self) -> None:
         another_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
