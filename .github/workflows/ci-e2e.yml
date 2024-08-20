@@ -167,11 +167,6 @@ jobs:
               with:
                   build-id: ${{ needs.container.outputs.build-id }}
                   tags: ${{ needs.container.outputs.tag }}
-            - name: Retrieve the SAML secret and decode it
-              env:
-                  E2E_SAML_X509_CERT: ${{ secrets.E2E_SAML_X509_CERT }}
-              run: |
-                  echo $E2E_SAML_X509_CERT | base64 --decode > decoded_cert.txt
             - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
               run: |
                   CERT_CONTENT=$(cat decoded_cert.txt)
@@ -198,7 +193,7 @@ jobs:
                   CLOUD_DEPLOYMENT=E2E
                   E2E_SAML_LOGIN_EMAIL=${{ vars.E2E_SAML_LOGIN_EMAIL }}
                   E2E_SAML_LOGIN_PASSWORD=${{ secrets.E2E_SAML_LOGIN_PASSWORD }}
-                  E2E_SAML_X509_CERT="$CERT_CONTENT"
+                  E2E_SAML_X509_CERT_BASE64=${{ secrets.E2E_SAML_X509_CERT }}
                   E2E_SAML_ACS_URL=${{ vars.E2E_SAML_ACS_URL }}
                   E2E_SAML_DOMAIN=${{ vars.E2E_SAML_DOMAIN }}
                   E2E_SAML_ENTITY_ID=${{ vars.E2E_SAML_ENTITY_ID }}
