@@ -39,7 +39,6 @@ const Template: StoryFn<typeof Exporter> = (props) => {
         </div>
     )
 }
-Template.tags = ['test-skip'] // :FIXME: flaky tests, most likely due to resize observer changes
 
 export const TrendsLineInsight: Story = Template.bind({})
 TrendsLineInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json') }
@@ -202,6 +201,7 @@ StickinessInsight.tags = ['test-skip'] // doesn't produce a helpful reference im
 
 export const UserPathsInsight: Story = Template.bind({})
 UserPathsInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/userPaths.json') }
+UserPathsInsight.tags = ['test-skip'] // FIXME: flaky tests, most likely due to resize observer changes
 
 export const Dashboard: Story = Template.bind({})
 Dashboard.args = { dashboard }
