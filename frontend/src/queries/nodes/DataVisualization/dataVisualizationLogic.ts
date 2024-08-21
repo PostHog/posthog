@@ -537,57 +537,52 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         tabularData: [
-            (state) => [state.selectedTabularSeries, state.response, state.columns],
-            (selectedTabularSeries, response, columns): any[][] => {
-                if (!response || selectedTabularSeries === null || selectedTabularSeries.length === 0) {
+            (state) => [state.tabularColumns, state.response],
+            (tabularColumns, response): any[][] => {
+                if (!response || tabularColumns === null) {
                     return []
                 }
 
                 const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 return data.map((row: any[]) => {
-                    return selectedTabularSeries.map((series) => {
-                        if (!series) {
-                            return null
-                        }
-
-                        const column = columns.find((n) => n.name === series.name)
+                    return tabularColumns.map((column) => {
                         if (!column) {
                             return null
                         }
 
-                        const value = row[column.dataIndex]
+                        const value = row[column.column.dataIndex]
 
-                        if (column.type.isNumerical) {
+                        if (column.column.type.isNumerical) {
                             try {
                                 if (value === null) {
                                     return value
                                 }
 
-                                const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
+                                const multiplier = column.settings.formatting?.style === 'percent' ? 100 : 1
 
-                                if (series.settings.formatting?.decimalPlaces) {
+                                if (column.settings.formatting?.decimalPlaces) {
                                     return formatDataWithSettings(
                                         parseFloat(
                                             (parseFloat(value) * multiplier).toFixed(
-                                                series.settings.formatting.decimalPlaces
+                                                column.settings.formatting.decimalPlaces
                                             )
                                         ),
-                                        series.settings
+                                        column.settings
                                     )
                                 }
 
                                 const isInt = Number.isInteger(value)
                                 return formatDataWithSettings(
                                     isInt ? parseInt(value, 10) * multiplier : parseFloat(value) * multiplier,
-                                    series.settings
+                                    column.settings
                                 )
                             } catch {
                                 return 0
                             }
                         }
 
-                        return formatDataWithSettings(value, series.settings)
+                        return formatDataWithSettings(value, column.settings)
                     })
                 })
             },
@@ -595,11 +590,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         tabularColumns: [
             (state) => [state.selectedTabularSeries, state.response, state.columns],
             (selectedTabularSeries, response, columns): AxisSeries<any>[] => {
-                if (!response || selectedTabularSeries === null || selectedTabularSeries.length === 0) {
+                if (!response) {
                     return []
                 }
 
-                return selectedTabularSeries
+                const selectedColumns = (selectedTabularSeries || [])
                     .map((series): AxisSeries<any> | null => {
                         if (!series) {
                             return null
@@ -617,6 +612,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         }
                     })
                     .filter((series): series is AxisSeries<any> => Boolean(series))
+
+                if (selectedColumns.length === 0) {
+                    return columns.map((column) => ({
+                        column,
+                        data: [],
+                        settings: { formatting: { prefix: '', suffix: '' } },
+                    }))
+                }
+                return selectedColumns
             },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
