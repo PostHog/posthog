@@ -46,6 +46,7 @@ where
             redis_client,
             billing,
             config.export_prometheus,
+            config.capture_mode,
         )
     } else {
         let sink_liveness = liveness
@@ -86,6 +87,7 @@ where
             redis_client,
             billing,
             config.export_prometheus,
+            config.capture_mode,
         )
     };
 
