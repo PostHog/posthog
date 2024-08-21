@@ -469,7 +469,7 @@ export interface SessionRecordingAIConfig {
 export interface ProjectType {
     id: number
     name: string
-    organization_id: number
+    organization_id: string
     created_at: string
 }
 export interface TeamType extends TeamBasicType {

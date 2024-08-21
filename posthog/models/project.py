@@ -50,13 +50,13 @@ class Project(models.Model):
 
     objects: ProjectManager = ProjectManager()
 
-    @cached_property
-    def passthrough_team(self) -> "Team":
-        return self.teams.get(pk=self.pk)
-
     def __str__(self):
         if self.name:
             return self.name
         return str(self.pk)
 
     __repr__ = sane_repr("id", "name")
+
+    @cached_property
+    def passthrough_team(self) -> "Team":
+        return self.teams.get(pk=self.pk)
