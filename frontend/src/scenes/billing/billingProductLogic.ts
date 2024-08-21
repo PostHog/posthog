@@ -46,7 +46,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     }),
     actions({
         setIsEditingBillingLimit: (isEditingBillingLimit: boolean) => ({ isEditingBillingLimit }),
-        setBillingLimitInput: (billingLimitInput: number | undefined) => ({ billingLimitInput }),
+        setBillingLimitInput: (billingLimitInput: number | null) => ({ billingLimitInput }),
         billingLoaded: true,
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
@@ -160,8 +160,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (customLimit === 0 || customLimit) {
                     return customLimit
                 }
-                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
+                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] ?? null : null
             },
+        ],
+        hasCustomLimitSet: [
+            (s) => [s.customLimitUsd],
+            (customLimitUsd) => (!!customLimitUsd || customLimitUsd === 0) && customLimitUsd >= 0,
         ],
         currentAndUpgradePlans: [
             (_s, p) => [p.product],
@@ -208,11 +212,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               productAndAddonTiers,
                               billing?.discount_percent
                           )
-                        : convertAmountToUsage(
-                              typeof customLimitUsd === 'number' ? `${customLimitUsd}` : customLimitUsd || '',
-                              productAndAddonTiers,
-                              billing?.discount_percent
-                          )
+                        : convertAmountToUsage(`${customLimitUsd}`, productAndAddonTiers, billing?.discount_percent)
                     : 0
             },
         ],
@@ -264,17 +264,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.billingLoaded()
         },
         billingLoaded: () => {
+            function calculateDefaultBillingLimit(product: BillingProductV2Type | BillingProductV2AddonType): number {
+                const projectedAmount = parseInt(product.projected_amount_usd || '0')
+                return product.tiers && projectedAmount ? projectedAmount * 1.5 : DEFAULT_BILLING_LIMIT
+            }
+
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
-                values.customLimitUsd === 0 || values.customLimitUsd
-                    ? parseInt(
-                          typeof values.customLimitUsd === 'number'
-                              ? `${values.customLimitUsd}`
-                              : values.customLimitUsd || ''
-                      )
-                    : props.product.tiers && parseInt(props.product.projected_amount_usd || '0')
-                    ? parseInt(props.product.projected_amount_usd || '0') * 1.5
-                    : DEFAULT_BILLING_LIMIT
+                values.hasCustomLimitSet ? values.customLimitUsd : calculateDefaultBillingLimit(props.product)
             )
         },
         reportSurveyShown: ({ surveyID }) => {
@@ -334,7 +331,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     forms(({ actions, props, values }) => ({
         billingLimitInput: {
             errors: ({ input }) => ({
-                input: input === undefined || Number.isInteger(input) ? undefined : 'Please enter a whole number',
+                input: input === null || Number.isInteger(input) ? undefined : 'Please enter a whole number',
             }),
             submit: async ({ input }) => {
                 const addonTiers =
@@ -362,7 +359,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                             children: 'I understand',
                             onClick: () =>
                                 actions.updateBillingLimits({
-                                    [props.product.type]: typeof input === 'number' ? `${input}` : null,
+                                    [props.product.type]: input,
                                 }),
                         },
                         secondaryButton: {
@@ -381,7 +378,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                             children: 'I understand',
                             onClick: () =>
                                 actions.updateBillingLimits({
-                                    [props.product.type]: typeof input === 'number' ? `${input}` : null,
+                                    [props.product.type]: input,
                                 }),
                         },
                         secondaryButton: {
@@ -391,7 +388,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return
                 }
                 actions.updateBillingLimits({
-                    [props.product.type]: typeof input === 'number' ? `${input}` : null,
+                    [props.product.type]: input,
                 })
             },
             options: {
