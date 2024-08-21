@@ -60,10 +60,18 @@ export function EditAlert(props: EditAlertProps): JSX.Element {
                         </LemonField>
                         <Group name={['anomaly_condition', 'absoluteThreshold']}>
                             <span className="flex gap-10">
-                                <LemonField name="lower" label="Lower threshold">
+                                <LemonField
+                                    name="lower"
+                                    label="Lower threshold"
+                                    help="Notify if the value is strictly below"
+                                >
                                     <LemonInput type="number" className="w-20" data-attr="alert-lower-threshold" />
                                 </LemonField>
-                                <LemonField name="upper" label="Upper threshold">
+                                <LemonField
+                                    name="upper"
+                                    label="Upper threshold"
+                                    help="Notify if the value is strictly above"
+                                >
                                     <LemonInput type="number" className="w-20" data-attr="alert-upper-threshold" />
                                 </LemonField>
                             </span>

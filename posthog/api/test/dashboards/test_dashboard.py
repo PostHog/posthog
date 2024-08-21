@@ -1272,6 +1272,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "favorited": False,
                     "filters": {"filter_test_accounts": True},
                     "filters_hash": ANY,
+                    "hasMore": None,
                     "id": ANY,
                     "is_cached": False,
                     "is_sample": True,

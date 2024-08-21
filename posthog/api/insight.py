@@ -103,6 +103,7 @@ from posthog.utils import (
     relative_date_parse,
     str_to_bool,
 )
+from posthog.api.monitoring import monitor, Feature
 
 logger = structlog.get_logger(__name__)
 
@@ -228,6 +229,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
 class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
+    hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -293,6 +295,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "cache_target_age",
             "next_allowed_client_refresh",
             "result",
+            "hasMore",
             "columns",
             "created_at",
             "created_by",
@@ -327,6 +330,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
         )
 
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
@@ -366,6 +370,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         return insight
 
     @transaction.atomic()
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
         dashboards_before_change: list[Union[str, dict]] = []
         try:
@@ -484,6 +489,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
+
+    def get_hasMore(self, insight: Insight):
+        return self.insight_result(insight).has_more
 
     def get_columns(self, insight: Insight):
         return self.insight_result(insight).columns
@@ -781,6 +789,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             ),
         ],
     )
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="GET")
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
@@ -1095,4 +1104,4 @@ Using the correct cache and enriching the response with dashboard specific confi
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"

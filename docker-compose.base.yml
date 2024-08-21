@@ -64,6 +64,16 @@ services:
             timeout: 10s
             retries: 10
 
+    redis7:
+        image: redis:7.2-alpine
+        restart: on-failure
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 3s
+            timeout: 10s
+            retries: 10
+
     clickhouse:
         #
         # Note: please keep the default version in sync across

@@ -267,7 +267,27 @@ export function PersonScene(): JSX.Element | null {
                                       <div className="flex space-x-2 items-center mb-2">
                                           <div className="flex items-center">
                                               Choose ID:
-                                              <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
+                                              <Tooltip
+                                                  title={
+                                                      <div className="space-y-2">
+                                                          <div>
+                                                              Feature flags values can depend on a person's distinct ID.
+                                                          </div>
+                                                          <div>
+                                                              If you want your flag values to stay consistent for each
+                                                              user, you can enable flag persistence in the feature flag
+                                                              settings.
+                                                          </div>
+                                                          <div>
+                                                              This option may depend on your specific setup and isn't
+                                                              always suitable. Read more in the{' '}
+                                                              <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
+                                                                  documentation.
+                                                              </Link>
+                                                          </div>
+                                                      </div>
+                                                  }
+                                              >
                                                   <IconInfo className="ml-1 text-base" />
                                               </Tooltip>
                                           </div>

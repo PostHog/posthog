@@ -1,5 +1,4 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -8,7 +7,6 @@ import {
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
-    isOtherBreakdown,
 } from 'scenes/insights/utils'
 
 import { LifecycleQuery, MathType, TrendsFilter } from '~/queries/schema'
@@ -103,21 +101,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
-        loadMoreBreakdownUrl: [
-            (s) => [s.insightData, s.isTrends],
-            (insightData, isTrends) => {
-                return isTrends ? insightData?.next : null
-            },
-        ],
-
-        hasBreakdownOther: [
+        hasBreakdownMore: [
             (s) => [s.insightData, s.isTrends],
             (insightData, isTrends) => {
                 if (!isTrends) {
                     return false
                 }
-                const results = insightData.result ?? insightData.results
-                return !!(Array.isArray(results) && results.find((r) => isOtherBreakdown(r.breakdown_value)))
+                return !!insightData.hasMore
             },
         ],
 
@@ -257,22 +247,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     index,
                 ])
             }
-        },
-        loadMoreBreakdownValues: async () => {
-            if (!values.loadMoreBreakdownUrl) {
-                return
-            }
-            actions.setBreakdownValuesLoading(true)
-
-            const response = await api.get(values.loadMoreBreakdownUrl)
-
-            actions.setInsightData({
-                ...values.insightData,
-                result: [...values.insightData.result, ...(response.result ? response.result : [])],
-                next: response.next,
-            })
-
-            actions.setBreakdownValuesLoading(false)
         },
     })),
 ])

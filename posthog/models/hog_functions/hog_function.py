@@ -46,6 +46,7 @@ class HogFunction(UUIDModel):
     inputs_schema: models.JSONField = models.JSONField(null=True)
     inputs: models.JSONField = models.JSONField(null=True)
     filters: models.JSONField = models.JSONField(null=True, blank=True)
+    masking: models.JSONField = models.JSONField(null=True, blank=True)
     template_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
     @property
@@ -104,7 +105,7 @@ class HogFunction(UUIDModel):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.name
+        return f"HogFunction {self.id}: {self.name}"
 
 
 @receiver(post_save, sender=HogFunction)

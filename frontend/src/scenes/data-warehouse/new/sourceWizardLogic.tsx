@@ -41,7 +41,6 @@ const Caption = (): JSX.Element => (
 )
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
-export const getSalesforceRedirectUri = (): string => `${window.location.origin}/data-warehouse/salesforce/redirect`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -428,17 +427,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         name: 'Salesforce',
         fields: [
             {
-                name: 'subdomain',
-                label: 'Salesforce subdomain',
-                type: 'text',
+                name: 'integration_id',
+                label: 'Salesforce account',
+                type: 'oauth',
                 required: true,
-                placeholder: '',
             },
         ],
-        caption: 'Succesfully authenticated with Salesforce. Please continue here to complete the source setup',
-        showPrefix: (payload) => !!payload.code,
-        showSourceForm: (payload) => !payload.code,
-        oauthPayload: ['code', 'subdomain'],
+        caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
     },
 }
 
@@ -766,27 +761,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             },
         ],
-        addToSalesforceButtonUrl: [
-            (s) => [s.preflight],
-            (preflight) => {
-                return (subdomain: string) => {
-                    const clientId = preflight?.data_warehouse_integrations?.salesforce.client_id
-
-                    if (!clientId) {
-                        return null
-                    }
-
-                    const params = new URLSearchParams()
-                    params.set('client_id', clientId)
-                    params.set('redirect_uri', `${window.location.origin}/data-warehouse/salesforce/redirect`)
-                    params.set('response_type', 'code')
-                    params.set('scope', 'refresh_token api')
-                    params.set('state', subdomain)
-
-                    return `https://${subdomain}.my.salesforce.com/services/oauth2/authorize?${params.toString()}`
-                }
-            },
-        ],
         modalTitle: [
             (s) => [s.currentStep],
             (currentStep) => {
@@ -927,11 +901,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 case 'salesforce': {
                     actions.updateSource({
                         source_type: 'Salesforce',
-                        payload: {
-                            code: searchParams.code,
-                            subdomain: searchParams.subdomain,
-                            redirect_uri: getSalesforceRedirectUri(),
-                        },
                     })
                     break
                 }
@@ -978,8 +947,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             if (kind === 'salesforce') {
                 router.actions.push(urls.dataWarehouseTable(), {
                     kind,
-                    code: searchParams.code,
-                    subdomain: searchParams.state,
                 })
             }
         },
@@ -991,12 +958,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setStep(2)
             }
-            if (searchParams.kind == 'salesforce' && searchParams.code) {
+            if (searchParams.kind == 'salesforce') {
                 actions.selectConnector(SOURCE_DETAILS['Salesforce'])
-                actions.handleRedirect(searchParams.kind, {
-                    code: searchParams.code,
-                    subdomain: searchParams.subdomain,
-                })
+                actions.handleRedirect(searchParams.kind, {})
                 actions.setStep(2)
             }
         },
@@ -1005,27 +969,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                if (
-                    values.selectedConnector &&
-                    SOURCE_DETAILS[values.selectedConnector?.name].oauthPayload &&
-                    SOURCE_DETAILS[values.selectedConnector.name].oauthPayload?.every(
-                        (element) => values.source.payload[element]
-                    )
-                ) {
-                    return {}
-                }
                 return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
-                    if (
-                        values.selectedConnector.name === 'Salesforce' &&
-                        (!values.source.payload.code || !values.source.payload.subdomain)
-                    ) {
-                        window.open(values.addToSalesforceButtonUrl(sourceValues.payload.subdomain) as string)
-                        return
-                    }
-
                     const payload = {
                         ...sourceValues,
                         source_type: values.selectedConnector.name,
@@ -1035,28 +982,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
 
-                        // salesforce doesn't need to store the payload. The relevant fielsd will already be handled from the URL
-                        // only update the prefix
-                        if (values.selectedConnector.name === 'Salesforce') {
-                            actions.updateSource({
-                                ...values.source,
-                                prefix: sourceValues.prefix,
-                            })
-                        } else {
-                            const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
+                        const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
 
-                            // Only store the keys of the source type we're using
-                            actions.updateSource({
-                                ...payload,
-                                payload: {
-                                    source_type: values.selectedConnector.name,
-                                    ...payloadKeys.reduce((acc, cur) => {
-                                        acc[cur] = payload['payload'][cur]
-                                        return acc
-                                    }, {} as Record<string, any>),
-                                },
-                            })
-                        }
+                        // Only store the keys of the source type we're using
+                        actions.updateSource({
+                            ...payload,
+                            payload: {
+                                source_type: values.selectedConnector.name,
+                                ...payloadKeys.reduce((acc, cur) => {
+                                    acc[cur] = payload['payload'][cur]
+                                    return acc
+                                }, {} as Record<string, any>),
+                            },
+                        })
 
                         actions.setIsLoading(false)
                     } catch (e: any) {

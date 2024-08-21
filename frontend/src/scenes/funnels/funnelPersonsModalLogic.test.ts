@@ -6,8 +6,9 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
-import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
 
@@ -33,13 +34,16 @@ describe('funnelPersonsModalLogic', () => {
         dashboardItemId: undefined,
         cachedInsight: {
             short_id: undefined,
-            filters: {
-                insight: InsightType.FUNNELS,
-                actions: [
-                    { id: '$pageview', order: 0 },
-                    { id: '$pageview', order: 1 },
-                ],
-            },
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.ActionsNode, id: 1 },
+                        { kind: NodeKind.ActionsNode, id: 1 },
+                    ],
+                },
+            } as InsightVizNode,
             result: null,
         },
     }
