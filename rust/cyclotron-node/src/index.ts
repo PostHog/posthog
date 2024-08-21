@@ -1,12 +1,7 @@
-// We use a dynamic `require` here because `import` (at least in VS Code) doesn't seem to understand
-// or find the Node C module.
-const cyclotron = require('cyclotron')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const cyclotron = require('../index.node')
 
-export function hello() {
-    return cyclotron.hello('hello, world')
-}
-
-interface PoolConfig {
+export interface PoolConfig {
     dbUrl: string
     maxConnections?: number
     minConnections?: number
@@ -25,7 +20,7 @@ interface InternalPoolConfig {
     idle_timeout_seconds?: number
 }
 
-interface ManagerConfig {
+export interface ManagerConfig {
     shards: PoolConfig[]
 }
 
@@ -34,7 +29,7 @@ interface InternalManagerConfig {
     shards: InternalPoolConfig[]
 }
 
-interface JobInit {
+export interface JobInit {
     teamId: number
     functionId: string
     queueName: string
@@ -57,9 +52,9 @@ interface InternalJobInit {
     metadata?: string
 }
 
-type JobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
+export type JobState = 'available' | 'running' | 'completed' | 'failed' | 'paused'
 
-interface Job {
+export interface Job {
     id: string
     teamId: number
     functionId: string | null
@@ -98,7 +93,7 @@ interface InternalJob {
     parameters: string | null
 }
 
-export async function initWorker(poolConfig: PoolConfig) {
+async function initWorker(poolConfig: PoolConfig): Promise<void> {
     const initWorkerInternal: InternalPoolConfig = {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
@@ -110,7 +105,7 @@ export async function initWorker(poolConfig: PoolConfig) {
     return await cyclotron.initWorker(JSON.stringify(initWorkerInternal))
 }
 
-export async function initManager(managerConfig: ManagerConfig) {
+async function initManager(managerConfig: ManagerConfig): Promise<void> {
     const managerConfigInternal: InternalManagerConfig = {
         shards: managerConfig.shards.map((shard) => ({
             db_url: shard.dbUrl,
@@ -124,7 +119,7 @@ export async function initManager(managerConfig: ManagerConfig) {
     return await cyclotron.initManager(JSON.stringify(managerConfigInternal))
 }
 
-export async function maybeInitWorker(poolConfig: PoolConfig) {
+async function maybeInitWorker(poolConfig: PoolConfig): Promise<void> {
     const initWorkerInternal: InternalPoolConfig = {
         db_url: poolConfig.dbUrl,
         max_connections: poolConfig.maxConnections,
@@ -136,7 +131,7 @@ export async function maybeInitWorker(poolConfig: PoolConfig) {
     return await cyclotron.maybeInitWorker(JSON.stringify(initWorkerInternal))
 }
 
-export async function maybeInitManager(managerConfig: ManagerConfig) {
+async function maybeInitManager(managerConfig: ManagerConfig): Promise<void> {
     const managerConfigInternal: InternalManagerConfig = {
         shards: managerConfig.shards.map((shard) => ({
             db_url: shard.dbUrl,
@@ -150,7 +145,7 @@ export async function maybeInitManager(managerConfig: ManagerConfig) {
     return await cyclotron.maybeInitManager(JSON.stringify(managerConfigInternal))
 }
 
-export async function createJob(job: JobInit) {
+export async function createJob(job: JobInit): Promise<void> {
     job.priority ??= 1
     job.scheduled ??= new Date()
 
@@ -188,34 +183,34 @@ function convertInternalJobToJob(jobInternal: InternalJob): Job {
     }
 }
 
-export async function dequeueJobs(queueName: string, limit: number): Promise<Job[]> {
+async function dequeueJobs(queueName: string, limit: number): Promise<Job[]> {
     const jobsStr = await cyclotron.dequeueJobs(queueName, limit)
     const jobs: InternalJob[] = JSON.parse(jobsStr)
     return jobs.map(convertInternalJobToJob)
 }
-export async function dequeueJobsWithVmState(queueName: string, limit: number): Promise<Job[]> {
+async function dequeueJobsWithVmState(queueName: string, limit: number): Promise<Job[]> {
     const jobsStr = await cyclotron.dequeueJobsWithVmState(queueName, limit)
     const jobs: InternalJob[] = JSON.parse(jobsStr)
     return jobs.map(convertInternalJobToJob)
 }
 
-export async function flushJob(jobId: string) {
+async function flushJob(jobId: string): Promise<void> {
     return await cyclotron.flushJob(jobId)
 }
 
-export function setState(jobId: string, jobState: JobState) {
+function setState(jobId: string, jobState: JobState): Promise<void> {
     return cyclotron.setState(jobId, jobState)
 }
 
-export function setQueue(jobId: string, queueName: string) {
+function setQueue(jobId: string, queueName: string): Promise<void> {
     return cyclotron.setQueue(jobId, queueName)
 }
 
-export function setPriority(jobId: string, priority: number) {
+function setPriority(jobId: string, priority: number): Promise<void> {
     return cyclotron.setPriority(jobId, priority)
 }
 
-export function setScheduledAt(jobId: string, scheduledAt: Date) {
+function setScheduledAt(jobId: string, scheduledAt: Date): Promise<void> {
     return cyclotron.setScheduledAt(jobId, scheduledAt.toISOString())
 }
 
@@ -224,22 +219,39 @@ function serializeObject(name: string, obj: Record<string, any> | null): string 
         return null
     } else if (typeof obj === 'object' && obj !== null) {
         return JSON.stringify(obj)
-    } else {
-        throw new Error(`${name} must be either an object or null`)
     }
+    throw new Error(`${name} must be either an object or null`)
 }
 
-export function setVmState(jobId: string, vmState: Record<string, any> | null) {
+function setVmState(jobId: string, vmState: Record<string, any> | null): Promise<void> {
     const serialized = serializeObject('vmState', vmState)
     return cyclotron.setVmState(jobId, serialized)
 }
 
-export function setMetadata(jobId: string, metadata: Record<string, any> | null) {
+function setMetadata(jobId: string, metadata: Record<string, any> | null): Promise<void> {
     const serialized = serializeObject('metadata', metadata)
     return cyclotron.setMetadata(jobId, serialized)
 }
 
-export function setParameters(jobId: string, parameters: Record<string, any> | null) {
+function setParameters(jobId: string, parameters: Record<string, any> | null): Promise<void> {
     const serialized = serializeObject('parameters', parameters)
     return cyclotron.setParameters(jobId, serialized)
+}
+
+export default {
+    initWorker,
+    initManager,
+    maybeInitWorker,
+    maybeInitManager,
+    createJob,
+    dequeueJobs,
+    dequeueJobsWithVmState,
+    flushJob,
+    setState,
+    setQueue,
+    setPriority,
+    setScheduledAt,
+    setVmState,
+    setMetadata,
+    setParameters,
 }

@@ -1,3 +1,4 @@
+import cyclotron from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
@@ -20,7 +21,6 @@ import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
-import * as cyclotron from '../worker/cyclotron'
 import { RustyHook } from '../worker/rusty-hook'
 import { AsyncFunctionExecutor } from './async-function-executor'
 import { GroupsManager } from './groups-manager'
@@ -444,7 +444,12 @@ abstract class CdpConsumerBase {
         const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.hub)
         const globalProducerConfig = createRdProducerConfigFromEnvVars(this.hub)
 
-        await Promise.all([this.hogFunctionManager.start()])
+        await Promise.all([
+            this.hogFunctionManager.start(),
+            this.hub.CYCLOTRON_DATABASE_URL
+                ? cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+                : Promise.resolve(),
+        ])
 
         this.kafkaProducer = new KafkaProducerWrapper(
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
@@ -703,14 +708,14 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected topic = 'UNUSED-CdpCyclotronWorker'
     protected consumerGroupId = 'UNUSED-CdpCyclotronWorker'
-
     private runningWorker: Promise<void> | undefined
+    private isUnhealthy = false
 
     public async _handleEachBatch(_: Message[]): Promise<void> {
         // Not called, we override `start` below to use Cyclotron instead.
     }
 
-    public async innerStart() {
+    private async innerStart() {
         try {
             const limit = 100 // TODO: Make configurable.
             while (!this.isStopping) {
@@ -722,15 +727,29 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 }
             }
         } catch (err) {
+            this.isUnhealthy = true
             console.error('Error in Cyclotron worker', err)
             throw err
         }
     }
 
     public async start() {
+        await cyclotron.initManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }] })
+        await cyclotron.initWorker({ dbUrl: this.hub.CYCLOTRON_DATABASE_URL })
+
         // Consumer `start` expects an async task is started, and not that `start` itself blocks
         // indefinitely.
         this.runningWorker = this.innerStart()
+
         return Promise.resolve()
+    }
+
+    public async stop() {
+        await super.stop()
+        await this.runningWorker
+    }
+
+    public isHealthy() {
+        return this.isUnhealthy
     }
 }

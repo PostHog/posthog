@@ -193,7 +193,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: isTestEnv() ? 'postgres://posthog:posthog@localhost:5432/cyclotron' : '',
+        CYCLOTRON_DATABASE_URL: '',
     }
 }
 
