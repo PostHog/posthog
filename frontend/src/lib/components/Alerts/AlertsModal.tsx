@@ -67,6 +67,7 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
 
     return (
         <LemonButton
+            data-attr="manage-alerts-button"
             onClick={() => push(urls.alerts(insight.short_id!))}
             fullWidth
             disabledReason={

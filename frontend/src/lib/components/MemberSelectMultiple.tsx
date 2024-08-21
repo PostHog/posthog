@@ -42,7 +42,7 @@ export function MemberSelectMultiple({ idKey, value, onChange }: MemberSelectMul
             }}
             mode="multiple"
             options={options}
-            data-attr="subscribed-emails"
+            data-attr="subscribed-users"
         />
     )
 }

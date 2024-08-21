@@ -32,14 +32,14 @@ class ConditionValidator:
         return matches
 
     def validate_absolute_threshold(self, calculated_value: float) -> list[str]:
-        if not self.threshold:
+        if not self.threshold or not self.threshold.absoluteThreshold:
             return []
 
-        thresholds = self.threshold.absoluteThreshold
-        if thresholds.lower is not None and calculated_value < thresholds.lower:
-            return [f"The trend value ({calculated_value}) is below the lower threshold ({thresholds.lower})"]
-        if thresholds.upper is not None and calculated_value > thresholds.upper:
-            return [f"The trend value ({calculated_value}) is above the upper threshold ({thresholds.upper})"]
+        absolute_threshold = self.threshold.absoluteThreshold
+        if absolute_threshold.lower is not None and calculated_value < absolute_threshold.lower:
+            return [f"The trend value ({calculated_value}) is below the lower threshold ({absolute_threshold.lower})"]
+        if absolute_threshold.upper is not None and calculated_value > absolute_threshold.upper:
+            return [f"The trend value ({calculated_value}) is above the upper threshold ({absolute_threshold.upper})"]
         return []
 
 
@@ -86,7 +86,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     name = models.CharField(max_length=255, blank=True)
     subscribed_users = models.ManyToManyField(
         "posthog.User",
-        through="AlertSubscription",
+        through="posthog.AlertSubscription",
         through_fields=("alert_configuration", "user"),
         related_name="alert_configurations",
     )

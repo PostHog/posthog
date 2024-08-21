@@ -15,16 +15,15 @@ describe('Alerts', () => {
 
     const createAlert = (
         name: string = 'Alert name',
-        email: string = 'a@b.c',
         lowerThreshold: string = '100',
         upperThreshold: string = '200'
     ): void => {
         cy.get('[data-attr=more-button]').click()
-        cy.contains('Alerts').click()
+        cy.contains('Manage alerts').click()
         cy.contains('New alert').click()
 
         cy.get('[data-attr=alert-name]').clear().type(name)
-        cy.get('[data-attr=alert-notification-targets').clear().type(email)
+        cy.get('[data-attr=subscribed-users').click().type('{downarrow}{enter}')
         cy.get('[data-attr=alert-lower-threshold').clear().type(lowerThreshold)
         cy.get('[data-attr=alert-upper-threshold').clear().type(upperThreshold)
         cy.contains('Create alert').click()
@@ -45,7 +44,7 @@ describe('Alerts', () => {
     it('Should allow create and delete an alert', () => {
         cy.get('[data-attr=more-button]').click()
         // Alerts should be disabled for trends represented with graphs
-        cy.get('[data-attr=disabled-alerts-button]').should('exist')
+        cy.get('[data-attr=manage-alerts-button]').should('have.attr', 'aria-disabled', 'true')
 
         setInsightDisplayTypeAndSave('Number')
 
@@ -54,10 +53,8 @@ describe('Alerts', () => {
 
         // Check the alert has the same values as when it was created
         cy.get('[data-attr=more-button]').click()
-        cy.contains('Alerts').click()
         cy.contains('Manage alerts').click()
         cy.get('[data-attr=alert-list-item]').contains('Alert name').click()
-        cy.get('[data-attr=alert-notification-targets]').should('have.value', 'a@b.c')
         cy.get('[data-attr=alert-name]').should('have.value', 'Alert name')
         cy.get('[data-attr=alert-lower-threshold').should('have.value', '100')
         cy.get('[data-attr=alert-upper-threshold').should('have.value', '200')
@@ -90,7 +87,6 @@ describe('Alerts', () => {
 
         // Assert that saving an insight in an incompatible state removes alerts
         cy.get('[data-attr=more-button]').click()
-        cy.contains('Alerts').click()
         cy.contains('Manage alerts').click()
         cy.contains('Alert to be deleted because of a changed insight').should('not.exist')
     })

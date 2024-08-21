@@ -104,7 +104,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         isOpen={insightMode === ItemMode.Alerts}
                         insightLogicProps={insightLogicProps}
-                        insightId={insight.id}
+                        insightId={insight.id as number}
                         insightShortId={insight.short_id as InsightShortId}
                         alertId={typeof itemId === 'string' ? itemId : null}
                     />
