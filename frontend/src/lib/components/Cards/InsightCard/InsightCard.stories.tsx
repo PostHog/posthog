@@ -64,7 +64,6 @@ const meta: Meta = {
             control: { type: 'boolean' },
         },
     },
-    tags: ['test-skip'], // :FIXME: flaky tests, most likely due to resize observer changes
 }
 export default meta
 export const InsightCard: Story = (args) => {
