@@ -348,7 +348,9 @@ pub async fn process_replay_events<'a>(
     let session_id = events[0]
         .properties
         .get("$session_id")
-        .ok_or(CaptureError::MissingSessionId)?;
+        .ok_or(CaptureError::MissingSessionId)?
+        .as_str()
+        .ok_or(CaptureError::InvalidSessionId)?;
     let window_id = events[0]
         .properties
         .get("$window_id")
@@ -371,7 +373,7 @@ pub async fn process_replay_events<'a>(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        session_id: Some(session_id.as_str().unwrap().to_string()),
+        session_id: Some(session_id.to_string()),
     };
 
     sink.send(event).await

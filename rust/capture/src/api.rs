@@ -41,6 +41,8 @@ pub enum CaptureError {
     MissingSessionId,
     #[error("replay event submitted without window id")]
     MissingWindowId,
+    #[error("replay event has invalid session id")]
+    InvalidSessionId,
 
     #[error("event submitted without an api_key")]
     NoTokenError,
@@ -76,6 +78,7 @@ impl IntoResponse for CaptureError {
             | CaptureError::NonRetryableSinkError
             | CaptureError::MissingSessionId
             | CaptureError::MissingWindowId
+            | CaptureError::InvalidSessionId
             | CaptureError::MissingSnapshotData => (StatusCode::BAD_REQUEST, self.to_string()),
 
             CaptureError::NoTokenError
