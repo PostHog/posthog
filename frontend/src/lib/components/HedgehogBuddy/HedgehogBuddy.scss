@@ -2,7 +2,6 @@
     position: fixed;
     z-index: var(--z-hedgehog-buddy);
     margin: 0;
-    overflow: hidden;
     cursor: pointer;
 
     &::after {

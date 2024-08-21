@@ -99,20 +99,6 @@ const config = {
                 2: '2 2 0%',
                 3: '3 3 0%',
             },
-            animation: {
-              'plop': 'plop 250ms ease',
-              'rise': 'rise 250ms ease',
-            },
-            keyframes: {
-                plop: {
-                  '0%': { transform: 'translateY(0)' },
-                  '100%': { transform: 'translateY(100%)' },
-                },
-                rise: {
-                  '0%': { transform: 'translateY(100%)' },
-                  '100%': { transform: 'translateY(0)' },
-                },
-            }
         },
     },
     plugins: [require('@tailwindcss/container-queries')],
