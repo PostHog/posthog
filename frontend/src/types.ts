@@ -1588,7 +1588,7 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
-        [key: string]: string | number | null | undefined
+        [key: string]: number | null
     }
     billing_period?: {
         current_period_start: Dayjs
@@ -2543,7 +2543,7 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps {
+export interface InsightLogicProps<T = InsightVizNode> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
@@ -2555,8 +2555,8 @@ export interface InsightLogicProps {
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
-    query?: InsightVizNode
-    setQuery?: (node: InsightVizNode) => void
+    query?: T
+    setQuery?: (node: T) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
