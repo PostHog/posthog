@@ -118,16 +118,15 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
     reducers({
         lastCheckTimestamp: [
             0,
-            // bumping cache key due to a change to version logic, so we want to re-check even if someone recently checked
-            { persist: true, prefix: '2024-08-21' },
+            { persist: true },
             {
                 loadUsedVersionsSuccess: () => Date.now(),
             },
         ],
         versionWarning: [
             null as SDKVersionWarning | null,
-            // bumping cache key due to a change to version logic, so we want to re-check even if someone recently checked
-            { persist: true, prefix: '2024-08-21' },
+            // bumping cache key due to an incorrect tag being cached on 2024-02-12
+            { persist: true, prefix: '2024-02-12' },
             {
                 setVersionWarning: (_, { versionWarning }) => versionWarning,
             },
