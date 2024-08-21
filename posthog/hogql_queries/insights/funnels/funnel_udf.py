@@ -63,6 +63,31 @@ class FunnelUDF(FunnelBase):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
+        # test
+        '''
+        inner_select = parse_select(
+            f"""
+                    SELECT
+                        arrayJoin({fn}(
+                            {self.context.max_steps},
+                            {self.conversion_window_limit()},
+                            '{breakdown_attribution_string}',
+                            '{self.context.funnelsFilter.funnelOrderType}',
+                            {prop_vals},
+                            arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
+                        )) as af_tuple,
+                        af_tuple.1 as af,
+                        af_tuple.2 as breakdown,
+                        af_tuple.3 as timings
+                    FROM {{inner_event_query}}
+                    GROUP BY aggregation_target{breakdown_prop}
+                    HAVING af >= 0
+                """,
+            {"inner_event_query": inner_event_query},
+        )
+        return inner_select
+        '''
+
         inner_select = parse_select(
             f"""
             SELECT
@@ -79,6 +104,7 @@ class FunnelUDF(FunnelBase):
                 af_tuple.3 as timings
             FROM {{inner_event_query}}
             GROUP BY aggregation_target{breakdown_prop}
+            HAVING af >= 0
         """,
             {"inner_event_query": inner_event_query},
         )
