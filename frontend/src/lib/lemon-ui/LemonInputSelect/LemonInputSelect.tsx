@@ -502,7 +502,7 @@ function ValueSnacks({
                         <LemonSnack
                             title={option?.label}
                             onClose={() => onClose(value)}
-                            onClick={() => onInitiateEdit(value)}
+                            onClick={onInitiateEdit ? () => onInitiateEdit(value) : undefined}
                             className="cursor-text"
                         >
                             {option?.labelComponent ?? option?.label}

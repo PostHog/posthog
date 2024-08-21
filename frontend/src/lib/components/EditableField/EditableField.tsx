@@ -187,8 +187,8 @@ export function EditableField({
                                 value={localTentativeValue}
                                 onChange={(e) => {
                                     guardAvailableFeature(paywallFeature, () => {
-                                        onChange?.(e.target.value)
-                                        setLocalTentativeValue(e.target.value)
+                                        onChange?.(e.currentTarget.value)
+                                        setLocalTentativeValue(e.currentTarget.value)
                                     })
                                 }}
                                 onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
