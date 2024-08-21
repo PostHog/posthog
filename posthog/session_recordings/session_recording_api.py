@@ -53,7 +53,13 @@ from ee.session_recordings.ai.error_clustering import error_clustering
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
 from posthog.storage import object_storage
 from prometheus_client import Counter
+from posthog.auth import PersonalAPIKeyAuthentication
 
+SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
+    "snapshots_personal_api_key_counter",
+    "Requests for recording snapshots per personal api key",
+    labelnames=["api_key", "source"],
+)
 
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
@@ -413,6 +419,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if source:
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
+
+        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        if personal_api_key:
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
 
         if not source:
             return self._gather_session_recording_sources(recording)
