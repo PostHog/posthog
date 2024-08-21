@@ -8,24 +8,21 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { ExperimentsEditingToolbarMenu } from '~/toolbar/experiments/ExperimentsEditingToolbarMenu'
 import { ExperimentsListView } from '~/toolbar/experiments/ExperimentsListView'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import {experimentsLogic} from "~/toolbar/experiments/experimentsLogic";
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 
 const ExperimentsListToolbarMenu = (): JSX.Element => {
-    const { searchTerm } = useValues(actionsLogic)
+    const { searchTerm } = useValues(experimentsLogic)
     // const { setSearchTerm, getActions } = useActions(actionsLogic)
 
-    const { newAction } = useActions(actionsTabLogic)
-    const { getExperiments } = useActions(experimentsLogic)
+    const { newExperiment } = useActions(experimentsTabLogic)
+    const { setSearchTerm, getExperiments } = useActions(experimentsLogic)
     const { allExperiments,  sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
-
-    console.log(`rendering experiments toolbar menu item`)
-
     const { apiURL } = useValues(toolbarConfigLogic)
 
     useEffect(() => {
@@ -61,7 +58,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
                     <Link to={`${apiURL}${urls.experiments()}`} target="_blank">
                         View &amp; edit all experiments <IconOpenInNew />
                     </Link>
-                    <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>
+                    <LemonButton type="primary" size="small" onClick={() => newExperiment()} icon={<IconPlus />}>
                         New experiment
                     </LemonButton>
                 </div>
@@ -71,6 +68,6 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
 }
 
 export const ExperimentsToolbarMenu = (): JSX.Element => {
-    const { selectedAction } = useValues(actionsTabLogic)
-    return selectedAction ? <ExperimentsEditingToolbarMenu /> : <ExperimentsListToolbarMenu />
+    const { selectedExperiment } = useValues(experimentsTabLogic)
+    return selectedExperiment ? <ExperimentsEditingToolbarMenu /> : <ExperimentsListToolbarMenu />
 }

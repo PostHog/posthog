@@ -72,8 +72,8 @@ export type ActionDraftType = Omit<ActionType, 'id' | 'created_at' | 'created_by
 export type ExperimentDraftType = Omit<Experiment, 'id' | 'created_at' | 'created_by'>
 
 
-export interface ExperimentForm extends ActionDraftType {
-    elements?: ActionStepForm[]
+export interface ExperimentForm extends ExperimentDraftType {
+    variants?: Record<string, WebExperimentVariant>
 }
 
 export interface ActionStepForm extends ActionStepType {
@@ -85,4 +85,32 @@ export interface ActionStepForm extends ActionStepType {
 
 export interface ActionForm extends ActionDraftType {
     steps?: ActionStepForm[]
+}
+
+export type WebExperimentUrlMatchType = 'regex' | 'not_regex' | 'exact' | 'is_not' | 'icontains' | 'not_icontains'
+
+export interface WebExperiment extends Experiment {
+    variants?: WebExperimentVariant[]
+}
+
+export interface WebExperimentVariant {
+    conditions: {
+        url?: string
+        urlMatchType?: WebExperimentUrlMatchType
+        utm: {
+            utm_source?: string
+            utm_medium?: string
+            utm_campaign?: string
+            utm_term?: string
+        }
+    } | null
+    transforms: WebExperimentTransform[]
+}
+
+export interface WebExperimentTransform {
+    selector?: string
+    text?: string
+    html?: string
+    imgUrl?: string
+    className?: string
 }

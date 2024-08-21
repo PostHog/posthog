@@ -9,7 +9,7 @@ import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ExperimentDraftType, ExperimentForm } from '~/toolbar/types'
+import {ExperimentDraftType, ExperimentForm, WebExperiment, WebExperimentVariant} from '~/toolbar/types'
 import { experimentStepToExperimentStepFormItem, elementToExperimentStep, stepToDatabaseFormat } from '~/toolbar/utils'
 import { Experiment, ElementType } from '~/types'
 
@@ -81,7 +81,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 'temporaryToken',
                 'buttonVisible',
                 'userIntent',
-                'selectedExperimentId',
                 'dataAttributes',
             ],
             experimentsLogic,
@@ -157,14 +156,14 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     forms(({ values, actions }) => ({
         experimentForm: {
-            defaults: { name: null, steps: [{}] } as ExperimentForm,
+            defaults: { name: null, variants: [{}] as unknown as WebExperimentVariant[] }  as unknown as ExperimentForm,
             errors: ({ name }) => ({
                 name: !name || !name.length ? 'Must name this experiment' : undefined,
             }),
             submit: async (formValues, breakpoint) => {
                 const experimentToSave = {
                     ...formValues,
-                    steps: formValues.steps?.map(stepToDatabaseFormat) || [],
+                    steps: formValues.variants?.map(stepToDatabaseFormat) || [],
                 }
                 const { apiURL, temporaryToken } = values
                 const { selectedExperimentId } = values
@@ -208,7 +207,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 if (editingSelector === null) {
                     return null
                 }
-                const selector = experimentForm.steps?.[editingSelector].selector
+                const selector = experimentForm.variants?.[editingSelector].transforms[0].selector
                 return selector || null
             },
         ],
@@ -239,16 +238,24 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     subscriptions(({ actions }) => ({
         selectedExperiment: (selectedExperiment: Experiment | ExperimentDraftType | null) => {
+            console.log(`latest: selectedExperiment is `, selectedExperiment)
             if (!selectedExperiment) {
-                actions.setExperimentFormValues({ name: null, steps: [{}] })
+                actions.setExperimentFormValues({ name: null, variants: [{}] })
             } else {
+
+                // const webExperiment = (selectedExperiment as WebExperiment)
+                // actions.setExperimentFormValues({
+                //     ...selectedExperiment,
+                //     elements: selectedExperiment.variants
+                //         ? selectedExperiment.elements.map((element) =>
+                //               experimentStepToExperimentStepFormItem(step, false)
+                //           )
+                //         : [{}],
+                // })
+
                 actions.setExperimentFormValues({
-                    ...selectedExperiment,
-                    elements: selectedExperiment.elements
-                        ? selectedExperiment.elements.map((element) =>
-                              experimentStepToExperimentStepFormItem(step, false)
-                          )
-                        : [{}],
+                    name: selectedExperiment.name,
+                    variants: (selectedExperiment as WebExperiment).variants ? (selectedExperiment as WebExperiment).variants : [{}]
                 })
             }
         },

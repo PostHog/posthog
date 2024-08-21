@@ -10,24 +10,29 @@ import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const {
-        selectedActionId,
+        selectedExperimentId,
         inspectingElement,
         editingSelector,
         elementsChainBeingEdited,
         editingSelectorValue,
-        actionForm,
-    } = useValues(actionsTabLogic)
+        experimentForm,
+    } = useValues(experimentsTabLogic)
     const {
-        setActionFormValue,
-        selectAction,
+        setExperimentFormValue,
+        selectExperiment,
         inspectForElementWithIndex,
-        deleteAction,
+        deleteExperiment,
         setElementSelector,
         editSelectorWithIndex,
-    } = useActions(actionsTabLogic)
+    } = useActions(experimentsTabLogic)
+
+    const experimentVariants = Object.keys(experimentForm.variants!)
+    console.log(`experimentForm.variants is `, experimentForm.variants)
+    console.log(`Object.keys(experimentForm.variants!) is `, Object.keys(experimentForm.variants!))
 
     return (
         <ToolbarMenu>
@@ -46,166 +51,242 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 }}
             />
             <Form
-                name="action_step"
+                name="action_variant"
                 logic={actionsTabLogic}
-                formKey="actionForm"
+                formKey="experimentForm"
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
             >
                 <ToolbarMenu.Header className="border-b">
                     <h1 className="p-1 font-bold text-sm mb-0">
-                        {selectedActionId === 'new' ? 'New ' : 'Edit '}
+                        {selectedExperimentId === 'new' ? 'New ' : 'Edit '}
                         experiment
                     </h1>
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
                     <div className="p-1">
                         <div>
-                            <p>What did your user do?</p>
+                            <p>Name your experiment</p>
                             <Field name="name">
                                 <LemonInput
-                                    placeholder="E.g: Clicked Sign Up"
+                                    placeholder="E.g: Hero banner redesign"
                                     className="action-title-field"
                                     stopPropagation={true}
+                                    value={experimentForm.name}
                                 />
                             </Field>
                         </div>
-
-                        {actionForm.steps?.map((step, index) => (
-                            <Group key={index} name={['steps', index]}>
-                                <LemonDivider />
-                                <div key={index} className="p-1 flex flex-col gap-2">
-                                    <div className="flex flex-row justify-between">
-                                        <h3>
-                                            {index > 0 ? 'OR ' : null}Element #{index + 1}
-                                        </h3>
-                                        <LemonButton
-                                            type="tertiary"
-                                            size="small"
-                                            onClick={() =>
-                                                setActionFormValue(
-                                                    'steps',
-                                                    //actionForm.steps without the step at index
-                                                    actionForm.steps?.filter((_, i) => i !== index)
-                                                )
-                                            }
-                                            sideIcon={<IconTrash />}
-                                        >
-                                            Remove
-                                        </LemonButton>
-                                    </div>
-
-                                    <div className="action-inspect">
-                                        <LemonButton
-                                            size="small"
-                                            type={inspectingElement === index ? 'primary' : 'secondary'}
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                inspectForElementWithIndex(inspectingElement === index ? null : index)
-                                            }}
-                                            icon={<IconSearch />}
-                                        >
-                                            {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
-                                        </LemonButton>
-                                    </div>
-
-                                    {step?.event === '$autocapture' || inspectingElement === index ? (
-                                        <>
-                                            <StepField
-                                                step={step}
-                                                item="selector"
-                                                label="Selector"
-                                                caption="CSS selector that uniquely identifies your element"
-                                            />
-                                            <div className="flex flex-row justify-end mb-2">
-                                                <LemonButton
-                                                    size="small"
-                                                    type="secondary"
-                                                    icon={<IconPencil />}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        toolbarPosthogJS.capture(
-                                                            'toolbar_manual_selector_modal_opened',
-                                                            {
-                                                                selector: step?.selector,
-                                                            }
-                                                        )
-                                                        editSelectorWithIndex(index)
-                                                    }}
-                                                >
-                                                    Edit the selector
-                                                </LemonButton>
+                        <Group name='variants'>
+                            <LemonDivider/>
+                            <h3> Variants </h3>
+                            <div className="text-right mt-4">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    sideIcon={<IconPlus/>}
+                                    onClick={() =>
+                                        setExperimentFormValue('variants', [...(experimentForm.variants || {}), {}])
+                                    }
+                                >
+                                    Add Another Variant
+                                </LemonButton>
+                                {/*{ experimentVariants.forEach((variant)=> {*/}
+                                {/*    <>*/}
+                                {/*        <h3> {variant} </h3>*/}
+                                {/*    </>*/}
+                                {/*})}*/}
+                                {Object.keys(experimentForm.variants!).map((variant, index) => (
+                                    <Group key={variant} name={['variants', index]}>
+                                        <div className="p-1 flex flex-col gap-2">
+                                    <h3>{variant}</h3>
+                                    <LemonDivider/>
+                                        <table>
+                                            <thead>
+                                            <th>Selector</th>
+                                            <th>text</th>
+                                            <th>html</th>
+                                            <th>imgUrl</th>
+                                            <th>className</th>
+                                            </thead>
+                                            {experimentForm.variants![variant].transforms.map((transform, tIndex) => (
+                                                <tr key={tIndex}>
+                                                    <td>{transform.selector}</td>
+                                                    <td><LemonInput
+                                    placeholder="E.g. some text here"
+                                    className="action-title-field"
+                                    stopPropagation={true}
+                                    value={transform.text}
+                                /></td>
+                                                    <td><LemonInput
+                                    placeholder="E.g. some html here"
+                                    className="action-title-field"
+                                    stopPropagation={true}
+                                    value={transform.html}
+                                /></td>
+                                                    <td>
+                                                        <LemonInput
+                                                            placeholder="E.g. some imgUrl here"
+                                                            className="action-title-field"
+                                                            stopPropagation={true}
+                                                            value={transform.imgUrl}
+                                                        />
+                                                    </td>
+                                                    <td>
+                                                        <LemonInput
+                                                            placeholder="E.g. some className here"
+                                                            className="action-title-field"
+                                                            stopPropagation={true}
+                                                            value={transform.className}
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </table>
                                             </div>
-                                            <StepField
-                                                step={step}
-                                                item="href"
-                                                label="Link target"
-                                                caption={
-                                                    <>
-                                                        If your element is a link, the location that the link opens (
-                                                        <code>href</code> tag)
-                                                    </>
-                                                }
-                                            />
-                                            <LemonTag type="highlight">
-                                                <span className="uppercase">and</span>
-                                            </LemonTag>
-                                            <StepField
-                                                step={step}
-                                                item="text"
-                                                label="Text"
-                                                caption="Text content inside your element"
-                                            />
-                                            <LemonTag type="highlight">
-                                                <span className="uppercase">and</span>
-                                            </LemonTag>
-                                            <StepField
-                                                step={step}
-                                                item="url"
-                                                label="Page URL"
-                                                caption="Elements will match only when triggered from the URL."
-                                            />
-                                        </>
-                                    ) : null}
-
-                                    {index === (actionForm.steps?.length || 0) - 1 ? (
-                                        <div className="text-right mt-4">
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                sideIcon={<IconPlus />}
-                                                onClick={() =>
-                                                    setActionFormValue('steps', [...(actionForm.steps || []), {}])
-                                                }
-                                            >
-                                                Add Another Element
-                                            </LemonButton>
-                                        </div>
-                                    ) : null}
-                                </div>
-                            </Group>
-                        ))}
-
-                        {(actionForm.steps || []).length === 0 ? (
-                            <LemonButton
-                                icon={<IconPlus />}
-                                size="small"
-                                type="primary"
-                                onClick={() => setActionFormValue('steps', [...(actionForm.steps || []), {}])}
-                                className="my-2"
-                            >
-                                Add An Element
-                            </LemonButton>
-                        ) : null}
+                                    </Group>
+                                ))}
+                                {/*{ Object.keys(experimentForm.variants!).map (variant) => (*/}
+                                {/*    <h3> {variant} </h3>*/}
+                                {/*})) }*/}
+                            </div>
+                        </Group>
                     </div>
                 </ToolbarMenu.Body>
+                    {/*    { for( const variant in experimentForm.variants?) {*/}
+                    {/*        <Group key={variant} name={['variants', variant]}>*/}
+                    {/*            <LemonDivider/>*/}
+                    {/*            <div key={variant} className="p-1 flex flex-col gap-2">*/}
+                    {/*                <div className="flex flex-row justify-between">*/}
+                    {/*                    <h3>*/}
+                    {/*                        {index > 0 ? 'OR ' : null}Transform #{index + 1}*/}
+                    {/*                    </h3>*/}
+                    {/*                    <LemonButton*/}
+                    {/*                        type="tertiary"*/}
+                    {/*                        size="small"*/}
+                    {/*                        onClick={() =>*/}
+                    {/*                            setExperimentFormValue(*/}
+                    {/*                                'variants',*/}
+                    {/*                                //experimentForm.variants without the variant at index*/}
+                    {/*                                experimentForm.variants?.filter((_, i) => i !== index)*/}
+                    {/*                            )*/}
+                    {/*                        }*/}
+                    {/*                        sideIcon={<IconTrash />}*/}
+                    {/*                    >*/}
+                    {/*                        Remove*/}
+                    {/*                    </LemonButton>*/}
+                    {/*                </div>*/}
+
+                    {/*                <div className="action-inspect">*/}
+                    {/*                    <LemonButton*/}
+                    {/*                        size="small"*/}
+                    {/*                        type={inspectingElement === index ? 'primary' : 'secondary'}*/}
+                    {/*                        onClick={(e) => {*/}
+                    {/*                            e.stopPropagation()*/}
+                    {/*                            inspectForElementWithIndex(inspectingElement === index ? null : index)*/}
+                    {/*                        }}*/}
+                    {/*                        icon={<IconSearch />}*/}
+                    {/*                    >*/}
+                    {/*                        {'Select Element'}*/}
+                    {/*                    </LemonButton>*/}
+                    {/*                </div>*/}
+
+                    {/*                {variant?.event === '$autocapture' || inspectingElement === index ? (*/}
+                    {/*                    <>*/}
+                    {/*                        <StepField*/}
+                    {/*                            variant={variant}*/}
+                    {/*                            item="selector"*/}
+                    {/*                            label="Selector"*/}
+                    {/*                            caption="CSS selector that uniquely identifies your element"*/}
+                    {/*                        />*/}
+                    {/*                        <div className="flex flex-row justify-end mb-2">*/}
+                    {/*                            <LemonButton*/}
+                    {/*                                size="small"*/}
+                    {/*                                type="secondary"*/}
+                    {/*                                icon={<IconPencil />}*/}
+                    {/*                                onClick={(e) => {*/}
+                    {/*                                    e.stopPropagation()*/}
+                    {/*                                    toolbarPosthogJS.capture(*/}
+                    {/*                                        'toolbar_manual_selector_modal_opened',*/}
+                    {/*                                        {*/}
+                    {/*                                            selector: variant?.selector,*/}
+                    {/*                                        }*/}
+                    {/*                                    )*/}
+                    {/*                                    editSelectorWithIndex(index)*/}
+                    {/*                                }}*/}
+                    {/*                            >*/}
+                    {/*                                Edit the selector*/}
+                    {/*                            </LemonButton>*/}
+                    {/*                        </div>*/}
+                    {/*                        <StepField*/}
+                    {/*                            variant={variant}*/}
+                    {/*                            item="href"*/}
+                    {/*                            label="Link target"*/}
+                    {/*                            caption={*/}
+                    {/*                                <>*/}
+                    {/*                                    If your element is a link, the location that the link opens (*/}
+                    {/*                                    <code>href</code> tag)*/}
+                    {/*                                </>*/}
+                    {/*                            }*/}
+                    {/*                        />*/}
+                    {/*                        <LemonTag type="highlight">*/}
+                    {/*                            <span className="uppercase">and</span>*/}
+                    {/*                        </LemonTag>*/}
+                    {/*                        <StepField*/}
+                    {/*                            variant={variant}*/}
+                    {/*                            item="text"*/}
+                    {/*                            label="Text"*/}
+                    {/*                            caption="Text content inside your element"*/}
+                    {/*                        />*/}
+                    {/*                        <LemonTag type="highlight">*/}
+                    {/*                            <span className="uppercase">and</span>*/}
+                    {/*                        </LemonTag>*/}
+                    {/*                        <StepField*/}
+                    {/*                            variant={variant}*/}
+                    {/*                            item="url"*/}
+                    {/*                            label="Page URL"*/}
+                    {/*                            caption="Elements will match only when triggered from the URL."*/}
+                    {/*                        />*/}
+                    {/*                    </>*/}
+                    {/*                ) : null}*/}
+
+                    {/*                {index === (experimentForm.variants?.length || 0) - 1 ? (*/}
+                    {/*                    <div className="text-right mt-4">*/}
+                    {/*                        <LemonButton*/}
+                    {/*                            type="secondary"*/}
+                    {/*                            size="small"*/}
+                    {/*                            sideIcon={<IconPlus />}*/}
+                    {/*                            onClick={() =>*/}
+                    {/*                                setExperimentFormValue('variants', [...(experimentForm.variants || []), {}])*/}
+                    {/*                            }*/}
+                    {/*                        >*/}
+                    {/*                            Add Another Element*/}
+                    {/*                        </LemonButton>*/}
+                    {/*                    </div>*/}
+                    {/*                ) : null}*/}
+                    {/*            </div>*/}
+                    {/*        </Group>*/}
+                    {/*    ))}*/}
+
+                    {/*    {(experimentForm.variants || []).length === 0 ? (*/}
+                    {/*        <LemonButton*/}
+                    {/*            icon={<IconPlus />}*/}
+                    {/*            size="small"*/}
+                    {/*            type="primary"*/}
+                    {/*            onClick={() => setExperimentFormValue('variants', [...(experimentForm.variants || []), {}])}*/}
+                    {/*            className="my-2"*/}
+                    {/*        >*/}
+                    {/*            Add An Element*/}
+                    {/*        </LemonButton>*/}
+                    {/*    ) : null}*/}
+                    {/*</div>*/}
+                {/*</ToolbarMenu.Body>*/}
                 <ToolbarMenu.Footer>
                     <span className="flex-1">
-                        {selectedActionId !== 'new' ? (
+                        {selectedExperimentId !== 'new' ? (
                             <LemonButton
                                 type="secondary"
                                 status="danger"
-                                onClick={deleteAction}
+                                onClick={deleteExperiment}
                                 icon={<IconTrash />}
                                 size="small"
                             >
@@ -213,11 +294,11 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                             </LemonButton>
                         ) : null}
                     </span>
-                    <LemonButton type="secondary" size="small" onClick={() => selectAction(null)}>
+                    <LemonButton type="secondary" size="small" onClick={() => selectExperiment(null)}>
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" htmlType="submit" size="small">
-                        {selectedActionId === 'new' ? 'Create ' : 'Save '}
+                        {selectedExperimentId === 'new' ? 'Create ' : 'Save '}
                         action
                     </LemonButton>
                 </ToolbarMenu.Footer>

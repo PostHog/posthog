@@ -4,9 +4,10 @@ import { loaders } from 'kea-loaders'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { Experiment } from '~/types'
+// import { WebExperiment } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
+import {WebExperiment} from "~/toolbar/types";
 
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['toolbar', 'experiments', 'experimentsLogic']),
@@ -15,14 +16,13 @@ export const experimentsLogic = kea<experimentsLogicType>([
     }),
     loaders(({ values }) => ({
         allExperiments: [
-            [] as Experiment[],
+            [] as WebExperiment[],
             {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
                     const response = await toolbarFetch('/api/projects/@current/experiments/')
                     const results = await response.json()
 
-                    console.log(`loaded experiments `, results)
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
                         return []
@@ -36,7 +36,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
 
                     return results.results
                 },
-                updateExperiment: ({ experiment }: { experiment: Experiment }) => {
+                updateExperiment: ({ experiment }: { experiment: WebExperiment }) => {
                     return values.allExperiments.filter((r) => r.id !== experiment.id).concat([experiment])
                 },
                 deleteExperiment: ({ id }: { id: number }) => {
@@ -57,7 +57,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
         sortedExperiments: [
             (s) => [s.allExperiments, s.searchTerm],
             (allExperiments, searchTerm) => {
-                console.log(`sorting experiments `, allExperiments)
                 const filteredExperiments = searchTerm
                     ? new Fuse(allExperiments, {
                           threshold: 0.3,

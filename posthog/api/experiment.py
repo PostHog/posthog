@@ -18,13 +18,24 @@ from posthog.utils_cors import cors_response
 
 class ExperimentTransformSerializer(serializers.Serializer):
     transforms = serializers.SerializerMethodField()
+    rollout_percentage = serializers.SerializerMethodField()
 
     class Meta:
-        fields = ["transforms"]
+        fields = ["transforms", "rollout_percentage"]
         read_only_fields = fields
 
     def get_transforms(self, instance):
-        return json.loads(instance)["data"]
+        if instance is None or instance.get('data', None) is None:
+            return
+
+        print('instance is ', instance)
+        return json.loads(instance.get('data', {})).get("data", {})
+
+    def get_rollout_percentage(self, instance):
+        if instance is None or instance.get('rollout_percentage', None) is None:
+            return
+        print('returning rollout_percentage')
+        return instance.get('rollout_percentage', 0)
 
 
 class ExperimentsAPISerializer(serializers.ModelSerializer):
@@ -46,13 +57,36 @@ class ExperimentsAPISerializer(serializers.ModelSerializer):
         #
         if experiment.feature_flag.filters is None:
             return
-        #
+
+        multivariate = experiment.feature_flag.filters.get("multivariate", None)
+        if multivariate is None:
+            return
+
+        variants = multivariate.get("variants", [])
+        if len(variants) == 0:
+            return
+
         payloads = experiment.feature_flag.filters.get("payloads", {})
+        if len(payloads) == 0:
+            return
+
         if not isinstance(payloads, dict):
             return
-        for key in payloads:
-            payloads[key] = ExperimentTransformSerializer(payloads[key]).data
 
+        for variant in variants:
+            rollout_percentage = variant.get("rollout_percentage",0)
+            key = variant.get("key", None)
+            # print('variant is ', key, '  rollout_percentage is ', rollout_percentage, '  payload is ', payloads)
+            serializer_payload = {
+                'data': payloads.get(key, None),
+                'rollout_percentage': rollout_percentage
+            }
+            variant_transforms_payload = ExperimentTransformSerializer(serializer_payload)
+            # variant_transforms_payload.rollout_percentage = rollout_percentage
+            payloads[key] = variant_transforms_payload.data
+            # payloads[key].
+            payloads[key].rollout_percentage = rollout_percentage
+        print('2 return payloads as ', payloads)
         return payloads
 
 
