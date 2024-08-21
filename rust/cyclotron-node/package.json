@@ -11,7 +11,8 @@
         "build:cargo": "cargo build --message-format=json > cargo.log",
         "build:cargo:debug": "pnpm run build:cargo",
         "build:cross": "cross build --message-format=json > cross.log",
-        "build:typescript": "tsc"
+        "build:typescript": "tsc",
+        "package": "NODE_ENV=development pnpm i --dev && pnpm run build"
     },
     "author": "",
     "license": "MIT",
