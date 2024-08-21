@@ -374,7 +374,7 @@ export function LemonInputSelect({
                                     type="tertiary"
                                     size="small"
                                     fullWidth
-                                    active={isFocused || isSelected}
+                                    active={isFocused}
                                     onClick={(e) => _onActionItem(option.key, e)}
                                     onMouseEnter={() => setSelectedIndex(index)}
                                     icon={
