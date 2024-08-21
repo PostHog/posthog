@@ -34,6 +34,20 @@ class BytecodeResult:
     stdout: list[str]
 
 
+@dataclass
+class CallFrame:
+    ip: int
+    stack_start: int
+    arg_len: int
+
+
+@dataclass
+class ThrowFrame:
+    call_stack_len: int
+    stack_len: int
+    catch_ip: int
+
+
 def execute_bytecode(
     bytecode: list[Any],
     globals: Optional[dict[str, Any]] = None,
@@ -47,8 +61,8 @@ def execute_bytecode(
     last_op = len(bytecode) - 1
     stack: list = []
     mem_stack: list = []
-    call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
-    throw_stack: list[tuple[int, int, int]] = []  # (call_stack_length, stack_length, catch_ip)
+    call_stack: list[CallFrame] = []
+    throw_stack: list[ThrowFrame] = []
     declared_functions: dict[str, tuple[int, int]] = {}
     mem_used = 0
     max_mem_used = 0
@@ -201,7 +215,8 @@ def execute_bytecode(
                 pop_stack()
             case Operation.RETURN:
                 if call_stack:
-                    ip, stack_start, arg_len = call_stack.pop()
+                    last_call = call_stack.pop()
+                    ip, stack_start, arg_len = last_call.ip, last_call.stack_start, last_call.arg_len
                     response = pop_stack()
                     stack = stack[0:stack_start]
                     mem_used -= sum(mem_stack[stack_start:])
@@ -210,10 +225,10 @@ def execute_bytecode(
                 else:
                     return BytecodeResult(result=pop_stack(), stdout=stdout, bytecode=bytecode)
             case Operation.GET_LOCAL:
-                stack_start = 0 if not call_stack else call_stack[-1][1]
+                stack_start = 0 if not call_stack else call_stack[-1].stack_start
                 push_stack(stack[next_token() + stack_start])
             case Operation.SET_LOCAL:
-                stack_start = 0 if not call_stack else call_stack[-1][1]
+                stack_start = 0 if not call_stack else call_stack[-1].stack_start
                 value = pop_stack()
                 index = next_token() + stack_start
                 stack[index] = value
@@ -299,7 +314,7 @@ def execute_bytecode(
                 if name in declared_functions:
                     # This is for backwards compatibility. We use a closure on the stack with local functions now.
                     func_ip, arg_len = declared_functions[name]
-                    call_stack.append((ip + 1, len(stack) - arg_len, arg_len))
+                    call_stack.append(CallFrame(ip=ip + 1, stack_start=len(stack) - arg_len, arg_len=arg_len))
                     ip = func_ip
                 else:
                     # Shortcut for calling STL functions (can also be done with an STL function closure)
@@ -332,7 +347,9 @@ def execute_bytecode(
                         raise HogVMException(
                             f"Too many arguments. Passed {args_length}, expected {callable['argCount']}"
                         )
-                    call_stack.append((ip, len(stack) - callable["argCount"], callable["argCount"]))
+                    call_stack.append(
+                        CallFrame(ip=ip, stack_start=len(stack) - callable["argCount"], arg_len=callable["argCount"])
+                    )
                     ip = callable["ip"]
 
                 elif callable.get("__hogCallable__") == "stl":
@@ -357,7 +374,9 @@ def execute_bytecode(
                     raise HogVMException("Invalid callable")
 
             case Operation.TRY:
-                throw_stack.append((len(call_stack), len(stack), ip + next_token()))
+                throw_stack.append(
+                    ThrowFrame(call_stack_len=len(call_stack), stack_len=len(stack), catch_ip=ip + next_token())
+                )
             case Operation.POP_TRY:
                 if throw_stack:
                     throw_stack.pop()
@@ -368,7 +387,12 @@ def execute_bytecode(
                 if not is_hog_error(exception):
                     raise HogVMException("Can not throw: value is not of type Error")
                 if throw_stack:
-                    call_stack_len, stack_len, catch_ip = throw_stack.pop()
+                    last_throw = throw_stack.pop()
+                    call_stack_len, stack_len, catch_ip = (
+                        last_throw.call_stack_len,
+                        last_throw.stack_len,
+                        last_throw.catch_ip,
+                    )
                     stack = stack[0:stack_len]
                     mem_used -= sum(mem_stack[stack_len:])
                     mem_stack = mem_stack[0:stack_len]

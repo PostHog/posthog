@@ -19,15 +19,27 @@ const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
 const DEFAULT_TIMEOUT_MS = 5000 // ms
 const MAX_FUNCTION_ARGS_LENGTH = 300
 
+export interface CallFrame {
+    ip: number
+    stackStart: number
+    argCount: number
+}
+
+export interface ThrowFrame {
+    callStackLen: number
+    stackLen: number
+    catchIp: number
+}
+
 export interface VMState {
     /** Bytecode running in the VM */
     bytecode: any[]
     /** Stack of the VM */
     stack: any[]
     /** Call stack of the VM */
-    callStack: [number, number, number][]
+    callStack: CallFrame[] // [number, number, number][]
     /** Throw stack of the VM */
-    throwStack: [number, number, number][]
+    throwStack: ThrowFrame[]
     /** Declared functions of the VM */
     declaredFunctions: Record<string, [number, number]>
     /** Instruction pointer of the VM */
@@ -125,8 +137,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const syncDuration = vmState ? vmState.syncDuration : 0
     const stack: any[] = vmState ? vmState.stack : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
-    const callStack: [number, number, number][] = vmState ? vmState.callStack : []
-    const throwStack: [number, number, number][] = vmState ? vmState.throwStack : []
+    const callStack: CallFrame[] = vmState ? vmState.callStack : []
+    const throwStack: ThrowFrame[] = vmState ? vmState.throwStack : []
     const declaredFunctions: Record<string, [number, number]> = vmState ? vmState.declaredFunctions : {}
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
     let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
@@ -354,7 +366,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             case Operation.RETURN:
                 if (callStack.length > 0) {
-                    const [newIp, stackStart, _] = callStack.pop()!
+                    const { ip: newIp, stackStart } = callStack.pop()!
                     const response = popStack()
                     spliceStack1(stackStart)
                     pushStack(response)
@@ -368,11 +380,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     } satisfies ExecResult
                 }
             case Operation.GET_LOCAL:
-                temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
+                temp = callStack.length > 0 ? callStack[callStack.length - 1].stackStart : 0
                 pushStack(stack[next() + temp])
                 break
             case Operation.SET_LOCAL:
-                temp = (callStack.length > 0 ? callStack[callStack.length - 1][1] : 0) + next()
+                temp = (callStack.length > 0 ? callStack[callStack.length - 1].stackStart : 0) + next()
                 stack[temp] = popStack()
                 temp2 = memStack[temp]
                 memStack[temp] = calculateCost(stack[temp])
@@ -461,7 +473,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (name in declaredFunctions && name !== 'toString') {
                     // This is for backwards compatibility. We use a closure on the stack with local functions now.
                     const [funcIp, argLen] = declaredFunctions[name]
-                    callStack.push([ip + 1, stack.length - argLen, argLen])
+                    callStack.push({ ip: ip + 1, stackStart: stack.length - argLen, argCount: argLen })
                     ip = funcIp
                 } else {
                     // Shortcut for calling STL functions (can also be done with an STL function closure)
@@ -541,7 +553,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             `Too many arguments. Passed ${temp}, expected ${closure.callable.argCount}`
                         )
                     }
-                    callStack.push([ip, stack.length - closure.callable.argCount, closure.callable.argCount])
+                    callStack.push({
+                        ip,
+                        stackStart: stack.length - closure.callable.argCount,
+                        argCount: closure.callable.argCount,
+                    })
                     ip = closure.callable.ip
                 } else if (closure.callable.__hogCallable__ === 'stl') {
                     if (!closure.callable.name || !(closure.callable.name in STL)) {
@@ -598,7 +614,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             }
             case Operation.TRY:
-                throwStack.push([callStack.length, stack.length, ip + next()])
+                throwStack.push({ callStackLen: callStack.length, stackLen: stack.length, catchIp: ip + next() })
                 break
             case Operation.POP_TRY:
                 if (throwStack.length > 0) {
@@ -613,7 +629,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     throw new HogVMException('Can not throw: value is not of type Error')
                 }
                 if (throwStack.length > 0) {
-                    const [callStackLen, stackLen, catchIp] = throwStack.pop()!
+                    const { callStackLen, stackLen, catchIp } = throwStack.pop()!
                     spliceStack1(stackLen)
                     memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
                     callStack.splice(callStackLen)
