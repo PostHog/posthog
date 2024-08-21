@@ -1,3 +1,35 @@
+let dbl := x -> x * 2
+
+print(dbl)
+print(dbl(2))
+print(dbl(8))
+
+print('--------')
+
+let var := 5
+let varify := x -> x * var
+
+print(varify(2))
+var := 10
+print(varify(2))
+print(varify(8))
+
+print('--------')
+
+// TODO: does not work yet when var goes out of scope
+//
+//fn bigVar() {
+//    let var := 5
+//    let varify := x -> x * var
+//    return varify
+//}
+//let bigVarify := bigVar()
+//
+//print(bigVarify(2))
+//print(bigVarify(8))
+//
+//print('--------')
+
 let a := 3
 
 fn outerA() {
