@@ -20,6 +20,7 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
+from rest_framework import serializers
 
 import lzstring
 import posthoganalytics
@@ -1045,7 +1046,10 @@ def filters_override_requested_by_client(request: Request) -> Optional[dict]:
     raw_filters = request.query_params.get("filters_override")
 
     if raw_filters is not None:
-        return json.loads(raw_filters)
+        try:
+            return json.loads(raw_filters)
+        except Exception:
+            raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
     return None
 

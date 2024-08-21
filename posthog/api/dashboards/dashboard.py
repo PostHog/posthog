@@ -283,15 +283,13 @@ class DashboardSerializer(DashboardBasicSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
 
+        instance.filters = initial_data.get("filters", instance.filters)
         instance = super().update(instance, validated_data)
 
         user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
             self._update_tiles(instance, tile_data, user)
-
-        instance.filters = initial_data.get("filters", instance.filters)
-        instance.save(update_fields=["filters"])
 
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())

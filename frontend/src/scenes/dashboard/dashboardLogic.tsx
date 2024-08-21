@@ -138,14 +138,14 @@ async function getSingleInsight(
     queryId: string,
     refresh: RefreshType,
     methodOptions?: ApiMethodOptions,
-    filters_override?: DashboardFilter
+    filtersOverride?: DashboardFilter
 ): Promise<QueryBasedInsightModel | null> {
     const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
         refresh,
         from_dashboard: dashboardId, // needed to load insight in correct context
         client_query_id: queryId,
         session_id: currentSessionId(),
-        ...(filters_override ? { filters_override } : {}),
+        ...(filtersOverride ? { filters_override: filtersOverride } : {}),
     })}`
     const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
     const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
@@ -731,10 +731,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         apiUrl: [
             () => [(_, props) => props.id],
             (id) => {
-                return (refresh?: RefreshType, filters_override?: DashboardFilter) =>
+                return (refresh?: RefreshType, filtersOverride?: DashboardFilter) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
-                        filters_override,
+                        filters_override: filtersOverride,
                     })}`
             },
         ],
