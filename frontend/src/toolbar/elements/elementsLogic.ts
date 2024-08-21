@@ -12,6 +12,7 @@ import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapLogic } from './heatmapLogic'
+import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -109,9 +110,12 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.inspectEnabledRaw,
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
+                experimentsTabLogic.selectors.inspectingElement,
             ],
-            (inspectEnabledRaw, inspectingElement, buttonActionsVisible) =>
-                inspectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
+            (inspectEnabledRaw, actionsInspectingElement, actionsButtonActionsVisible, experimentsInspectingElement) => {
+                console.log(`enabling inspect, value is `, experimentsInspectingElement)
+                return inspectEnabledRaw || (actionsButtonActionsVisible && actionsInspectingElement !== null) || experimentsInspectingElement
+            }
         ],
 
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],

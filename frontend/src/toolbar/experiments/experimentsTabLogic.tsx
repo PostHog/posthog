@@ -204,10 +204,14 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         editingSelectorValue: [
             (s) => [s.editingSelector, s.experimentForm],
             (editingSelector, experimentForm): string | null => {
+            console.log(`getting editingSelectorValue`)
                 if (editingSelector === null) {
+
+                    console.log(`returning because editingSelector is null`)
                     return null
                 }
-                const selector = experimentForm.variants?.[editingSelector].transforms[0].selector
+                const selector = '#set-user-properties'
+                    // experimentForm.variants?.[editingSelector].transforms[0].selector
                 return selector || null
             },
         ],
@@ -263,6 +267,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     listeners(({ actions, values }) => ({
         setElementSelector: ({ selector, index }) => {
+            console.log(`in setElementSelector`)
             if (values.experimentForm) {
                 const steps = [...(values.experimentForm.steps || [])]
                 if (steps && steps[index]) {
@@ -285,6 +290,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             }
         },
         inspectElementSelected: ({ element, index }) => {
+            console.log(`in  inspectElementsSelected`)
             if (values.experimentForm) {
                 const experimentStep = experimentStepToExperimentStepFormItem(
                     elementToExperimentStep(element, values.dataAttributes),

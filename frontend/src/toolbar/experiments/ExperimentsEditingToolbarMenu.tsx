@@ -7,10 +7,11 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
-import { StepField } from '~/toolbar/actions/StepField'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import {experimentsTabLogic} from "~/toolbar/experiments/experimentsTabLogic";
+import {SelectorCount} from "~/toolbar/actions/SelectorCount";
+import {StepField} from "~/toolbar/actions/StepField";
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const {
@@ -30,10 +31,10 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         editSelectorWithIndex,
     } = useActions(experimentsTabLogic)
 
-    const experimentVariants = Object.keys(experimentForm.variants!)
-    console.log(`experimentForm.variants is `, experimentForm.variants)
-    console.log(`Object.keys(experimentForm.variants!) is `, Object.keys(experimentForm.variants!))
-
+    // const experimentVariants = Object.keys(experimentForm.variants!)
+    // console.log(`experimentForm.variants is `, experimentForm.variants)
+    // console.log(`Object.keys(experimentForm.variants!) is `, Object.keys(experimentForm.variants!))
+    console.log(`editingSelector !== null is `, editingSelector !== null)
     return (
         <ToolbarMenu>
             <SelectorEditingModal
@@ -79,7 +80,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                         <Group name='variants'>
                             <LemonDivider/>
                             <h3> Variants </h3>
-                            <div className="text-right mt-4">
+                            <div className="mt-2">
                                 <LemonButton
                                     type="secondary"
                                     size="small"
@@ -90,28 +91,72 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 >
                                     Add Another Variant
                                 </LemonButton>
-                                {/*{ experimentVariants.forEach((variant)=> {*/}
-                                {/*    <>*/}
-                                {/*        <h3> {variant} </h3>*/}
-                                {/*    </>*/}
-                                {/*})}*/}
                                 {Object.keys(experimentForm.variants!).map((variant, index) => (
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="p-1 flex flex-col gap-2">
-                                    <h3>{variant}</h3>
+                                            <h3>{variant} </h3> (Rollout Percentage : {experimentForm.variants![variant].rollout_percentage}% )
                                     <LemonDivider/>
                                         <table>
                                             <thead>
-                                            <th>Selector</th>
-                                            <th>text</th>
-                                            <th>html</th>
-                                            <th>imgUrl</th>
-                                            <th>className</th>
+                                                <tr>
+                                                    <th>Selector</th>
+                                                    <th>text</th>
+                                                    <th>html</th>
+                                                    <th>imgUrl</th>
+                                                    <th>className</th>
+                                                </tr>
                                             </thead>
+                                            <tbody>
                                             {experimentForm.variants![variant].transforms.map((transform, tIndex) => (
                                                 <tr key={tIndex}>
-                                                    <td>{transform.selector}</td>
-                                                    <td><LemonInput
+                                                    <td> {transform.selector}
+                                                        <div className="action-inspect">
+                                                            <LemonButton
+                                                                size="small"
+                                                                type={inspectingElement === tIndex ? 'primary' : 'secondary'}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    inspectForElementWithIndex(1)
+                                                                }}
+                                                                icon={<IconSearch />}
+                                                            >
+                                                                Select Element
+                                                            </LemonButton>
+
+                                                            {inspectingElement === tIndex ? (
+                                                                <>
+                                                                    {/*<StepField*/}
+                                                                    {/*    step={step}*/}
+                                                                    {/*    item="selector"*/}
+                                                                    {/*    label="Selector"*/}
+                                                                    {/*    caption="CSS selector that uniquely identifies your element"*/}
+                                                                    {/*/>*/}
+                                                                    <div className="flex flex-row justify-end mb-2">
+                                                                        <LemonButton
+                                                                            size="small"
+                                                                            type="secondary"
+                                                                            icon={<IconPencil />}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation()
+                                                                                toolbarPosthogJS.capture(
+                                                                                    'toolbar_manual_selector_modal_opened',
+                                                                                    {
+                                                                                        selector: transform.selector,
+                                                                                    }
+                                                                                )
+                                                                                editSelectorWithIndex(tIndex)
+                                                                            }}
+                                                                        >
+                                                                            Edit the selector
+                                                                        </LemonButton>
+                                                                    </div>
+                                                                </>
+                                                            ): null}
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        {transform.selector && <SelectorCount selector={transform.selector} />}
+                                                        <LemonInput
                                     placeholder="E.g. some text here"
                                     className="action-title-field"
                                     stopPropagation={true}
@@ -141,6 +186,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     </td>
                                                 </tr>
                                             ))}
+                                            </tbody>
                                         </table>
                                             </div>
                                     </Group>

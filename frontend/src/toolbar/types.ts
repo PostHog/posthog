@@ -105,6 +105,7 @@ export interface WebExperimentVariant {
         }
     } | null
     transforms: WebExperimentTransform[]
+    rollout_percentage?: number
 }
 
 export interface WebExperimentTransform {
