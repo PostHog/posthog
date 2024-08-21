@@ -129,7 +129,7 @@ class ActivityLog(UUIDModel):
     # e.g. FeatureFlags - this will often be the name of a model class
     scope = models.fields.CharField(max_length=79, null=False)
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=timezone.now)
 
 
 common_field_exclusions = [
@@ -434,7 +434,8 @@ class ActivityPage:
     results: list[ActivityLog]
 
 
-def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1) -> ActivityPage:
+def get_activity_page(activity_query=10, page: int = 1) -> ActivityPage:
+    limit = 100
     paginator = Paginator(activity_query, limit)
     activity_page = paginator.page(page)
 

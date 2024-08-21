@@ -17,7 +17,7 @@ mypy-baseline~=0.7.0
 mypy-extensions==1.0.0
 datamodel-code-generator==0.25.6
 djangorestframework-stubs~=3.14.5
-django-stubs==4.2.7
+django-stubs==5.0.4
 Faker==17.5.0
 fakeredis[lua]==2.23.3
 freezegun==1.2.2
