@@ -609,8 +609,6 @@ class PersonsJoinMode(StrEnum):
 
 
 class PersonsOnEventsMode(StrEnum):
-    # `disabled` is deprecated and set for removal
-    # `person_id_override_properties_joined` is the faster functional eqivalent
     DISABLED = "disabled"
     PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
     PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
