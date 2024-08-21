@@ -133,8 +133,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
             case Operation.POP:
                 return f"POP({stack[-1]})"
             case Operation.RETURN:
-                if call_stack:
-                    return f"RETURN({stack[-1]} --> {call_stack[-1].ip}/{call_stack[-1].stack_start})"
+                if len(call_stack) > 1:
+                    return f"RETURN({stack[-1]}) --> {call_stack[-2].ip}"
                 else:
                     return "RETURN"
             case Operation.GET_LOCAL:
@@ -287,7 +287,7 @@ def color_bytecode(bytecode: list) -> list:
             case Operation.CALL_LOCAL:
                 add = ["op.CALL_LOCAL", f"args: {bytecode[ip+1]}"]
             case Operation.CALL_GLOBAL:
-                add = ["op.CALL_GLOBAL", f"name: {bytecode[ip+1]}, args: {bytecode[ip+2]}"]
+                add = ["op.CALL_GLOBAL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
             case Operation.TRY:
                 add = ["op.TRY", f"catch: +{bytecode[ip+1]}"]
             case Operation.POP_TRY:

@@ -30,8 +30,6 @@ export interface VMState {
     throwStack: ThrowFrame[]
     /** Declared functions of the VM */
     declaredFunctions: Record<string, [number, number]>
-    /** Instruction pointer of the VM */
-    ip: number
     /** How many sync ops have been performed */
     ops: number
     /** How many async steps have been taken */
@@ -131,10 +129,26 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     let memUsed = memStack.reduce((acc, val) => acc + val, 0)
     let maxMemUsed = Math.max(vmState ? vmState.maxMemUsed : 0, memUsed)
     const memLimit = options?.memoryLimit ?? DEFAULT_MAX_MEMORY
-    let ip = vmState ? vmState.ip : 1
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
+
+    if (callStack.length === 0) {
+        callStack.push({
+            ip: 1,
+            stackStart: 0,
+            argCount: 0,
+            closure: newHogClosure({
+                __hogCallable__: 'main',
+                name: '',
+                argCount: 0,
+                upvalueCount: 0,
+                ip: 1,
+            }),
+        } satisfies CallFrame)
+    }
+
+    let frame: CallFrame = callStack[callStack.length - 1]
 
     function popStack(): any {
         if (stack.length === 0) {
@@ -164,10 +178,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
 
     function next(): any {
-        if (ip >= bytecode!.length - 1) {
+        if (frame.ip >= bytecode!.length - 1) {
             throw new HogVMException('Unexpected end of bytecode')
         }
-        return bytecode![++ip]
+        return bytecode![++frame.ip]
     }
 
     function checkTimeout(): void {
@@ -190,12 +204,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         }
     }
 
-    for (; ip < bytecode.length; ip++) {
+    while (frame.ip < bytecode.length) {
         ops += 1
         if ((ops & 127) === 0) {
             checkTimeout()
         }
-        switch (bytecode[ip]) {
+        switch (bytecode[frame.ip]) {
             case null:
                 break
             case Operation.STRING:
@@ -354,12 +368,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             case Operation.RETURN:
                 if (callStack.length > 0) {
-                    const { ip: newIp, stackStart } = callStack.pop()!
+                    const stackStart = callStack.pop()!.stackStart
                     const response = popStack()
                     spliceStack1(stackStart)
                     pushStack(response)
-                    ip = newIp
-                    break
+                    frame = callStack[callStack.length - 1]
+                    continue // resume the loop without incrementing frame.ip
                 } else {
                     return {
                         result: popStack(),
@@ -414,18 +428,18 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             case Operation.JUMP:
                 temp = next()
-                ip += temp
+                frame.ip += temp
                 break
             case Operation.JUMP_IF_FALSE:
                 temp = next()
                 if (!popStack()) {
-                    ip += temp
+                    frame.ip += temp
                 }
                 break
             case Operation.JUMP_IF_STACK_NOT_NULL:
                 temp = next()
                 if (stack.length > 0 && stack[stack.length - 1] !== null) {
-                    ip += temp
+                    frame.ip += temp
                 }
                 break
             case Operation.DECLARE_FN: {
@@ -433,8 +447,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 const name = next()
                 const argCount = next()
                 const bodyLength = next()
-                declaredFunctions[name] = [ip, argCount]
-                ip += bodyLength
+                declaredFunctions[name] = [frame.ip + 1, argCount]
+                frame.ip += bodyLength
                 break
             }
             case Operation.CALLABLE: {
@@ -444,11 +458,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 const callable = {
                     __hogCallable__: 'local',
                     argCount,
-                    ip,
+                    // upvalueCount,
+                    ip: frame.ip + 1,
                     name,
                 } satisfies HogCallable
                 pushStack(callable)
-                ip += bodyLength
+                frame.ip += bodyLength
                 break
             }
             case Operation.CLOSURE: {
@@ -461,8 +476,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (name in declaredFunctions && name !== 'toString') {
                     // This is for backwards compatibility. We use a closure on the stack with local functions now.
                     const [funcIp, argLen] = declaredFunctions[name]
-                    callStack.push({
-                        ip: ip + 1,
+                    frame.ip += 1 // advance for when we return
+                    frame = {
+                        ip: funcIp,
                         stackStart: stack.length - argLen,
                         argCount: argLen,
                         closure: newHogClosure({
@@ -472,8 +488,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             ip: -1,
                             name: name,
                         } satisfies HogCallable),
-                    })
-                    ip = funcIp
+                    } satisfies CallFrame
+                    callStack.push(frame)
+                    continue // resume the loop without incrementing frame.ip
                 } else {
                     // Shortcut for calling STL functions (can also be done with an STL function closure)
                     temp = next() // args.length
@@ -511,7 +528,6 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                                 callStack,
                                 throwStack,
                                 declaredFunctions,
-                                ip: ip + 1,
                                 ops,
                                 asyncSteps: asyncSteps + 1,
                                 syncDuration: syncDuration + (Date.now() - startTime),
@@ -552,13 +568,15 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             `Too many arguments. Passed ${temp}, expected ${closure.callable.argCount}`
                         )
                     }
-                    callStack.push({
-                        ip,
+                    frame.ip += 1 // advance for when we return
+                    frame = {
+                        ip: closure.callable.ip,
                         stackStart: stack.length - closure.callable.argCount,
                         argCount: closure.callable.argCount,
                         closure,
-                    })
-                    ip = closure.callable.ip
+                    } satisfies CallFrame
+                    callStack.push(frame)
+                    continue // resume the loop without incrementing frame.ip
                 } else if (closure.callable.__hogCallable__ === 'stl') {
                     if (!closure.callable.name || !(closure.callable.name in STL)) {
                         throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
@@ -601,7 +619,6 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             callStack,
                             throwStack,
                             declaredFunctions,
-                            ip: ip + 1,
                             ops,
                             asyncSteps: asyncSteps + 1,
                             syncDuration: syncDuration + (Date.now() - startTime),
@@ -614,7 +631,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             }
             case Operation.TRY:
-                throwStack.push({ callStackLen: callStack.length, stackLen: stack.length, catchIp: ip + next() })
+                throwStack.push({
+                    callStackLen: callStack.length,
+                    stackLen: stack.length,
+                    catchIp: frame.ip + 1 + next(),
+                })
                 break
             case Operation.POP_TRY:
                 if (throwStack.length > 0) {
@@ -634,15 +655,19 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
                     callStack.splice(callStackLen)
                     pushStack(exception)
-                    ip = catchIp
+                    frame = callStack[callStack.length - 1]
+                    frame.ip = catchIp
+                    continue // resume the loop without incrementing frame.ip
                 } else {
                     throw new UncaughtHogVMException(exception.type, exception.message, exception.payload)
                 }
-                break
             }
             default:
-                throw new HogVMException(`Unexpected node while running bytecode: ${bytecode[ip]}`)
+                throw new HogVMException(`Unexpected node while running bytecode: ${bytecode[frame.ip]}`)
         }
+
+        // use "continue" to skip incrementing frame.ip each iteration
+        frame.ip++
     }
 
     // if (stack.length > 1) {

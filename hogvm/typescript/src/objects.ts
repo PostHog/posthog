@@ -20,7 +20,7 @@ export interface HogError {
 }
 
 export interface HogCallable {
-    __hogCallable__: 'local' | 'stl' | 'async'
+    __hogCallable__: 'local' | 'stl' | 'async' | 'main'
     name?: string
     argCount: number
     ip: number

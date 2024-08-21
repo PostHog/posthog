@@ -52,19 +52,38 @@ def execute_bytecode(
     declared_functions: dict[str, tuple[int, int]] = {}
     mem_used = 0
     max_mem_used = 0
-    ip = -1
     ops = 0
     stdout: list[str] = []
     colored_bytecode = color_bytecode(bytecode) if debug else []
     if isinstance(timeout, int):
         timeout = timedelta(seconds=timeout)
 
+    if len(call_stack) == 0:
+        call_stack.append(
+            CallFrame(
+                ip=-1,
+                stack_start=0,
+                arg_len=0,
+                closure=new_hog_closure(
+                    {
+                        "__hogCallable__": "main",
+                        "argCount": 0,
+                        "upvalueCount": 0,
+                        "ip": 1,
+                        "name": "",
+                    }
+                ),
+            )
+        )
+
+    frame = call_stack[-1]
+
     def next_token():
-        nonlocal ip
-        ip += 1
-        if ip > last_op:
+        nonlocal frame
+        if frame.ip >= last_op:
             raise HogVMException("Unexpected end of bytecode")
-        return bytecode[ip]
+        frame.ip += 1
+        return bytecode[frame.ip]
 
     def pop_stack():
         if not stack:
@@ -93,13 +112,14 @@ def execute_bytecode(
         if time.time() - start_time > timeout.total_seconds() and not debug:
             raise HogVMException(f"Execution timed out after {timeout.total_seconds()} seconds. Performed {ops} ops.")
 
-    while True:
+    symbol: Any = None
+    while frame.ip <= last_op:
         ops += 1
-        symbol = next_token()
+        symbol = bytecode[frame.ip]
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
         elif debug:
-            debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack, throw_stack)
+            debugger(symbol, bytecode, colored_bytecode, frame.ip, stack, call_stack, throw_stack)
         match symbol:
             case None:
                 break
@@ -200,14 +220,15 @@ def execute_bytecode(
             case Operation.POP:
                 pop_stack()
             case Operation.RETURN:
-                if call_stack:
-                    last_call = call_stack.pop()
-                    ip, stack_start, arg_len = last_call.ip, last_call.stack_start, last_call.arg_len
+                if len(call_stack) > 0:
+                    stack_start = call_stack.pop().stack_start
                     response = pop_stack()
                     stack = stack[0:stack_start]
                     mem_used -= sum(mem_stack[stack_start:])
                     mem_stack = mem_stack[0:stack_start]
                     push_stack(response)
+                    frame = call_stack[-1]
+                    continue
                 else:
                     return BytecodeResult(result=pop_stack(), stdout=stdout, bytecode=bytecode)
             case Operation.GET_LOCAL:
@@ -264,22 +285,22 @@ def execute_bytecode(
                     push_stack(())
             case Operation.JUMP:
                 count = next_token()
-                ip += count
+                frame.ip += count
             case Operation.JUMP_IF_FALSE:
                 count = next_token()
                 if not pop_stack():
-                    ip += count
+                    frame.ip += count
             case Operation.JUMP_IF_STACK_NOT_NULL:
                 count = next_token()
                 if len(stack) > 0 and stack[-1] is not None:
-                    ip += count
+                    frame.ip += count
             case Operation.DECLARE_FN:
                 # DEPRECATED
                 name = next_token()
                 arg_len = next_token()
                 body_len = next_token()
-                declared_functions[name] = (ip, arg_len)
-                ip += body_len
+                declared_functions[name] = (frame.ip + 1, arg_len)
+                frame.ip += body_len
             case Operation.CALLABLE:
                 name = next_token()  # TODO: do we need it? it could change as the variable is reassigned
                 arg_count = next_token()
@@ -287,45 +308,50 @@ def execute_bytecode(
                 callable = {
                     "__hogCallable__": "local",
                     "argCount": arg_count,
-                    "ip": ip,
+                    # "upvalueCount": upvalue_count,
+                    "ip": frame.ip + 1,
                     "name": name,
                 }
                 push_stack(callable)
-                ip += body_length
+                frame.ip += body_length
             case Operation.CLOSURE:
-                push_stack(new_hog_closure(pop_stack()))
+                callable = pop_stack()
+                closure = new_hog_closure(callable)
+                # for _ in range(callable["upvalueCount"]):
+                #     closure["upvalues"].append([next_token(), next_token()])
+                push_stack(closure)
             case Operation.CALL_GLOBAL:
                 check_timeout()
                 name = next_token()
                 if name in declared_functions:
                     # This is for backwards compatibility. We use a closure on the stack with local functions now.
                     func_ip, arg_len = declared_functions[name]
-                    call_stack.append(
-                        CallFrame(
-                            ip=ip + 1,
-                            stack_start=len(stack) - arg_len,
-                            arg_len=arg_len,
-                            closure=new_hog_closure(
-                                {
-                                    "__hogCallable__": "stl",
-                                    "argCount": arg_len,
-                                    "ip": -1,
-                                    "name": name,
-                                }
-                            ),
-                        )
+                    frame.ip += 1  # advance for when we return
+                    frame = CallFrame(
+                        ip=func_ip,
+                        stack_start=len(stack) - arg_len,
+                        arg_len=arg_len,
+                        closure=new_hog_closure(
+                            {
+                                "__hogCallable__": "stl",
+                                "argCount": arg_len,
+                                # "upvalueCount": 0,
+                                "ip": -1,
+                                "name": name,
+                            }
+                        ),
                     )
-                    ip = func_ip
+                    call_stack.append(frame)
+                    continue  # resume the loop without incrementing frame.ip
                 else:
                     # Shortcut for calling STL functions (can also be done with an STL function closure)
                     args = [pop_stack() for _ in range(next_token())]
                     if functions is not None and name in functions:
                         push_stack(functions[name](*args))
-                        continue
-                    if name in STL:
+                    elif name in STL:
                         push_stack(STL[name].fn(args, team, stdout, timeout.total_seconds()))
-                        continue
-                    raise HogVMException(f"Unsupported function call: {name}")
+                    else:
+                        raise HogVMException(f"Unsupported function call: {name}")
             case Operation.CALL_LOCAL:
                 check_timeout()
                 closure = pop_stack()
@@ -347,15 +373,15 @@ def execute_bytecode(
                         raise HogVMException(
                             f"Too many arguments. Passed {args_length}, expected {callable['argCount']}"
                         )
-                    call_stack.append(
-                        CallFrame(
-                            ip=ip,
-                            stack_start=len(stack) - callable["argCount"],
-                            arg_len=callable["argCount"],
-                            closure=closure,
-                        )
+                    frame.ip += 1  # advance for when we return
+                    frame = CallFrame(
+                        ip=callable["ip"],
+                        stack_start=len(stack) - callable["argCount"],
+                        arg_len=callable["argCount"],
+                        closure=closure,
                     )
-                    ip = callable["ip"]
+                    call_stack.append(frame)
+                    continue  # resume the loop without incrementing frame.ip
 
                 elif callable.get("__hogCallable__") == "stl":
                     if callable["name"] not in STL:
@@ -380,7 +406,9 @@ def execute_bytecode(
 
             case Operation.TRY:
                 throw_stack.append(
-                    ThrowFrame(call_stack_len=len(call_stack), stack_len=len(stack), catch_ip=ip + next_token())
+                    ThrowFrame(
+                        call_stack_len=len(call_stack), stack_len=len(stack), catch_ip=frame.ip + 1 + next_token()
+                    )
                 )
             case Operation.POP_TRY:
                 if throw_stack:
@@ -403,7 +431,9 @@ def execute_bytecode(
                     mem_stack = mem_stack[0:stack_len]
                     call_stack = call_stack[0:call_stack_len]
                     push_stack(exception)
-                    ip = catch_ip
+                    frame = call_stack[-1]
+                    frame.ip = catch_ip
+                    continue
                 else:
                     raise UncaughtHogVMException(
                         type=exception.get("type"),
@@ -411,10 +441,9 @@ def execute_bytecode(
                         payload=exception.get("payload"),
                     )
 
-        if ip == last_op:
-            break
+        frame.ip += 1
     if debug:
-        debugger(symbol, bytecode, colored_bytecode, ip, stack, call_stack, throw_stack)
+        debugger(symbol, bytecode, colored_bytecode, frame.ip, stack, call_stack, throw_stack)
     # if len(stack) > 1:
     #     raise HogVMException("Invalid bytecode. More than one value left on stack")
     if len(stack) == 1:
