@@ -155,8 +155,7 @@ multidict==6.0.2
     #   -c requirements.txt
     #   aiohttp
     #   yarl
-mypy==1.10.0
-    # via -r requirements-dev.in
+mypy==1.11.1
 mypy-baseline==0.7.0
     # via -r requirements-dev.in
 mypy-boto3-s3==1.34.65

@@ -1,6 +1,7 @@
 posthog/temporal/common/utils.py:0: error: Argument 1 to "abstractclassmethod" has incompatible type "Callable[[HeartbeatDetails, Any], Any]"; expected "Callable[[type[Never], Any], Any]"  [arg-type]
 posthog/temporal/common/utils.py:0: note: This is likely because "from_activity" has named arguments: "cls". Consider marking them positional-only
 posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmethod" has incompatible type "type[HeartbeatType]"; expected "type[Never]"  [arg-type]
+posthog/tasks/exports/ordered_csv_renderer.py:0: error: No return value expected  [return-value]
 posthog/warehouse/models/ssh_tunnel.py:0: error: Incompatible types in assignment (expression has type "NoEncryption", variable has type "BestAvailableEncryption")  [assignment]
 posthog/temporal/data_imports/pipelines/sql_database/helpers.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/data_imports/pipelines/rest_source/config_setup.py:0: error: Dict entry 2 has incompatible type "Literal['auto']": "None"; expected "Literal['json_response', 'header_link', 'auto', 'single_page', 'cursor', 'offset', 'page_number']": "type[BasePaginator]"  [dict-item]
@@ -66,6 +67,10 @@ posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/clickhouse/kafka_engine.py:0: error: Import cycle from Django settings module prevents type inference for 'KAFKA_HOSTS_FOR_CLICKHOUSE'  [misc]
 posthog/utils.py:0: error: Import cycle from Django settings module prevents type inference for 'PERSISTED_FEATURE_FLAGS'  [misc]
 posthog/utils.py:0: error: Import cycle from Django settings module prevents type inference for 'OBJECT_STORAGE_ENABLED'  [misc]
+posthog/utils.py:0: error: No overload variant of "asdict" matches argument type "type[DataclassInstance]"  [call-overload]
+posthog/utils.py:0: note: Possible overload variants:
+posthog/utils.py:0: note: def asdict(obj: DataclassInstance) -> dict[str, Any]
+posthog/utils.py:0: note: def [_T] asdict(obj: DataclassInstance, *, dict_factory: Callable[[list[tuple[str, Any]]], _T]) -> _T
 posthog/utils.py:0: error: Name "timezone.datetime" is not defined  [name-defined]
 posthog/utils.py:0: error: Import cycle from Django settings module prevents type inference for 'DECIDE_TRACK_TEAM_IDS'  [misc]
 posthog/models/dashboard.py:0: error: Need type annotation for "insights"  [var-annotated]
@@ -232,6 +237,11 @@ posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr
 posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr-defined]
 posthog/hogql/printer.py:0: error: Argument 2 to "_get_materialized_column" of "_Printer" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/hogql/printer.py:0: error: Argument 1 to "_print_identifier" of "_Printer" has incompatible type "str | None"; expected "str"  [arg-type]
+posthog/api/documentation.py:0: error: Signature of "run_validation" incompatible with supertype "Field"  [override]
+posthog/api/documentation.py:0: note: Superclass:
+posthog/api/documentation.py:0: note: def run_validation(self, data: Any = ...) -> Any
+posthog/api/documentation.py:0: note: Subclass:
+posthog/api/documentation.py:0: note: def run_validation(self, data: Any) -> Any
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/test/base.py:0: error: Module has no attribute "configure"  [attr-defined]
 posthog/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Organization")  [assignment]
@@ -366,6 +376,18 @@ posthog/hogql/test/test_timings.py:0: error: No overload variant of "__setitem__
 posthog/hogql/test/test_timings.py:0: note: Possible overload variants:
 posthog/hogql/test/test_timings.py:0: note: def __setitem__(self, SupportsIndex, int, /) -> None
 posthog/hogql/test/test_timings.py:0: note: def __setitem__(self, slice, Iterable[int], /) -> None
+posthog/hogql/test/test_timings.py:0: error: Signature of "assertAlmostEquals" incompatible with supertype "TestCase"  [override]
+posthog/hogql/test/test_timings.py:0: note: Superclass:
+posthog/hogql/test/test_timings.py:0: note: @overload
+posthog/hogql/test/test_timings.py:0: note: def [_S: SupportsSub[Any, Any]] assertAlmostEqual(self: TestCase, first: _S, second: _S, places: None, msg: Any, delta: _SupportsAbsAndDunderGE) -> None
+posthog/hogql/test/test_timings.py:0: note: @overload
+posthog/hogql/test/test_timings.py:0: note: def [_S: SupportsSub[Any, Any]] assertAlmostEqual(self: TestCase, first: _S, second: _S, places: None = ..., msg: Any = ..., *, delta: _SupportsAbsAndDunderGE) -> None
+posthog/hogql/test/test_timings.py:0: note: @overload
+posthog/hogql/test/test_timings.py:0: note: def [_T] assertAlmostEqual(self: TestCase, first: SupportsSub[_T, SupportsAbs[SupportsRound[object]]], second: _T, places: int | None = ..., msg: Any = ..., delta: None = ...) -> None
+posthog/hogql/test/test_timings.py:0: note: @overload
+posthog/hogql/test/test_timings.py:0: note: def [_T] assertAlmostEqual(self: TestCase, first: _T, second: SupportsRSub[_T, SupportsAbs[SupportsRound[object]]], places: int | None = ..., msg: Any = ..., delta: None = ...) -> None
+posthog/hogql/test/test_timings.py:0: note: Subclass:
+posthog/hogql/test/test_timings.py:0: note: def assertAlmostEquals(self, a: Any, b: Any, epsilon: Any = ...) -> Any
 posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | None" has no attribute "next_join"  [union-attr]
 posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | Any | None" has no attribute "constraint"  [union-attr]
 posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinConstraint | Any | None" has no attribute "constraint_type"  [union-attr]
@@ -415,8 +437,8 @@ posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attrib
 posthog/hogql/database/schema/event_sessions.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/ai.py:0: error: No overload variant of "__getitem__" of "tuple" matches argument type "str"  [call-overload]
 posthog/hogql/ai.py:0: note: Possible overload variants:
-posthog/hogql/ai.py:0: note: def __getitem__(self, SupportsIndex, /) -> Any
-posthog/hogql/ai.py:0: note: def __getitem__(self, slice, /) -> tuple[Any, ...]
+posthog/hogql/ai.py:0: note: def __getitem__(self, SupportsIndex, /) -> str | Any
+posthog/hogql/ai.py:0: note: def __getitem__(self, slice, /) -> tuple[str | Any, ...]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/heatmaps/test/test_heatmaps_api.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
@@ -431,6 +453,16 @@ posthog/api/test/test_signup.py:0: error: Module "django.utils.timezone" does no
 posthog/api/test/test_preflight.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/test/test_preflight.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/api/test/test_person.py:0: error: Argument "data" to "get" of "APIClient" has incompatible type "dict[str, object]"; expected "Mapping[str, str | bytes | int | Iterable[str | bytes | int]] | Iterable[tuple[str, str | bytes | int | Iterable[str | bytes | int]]] | None"  [arg-type]
+posthog/api/organization_member.py:0: error: Signature of "update" incompatible with supertype "ModelSerializer"  [override]
+posthog/api/organization_member.py:0: note: Superclass:
+posthog/api/organization_member.py:0: note: def update(self, instance: Any, validated_data: Any) -> Any
+posthog/api/organization_member.py:0: note: Subclass:
+posthog/api/organization_member.py:0: note: def update(self, updated_membership: Any, validated_data: Any, **kwargs: Any) -> Any
+posthog/api/organization_member.py:0: error: Signature of "update" incompatible with supertype "BaseSerializer"  [override]
+posthog/api/organization_member.py:0: note: Superclass:
+posthog/api/organization_member.py:0: note: def update(self, instance: Any, validated_data: Any) -> Any
+posthog/api/organization_member.py:0: note: Subclass:
+posthog/api/organization_member.py:0: note: def update(self, updated_membership: Any, validated_data: Any, **kwargs: Any) -> Any
 posthog/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
 posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
 posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Incompatible types in assignment (expression has type "list[str]", variable has type "dict[str, list[tuple[str, str]]]")  [assignment]
@@ -514,10 +546,6 @@ posthog/hogql/database/test/test_s3_table.py:0: error: Argument "dialect" to "pr
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "soft_delete" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "get_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "update_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
-posthog/api/test/dashboards/test_dashboard.py:0: error: Argument 1 to "get_dashboard" of "DashboardAPI" has incompatible type "int | _FieldDescriptor[AutoField[Combinable | int | str | None, int]] | Any"; expected "int"  [arg-type]
 posthog/api/search.py:0: error: Argument "klass" to "class_queryset" has incompatible type "object"; expected "type[Model]"  [arg-type]
 posthog/api/search.py:0: error: Argument "search_fields" to "class_queryset" has incompatible type "object"; expected "dict[str, str]"  [arg-type]
 posthog/api/search.py:0: error: Argument "extra_fields" to "class_queryset" has incompatible type "object"; expected "dict[Any, Any] | None"  [arg-type]
@@ -541,6 +569,31 @@ posthog/api/property_definition.py:0: error: Incompatible types in assignment (e
 posthog/api/property_definition.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "organization"  [union-attr]
 posthog/api/property_definition.py:0: error: Item "None" of "Organization | Any | None" has no attribute "is_feature_available"  [union-attr]
 posthog/api/event.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
+posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_add_permission" incompatible with supertype "BaseModelAdmin"  [override]
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_add_permission(self, request: HttpRequest) -> bool
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_add_permission(self, request: Any, obj: Any) -> Any
+posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_change_permission" incompatible with supertype "InlineModelAdmin"  [override]
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_change_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_change_permission(self, request: Any, obj: Any) -> Any
+posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_change_permission" incompatible with supertype "BaseModelAdmin"  [override]
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_change_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_change_permission(self, request: Any, obj: Any) -> Any
+posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_delete_permission" incompatible with supertype "InlineModelAdmin"  [override]
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: Any, obj: Any) -> Any
+posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_delete_permission" incompatible with supertype "BaseModelAdmin"  [override]
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
+posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: Any, obj: Any) -> Any
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
@@ -590,6 +643,11 @@ posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "dict[str, Collection[str]]", variable has type "StripeSourcePayload")  [assignment]
 posthog/warehouse/external_data_source/source.py:0: error: Argument 1 to "_create_source" has incompatible type "StripeSourcePayload"; expected "dict[Any, Any]"  [arg-type]
 posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Incompatible types in assignment (expression has type "str | int", variable has type "int")  [assignment]
+posthog/api/test/batch_exports/conftest.py:0: error: Signature of "run" incompatible with supertype "Worker"  [override]
+posthog/api/test/batch_exports/conftest.py:0: note: Superclass:
+posthog/api/test/batch_exports/conftest.py:0: note: def run(self) -> Coroutine[Any, Any, None]
+posthog/api/test/batch_exports/conftest.py:0: note: Subclass:
+posthog/api/test/batch_exports/conftest.py:0: note: def run(self, loop: Any) -> Any
 posthog/api/test/batch_exports/conftest.py:0: error: Argument "activities" to "ThreadedWorker" has incompatible type "list[function]"; expected "Sequence[Callable[..., Any]]"  [arg-type]
 posthog/temporal/tests/data_imports/test_end_to_end.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/api/test/test_team.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
