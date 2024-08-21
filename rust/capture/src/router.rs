@@ -15,10 +15,12 @@ use crate::{
     limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
 };
 
+use crate::config::CaptureMode;
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
+const RECORDING_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
 
 #[derive(Clone)]
 pub struct State {
@@ -43,6 +45,7 @@ pub fn router<
     redis: Arc<R>,
     billing: BillingLimiter,
     metrics: bool,
+    capture_mode: CaptureMode,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -106,14 +109,30 @@ pub fn router<
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
-    let router = Router::new()
-        .merge(batch_router)
-        .merge(event_router)
-        .merge(status_router)
-        .layer(TraceLayer::new_for_http())
-        .layer(cors)
-        .layer(axum::middleware::from_fn(track_metrics))
-        .with_state(state);
+    let recordings_router = Router::new()
+        .route(
+            "/s",
+            post(v0_endpoint::recording)
+                .get(v0_endpoint::recording)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/s/",
+            post(v0_endpoint::recording)
+                .get(v0_endpoint::recording)
+                .options(v0_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
+
+    let router = match capture_mode {
+        CaptureMode::Events => Router::new().merge(batch_router).merge(event_router),
+        CaptureMode::Recordings => Router::new().merge(recordings_router),
+    }
+    .merge(status_router)
+    .layer(TraceLayer::new_for_http())
+    .layer(cors)
+    .layer(axum::middleware::from_fn(track_metrics))
+    .with_state(state);
 
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)
