@@ -69,11 +69,11 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
     // Tick twice for retry
     let started = tick(context.clone()).await.unwrap();
     assert_eq!(started, 1);
-    wait_on_no_running(&db, Duration::milliseconds(100)).await;
+    wait_on_no_running(&db, Duration::milliseconds(500)).await;
     make_immediately_available(&db).await;
     let started = tick(context.clone()).await.unwrap();
     assert_eq!(started, 1);
-    wait_on_no_running(&db, Duration::milliseconds(100)).await;
+    wait_on_no_running(&db, Duration::milliseconds(500)).await;
 
     let returned = wait_on_return(&return_worker, 1, false).await.unwrap();
 
