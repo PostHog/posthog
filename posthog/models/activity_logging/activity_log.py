@@ -434,8 +434,7 @@ class ActivityPage:
     results: list[ActivityLog]
 
 
-def get_activity_page(activity_query=10, page: int = 1) -> ActivityPage:
-    limit = 100
+def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1) -> ActivityPage:
     paginator = Paginator(activity_query, limit)
     activity_page = paginator.page(page)
 
