@@ -512,3 +512,82 @@ async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
     warnings_topic.assert_empty();
     Ok(())
 }
+
+#[tokio::test]
+async fn it_limits_non_batch_endpoints_to_2mb() -> Result<()> {
+    setup_tracing();
+
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let ok_event = json!({
+        "token": token,
+        "event": "event1",
+        "distinct_id": distinct_id,
+        "properties": {
+            "big": "a".repeat(2_000_000)
+        }
+    });
+
+    let nok_event = json!({
+        "token": token,
+        "event": "event2",
+        "distinct_id": distinct_id,
+        "properties": {
+            "big": "a".repeat(2_100_000)
+        }
+    });
+
+    let res = server.capture_events(ok_event.to_string()).await;
+    // The events are too large to go in kafka, so we get a maximum event size exceeded error, but that's ok, because that's a 400, not a 413
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+
+    let res = server.capture_events(nok_event.to_string()).await;
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_limits_batch_endpoints_to_20mb() -> Result<()> {
+    setup_tracing();
+
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    // Notably here, rust capture actually handles all endpoints with the same function, so we don't actually
+    // need to wrap these events in an array to send them to our batch endpoint
+    let ok_event = json!({
+        "token": token,
+        "event": "event1",
+        "distinct_id": distinct_id,
+        "properties": {
+            "big": "a".repeat(20_000_000)
+        }
+    });
+
+    let nok_event = json!({
+        "token": token,
+        "event": "event2",
+        "distinct_id": distinct_id,
+        "properties": {
+            "big": "a".repeat(21_000_000)
+        }
+    });
+
+    let res = server.capture_to_batch(ok_event.to_string()).await;
+    // The events are too large to go in kafka, so we get a maximum event size exceeded error, but that's ok, because that's a 400, not a 413
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    let res = server.capture_to_batch(nok_event.to_string()).await;
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+
+    Ok(())
+}

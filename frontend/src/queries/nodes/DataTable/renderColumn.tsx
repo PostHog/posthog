@@ -29,7 +29,7 @@ export function renderColumn(
     recordIndex: number,
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
-    context?: QueryContext
+    context?: QueryContext<DataTableNode>
 ): JSX.Element | string {
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
@@ -240,7 +240,11 @@ export function renderColumn(
     } else if (key === 'group' && typeof value === 'object') {
         return <GroupActorDisplay actor={value} />
     } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
-        const personRecord = record as PersonType
+        if (!Array.isArray(record)) {
+            console.error('Expected record to be an array for person.$delete column')
+            return ''
+        }
+        const personRecord = record[0] as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length

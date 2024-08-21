@@ -29,6 +29,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
+from posthog.api.monitoring import monitor, Feature
 
 logger = structlog.get_logger(__name__)
 
@@ -161,6 +162,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return value
 
+    @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -260,6 +262,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 color=existing_tile.color,
             )
 
+    @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
@@ -451,6 +454,7 @@ class DashboardsViewSet(
 
         return queryset
 
+    @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
@@ -508,13 +512,13 @@ class DashboardsViewSet(
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"
 
     def get_parents_query_dict(self) -> dict[str, Any]:
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
             return {}
-        return {"team_id": self.team_id}
+        return {"team__project_id": self.project_id}
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"

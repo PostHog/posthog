@@ -12,7 +12,7 @@ import { dataVisualizationLogic } from '../dataVisualizationLogic'
 interface TableProps {
     query: DataVisualizationNode
     uniqueKey: string | number | undefined
-    context: QueryContext | undefined
+    context: QueryContext<DataVisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
 }
 
@@ -51,8 +51,8 @@ export const Table = (props: TableProps): JSX.Element => {
                         />
                     ) : (
                         <InsightEmptyState
-                            heading="There are no results for this query"
-                            detail="Try changing the date range, or query."
+                            heading={props.context?.emptyStateHeading}
+                            detail={props.context?.emptyStateDetail}
                         />
                     )
                 }

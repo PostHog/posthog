@@ -54,7 +54,7 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
-import { getMinimumDetectableEffect } from './utils'
+import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -125,6 +125,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentArchived',
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
+                'reportExperimentVariantShipped',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -703,10 +704,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        shipVariantSuccess: () => {
+        shipVariantSuccess: ({ payload }) => {
             lemonToast.success('The selected variant has been shipped')
             actions.closeMakeDecisionModal()
+            if (payload.shouldStopExperiment) {
+                actions.endExperiment()
+            }
             actions.loadExperiment()
+            actions.reportExperimentVariantShipped(values.experiment)
+        },
+        shipVariantFailure: ({ error }) => {
+            lemonToast.error(error)
+            actions.closeMakeDecisionModal()
         },
     })),
     loaders(({ actions, props, values }) => ({
@@ -804,32 +813,20 @@ export const experimentLogic = kea<experimentLogicType>([
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                shipVariant: async (selectedVariant) => {
-                    const currentFlagFilters = values.experiment.feature_flag?.filters
-
-                    const newFilters = {
-                        aggregation_group_type_index: currentFlagFilters?.aggregation_group_type_index || null,
-                        payloads: currentFlagFilters?.payloads || {},
-                        multivariate: {
-                            variants: currentFlagFilters?.multivariate?.variants.map(({ key, name }) => ({
-                                key,
-                                rollout_percentage: key === selectedVariant ? 100 : 0,
-                                ...(name && { name }),
-                            })),
-                        },
-                        groups: [
-                            { properties: [], rollout_percentage: 100 },
-                            // Preserve existing groups so that users can roll back this action
-                            // by deleting the newly added release condition
-                            ...(currentFlagFilters?.groups || []),
-                        ],
+                shipVariant: async ({ selectedVariantKey, shouldStopExperiment }) => {
+                    if (!values.experiment.feature_flag) {
+                        throw new Error('Experiment does not have a feature flag linked')
                     }
 
-                    const savedFlag = await api.update(
+                    const currentFlagFilters = values.experiment.feature_flag?.filters
+                    const newFilters = transformFiltersForWinningVariant(currentFlagFilters, selectedVariantKey)
+
+                    await api.update(
                         `api/projects/${values.currentTeamId}/feature_flags/${values.experiment.feature_flag?.id}`,
                         { filters: newFilters }
                     )
-                    return savedFlag
+
+                    return shouldStopExperiment
                 },
             },
         ],
