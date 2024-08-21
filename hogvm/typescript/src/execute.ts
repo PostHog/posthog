@@ -196,7 +196,6 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             callStack: [],
             throwStack: [],
             declaredFunctions: {},
-            ip: -1,
             ops,
             asyncSteps,
             syncDuration: syncDuration + (Date.now() - startTime),
@@ -367,7 +366,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 popStack()
                 break
             case Operation.RETURN:
-                if (callStack.length > 0) {
+                if (callStack.length > 1) {
                     const stackStart = callStack.pop()!.stackStart
                     const response = popStack()
                     spliceStack1(stackStart)
@@ -516,6 +515,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         if (asyncSteps >= maxAsyncSteps) {
                             throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
                         }
+
+                        frame.ip += 1 // so we resume at the next address
 
                         return {
                             result: undefined,
@@ -670,10 +671,9 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         frame.ip++
     }
 
-    // if (stack.length > 1) {
-    //     console.log({ stack, callStack })
-    //     throw new HogVMException('Invalid bytecode. More than one value left on stack')
-    // }
+    if (stack.length > 1) {
+        throw new HogVMException('Invalid bytecode. More than one value left on stack')
+    }
 
     if (stack.length === 0) {
         return { result: null, finished: true, state: getFinishedState() } satisfies ExecResult

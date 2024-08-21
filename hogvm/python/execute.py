@@ -220,7 +220,7 @@ def execute_bytecode(
             case Operation.POP:
                 pop_stack()
             case Operation.RETURN:
-                if len(call_stack) > 0:
+                if len(call_stack) > 1:
                     stack_start = call_stack.pop().stack_start
                     response = pop_stack()
                     stack = stack[0:stack_start]
@@ -444,8 +444,8 @@ def execute_bytecode(
         frame.ip += 1
     if debug:
         debugger(symbol, bytecode, colored_bytecode, frame.ip, stack, call_stack, throw_stack)
-    # if len(stack) > 1:
-    #     raise HogVMException("Invalid bytecode. More than one value left on stack")
+    if len(stack) > 1:
+        raise HogVMException("Invalid bytecode. More than one value left on stack")
     if len(stack) == 1:
         result = pop_stack()
     return BytecodeResult(result=result, stdout=stdout, bytecode=bytecode)

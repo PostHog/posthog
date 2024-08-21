@@ -524,10 +524,26 @@ describe('hogvm execute', () => {
             state: {
                 bytecode,
                 asyncSteps: 1,
-                callStack: [],
+                callStack: [
+                    {
+                        ip: 8,
+                        stackStart: 0,
+                        argCount: 0,
+                        closure: {
+                            __hogClosure__: true,
+                            callable: {
+                                __hogCallable__: 'main',
+                                argCount: 0,
+                                ip: 1,
+                                name: '',
+                                upvalueCount: 0,
+                            },
+                            upvalues: [],
+                        },
+                    },
+                ],
                 throwStack: [],
                 declaredFunctions: {},
-                ip: 8,
                 maxMemUsed: 16,
                 ops: 3,
                 stack: [4.2],
@@ -552,7 +568,6 @@ describe('hogvm execute', () => {
                 bytecode: [],
                 callStack: [],
                 declaredFunctions: {},
-                ip: -1,
                 maxMemUsed: 13,
                 ops: 2,
                 stack: [],
@@ -579,7 +594,6 @@ describe('hogvm execute', () => {
                 bytecode: [],
                 callStack: [],
                 declaredFunctions: {},
-                ip: -1,
                 maxMemUsed: 13,
                 ops: 3,
                 stack: [],
@@ -623,10 +637,10 @@ describe('hogvm execute', () => {
                 .result
         ).toEqual(map({ key: map({ otherKey: 'value' }) }))
 
-        // return {key: 'value'};
+        // // return {key: 'value'};
         expect(
-            exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
-        ).toEqual(new Map([[null, 'value']]))
+            () => exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
+        ).toThrow('Global variable not found: key')
 
         // var key := 3; return {key: 'value'};
         expect(

@@ -115,14 +115,14 @@ class TestBytecodeExecute:
 
     def test_errors(self):
         try:
-            execute_bytecode([_H, op.TRUE, op.CALL, "notAFunction", 1], {})
+            execute_bytecode([_H, op.TRUE, op.CALL_GLOBAL, "notAFunction", 1], {})
         except Exception as e:
             assert str(e) == "Unsupported function call: notAFunction"
         else:
             raise AssertionError("Expected Exception not raised")
 
         try:
-            execute_bytecode([_H, op.CALL, "notAFunction", 1], {})
+            execute_bytecode([_H, op.CALL_GLOBAL, "notAFunction", 1], {})
         except Exception as e:
             assert str(e) == "Stack underflow"
         else:
@@ -281,10 +281,17 @@ class TestBytecodeExecute:
             return "zero"
 
         functions = {"stringify": stringify}
-        assert execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "one"
-        assert execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "two"
         assert (
-            execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1, op.RETURN], {}, functions).result == "zero"
+            execute_bytecode([_H, op.INTEGER, 1, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions).result
+            == "one"
+        )
+        assert (
+            execute_bytecode([_H, op.INTEGER, 2, op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions).result
+            == "two"
+        )
+        assert (
+            execute_bytecode([_H, op.STRING, "2", op.CALL_GLOBAL, "stringify", 1, op.RETURN], {}, functions).result
+            == "zero"
         )
 
     def test_bytecode_variable_assignment(self):
@@ -391,7 +398,7 @@ class TestBytecodeExecute:
             _H,
             op.STRING,
             "a",
-            op.CALL,
+            op.CALL_GLOBAL,
             "toString",
             1,
             op.JUMP_IF_FALSE,
@@ -466,7 +473,7 @@ class TestBytecodeExecute:
                     print(i) -- prints 3 times
                     j := j + 2
                 }
-                print(i) -- global does not print
+                // print(i) -- global does not print
                 return j
                 """
             )
@@ -485,7 +492,7 @@ class TestBytecodeExecute:
         bytecode = create_bytecode(program)
         assert bytecode == [
             _H,
-            op.DECLARE_FN,
+            op.CALLABLE,
             "add",
             2,
             6,
@@ -495,14 +502,17 @@ class TestBytecodeExecute:
             1,
             op.PLUS,
             op.RETURN,
+            op.CLOSURE,
             op.INTEGER,
             4,
             op.INTEGER,
             3,
-            op.CALL,
-            "add",
+            op.GET_LOCAL,
+            0,
+            op.CALL_LOCAL,
             2,
             op.RETURN,
+            op.POP,
         ]
 
         response = execute_bytecode(bytecode).result
@@ -620,7 +630,12 @@ class TestBytecodeExecute:
         assert self._run_program("return {'key': 'value'};") == {"key": "value"}
         assert self._run_program("return {'key': 'value', 'other': 'thing'};") == {"key": "value", "other": "thing"}
         assert self._run_program("return {'key': {'otherKey': 'value'}};") == {"key": {"otherKey": "value"}}
-        assert self._run_program("return {key: 'value'};") == {None: "value"}
+        try:
+            self._run_program("return {key: 'value'};")
+        except Exception as e:
+            assert str(e) == "Global variable not found: key"
+        else:
+            raise AssertionError("Expected Exception not raised")
         assert self._run_program("let key := 3; return {key: 'value'};") == {3: "value"}
 
         assert self._run_program("return {'key': 'value'}.key;") == "value"
