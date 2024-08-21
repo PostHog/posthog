@@ -17,7 +17,6 @@ import EXAMPLE_TRENDS_PIE from '../../../../mocks/fixtures/api/projects/team_id/
 import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
 import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
-import EXAMPLE_PATHS from '../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 import { InsightCard as InsightCardComponent } from './index'
 
 const examples = [
@@ -30,7 +29,6 @@ const examples = [
     EXAMPLE_TRENDS_WORLD_MAP,
     EXAMPLE_FUNNEL,
     EXAMPLE_RETENTION,
-    EXAMPLE_PATHS,
     EXAMPLE_STICKINESS,
     EXAMPLE_LIFECYCLE,
     EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY,
