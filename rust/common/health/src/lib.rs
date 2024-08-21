@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use std::time::Duration;
+use time::Duration;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -143,16 +143,7 @@ impl HealthRegistry {
 
     /// Registers a new component in the registry. The returned handle should be passed
     /// to the component, to allow it to frequently report its health status.
-    pub async fn register<D>(&self, component: String, deadline: D) -> HealthHandle
-    where
-        // HACK: to let callers user time::Duration or std::time::Duration (and therefore chrono::Duration),
-        // since apparently we use all three
-        D: TryInto<Duration>,
-    {
-        let Ok(deadline) = deadline.try_into() else {
-            // TODO - I should return an error here, but I don't want to refactor everything that uses this right now
-            panic!("invalid deadline")
-        };
+    pub async fn register(&self, component: String, deadline: Duration) -> HealthHandle {
         let handle = HealthHandle {
             component,
             deadline,

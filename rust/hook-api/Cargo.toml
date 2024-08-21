@@ -22,4 +22,3 @@ tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
-common-metrics = { path = "../common/metrics" }

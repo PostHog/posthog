@@ -1,4 +1,3 @@
-import cyclotron from '@posthog/cyclotron'
 import { Histogram } from 'prom-client'
 
 import { buildIntegerMatcher } from '../config/config'
@@ -28,11 +27,9 @@ export type AsyncFunctionExecutorOptions = {
 
 export class AsyncFunctionExecutor {
     hogHookEnabledForTeams: ValueMatcher<number>
-    cyclotronEnabledForTeams: ValueMatcher<number>
 
     constructor(private serverConfig: PluginsServerConfig, private rustyHook: RustyHook) {
         this.hogHookEnabledForTeams = buildIntegerMatcher(serverConfig.CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS, true)
-        this.cyclotronEnabledForTeams = buildIntegerMatcher(serverConfig.CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS, true)
     }
 
     async execute(
@@ -102,44 +99,8 @@ export class AsyncFunctionExecutor {
                 histogramFetchPayloadSize.observe(body.length / 1024)
             }
 
-            // If the caller hasn't forced it to be synchronous and the team has the cyclotron or
-            // rustyhook enabled, enqueue it in one of those services.
-            if (!options?.sync && this.cyclotronEnabledForTeams(request.teamId)) {
-                try {
-                    await cyclotron.createJob({
-                        teamId: request.teamId,
-                        functionId: request.hogFunctionId,
-                        queueName: 'fetch',
-                        // TODO: The async function compression changes happen upstream of this
-                        // function. I guess we'll want to unwind that change because we actually
-                        // want the `vmState` (and the rest of state) so we can put it into PG here.
-                        vmState: '',
-                        parameters: JSON.stringify({
-                            return_queue: 'hog',
-                            url,
-                            method,
-                            headers,
-                            body,
-                        }),
-                        metadata: JSON.stringify({
-                            // TODO: It seems like Fetch expects metadata to have this shape, which
-                            // I don't understand. I think `metadata` is where all the other Hog
-                            // state is going to be stored? For now I'm just trying to make fetch
-                            // work.
-                            tries: 0,
-                            trace: [],
-                        }),
-                    })
-                } catch (e) {
-                    status.error(
-                        '🦔',
-                        `[HogExecutor] Cyclotron failed to enqueue async fetch function, sending directly instead`,
-                        {
-                            error: e,
-                        }
-                    )
-                }
-            } else if (!options?.sync && this.hogHookEnabledForTeams(request.teamId)) {
+            // If the caller hasn't forced it to be synchronous and the team has the rustyhook enabled, enqueue it
+            if (!options?.sync && this.hogHookEnabledForTeams(request.teamId)) {
                 const hoghooksPayload = JSON.stringify(request)
 
                 histogramHogHooksPayloadSize.observe(hoghooksPayload.length / 1024)

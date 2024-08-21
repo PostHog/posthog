@@ -2,13 +2,13 @@
 use axum::routing::get;
 use axum::Router;
 use envconfig::Envconfig;
-use hook_common::pgqueue::PgQueue;
-use hook_common::retry::RetryPolicy;
 use std::future::ready;
 
-use common_metrics::{serve, setup_metrics_routes};
 use health::HealthRegistry;
 use hook_common::kafka_producer::create_kafka_producer;
+use hook_common::{
+    metrics::serve, metrics::setup_metrics_routes, pgqueue::PgQueue, retry::RetryPolicy,
+};
 use hook_worker::config::Config;
 use hook_worker::error::WorkerError;
 use hook_worker::worker::WebhookWorker;

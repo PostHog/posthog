@@ -39,11 +39,3 @@
 !test-runner-jest.config.js
 !test-runner-jest-environment.js
 !patches
-!rust
-rust/.env
-rust/.github
-rust/docker
-rust/target
-rust/cyclotron-node/dist
-rust/cyclotron-node/node_modules
-rust/cyclotron-node/index.node
