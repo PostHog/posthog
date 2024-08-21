@@ -3,7 +3,7 @@ import './InsightViz.scss'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -102,7 +102,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embe
                                 ? clsx('InsightViz', {
                                       'InsightViz--horizontal': isFunnels || isHorizontalAlways,
                                   })
-                                : ''
+                                : 'InsightCard__viz'
                         }
                     >
                         {!readOnly && (
