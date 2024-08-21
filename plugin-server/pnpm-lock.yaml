@@ -43,6 +43,9 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
+  '@posthog/cyclotron':
+    specifier: file:../rust/cyclotron-node
+    version: file:../rust/cyclotron-node
   '@posthog/hogvm':
     specifier: ^1.0.32
     version: 1.0.32(luxon@3.4.4)(re2@1.20.3)
@@ -73,9 +76,6 @@ dependencies:
   aws-sdk:
     specifier: ^2.927.0
     version: 2.1366.0
-  cyclotron-node:
-    specifier: file:../rust/cyclotron-node
-    version: file:../rust/cyclotron-node
   detect-browser:
     specifier: ^5.3.0
     version: 5.3.0
@@ -10737,5 +10737,5 @@ packages:
 
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
-    name: cyclotron-node
+    name: '@posthog/cyclotron'
     dev: false

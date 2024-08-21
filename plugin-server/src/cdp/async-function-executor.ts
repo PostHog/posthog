@@ -1,4 +1,4 @@
-import cyclotron from 'cyclotron-node'
+import cyclotron from '@posthog/cyclotron'
 import { Histogram } from 'prom-client'
 
 import { buildIntegerMatcher } from '../config/config'

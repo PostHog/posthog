@@ -1,5 +1,5 @@
 {
-    "name": "cyclotron-node",
+    "name": "@posthog/cyclotron",
     "version": "0.1.0",
     "description": "Node bindings for cyclotron",
     "main": "dist/index.js",
