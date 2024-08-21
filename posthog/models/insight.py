@@ -199,10 +199,12 @@ class InsightViewed(models.Model):
         constraints = [models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed")]
         indexes = [models.Index(fields=["team_id", "user_id", "-last_viewed_at"])]
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    user = models.ForeignKey("User", on_delete=models.CASCADE)
-    insight = models.ForeignKey(Insight, on_delete=models.CASCADE)
-    last_viewed_at = models.DateTimeField()
+    # To track views from shared insights, team and user can be null
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
+    user = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
+
+    insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
+    last_viewed_at: models.DateTimeField = models.DateTimeField()
 
 
 @timed("generate_insight_cache_key")

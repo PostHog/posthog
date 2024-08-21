@@ -25,7 +25,7 @@ use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use capture::config::{Config, KafkaConfig};
+use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::limiters::billing::QuotaResource;
 use capture::server::serve;
 
@@ -55,6 +55,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     otel_service_name: "capture-testing".to_string(),
     export_prometheus: false,
     redis_key_prefix: None,
+    capture_mode: CaptureMode::Events,
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -75,6 +76,12 @@ impl ServerHandle {
         let mut config = DEFAULT_CONFIG.clone();
         config.kafka.kafka_topic = main.topic_name().to_string();
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
+        Self::for_config(config).await
+    }
+    pub async fn for_recordings(main: &EphemeralTopic) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
         Self::for_config(config).await
     }
     pub async fn for_config(config: Config) -> Self {
@@ -103,6 +110,16 @@ impl ServerHandle {
         let client = reqwest::Client::new();
         client
             .post(format!("http://{:?}/batch", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://{:?}/s/", self.addr))
             .body(body)
             .send()
             .await
