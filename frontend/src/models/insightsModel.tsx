@@ -48,7 +48,7 @@ export const insightsModel = kea<insightsModelType>([
                     const updatedItem = await insightsApi.update(
                         item.id,
                         { name: insightName },
-                        { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: true }
+                        { writeAsQuery: values.queryBasedInsightSaving }
                     )
                     lemonToast.success(
                         <>
@@ -62,7 +62,6 @@ export const insightsModel = kea<insightsModelType>([
         duplicateInsight: async ({ item }) => {
             const addedItem = await insightsApi.duplicate(item, {
                 writeAsQuery: values.queryBasedInsightSaving,
-                readAsQuery: true,
             })
 
             actions.duplicateInsightSuccess(addedItem)

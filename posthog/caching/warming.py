@@ -1,3 +1,4 @@
+import itertools
 from datetime import timedelta, UTC, datetime
 from collections.abc import Generator
 from typing import Optional
@@ -35,7 +36,7 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 
 
-def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, None]:
+def priority_insights(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]], None, None]:
     """
     This is the place to decide which insights should be kept warm.
     The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
@@ -59,16 +60,21 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
             insight_ids_single.add(insight_id)
 
     if insight_ids_single:
-        single_insights = (
-            team.insight_set.filter(insightviewed__last_viewed_at__gte=threshold, pk__in=insight_ids_single)
-            .distinct()
-            .values_list("id", flat=True)
+        single_insights = team.insight_set.filter(
+            insightviewed__last_viewed_at__gte=threshold,
+            pk__in=insight_ids_single,
         )
-        for single_insight_id in single_insights:
+        if shared_only:
+            single_insights = single_insights.filter(sharingconfiguration__enabled=True)
+
+        for single_insight_id in single_insights.distinct().values_list("id", flat=True):
             yield single_insight_id, None
 
     if not dashboard_q_filter:
         return
+
+    if shared_only:
+        dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
 
     dashboard_tiles = (
         DashboardTile.objects.filter(dashboard__last_accessed_at__gte=threshold)
@@ -82,13 +88,24 @@ def priority_insights(team: Team) -> Generator[tuple[int, Optional[int]], None, 
 @shared_task(ignore_result=True, expires=60 * 15)
 def schedule_warming_for_teams_task():
     team_ids = largest_teams(limit=10)
+    threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
 
-    teams = Team.objects.filter(Q(pk__in=team_ids) | Q(extra_settings__insights_cache_warming=True))
+    prio_teams = Team.objects.filter(Q(pk__in=team_ids) | Q(extra_settings__insights_cache_warming=True))
+    teams_with_recently_viewed_shared = Team.objects.filter(
+        Q(
+            Q(sharingconfiguration__dashboard__last_accessed_at__gte=threshold)
+            | Q(sharingconfiguration__insight__insightviewed__last_viewed_at__gte=threshold)
+        ),
+        sharingconfiguration__enabled=True,
+    )
 
-    logger.info("Warming insight cache: teams", team_ids=[team.pk for team in teams])
+    all_teams = itertools.chain(
+        zip(prio_teams, [False] * len(prio_teams)),
+        zip(teams_with_recently_viewed_shared, [True] * len(teams_with_recently_viewed_shared)),
+    )
 
-    for team in teams:
-        insight_tuples = priority_insights(team)
+    for team, shared_only in all_teams:
+        insight_tuples = priority_insights(team, shared_only=shared_only)
 
         # We chain the task execution to prevent queries *for a single team* running at the same time
         chain(*(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples))()

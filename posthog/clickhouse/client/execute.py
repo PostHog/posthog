@@ -28,6 +28,7 @@ QUERY_ERROR_COUNTER = Counter(
 QUERY_EXECUTION_TIME_GAUGE = Gauge(
     "clickhouse_query_execution_time",
     "Clickhouse query execution time",
+    labelnames=["query_type"],
 )
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -145,7 +146,9 @@ def sync_execute(
         finally:
             execution_time = perf_counter() - start_time
 
-            QUERY_EXECUTION_TIME_GAUGE.set(execution_time * 1000.0)
+            query_type = tags.get("query_type", "Other")
+
+            QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
 
             if query_counter := getattr(thread_local_storage, "query_counter", None):
                 query_counter.total_query_time += execution_time

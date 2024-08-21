@@ -48,7 +48,7 @@ export async function deleteInsightWithUndo({
     object: QueryBasedInsightModel
     idField?: keyof QueryBasedInsightModel
     callback?: (undo: boolean, object: QueryBasedInsightModel) => void
-    options: InsightsApiOptions<true>
+    options: InsightsApiOptions
 }): Promise<void> {
     await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
         ...getInsightModel(props.object, options.writeAsQuery),
