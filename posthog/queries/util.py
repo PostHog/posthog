@@ -9,8 +9,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
-from posthog.models.team import Team
-from posthog.models.team.team import WeekStartDay
+from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.insight import insight_sync_execute
 from posthog.schema import PersonsOnEventsMode
 
@@ -186,13 +185,8 @@ def correct_result_for_sampling(
 
 
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
-    if alias_poe_mode_for_legacy(team.person_on_events_mode) == PersonsOnEventsMode.DISABLED:
-        return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
-
-    if (
-        alias_poe_mode_for_legacy(team.person_on_events_mode)
-        == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-    ):
+    if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
         return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
-
-    return PersonPropertiesMode.DIRECT_ON_EVENTS
+    if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+        return PersonPropertiesMode.DIRECT_ON_EVENTS
+    return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN

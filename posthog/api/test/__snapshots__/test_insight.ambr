@@ -2,7 +2,7 @@
 # name: TestInsight.test_insight_funnels_hogql_breakdown
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT array(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', '')) AS value,
+  SELECT array(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
   INNER JOIN
@@ -78,7 +78,7 @@
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'user did things', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
-                           array(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', '')) AS prop_basic,
+                           array(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', '')) AS prop_basic,
                            prop_basic as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
