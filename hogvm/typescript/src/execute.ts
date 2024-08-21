@@ -1,5 +1,6 @@
 import RE2 from 're2'
 
+import { CallFrame, HogCallable, isHogCallable, isHogClosure, isHogError, newHogClosure, ThrowFrame } from './objects'
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
 import {
@@ -12,24 +13,11 @@ import {
     setNestedValue,
     UncaughtHogVMException,
 } from './utils'
-import { HogCallable, isHogCallable, isHogClosure, isHogError, newHogClosure } from './objects'
 
 const DEFAULT_MAX_ASYNC_STEPS = 100
 const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
 const DEFAULT_TIMEOUT_MS = 5000 // ms
 const MAX_FUNCTION_ARGS_LENGTH = 300
-
-export interface CallFrame {
-    ip: number
-    stackStart: number
-    argCount: number
-}
-
-export interface ThrowFrame {
-    callStackLen: number
-    stackLen: number
-    catchIp: number
-}
 
 export interface VMState {
     /** Bytecode running in the VM */
@@ -473,7 +461,18 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (name in declaredFunctions && name !== 'toString') {
                     // This is for backwards compatibility. We use a closure on the stack with local functions now.
                     const [funcIp, argLen] = declaredFunctions[name]
-                    callStack.push({ ip: ip + 1, stackStart: stack.length - argLen, argCount: argLen })
+                    callStack.push({
+                        ip: ip + 1,
+                        stackStart: stack.length - argLen,
+                        argCount: argLen,
+                        closure: newHogClosure({
+                            __hogCallable__: 'stl',
+                            argCount: argLen,
+                            upvalueCount: 0,
+                            ip: -1,
+                            name: name,
+                        } satisfies HogCallable),
+                    })
                     ip = funcIp
                 } else {
                     // Shortcut for calling STL functions (can also be done with an STL function closure)
@@ -557,6 +556,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         ip,
                         stackStart: stack.length - closure.callable.argCount,
                         argCount: closure.callable.argCount,
+                        closure,
                     })
                     ip = closure.callable.ip
                 } else if (closure.callable.__hogCallable__ === 'stl') {

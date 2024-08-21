@@ -32,6 +32,19 @@ export interface HogClosure {
     captured: any[]
 }
 
+export interface CallFrame {
+    closure: HogClosure
+    ip: number
+    stackStart: number
+    argCount: number
+}
+
+export interface ThrowFrame {
+    callStackLen: number
+    stackLen: number
+    catchIp: number
+}
+
 export function isHogDate(obj: any): obj is HogDate {
     return obj && typeof obj === 'object' && '__hogDate__' in obj && 'year' in obj && 'month' in obj && 'day' in obj
 }

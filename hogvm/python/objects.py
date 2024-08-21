@@ -1,4 +1,20 @@
+from dataclasses import dataclass
 from typing import Any, Optional
+
+
+@dataclass
+class CallFrame:
+    ip: int
+    stack_start: int
+    arg_len: int
+    closure: dict
+
+
+@dataclass
+class ThrowFrame:
+    call_stack_len: int
+    stack_len: int
+    catch_ip: int
 
 
 def is_hog_date(obj: Any) -> bool:

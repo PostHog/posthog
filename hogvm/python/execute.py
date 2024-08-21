@@ -6,7 +6,7 @@ from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.debugger import debugger, color_bytecode
-from hogvm.python.objects import is_hog_error, new_hog_closure
+from hogvm.python.objects import is_hog_error, new_hog_closure, CallFrame, ThrowFrame
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
@@ -32,20 +32,6 @@ class BytecodeResult:
     result: Any
     bytecode: list[Any]
     stdout: list[str]
-
-
-@dataclass
-class CallFrame:
-    ip: int
-    stack_start: int
-    arg_len: int
-
-
-@dataclass
-class ThrowFrame:
-    call_stack_len: int
-    stack_len: int
-    catch_ip: int
 
 
 def execute_bytecode(
@@ -314,7 +300,21 @@ def execute_bytecode(
                 if name in declared_functions:
                     # This is for backwards compatibility. We use a closure on the stack with local functions now.
                     func_ip, arg_len = declared_functions[name]
-                    call_stack.append(CallFrame(ip=ip + 1, stack_start=len(stack) - arg_len, arg_len=arg_len))
+                    call_stack.append(
+                        CallFrame(
+                            ip=ip + 1,
+                            stack_start=len(stack) - arg_len,
+                            arg_len=arg_len,
+                            closure=new_hog_closure(
+                                {
+                                    "__hogCallable__": "stl",
+                                    "argCount": arg_len,
+                                    "ip": -1,
+                                    "name": name,
+                                }
+                            ),
+                        )
+                    )
                     ip = func_ip
                 else:
                     # Shortcut for calling STL functions (can also be done with an STL function closure)
@@ -348,7 +348,12 @@ def execute_bytecode(
                             f"Too many arguments. Passed {args_length}, expected {callable['argCount']}"
                         )
                     call_stack.append(
-                        CallFrame(ip=ip, stack_start=len(stack) - callable["argCount"], arg_len=callable["argCount"])
+                        CallFrame(
+                            ip=ip,
+                            stack_start=len(stack) - callable["argCount"],
+                            arg_len=callable["argCount"],
+                            closure=closure,
+                        )
                     )
                     ip = callable["ip"]
 

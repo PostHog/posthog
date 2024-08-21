@@ -2,6 +2,7 @@ import os
 from time import sleep
 from typing import Any
 
+from hogvm.python.objects import CallFrame
 from hogvm.python.operation import Operation
 
 debug_speed = -1
@@ -62,7 +63,7 @@ def debugger(
         sleep(debug_speed / 1000)
 
 
-def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_stack: list) -> str:
+def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_stack: list[CallFrame]) -> str:
     try:
         match symbol:
             case Operation.STRING:
@@ -133,8 +134,7 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 return f"POP({stack[-1]})"
             case Operation.RETURN:
                 if call_stack:
-                    ip, stack_start, arg_len = call_stack[-1]
-                    return f"RETURN({stack[-1]} --> {ip}/{stack_start})"
+                    return f"RETURN({stack[-1]} --> {call_stack[-1].ip}/{call_stack[-1].stack_start})"
                 else:
                     return "RETURN"
             case Operation.GET_LOCAL:
