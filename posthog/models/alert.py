@@ -2,6 +2,7 @@ from datetime import datetime, UTC, timedelta
 from typing import Any, Optional
 
 from django.db import models
+from django.core.exceptions import ValidationError
 
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
@@ -74,7 +75,7 @@ class Threshold(CreatedMetaFields, UUIDModel):
             return
         if config.absoluteThreshold.lower is not None and config.absoluteThreshold.upper is not None:
             if config.absoluteThreshold.lower > config.absoluteThreshold.upper:
-                raise ValueError("Lower threshold must be less than upper threshold")
+                raise ValidationError("Lower threshold must be less than upper threshold")
 
 
 class AlertConfiguration(CreatedMetaFields, UUIDModel):

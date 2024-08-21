@@ -25,11 +25,8 @@ class ThresholdSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         instance = Threshold(**data)
-        try:
-            instance.clean()
-            return data
-        except ValueError as e:
-            raise ValidationError(str(e))
+        instance.clean()
+        return data
 
 
 class AlertCheckSerializer(serializers.ModelSerializer):
