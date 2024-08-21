@@ -21,6 +21,7 @@ from rest_framework.decorators import action
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -28,6 +29,8 @@ from posthog.api.utils import safe_clickhouse_string
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.models import User, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
@@ -276,7 +279,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
-        return list_recordings_response(filter, request, self.get_serializer_context())
+        try:
+            return list_recordings_response(filter, request, self.get_serializer_context())
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
 
     @extend_schema(
         description="""

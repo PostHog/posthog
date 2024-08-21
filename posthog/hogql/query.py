@@ -1,8 +1,6 @@
 import dataclasses
 from typing import Optional, Union, cast
 
-from rest_framework.exceptions import ValidationError
-
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
@@ -202,8 +200,6 @@ def execute_hogql_query(
                     team_id=team.pk,
                     readonly=True,
                 )
-            except (ExposedHogQLError, ExposedCHQueryError) as e:
-                raise ValidationError(str(e), getattr(e, "code_name", None))
             except Exception as e:
                 if debug:
                     results = []

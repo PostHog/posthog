@@ -81,18 +81,9 @@ class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
     pass
 
 
-class CHQueryErrorTypeMismatch(ExposedCHQueryError):
-    pass
-
-
 CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
     "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
         "Too many simultaneous queries. Try again later.", code=202
-    ),
-    "TYPE_MISMATCH": CHQueryErrorTypeMismatch(
-        "One or more property values in your filters are in an incorrect format."
-        " Please check and adjust them to match the required data types.",
-        code=53,
     ),
 }
 
@@ -161,7 +152,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     50: ErrorCodeMeta("UNKNOWN_TYPE"),
     51: ErrorCodeMeta("EMPTY_LIST_OF_COLUMNS_QUERIED"),
     52: ErrorCodeMeta("COLUMN_QUERIED_MORE_THAN_ONCE"),
-    53: ErrorCodeMeta("TYPE_MISMATCH", user_safe=True),
+    53: ErrorCodeMeta(
+        "TYPE_MISMATCH",
+        user_safe="One or more property values in your filters are in an incorrect format."
+        " Please check and adjust them to match the required data types.",
+    ),
     55: ErrorCodeMeta("STORAGE_REQUIRES_PARAMETER"),
     56: ErrorCodeMeta("UNKNOWN_STORAGE"),
     57: ErrorCodeMeta("TABLE_ALREADY_EXISTS"),
