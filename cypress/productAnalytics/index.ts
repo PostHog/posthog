@@ -176,7 +176,7 @@ export const dashboard = {
         cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true }).wait(1000)
         cy.get('.LemonInput').type(value)
         cy.contains('.LemonButton__content', value).click({ force: true })
-        cy.get('button').contains('Save Dashboard').click()
+        cy.get('button').contains('Save').click()
     },
     addAnyFilter(): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)
@@ -188,7 +188,7 @@ export const dashboard = {
         // click .dashboard to blur
         cy.get('.dashboard').click({ force: true })
         cy.get('.PropertyFilterButton').should('have.length', 1)
-        cy.get('button').contains('Save Dashboard').click()
+        cy.get('button').contains('Save').click()
     },
 }
 

@@ -95,7 +95,7 @@ describe('Dashboard', () => {
         // refresh the dashboard by changing date range
         cy.get('[data-attr="date-filter"]').click()
         cy.contains('span', 'Last 14 days').click()
-        cy.contains('span', 'Save Dashboard').click()
+        cy.contains('span', 'Save').click()
 
         cy.contains('span[class="text-primary text-sm font-medium"]', 'Refreshing').should('not.exist')
         cy.get('span').contains('Refreshing').should('not.exist')
@@ -163,7 +163,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=date-filter]').contains('No date range override').click()
         cy.get('div').contains('Yesterday').should('exist').click()
         cy.get('[data-attr=date-filter]').contains('Yesterday')
-        cy.get('button').contains('Save Dashboard').click()
+        cy.get('button').contains('Save').click()
         cy.get('.InsightCard h5').should('have.length', 1).contains('Yesterday')
         // Cool, now back to A and make sure the insight is still using the original range there, not the one from B
         cy.clickNavMenu('dashboards')
