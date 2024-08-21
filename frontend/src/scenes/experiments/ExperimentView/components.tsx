@@ -159,7 +159,7 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
-            size="small"
+            size="xsmall"
             type="primary"
             icon={icon}
             to={urls.insightNew(undefined, undefined, query)}
@@ -475,10 +475,9 @@ export function PageHeaderCustom(): JSX.Element {
                         areResultsSignificant &&
                         !isSingleVariantShipped && (
                             <>
-                                <Tooltip title="Choose a variant and roll out to all users.">
+                                <Tooltip title="Choose a variant and roll it out to all users">
                                     <LemonButton
                                         type="primary"
-                                        status="alt"
                                         icon={<IconRocket />}
                                         onClick={() => openMakeDecisionModal()}
                                     >
