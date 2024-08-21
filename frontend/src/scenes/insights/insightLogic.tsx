@@ -100,7 +100,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             {
                 loadInsight: async ({ shortId }, breakpoint) => {
                     await breakpoint(100)
-                    const insight = await insightsApi.getByShortId(shortId, { readAsQuery: true }, undefined, 'async')
+                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
 
                     if (!insight) {
                         throw new Error(`Insight with shortId ${shortId} not found`)
@@ -115,7 +115,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                     const response = await insightsApi.update(values.insight.id as number, insightUpdate, {
                         writeAsQuery: values.queryBasedInsightSaving,
-                        readAsQuery: true,
                     })
                     breakpoint()
                     const updatedInsight: QueryBasedInsightModel = {
@@ -147,7 +146,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate, {
                         writeAsQuery: values.queryBasedInsightSaving,
-                        readAsQuery: true,
                     })
                     breakpoint()
 
@@ -162,7 +160,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             action: async () => {
                                 const response = await insightsApi.update(values.insight.id as number, beforeUpdates, {
                                     writeAsQuery: values.queryBasedInsightSaving,
-                                    readAsQuery: true,
                                 })
                                 savedInsightsLogic.findMounted()?.actions.loadInsights()
                                 dashboardsModel.actions.updateDashboardInsight(response)
@@ -336,9 +333,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     tags,
                 }
 
-                const options: InsightsApiOptions<true> = {
+                const options: InsightsApiOptions = {
                     writeAsQuery: values.queryBasedInsightSaving,
-                    readAsQuery: true,
                 }
                 savedInsight = insightNumericId
                     ? await insightsApi.update(insightNumericId, insightRequest, options)
@@ -419,7 +415,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
                 {
                     writeAsQuery: values.queryBasedInsightSaving,
-                    readAsQuery: true,
                 }
             )
             lemonToast.info(

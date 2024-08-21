@@ -423,9 +423,9 @@ class TrendsQueryRunner(QueryRunner):
                 timings.extend(timing)
 
         has_more = False
-        if self.breakdown_enabled and any(item["label"] == BREAKDOWN_OTHER_STRING_LABEL for item in final_result):
+        if self.breakdown_enabled and any(self._is_other_breakdown(item["breakdown_value"]) for item in final_result):
             if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_hide_other_aggregation:
-                final_result = [item for item in final_result if item["label"] != BREAKDOWN_OTHER_STRING_LABEL]
+                final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
         return TrendsQueryResponse(
@@ -802,6 +802,7 @@ class TrendsQueryRunner(QueryRunner):
                     if isinstance(single_or_multiple_breakdown_value, tuple)
                     else single_or_multiple_breakdown_value
                 )
+
                 any_result: Optional[dict[str, Any]] = None
                 for result in results:
                     matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
@@ -1059,3 +1060,10 @@ class TrendsQueryRunner(QueryRunner):
                 res_breakdown.append(item)
 
         return res_breakdown
+
+    def _is_other_breakdown(self, breakdown: BreakdownItem | list[BreakdownItem]) -> bool:
+        return (
+            breakdown == BREAKDOWN_OTHER_STRING_LABEL
+            or isinstance(breakdown, list)
+            and BREAKDOWN_OTHER_STRING_LABEL in breakdown
+        )
