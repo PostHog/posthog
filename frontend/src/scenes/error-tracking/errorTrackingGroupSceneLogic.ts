@@ -43,6 +43,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
 
     actions({
         setErrorGroupTab: (tab: ErrorGroupTab) => ({ tab }),
+        loadMoreErrors: true,
     }),
 
     reducers(() => ({
@@ -65,17 +66,29 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
-                            offset: values.group?.events?.length || 0,
                         })
                     )
-
-                    if (values.group) {
-                        const group = values.group
-                        const existingEvents = group.events || []
-                        const newEvents = response.results[0].events || []
-                        return { ...group, events: [...existingEvents, ...newEvents] }
-                    }
                     return response.results[0]
+                },
+                loadMoreErrors: async () => {
+                    if (values.group?.events) {
+                        const existingEvents = values.group.events
+
+                        const response = await api.query(
+                            errorTrackingGroupQuery({
+                                fingerprint: props.fingerprint,
+                                dateRange: values.dateRange,
+                                filterTestAccounts: values.filterTestAccounts,
+                                filterGroup: values.filterGroup,
+                                offset: existingEvents.length || 0,
+                            })
+                        )
+
+                        const events = values.group.events
+                        const newEvents = response.results[0].events || []
+                        return { ...values.group, events: [...events, ...newEvents] }
+                    }
+                    return values.group
                 },
             },
         ],

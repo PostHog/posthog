@@ -118,14 +118,14 @@ export const errorTrackingGroupQuery = ({
     dateRange,
     filterTestAccounts,
     filterGroup,
-    offset,
+    offset = 0,
     limit = 50,
 }: {
     fingerprint: string[]
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-    offset: number
+    offset?: number
     limit?: number
 }): ErrorTrackingQuery => {
     return {

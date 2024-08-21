@@ -1,7 +1,7 @@
 import { PersonDisplay, TZLabel } from '@posthog/apps-common'
 import { Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { NotFound } from 'lib/components/NotFound'
@@ -12,6 +12,7 @@ import { ErrorTrackingGroupEvent, errorTrackingGroupSceneLogic } from '../errorT
 
 export const OverviewTab = (): JSX.Element => {
     const { group, events, groupLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { loadMoreErrors } = useActions(errorTrackingGroupSceneLogic)
 
     return groupLoading ? (
         <Spinner className="self-align-center justify-self-center" />
@@ -42,6 +43,11 @@ export const OverviewTab = (): JSX.Element => {
                         )
                     }
                     selectInitialItem
+                    onScrollListEdge={(edge) => {
+                        if (edge === 'bottom') {
+                            loadMoreErrors()
+                        }
+                    }}
                 />
             </div>
         </div>
