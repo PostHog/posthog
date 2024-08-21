@@ -126,4 +126,70 @@
         <format>TabSeparated</format>
         <command>test_function.py</command>
     </function>
+
+    <function>
+        <type>executable</type>
+        <name>aggregate_funnel_trends</name>
+        <!-- Return type for trends is just a list of timestamps where the funnel was completed -->
+        <return_type>Array(Float64)</return_type>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(Nullable(String))</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), Nullable(String), Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>TabSeparated</format>
+        <command>aggregate_funnel_trends.py</command>
+    </function>
+
+    <function>
+        <type>executable</type>
+        <name>aggregate_funnel_array_trends</name>
+        <!-- Return type for trends is just a list of timestamps where the funnel was completed -->
+        <return_type>Array(Float64)</return_type>
+        <argument>
+            <type>UInt8</type>
+            <name>num_steps</name>
+        </argument>
+        <argument>
+            <type>UInt64</type>
+            <name>conversion_window_limit</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>breakdown_attribution_type</name>
+        </argument>
+        <argument>
+            <type>String</type>
+            <name>funnel_order_type</name>
+        </argument>
+        <argument>
+            <type>Array(Array(String))</type>
+            <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Tuple(Nullable(Float64), Array(String), Array(Int8)))</type>
+            <name>value</name>
+        </argument>
+        <format>TabSeparated</format>
+        <command>aggregate_funnel_array_trends.py</command>
+    </function>
 </functions>
