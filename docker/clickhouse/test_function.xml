@@ -131,7 +131,7 @@
         <type>executable</type>
         <name>aggregate_funnel_trends</name>
         <!-- Return type for trends is just a list of timestamps where the funnel was completed -->
-        <return_type>Array(Float64)</return_type>
+        <return_type>Array(Tuple(Float64, Int8))</return_type>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>
@@ -164,7 +164,7 @@
         <type>executable</type>
         <name>aggregate_funnel_array_trends</name>
         <!-- Return type for trends is just a list of timestamps where the funnel was completed -->
-        <return_type>Array(Float64)</return_type>
+        <return_type>Array(Tuple(Float64, Int8))</return_type>
         <argument>
             <type>UInt8</type>
             <name>num_steps</name>

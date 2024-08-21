@@ -83,8 +83,10 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                     exclusion = True
                     step = -step
                 # special code to handle the first step
-                if step == 0:
-                    list_of_entered_timestamps.append([default_entered_timestamp] * (num_steps + 1))
+                if step == 1:
+                    entered_timestamp = [default_entered_timestamp] * (num_steps + 1)
+                    entered_timestamp[1] = EnteredTimestamp(timestamp, [timestamp])
+                    list_of_entered_timestamps.append(entered_timestamp)
                 else:
                     for entered_timestamp in list_of_entered_timestamps[:]:
                         in_match_window = (
@@ -107,11 +109,11 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                                 )
                                 # check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
                                 if entered_timestamp[num_steps].timestamp > 0:
-                                    results.append(f"({entered_timestamp[0].timestamp}, 1)")
+                                    results.append(f"({entered_timestamp[1].timestamp}, 1)")
                                     list_of_entered_timestamps.remove(entered_timestamp)
 
         # At this point, everything left in entered_timestamps is a failure
-        [results.append(f"({entered_timestamp[0].timestamp}, 0)") for entered_timestamp in list_of_entered_timestamps]
+        [results.append(f"({entered_timestamp[1].timestamp}, 0)") for entered_timestamp in list_of_entered_timestamps]
 
     # We don't support breakdowns atm - make this support breakdowns
     [loop_prop_val(prop_val) for prop_val in prop_vals]
