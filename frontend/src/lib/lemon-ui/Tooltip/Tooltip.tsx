@@ -34,17 +34,20 @@ export interface TooltipProps {
     visible?: boolean
 }
 
-export function Tooltip({
-    children,
-    title,
-    className = '',
-    placement = 'top',
-    offset = 8,
-    arrowOffset,
-    delayMs = 500,
-    closeDelayMs = 0, // Set this to some delay to ensure the content stays open when hovered
-    visible: controlledOpen,
-}: TooltipProps): JSX.Element {
+export const Tooltip = React.forwardRef<HTMLElement, TooltipProps>(function Tooltip(
+    {
+        children,
+        title,
+        className = '',
+        placement = 'top',
+        offset = 8,
+        arrowOffset,
+        delayMs = 500,
+        closeDelayMs = 0, // Set this to some delay to ensure the content stays open when hovered
+        visible: controlledOpen,
+    }: TooltipProps,
+    ref
+): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const caretRef = useRef(null)
     const floatingContainer = useFloatingContainer()
@@ -94,7 +97,7 @@ export function Tooltip({
     })
 
     const childrenRef = (children as any).ref
-    const triggerRef = useMergeRefs([refs.setReference, childrenRef])
+    const triggerRef = useMergeRefs([refs.setReference, childrenRef, ref])
 
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
@@ -143,4 +146,4 @@ export function Tooltip({
     ) : (
         children
     )
-}
+})

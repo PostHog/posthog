@@ -68,7 +68,11 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         )
 
         if (disabledReason) {
-            return <Tooltip title={disabledReason}>{button}</Tooltip>
+            return (
+                <Tooltip title={disabledReason} ref={ref}>
+                    {button}
+                </Tooltip>
+            )
         }
 
         return button

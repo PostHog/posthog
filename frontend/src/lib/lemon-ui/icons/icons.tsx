@@ -4,6 +4,7 @@ import './icons.scss'
 import clsx from 'clsx'
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
+import React from 'react'
 
 interface IconWithBadgeProps {
     content: LemonBadgeProps['content']
@@ -54,19 +55,25 @@ export interface LemonIconProps {
     className?: string
 }
 
-const LemonIconBase: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...props }) => (
-    <svg
-        className={clsx('LemonIcon', className)}
-        width="1em"
-        height="1em"
-        fill="none"
-        viewBox="0 0 24 24"
-        xmlns="http://www.w3.org/2000/svg"
-        focusable="false"
-        aria-hidden="true"
-        {...props}
-    />
-)
+const LemonIconBase = React.forwardRef<SVGSVGElement, SVGAttributes<SVGSVGElement>>(function LemonIconBase(
+    { className, ...props },
+    ref
+) {
+    return (
+        <svg
+            ref={ref}
+            className={clsx('LemonIcon', className)}
+            width="1em"
+            height="1em"
+            fill="none"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+            focusable="false"
+            aria-hidden="true"
+            {...props}
+        />
+    )
+})
 
 // material design format-size icon
 export function IconTextSize(props: LemonIconProps): JSX.Element {
@@ -500,16 +507,19 @@ export function Icon123(props: LemonIconProps): JSX.Element {
 }
 
 /** Material Design Groups icon. */
-export function IconCohort(props: LemonIconProps): JSX.Element {
+export const IconCohort = React.forwardRef<SVGSVGElement, LemonIconProps>(function IconCohort(
+    props: LemonIconProps,
+    ref
+): JSX.Element {
     return (
-        <LemonIconBase {...props}>
+        <LemonIconBase {...props} ref={ref}>
             <path
                 d="m4 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm1.13 1.1c-.37-.06-.74-.1-1.13-.1-.99 0-1.93.21-2.78.58-.74.32-1.22 1.04-1.22 1.85v1.57h4.5v-1.61c0-.83.23-1.61.63-2.29zm14.87-1.1c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm4 3.43c0-.81-.48-1.53-1.22-1.85-.85-.37-1.79-.58-2.78-.58-.39 0-.76.04-1.13.1.4.68.63 1.46.63 2.29v1.61h4.5zm-7.76-2.78c-1.17-.52-2.61-.9-4.24-.9s-3.07.39-4.24.9c-1.08.48-1.76 1.56-1.76 2.74v1.61h12v-1.61c0-1.18-.68-2.26-1.76-2.74zm-8.17 2.35c.09-.23.13-.39.91-.69.97-.38 1.99-.56 3.02-.56s2.05.18 3.02.56c.77.3.81.46.91.69zm3.93-8c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm0-2c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
                 fill="currentColor"
             />
         </LemonIconBase>
     )
-}
+})
 
 /** Material Design Handyman icon. */
 export function IconTools(props: LemonIconProps): JSX.Element {
