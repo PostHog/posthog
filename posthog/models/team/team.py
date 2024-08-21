@@ -314,22 +314,21 @@ class Team(UUIDClassicModel):
     def person_on_events_mode(self) -> PersonsOnEventsMode:
         if self.modifiers and self.modifiers.get("personsOnEventsMode") is not None:
             # HogQL modifiers (which also act as the project-level setting) take precedence
-            return PersonsOnEventsMode(self.modifiers["personsOnEventsMode"])
+            mode = PersonsOnEventsMode(self.modifiers["personsOnEventsMode"])
         else:
             # Otherwise use the flag-based default
-            return self.person_on_events_mode_flag_based_default
+            mode = self.person_on_events_mode_flag_based_default
+        tag_queries(person_on_events_mode=mode)
+        return mode
 
     @property
     def person_on_events_mode_flag_based_default(self) -> PersonsOnEventsMode:
         if self._person_on_events_person_id_override_properties_on_events:
-            tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
             return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
         if self._person_on_events_person_id_no_override_properties_on_events:
-            tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS)
             return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        tag_queries(person_on_events_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
         return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
