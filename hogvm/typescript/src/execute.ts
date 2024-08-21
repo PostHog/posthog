@@ -1,6 +1,16 @@
 import RE2 from 're2'
 
-import { CallFrame, HogCallable, isHogCallable, isHogClosure, isHogError, newHogClosure, ThrowFrame } from './objects'
+import {
+    CallFrame,
+    HogCallable,
+    HogUpValue,
+    isHogCallable,
+    isHogClosure,
+    isHogError,
+    isHogUpValue,
+    newHogClosure,
+    ThrowFrame,
+} from './objects'
 import { Operation } from './operation'
 import { ASYNC_STL, STL } from './stl/stl'
 import {
@@ -337,6 +347,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             __hogCallable__: 'async',
                             name: chain[0],
                             argCount: 0, // TODO
+                            upvalueCount: 0,
                             ip: -1,
                         } satisfies HogCallable)
                     )
@@ -345,6 +356,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         newHogClosure({
                             __hogCallable__: 'async',
                             argCount: 0, // TODO
+                            upvalueCount: 0,
                             ip: -1,
                         } satisfies HogCallable)
                     )
@@ -353,6 +365,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         newHogClosure({
                             __hogCallable__: 'stl',
                             argCount: 0, // TODO
+                            upvalueCount: 0,
                             ip: -1,
                             name: chain[0],
                         } satisfies HogCallable)
@@ -453,11 +466,12 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             case Operation.CALLABLE: {
                 const name = next() // TODO: do we need it? it could change as the variable is reassigned
                 const argCount = next()
+                const upvalueCount = next()
                 const bodyLength = next()
                 const callable = {
                     __hogCallable__: 'local',
                     argCount,
-                    // upvalueCount,
+                    upvalueCount,
                     ip: frame.ip + 1,
                     name,
                 } satisfies HogCallable
@@ -466,7 +480,54 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 break
             }
             case Operation.CLOSURE: {
-                pushStack(newHogClosure(popStack(), []))
+                const callable = popStack()
+                if (!isHogCallable(callable)) {
+                    throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`)
+                }
+                const upvalueCount = next()
+                const upvalues: HogUpValue[] = []
+                if (upvalueCount !== callable.upvalueCount) {
+                    throw new HogVMException(
+                        `Invalid upvalue count. Expected ${callable.upvalueCount}, got ${upvalueCount}`
+                    )
+                }
+                const stackStart = frame.stackStart
+                for (let i = 0; i < callable.upvalueCount; i++) {
+                    const [isLocal, index] = [next(), next()]
+                    if (isLocal) {
+                        upvalues.push({
+                            __hogUpValue__: true,
+                            index: stackStart + index,
+                        } satisfies HogUpValue)
+                    } else {
+                        upvalues.push(frame.closure.upvalues[index])
+                    }
+                }
+                pushStack(newHogClosure(callable, upvalues))
+                break
+            }
+            case Operation.GET_UPVALUE: {
+                const index = next()
+                if (index >= frame.closure.upvalues.length) {
+                    throw new HogVMException(`Invalid upvalue index: ${index}`)
+                }
+                const upvalue = frame.closure.upvalues[index]
+                if (!isHogUpValue(upvalue)) {
+                    throw new HogVMException(`Invalid upvalue: ${upvalue}`)
+                }
+                pushStack(stack[upvalue.index])
+                break
+            }
+            case Operation.SET_UPVALUE: {
+                const index = next()
+                if (index >= frame.closure.upvalues.length) {
+                    throw new HogVMException(`Invalid upvalue index: ${index}`)
+                }
+                const upvalue = frame.closure.upvalues[index]
+                if (!isHogUpValue(upvalue)) {
+                    throw new HogVMException(`Invalid upvalue: ${upvalue}`)
+                }
+                stack[upvalue.index] = popStack()
                 break
             }
             case Operation.CALL_GLOBAL: {

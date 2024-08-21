@@ -140,7 +140,11 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
             case Operation.GET_LOCAL:
                 return f"GET_LOCAL({bytecode[ip+1]})"
             case Operation.SET_LOCAL:
-                return f"GET_LOCAL({bytecode[ip + 1]}, {stack[-1]})"
+                return f"SET_LOCAL({bytecode[ip + 1]}, {stack[-1]})"
+            case Operation.GET_UPVALUE:
+                return f"GET_UPVALUE({bytecode[ip+1]})"
+            case Operation.SET_UPVALUE:
+                return f"SET_UPVALUE({bytecode[ip + 1]})"
             case Operation.GET_PROPERTY:
                 return f"GET_PROPERTY({stack[-2]}, {stack[-1]})"
             case Operation.GET_PROPERTY_NULLISH:
@@ -164,7 +168,7 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
             case Operation.DECLARE_FN:
                 return f"DECLARE_FN({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
             case Operation.CALLABLE:
-                return f"CALLABLE({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
+                return f"CALLABLE({bytecode[ip+1]}, args={bytecode[ip+2]}, upvalues={bytecode[ip+3]}, ops={bytecode[ip+4]})"
             case Operation.CLOSURE:
                 return f"CLOSURE"
             case Operation.CALL_GLOBAL:
@@ -260,6 +264,10 @@ def color_bytecode(bytecode: list) -> list:
                 add = ["op.GET_LOCAL", f"index: {bytecode[ip+1]}"]
             case Operation.SET_LOCAL:
                 add = ["op.SET_LOCAL", f"index: {bytecode[ip+1]}"]
+            case Operation.GET_UPVALUE:
+                add = ["op.GET_UPVALUE", f"index: {bytecode[ip+1]}"]
+            case Operation.SET_UPVALUE:
+                add = ["op.SET_UPVALUE", f"index: {bytecode[ip+1]}"]
             case Operation.GET_PROPERTY:
                 add = ["op.GET_PROPERTY"]
             case Operation.GET_PROPERTY_NULLISH:
@@ -281,9 +289,19 @@ def color_bytecode(bytecode: list) -> list:
             case Operation.DECLARE_FN:
                 add = ["op.DECLARE_FN", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
             case Operation.CALLABLE:
-                add = ["op.CALLABLE", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
+                add = [
+                    "op.CALLABLE",
+                    f"name: {bytecode[ip+1]}",
+                    f"args: {bytecode[ip+2]}",
+                    f"upvalues: {bytecode[ip+3]}",
+                    f"ops: {bytecode[ip+4]}",
+                ]
             case Operation.CLOSURE:
-                add = ["op.CLOSURE"]
+                upvalue_count = bytecode[ip + 1]
+                add = ["op.CLOSURE", f"upvalues: {upvalue_count}"]
+                for i in range(upvalue_count):
+                    add.append(f"is_local({i}): {bytecode[ip + 2 + i * 2]}")
+                    add.append(f"index({i}): {bytecode[ip + 2 + i * 2 + 1]}")
             case Operation.CALL_LOCAL:
                 add = ["op.CALL_LOCAL", f"args: {bytecode[ip+1]}"]
             case Operation.CALL_GLOBAL:

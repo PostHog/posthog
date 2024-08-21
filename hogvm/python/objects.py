@@ -43,12 +43,12 @@ def is_hog_callable(obj: Any) -> bool:
 
 
 def is_hog_closure(obj: Any) -> bool:
-    return isinstance(obj, dict) and "__hogClosure__" in obj and "callable" in obj and "captured" in obj
+    return isinstance(obj, dict) and "__hogClosure__" in obj and "callable" in obj and "upvalues" in obj
 
 
-def new_hog_closure(callable: dict, captured: Optional[dict] = None) -> dict:
+def new_hog_closure(callable: dict, upvalues: Optional[dict] = None) -> dict:
     return {
         "__hogClosure__": True,
         "callable": callable,
-        "captured": captured or [],
+        "upvalues": upvalues or [],
     }

@@ -198,7 +198,8 @@ def execute_bytecode(
                         new_hog_closure(
                             {
                                 "__hogCallable__": "stl",
-                                "argCount": 0,  # TODO
+                                "argCount": 0,
+                                "upvalueCount": 0,
                                 "ip": -1,
                                 "name": chain[0],
                             }
@@ -304,11 +305,12 @@ def execute_bytecode(
             case Operation.CALLABLE:
                 name = next_token()  # TODO: do we need it? it could change as the variable is reassigned
                 arg_count = next_token()
+                upvalue_count = next_token()
                 body_length = next_token()
                 callable = {
                     "__hogCallable__": "local",
                     "argCount": arg_count,
-                    # "upvalueCount": upvalue_count,
+                    "upvalueCount": upvalue_count,
                     "ip": frame.ip + 1,
                     "name": name,
                 }
@@ -317,9 +319,48 @@ def execute_bytecode(
             case Operation.CLOSURE:
                 callable = pop_stack()
                 closure = new_hog_closure(callable)
-                # for _ in range(callable["upvalueCount"]):
-                #     closure["upvalues"].append([next_token(), next_token()])
+                stack_start = frame.stack_start
+                upvalue_count = next_token()
+                if upvalue_count != callable["upvalueCount"]:
+                    raise HogVMException(
+                        f"Invalid upvalue count. Expected {callable['upvalueCount']}, got {upvalue_count}"
+                    )
+                for _ in range(callable["upvalueCount"]):
+                    is_local, index = next_token(), next_token()
+                    if is_local:
+
+                        def new_upvalue(index):
+                            return {
+                                "__hogUpvalue__": True,
+                                "location": index,
+                            }
+
+                        def capture_upvalue(index):
+                            upvalue = new_upvalue(index)
+                            return upvalue
+
+                        closure["upvalues"].append(capture_upvalue(stack_start + index))
+                    else:
+                        closure["upvalues"].append(frame.closure["upvalues"][index])
                 push_stack(closure)
+            case Operation.GET_UPVALUE:
+                index = next_token()
+                closure = frame.closure
+                if index >= len(closure["upvalues"]):
+                    raise HogVMException(f"Invalid upvalue index: {index}")
+                upvalue = closure["upvalues"][index]
+                if not isinstance(upvalue, dict) or upvalue.get("__hogUpvalue__") is None:
+                    raise HogVMException(f"Invalid upvalue: {upvalue}")
+                push_stack(stack[upvalue["location"]])
+            case Operation.SET_UPVALUE:
+                index = next_token()
+                closure = frame.closure
+                if index >= len(closure["upvalues"]):
+                    raise HogVMException(f"Invalid upvalue index: {index}")
+                upvalue = closure["upvalues"][index]
+                if not isinstance(upvalue, dict) or upvalue.get("__hogUpvalue__") is None:
+                    raise HogVMException(f"Invalid upvalue: {upvalue}")
+                stack[upvalue["location"]] = pop_stack()
             case Operation.CALL_GLOBAL:
                 check_timeout()
                 name = next_token()
@@ -335,7 +376,7 @@ def execute_bytecode(
                             {
                                 "__hogCallable__": "stl",
                                 "argCount": arg_len,
-                                # "upvalueCount": 0,
+                                "upvalueCount": 0,
                                 "ip": -1,
                                 "name": name,
                             }

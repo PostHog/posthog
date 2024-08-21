@@ -1,4 +1,4 @@
-// TODO: implement closures
+// TODO: closing of upvalues
 
 //fn returnCallable(a) {
 //  return x -> x * a

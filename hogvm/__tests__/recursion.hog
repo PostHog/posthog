@@ -1,0 +1,12 @@
+// TODO: get this working
+//
+//fn fibonacci(number) {
+//    if (number < 2) {
+//        return number;
+//    } else {
+//        return fibonacci(number - 1) + fibonacci(number - 2);
+//    }
+//}
+//
+//print(fibonacci(6))
+//

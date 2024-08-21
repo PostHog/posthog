@@ -82,6 +82,12 @@ class HogFunction:
     bytecode: list[Any]
 
 
+class UpValue:
+    def __init__(self, index: int, is_local: bool):
+        self.index = index
+        self.is_local = is_local
+
+
 class BytecodeBuilder(Visitor):
     def __init__(
         self,
@@ -94,6 +100,7 @@ class BytecodeBuilder(Visitor):
         self.enclosing = enclosing
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
+        self.upvalues: list[UpValue] = []
         # self.functions: dict[str, HogFunction] = {}
         self.scope_depth = 0
         self.args = args
@@ -158,19 +165,50 @@ class BytecodeBuilder(Visitor):
             ARITHMETIC_OPERATIONS[node.op],
         ]
 
+    def _add_upvalue(self, index: int, is_local: bool) -> int:
+        for i, upvalue in enumerate(self.upvalues):
+            if upvalue.index == index and upvalue.is_local == is_local:
+                return i
+        self.upvalues.append(UpValue(index, is_local))
+        return len(self.upvalues) - 1
+
+    def _resolve_upvalue(self, name: str) -> int:
+        if not self.enclosing:
+            return -1
+
+        for index, local in reversed(list(enumerate(self.enclosing.locals))):
+            if local.name == name:
+                return self._add_upvalue(index, True)
+
+        upvalue = self.enclosing._resolve_upvalue(name)
+        if upvalue != -1:
+            return self._add_upvalue(upvalue, False)
+
+        return -1
+
     def visit_field(self, node: ast.Field):
+        ops: list[str | int] = []
         for index, local in reversed(list(enumerate(self.locals))):
             if local.name == node.chain[0]:
-                if len(node.chain) == 1:
-                    return [Operation.GET_LOCAL, index]
-                else:
-                    ops: list[str | int] = [Operation.GET_LOCAL, index]
-                    for element in node.chain[1:]:
-                        if isinstance(element, int):
-                            ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
-                        else:
-                            ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
-                    return ops
+                ops = [Operation.GET_LOCAL, index]
+                break
+
+        if len(ops) == 0:
+            arg = self._resolve_upvalue(str(node.chain[0]))
+            if arg != -1:
+                ops = [Operation.GET_UPVALUE, arg]
+
+        if len(ops) > 0:
+            if len(node.chain) > 1:
+                for element in node.chain[1:]:
+                    if isinstance(element, int):
+                        ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
+                    else:
+                        ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
+            return ops
+
+        # Did not find a local nor an upvalue, must be a global.
+
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
@@ -284,10 +322,13 @@ class BytecodeBuilder(Visitor):
 
         if found_local_with_name:
             field = self.visit(ast.Field(chain=[node.name]))
-            response.extend([*field, Operation.CALL_LOCAL, len(node.args)])
-        else:
-            response.extend([Operation.CALL_GLOBAL, node.name, len(node.args)])
-        return response
+            return [*response, *field, Operation.CALL_LOCAL, len(node.args)]
+
+        upvalue = self._resolve_upvalue(node.name)
+        if upvalue != -1:
+            return [*response, Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(node.args)]
+
+        return [*response, Operation.CALL_GLOBAL, node.name, len(node.args)]
 
     def visit_program(self, node: ast.Program):
         response = []
@@ -607,6 +648,27 @@ class BytecodeBuilder(Visitor):
 
                     return ops
 
+            upvalue_index = self._resolve_upvalue(str(chain[0]))
+            if upvalue_index != -1:
+                # Set an upvalue
+                if len(node.left.chain) == 1:
+                    return [*self.visit(cast(AST, node.right)), Operation.SET_UPVALUE, upvalue_index]
+
+                # else set a property on an upvalue object
+                ops: list = [Operation.GET_UPVALUE, upvalue_index]
+                for element in chain[1:-1]:
+                    if isinstance(element, int):
+                        ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
+                    else:
+                        ops.extend([Operation.STRING, str(element), Operation.GET_PROPERTY])
+                if isinstance(chain[-1], int):
+                    ops.extend([Operation.INTEGER, chain[-1], *self.visit(node.right), Operation.SET_PROPERTY])
+                else:
+                    ops.extend([Operation.STRING, str(chain[-1]), *self.visit(node.right), Operation.SET_PROPERTY])
+
+                return ops
+            # print(arg)
+            # #
             raise QueryError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
 
         raise QueryError(f"Can not assign to this type of expression")
@@ -620,9 +682,23 @@ class BytecodeBuilder(Visitor):
         elif not isinstance(node.body, ast.ReturnStatement):
             body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
 
-        bytecode = create_bytecode(body, None, node.params, self.context, self)
+        compiler = BytecodeBuilder(self.supported_functions, node.params, self.context, self)
+        bytecode = compiler.visit(body)
+
         self._declare_local(node.name)
-        return [Operation.CALLABLE, node.name, len(node.params), len(bytecode), *bytecode, Operation.CLOSURE]
+        ops = [
+            Operation.CALLABLE,
+            node.name,
+            len(node.params),
+            len(compiler.upvalues),
+            len(bytecode),
+            *bytecode,
+            Operation.CLOSURE,
+            len(compiler.upvalues),
+        ]
+        for upvalue in compiler.upvalues:
+            ops.extend([upvalue.is_local, upvalue.index])
+        return ops
 
     def visit_lambda(self, node: ast.Lambda):
         # add an implicit return if none at the end of the function
@@ -636,8 +712,21 @@ class BytecodeBuilder(Visitor):
             else:
                 expr = ast.ReturnStatement(expr=expr)
 
-        bytecode = create_bytecode(expr, None, node.args, self.context, self)
-        return [Operation.CALLABLE, "lambda", len(node.args), len(bytecode), *bytecode, Operation.CLOSURE]
+        compiler = BytecodeBuilder(self.supported_functions, node.args, self.context, self)
+        bytecode = compiler.visit(expr)
+        ops = [
+            Operation.CALLABLE,
+            "lambda",
+            len(node.args),
+            len(compiler.upvalues),
+            len(bytecode),
+            *bytecode,
+            Operation.CLOSURE,
+            len(compiler.upvalues),
+        ]
+        for upvalue in compiler.upvalues:
+            ops.extend([upvalue.is_local, upvalue.index])
+        return ops
 
     def visit_dict(self, node: ast.Dict):
         response = []

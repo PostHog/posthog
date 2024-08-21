@@ -35,45 +35,36 @@ try {
 
 print('------------------')
 
-// TODO: need closures to access
+fn third() {
+  print('Throwing in third')
+  throw Error('Threw in third')
+}
 
-//fn third() {
-//  print('Throwing in third')
-//  throw Error('Threw in third')
-//}
-//
-//fn second() {
-//  print('second')
-//  third()
-//}
-//
-//fn first() {
-//  print('first')
-//  second()
-//}
-//
-//fn base() {
-//  print('base')
-//  try {
-//    first()
-//  } catch (e) {
-//    print(f'Caught in base: {e}')
-//    throw e
-//  }
-//}
-//
-//try {
-//  base()
-//} catch (e) {
-//  print(f'Caught in root: {e}')
-//}
-//print('The end')
+fn second() {
+  print('second')
+  third()
+}
 
-//print('------------------')
+fn first() {
+  print('first')
+  second()
+}
 
-// TODO: throw undefined global access in Hog
-//try {
-//  print({key: 'value'})
-//} catch(e) {
-//  print(e)
-//}
+fn base() {
+  print('base')
+  try {
+    first()
+  } catch (e) {
+    print(f'Caught in base: {e}')
+    throw e
+  }
+}
+
+try {
+  base()
+} catch (e) {
+  print(f'Caught in root: {e}')
+}
+print('The end')
+
+print('------------------')

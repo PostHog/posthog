@@ -59,3 +59,5 @@ class Operation(int, Enum):
     CALLABLE = 52
     CLOSURE = 53
     CALL_LOCAL = 54
+    GET_UPVALUE = 55
+    SET_UPVALUE = 56

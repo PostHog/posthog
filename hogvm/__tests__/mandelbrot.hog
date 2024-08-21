@@ -16,31 +16,29 @@ fn mandelbrot(re, im, max_iter) {
     }
 }
 
-// TODO: implement closures to access variables declared outside
+fn main() {
+    let width := 80
+    let height := 24
+    let xmin := -2.0
+    let xmax := 1.0
+    let ymin := -1.0
+    let ymax := 1.0
+    let max_iter := 30
 
-//fn main() {
-let width := 80
-let height := 24
-let xmin := -2.0
-let xmax := 1.0
-let ymin := -1.0
-let ymax := 1.0
-let max_iter := 30
-
-let y := 0
-while(y < height) {
-    let row := ''
-    let x := 0
-    while (x < width) {
-        let re := x / width * (xmax - xmin) + xmin
-        let im := y / height * (ymax - ymin) + ymin
-        let letter := mandelbrot(re, im, max_iter)
-        row := concat(row, letter)
-        x := x + 1
+    let y := 0
+    while(y < height) {
+        let row := ''
+        let x := 0
+        while (x < width) {
+            let re := x / width * (xmax - xmin) + xmin
+            let im := y / height * (ymax - ymin) + ymin
+            let letter := mandelbrot(re, im, max_iter)
+            row := concat(row, letter)
+            x := x + 1
+        }
+        print(row)
+        y := y + 1
     }
-    print(row)
-    y := y + 1
 }
-//}
-//
-//main()
+
+main()

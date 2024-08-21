@@ -14,22 +14,20 @@ execFunction()
 execFunctionNested()
 execFunction()
 
-// TODO: implement closures to access variables declared outside
-//
-//print('--------')
-//
-//fn secondExecFunction() {
-//  print('secondExecFunction')
-//}
-//
-//fn secondExecFunctionNested() {
-//  print('secondExecFunctionNested')
-//  secondExecFunction()
-//}
-//
-//secondExecFunction()
-//secondExecFunctionNested()
-//secondExecFunction()
+print('--------')
+
+fn secondExecFunction() {
+  print('secondExecFunction')
+}
+
+fn secondExecFunctionNested() {
+  print('secondExecFunctionNested')
+  secondExecFunction()
+}
+
+secondExecFunction()
+secondExecFunctionNested()
+secondExecFunction()
 
 print('--------')
 
