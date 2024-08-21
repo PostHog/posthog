@@ -44,9 +44,9 @@ class Migration(migrations.Migration):
                     -- Drop the NOT NULL constraint from the team_id column
                     ALTER TABLE "posthog_insightviewed" ALTER COLUMN "team_id" DROP NOT NULL;
                     -- Add the foreign key constraint back with DEFERRABLE INITIALLY DEFERRED to avoid blocking
-                    ALTER TABLE "posthog_insightviewed" ADD CONSTRAINT "posthog_insightviewed_team_id_167733dd_fk_posthog_team_id" FOREIGN KEY ("team_id") REFERENCES "posthog_team" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_insightviewed" ADD CONSTRAINT "posthog_insightviewed_team_id_167733dd_fk_posthog_team_id" FOREIGN KEY ("team_id") REFERENCES "posthog_team" ("id") NOT VALID DEFERRABLE INITIALLY DEFERRED;
                     -- Enforce the constraint immediately
-                    SET CONSTRAINTS "posthog_insightviewed_team_id_167733dd_fk_posthog_team_id" IMMEDIATE; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_insightviewed_team_id_167733dd_fk_posthog_team_id" IMMEDIATE;
                     """,
                     reverse_sql="""
                     -- Drop the foreign key constraint on the team_id column
@@ -54,9 +54,9 @@ class Migration(migrations.Migration):
                     -- Restore the NOT NULL constraint on the team_id column
                     ALTER TABLE "posthog_insightviewed" ALTER COLUMN "team_id" SET NOT NULL;
                     -- Add the foreign key constraint back with DEFERRABLE INITIALLY DEFERRED to avoid blocking
-                    ALTER TABLE "posthog_insightviewed" ADD CONSTRAINT "posthog_insightviewed_team_id_167733dd_fk_posthog_team_id" FOREIGN KEY ("team_id") REFERENCES "posthog_team" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_insightviewed" ADD CONSTRAINT "posthog_insightviewed_team_id_167733dd_fk_posthog_team_id" FOREIGN KEY ("team_id") REFERENCES "posthog_team" ("id") NOT VALID DEFERRABLE INITIALLY DEFERRED;
                     -- Enforce the constraint immediately
-                    SET CONSTRAINTS "posthog_insightviewed_team_id_167733dd_fk_posthog_team_id" IMMEDIATE; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_insightviewed_team_id_167733dd_fk_posthog_team_id" IMMEDIATE;
                     """,
                 ),
                 migrations.RunSQL(
@@ -66,9 +66,9 @@ class Migration(migrations.Migration):
                     -- Drop the NOT NULL constraint from the user_id column
                     ALTER TABLE "posthog_insightviewed" ALTER COLUMN "user_id" DROP NOT NULL;
                     -- Add the foreign key constraint back with DEFERRABLE INITIALLY DEFERRED to avoid blocking
-                    ALTER TABLE "posthog_insightviewed" ADD CONSTRAINT "posthog_insightviewed_user_id_6ec3e25a_fk_posthog_user_id" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_insightviewed" ADD CONSTRAINT "posthog_insightviewed_user_id_6ec3e25a_fk_posthog_user_id" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") NOT VALID DEFERRABLE INITIALLY DEFERRED;
                     -- Enforce the constraint immediately
-                    SET CONSTRAINTS "posthog_insightviewed_user_id_6ec3e25a_fk_posthog_user_id" IMMEDIATE; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_insightviewed_user_id_6ec3e25a_fk_posthog_user_id" IMMEDIATE;
                     """,
                     reverse_sql="""
                     -- Drop the foreign key constraint on the user_id column
@@ -76,9 +76,9 @@ class Migration(migrations.Migration):
                     -- Restore the NOT NULL constraint on the user_id column
                     ALTER TABLE "posthog_insightviewed" ALTER COLUMN "user_id" SET NOT NULL;
                     -- Add the foreign key constraint back with DEFERRABLE INITIALLY DEFERRED to avoid blocking
-                    ALTER TABLE "posthog_insightviewed" ADD CONSTRAINT "posthog_insightviewed_user_id_6ec3e25a_fk_posthog_user_id" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_insightviewed" ADD CONSTRAINT "posthog_insightviewed_user_id_6ec3e25a_fk_posthog_user_id" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") NOT VALID DEFERRABLE INITIALLY DEFERRED;
                     -- Enforce the constraint immediately
-                    SET CONSTRAINTS "posthog_insightviewed_user_id_6ec3e25a_fk_posthog_user_id" IMMEDIATE; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_insightviewed_user_id_6ec3e25a_fk_posthog_user_id" IMMEDIATE;
                     """,
                 ),
             ],
