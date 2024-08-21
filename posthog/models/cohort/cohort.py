@@ -216,19 +216,15 @@ class Cohort(models.Model):
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
-        except Exception as err:
+        except Exception:
             self.errors_calculating = F("errors_calculating") + 1
+
             logger.warning(
                 "cohort_calculation_failed",
                 id=self.pk,
                 current_version=self.version,
                 new_version=pending_version,
                 exc_info=True,
-            )
-
-            capture_exception(
-                Exception(f"Error calculating cohort id = {self.id}, team_id = {self.team.id}"),
-                {"error": str(err)},
             )
 
             raise

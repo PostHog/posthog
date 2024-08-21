@@ -6,6 +6,10 @@ CREATE TYPE JobState AS ENUM(
     'paused'
 );
 
+
+---------------------------------------------------------------------
+-- Job table
+---------------------------------------------------------------------
 -- When a job is dequeued, it is locked by generating a UUID and returning it to the dequeuing
 -- worker. Any worker that can't provide the correct lock_id when updating will have their updates
 -- rejected. The reason this is important is because if, e.g., a worker holds a job in a running
@@ -68,7 +72,12 @@ CREATE INDEX idx_queue_function_id ON cyclotron_jobs(function_id);
 
 CREATE INDEX idx_queue_queue_name ON cyclotron_jobs(queue_name);
 
--- Add migration script here
+
+---------------------------------------------------------------------
+-- Control tables
+---------------------------------------------------------------------
+
+
 -- These are just a starting point, supporting overriding the state for a given team, function or queue
 -- For now these are entirely unused
 CREATE TABLE IF NOT EXISTS cyclotron_team_control (

@@ -21,6 +21,8 @@ async fn main() {
 
     let manager_config = ManagerConfig {
         shards: vec![pool_config.clone()],
+        shard_depth_limit: None,
+        shard_depth_check_interval_seconds: None,
     };
 
     let manager = QueueManager::new(manager_config).await.unwrap();

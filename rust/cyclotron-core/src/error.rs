@@ -10,4 +10,8 @@ pub enum QueueError {
     FlushWithoutNextState(Uuid),
     #[error("Invalid lock {0} used to update job {1}. This usually means a job has been reaped from under a worker - did you forget to set the heartbeat?")]
     InvalidLock(Uuid, Uuid),
+    #[error("Shard over capacity {0} for this manager, insert aborted")]
+    ShardFull(u64),
+    #[error("Timed waiting for shard to have capacity")]
+    TimedOutWaitingForCapacity,
 }

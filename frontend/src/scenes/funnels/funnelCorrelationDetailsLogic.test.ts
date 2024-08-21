@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { DataNode } from '~/queries/schema'
+import { DataNode, InsightVizNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps, InsightType } from '~/types'
 
@@ -43,13 +43,16 @@ describe('funnelCorrelationDetailsLogic', () => {
         dashboardItemId: undefined,
         cachedInsight: {
             short_id: undefined,
-            filters: {
-                insight: InsightType.FUNNELS,
-                actions: [
-                    { type: 'actions', id: '$pageview', order: 0 },
-                    { type: 'actions', id: '$pageview', order: 1 },
-                ],
-            },
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.ActionsNode, id: 1 },
+                        { kind: NodeKind.ActionsNode, id: 1 },
+                    ],
+                },
+            } as InsightVizNode,
             result: funnelResults,
         },
     }
