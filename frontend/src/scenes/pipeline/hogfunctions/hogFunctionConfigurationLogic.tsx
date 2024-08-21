@@ -496,6 +496,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             { resultEqualityCheck: equal },
         ],
+
+        templateHasChanged: [
+            (s) => [s.hogFunction, s.configuration],
+            (hogFunction, configuration) => {
+                return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -592,8 +599,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     name: values.configuration.name,
                     description: values.configuration.description,
                     inputs,
-                    enabled: false,
                 })
+
+                lemonToast.success('Template updates applied but not saved.')
             }
         },
         setConfigurationValue: () => {

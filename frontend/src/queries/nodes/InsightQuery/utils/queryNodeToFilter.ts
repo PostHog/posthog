@@ -105,7 +105,7 @@ export const hiddenLegendItemsToKeys = (
     // @ts-expect-error
     hidden_items?.reduce((k: Record<string, boolean | undefined>, b: string | number) => ({ ...k, [b]: true }), {})
 
-export const insightMap: Record<InsightNodeKind, InsightType> = {
+export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
@@ -114,7 +114,7 @@ export const insightMap: Record<InsightNodeKind, InsightType> = {
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
 }
 
-const filterMap: Record<InsightNodeKind, string> = {
+const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -147,7 +147,7 @@ export const getInsightFilterOrQueryForPersistance = (
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
     const filters: Partial<FilterType> = objectClean({
-        insight: insightMap[query.kind],
+        insight: nodeKindToInsightType[query.kind],
         properties: query.properties,
         filter_test_accounts: query.filterTestAccounts,
         date_to: query.dateRange?.date_to,
@@ -339,7 +339,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     Object.assign(filters, camelCasedLifecycleProps)
 
     // add the remaining node specific filter properties
-    Object.assign(filters, queryCopy[filterMap[query.kind]])
+    Object.assign(filters, queryCopy[nodeKindToFilterKey[query.kind]])
 
     return filters
 }

@@ -2,10 +2,8 @@ import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { FunnelPathType, PathType } from '~/types'
 
@@ -18,8 +16,6 @@ type FunnelStepMoreProps = {
 export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
-
-    const filterProps = cleanFilters(queryNodeToFilter(querySource!))
 
     const aggregationGroupTypeIndex = querySource?.aggregation_group_type_index
 
@@ -43,7 +39,7 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
                     includeEventTypes: [PathType.PageView, PathType.CustomEvent],
                 },
                 dateRange: {
-                    date_from: filterProps.date_from,
+                    date_from: querySource?.dateRange?.date_from,
                 },
             },
         }

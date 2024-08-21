@@ -3,6 +3,7 @@ import { FunnelLayout } from 'lib/constants'
 
 import {
     ChartDisplayType,
+    FeatureFlagFilters,
     FilterType,
     FunnelTimeConversionMetrics,
     FunnelVizType,
@@ -85,4 +86,27 @@ export function getMinimumDetectableEffect(
         return 20
     }
     return 5
+}
+
+export function transformFiltersForWinningVariant(
+    currentFlagFilters: FeatureFlagFilters,
+    selectedVariant: string
+): FeatureFlagFilters {
+    return {
+        aggregation_group_type_index: currentFlagFilters?.aggregation_group_type_index || null,
+        payloads: currentFlagFilters?.payloads || {},
+        multivariate: {
+            variants: (currentFlagFilters?.multivariate?.variants || []).map(({ key, name }) => ({
+                key,
+                rollout_percentage: key === selectedVariant ? 100 : 0,
+                ...(name && { name }),
+            })),
+        },
+        groups: [
+            { properties: [], rollout_percentage: 100 },
+            // Preserve existing groups so that users can roll back this action
+            // by deleting the newly added release condition
+            ...(currentFlagFilters?.groups || []),
+        ],
+    }
 }

@@ -9,14 +9,13 @@ import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataVisualizationNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
@@ -35,7 +34,7 @@ interface DataTableVisualizationProps {
     uniqueKey?: string | number
     query: DataVisualizationNode
     setQuery?: (query: DataVisualizationNode) => void
-    context?: QueryContext
+    context?: QueryContext<DataVisualizationNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
@@ -44,34 +43,51 @@ interface DataTableVisualizationProps {
 
 let uniqueNode = 0
 
-export function DataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
-    const [uniqueNodeKey] = useState(() => uniqueNode++)
-    const [key] = useState(`DataVisualizationNode.${props.uniqueKey?.toString() ?? uniqueNodeKey}`)
+export function DataTableVisualization({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    cachedResults,
+    readOnly,
+}: DataTableVisualizationProps): JSX.Element {
+    const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
+    const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
+        dashboardItemId: `new-AdHoc.${key}`,
+        query,
+        setQuery,
+        dataNodeCollectionId: key,
+    }
 
-    const { insightProps: insightLogicProps } = useValues(insightLogic)
-
-    const vizKey = insightVizDataNodeKey(insightLogicProps)
+    const vizKey = insightVizDataNodeKey(insightProps)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: vizKey,
-        query: props.query,
-        insightLogicProps,
-        setQuery: props.setQuery,
-        cachedResults: props.cachedResults,
+        query,
+        insightLogicProps: insightProps,
+        setQuery,
+        cachedResults,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: props.query.source,
+        query: query.source,
         key: vizKey,
-        cachedResults: props.cachedResults,
-        loadPriority: insightLogicProps.loadPriority,
-        dataNodeCollectionId: insightVizDataCollectionId(insightLogicProps, key),
+        cachedResults,
+        loadPriority: insightProps.loadPriority,
+        dataNodeCollectionId: insightVizDataCollectionId(insightProps, key),
     }
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
                 <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <InternalDataTableVisualization {...props} uniqueKey={key} />
+                    <InternalDataTableVisualization
+                        uniqueKey={key}
+                        query={query}
+                        setQuery={setQuery}
+                        context={context}
+                        cachedResults={cachedResults}
+                        readOnly={readOnly}
+                    />
                 </BindLogic>
             </BindLogic>
         </BindLogic>
@@ -129,7 +145,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     return (
         <div className="DataVisualization flex flex-1 gap-2">
             {!readOnly && showEditingUI && (
-                <div className="flex max-sm:hidden">
+                <div className="max-sm:hidden max-w-xs">
                     <DatabaseTableTreeWithItems inline />
                 </div>
             )}
@@ -142,7 +158,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="flex gap-4 justify-between flex-wrap">
+                        <div className="flex gap-4 justify-between flex-wrap px-px">
                             <div className="flex gap-4 items-center">
                                 <Reload />
                                 <ElapsedTime />

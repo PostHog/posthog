@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, TypeAlias
 from django.db import models
 
@@ -105,6 +106,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     )
 
     __repr__ = sane_repr("name")
+
+    def soft_delete(self):
+        from posthog.warehouse.models.join import DataWarehouseJoin
+
+        DataWarehouseJoin.objects.filter(source_table_name=self.name).delete()
+        DataWarehouseJoin.objects.filter(joining_table_name=self.name).delete()
+
+        self.deleted = True
+        self.deleted_at = datetime.now()
+        self.save()
 
     def table_name_without_prefix(self) -> str:
         if self.external_data_source is not None and self.external_data_source.prefix is not None:

@@ -51,9 +51,9 @@ export interface AxisSeries<T> {
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
-    insightLogicProps: InsightLogicProps
-    context?: QueryContext
     setQuery?: (node: DataVisualizationNode) => void
+    insightLogicProps: InsightLogicProps<DataVisualizationNode>
+    context?: QueryContext<DataVisualizationNode>
     cachedResults?: AnyResponseType
 }
 
@@ -168,7 +168,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
                 loadPriority: props.insightLogicProps.loadPriority,
             }),
-            ['response', 'responseLoading'],
+            ['response', 'responseLoading', 'responseError', 'queryCancelled'],
         ],
     })),
     props({ query: {} } as DataVisualizationLogicProps),
@@ -623,6 +623,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         isTableVisualization: [
             (state) => [state.visualizationType],
             (visualizationType): boolean => visualizationType === ChartDisplayType.ActionsTable,
+        ],
+        showTableSettings: [
+            (state) => [state.visualizationType],
+            (visualizationType): boolean =>
+                visualizationType === ChartDisplayType.ActionsTable ||
+                visualizationType === ChartDisplayType.BoldNumber,
         ],
     }),
     listeners(({ props, actions }) => ({

@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 from unittest import mock
 
@@ -116,6 +117,59 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
         assert args["prefix"] == "posthog-events/"
         assert args["aws_access_key_id"] == "abc123"
         assert args["aws_secret_access_key"] == "secret"
+
+
+@pytest.mark.parametrize(
+    "timezone",
+    ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Katmandu"],
+)
+def test_create_batch_export_with_different_team_timezones(client: HttpClient, timezone: str):
+    """Test creating a BatchExport.
+
+    When creating a BatchExport, we should create a corresponding Schedule in
+    Temporal as described by the associated BatchExportSchedule model. In this
+    test we assert this Schedule is created in Temporal with the Team's timezone.
+    """
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "day",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization, timezone=timezone)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        data = response.json()
+        schedule = describe_schedule(temporal, data["id"])
+        intervals = schedule.schedule.spec.intervals
+
+        assert len(intervals) == 1
+        assert schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
+        assert schedule.schedule.spec.time_zone_name == timezone
 
 
 def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient):

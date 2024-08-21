@@ -2685,7 +2685,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         }
 
         earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.created_at = datetime.now() - timedelta(days=101)
+        earliest_survey.start_date = datetime.now() - timedelta(days=101)
         earliest_survey.save()
 
         for survey_id, count in survey_counts.items():
@@ -2706,7 +2706,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
-    def test_responses_count_only_after_first_survey_created(self):
+    def test_responses_count_only_after_first_survey_started(self):
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
             "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
@@ -2719,7 +2719,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         }
 
         earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.created_at = datetime.now() - timedelta(days=6)
+        earliest_survey.start_date = datetime.now() - timedelta(days=6)
         earliest_survey.save()
 
         for survey_id, count in survey_counts.items():
