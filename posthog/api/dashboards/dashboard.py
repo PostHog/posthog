@@ -174,7 +174,15 @@ class DashboardSerializer(DashboardBasicSerializer):
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        dashboard = Dashboard.objects.create(team_id=team_id, **validated_data)
+
+        request_filters = request.data.get("filters")
+        if request_filters:
+            if not isinstance(request_filters, dict):
+                raise serializers.ValidationError("Filters must be a dictionary")
+            filters = request_filters
+        else:
+            filters = {}
+        dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
         if use_template:
             try:
@@ -283,7 +291,12 @@ class DashboardSerializer(DashboardBasicSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
 
-        instance.filters = initial_data.get("filters", instance.filters)
+        request_filters = initial_data.get("filters")
+        if request_filters:
+            if not isinstance(request_filters, dict):
+                raise serializers.ValidationError("Filters must be a dictionary")
+            instance.filters = request_filters
+
         instance = super().update(instance, validated_data)
 
         user = cast(User, self.context["request"].user)
