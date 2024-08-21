@@ -65,11 +65,16 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
                             dateRange: values.dateRange,
                             filterTestAccounts: values.filterTestAccounts,
                             filterGroup: values.filterGroup,
+                            offset: values.group?.events?.length || 0,
                         })
                     )
 
-                    // ErrorTrackingQuery returns a list of groups
-                    // when a fingerprint is supplied there will only be a single group
+                    if (values.group) {
+                        const group = values.group
+                        const existingEvents = group.events || []
+                        const newEvents = response.results[0].events || []
+                        return { ...group, events: [...existingEvents, ...newEvents] }
+                    }
                     return response.results[0]
                 },
             },

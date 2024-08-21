@@ -118,11 +118,15 @@ export const errorTrackingGroupQuery = ({
     dateRange,
     filterTestAccounts,
     filterGroup,
+    offset,
+    limit = 50,
 }: {
     fingerprint: string[]
     dateRange: DateRange
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
+    offset: number
+    limit?: number
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
@@ -131,6 +135,8 @@ export const errorTrackingGroupQuery = ({
         dateRange: dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts: filterTestAccounts,
+        limit: limit,
+        offset: offset,
     }
 }
 
