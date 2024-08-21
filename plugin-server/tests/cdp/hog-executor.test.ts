@@ -105,11 +105,11 @@ describe('Hog Executor', () => {
                 Array [
                   "Executing function",
                   "test",
-                  "{\\"nested\\":{\\"foo\\":\\"***REDACTED***\\"}}",
-                  "{\\"foo\\":\\"***REDACTED***\\"}",
+                  "{\\"nested\\":{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false}}",
+                  "{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false}",
                   "substring: ***REDACTED***",
-                  "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\"},\\"secret_input_3\\":\\"***REDACTED***\\"}",
-                  "Function completed in 0ms. Sync: 0ms. Mem: 129 bytes. Ops: 28.",
+                  "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false},\\"secret_input_3\\":\\"***REDACTED***\\"}",
+                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28.",
                 ]
             `)
         })

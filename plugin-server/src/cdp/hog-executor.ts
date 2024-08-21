@@ -438,7 +438,9 @@ export class HogExecutor {
                 ) {
                     // Assume the values are the sensitive parts
                     Object.values(value).forEach((val: any) => {
-                        values.push(val)
+                        if (typeof val === 'string') {
+                            values.push(val)
+                        }
                     })
                 }
             }

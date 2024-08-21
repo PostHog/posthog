@@ -1158,6 +1158,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   filterGroup: replayFilters.filter_group,
                                   sparklineSelectedPeriod: null,
                                   columns: ['error', 'users', 'occurrences'],
+                                  limit: 4,
                               }),
                           }
                         : null,
