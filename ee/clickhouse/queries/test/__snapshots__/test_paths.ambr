@@ -142,7 +142,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -320,7 +320,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -496,7 +496,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -672,7 +672,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -848,7 +848,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1027,7 +1027,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1213,7 +1213,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1397,7 +1397,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1581,7 +1581,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1765,7 +1765,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1952,7 +1952,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -2133,7 +2133,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), JSONExtract(properties, '$screen_name', 'Nullable(String)'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(JSONExtract(properties, '$current_url', 'Nullable(String)'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
