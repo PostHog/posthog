@@ -153,7 +153,7 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Nullable(UInt64), Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>TabSeparated</format>
@@ -186,7 +186,7 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Array(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), Nullable(UInt64), Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>TabSeparated</format>

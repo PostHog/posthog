@@ -57,26 +57,31 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
     breakdown_attribution_type: str,
     funnel_order_type: str,
     prop_vals: list[Any],
-    events: Sequence[tuple[float, list[str] | int | str, list[int]]],
+    events: Sequence[tuple[float, int, list[str] | int | str, list[int]]],
 ):
     default_entered_timestamp = EnteredTimestamp(0, [])
     # If the attribution mode is a breakdown step, set this to the integer that represents that step
     breakdown_step = int(breakdown_attribution_type[5:]) if breakdown_attribution_type.startswith("step_") else None
 
-    # This function returns an Array. We build up an array of strings to return here.
-    results = []
+    # Results is a map of start intervals to success or failure. If an interval isn't here, it means the
+    # user didn't enter
+    results = {}
 
     # We call this for each possible breakdown value.
     def loop_prop_val(prop_val):
         # we need to track every distinct entry into the funnel through to the end
         filtered_events = (
-            ((timestamp, breakdown, steps) for (timestamp, breakdown, steps) in events if breakdown == prop_val)
+            (
+                (timestamp, interval_start, breakdown, steps)
+                for (timestamp, interval_start, breakdown, steps) in events
+                if breakdown == prop_val
+            )
             if breakdown_attribution_type == "all_events"
             else events
         )
         list_of_entered_timestamps = []
 
-        for timestamp, breakdown, steps in filtered_events:
+        for timestamp, interval_start, breakdown, steps in filtered_events:
             for step in reversed(steps):
                 exclusion = False
                 if step < 0:
@@ -85,6 +90,10 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                 # special code to handle the first step
                 if step == 1:
                     entered_timestamp = [default_entered_timestamp] * (num_steps + 1)
+                    # Put the interval start at 0, which is what we want to return if this works
+                    # could skip tracking here if the user has already completed the funnel for this interval
+                    # what about exclusions?
+                    entered_timestamp[0] = EnteredTimestamp(interval_start, [])
                     entered_timestamp[1] = EnteredTimestamp(timestamp, [timestamp])
                     list_of_entered_timestamps.append(entered_timestamp)
                 else:
@@ -109,15 +118,18 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
                                 )
                                 # check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
                                 if entered_timestamp[num_steps].timestamp > 0:
-                                    results.append(f"({entered_timestamp[1].timestamp}, 1)")
+                                    results[entered_timestamp[0].timestamp] = 1
                                     list_of_entered_timestamps.remove(entered_timestamp)
 
         # At this point, everything left in entered_timestamps is a failure
-        [results.append(f"({entered_timestamp[1].timestamp}, 0)") for entered_timestamp in list_of_entered_timestamps]
+        for entered_timestamp in list_of_entered_timestamps:
+            if entered_timestamp[0].timestamp not in results:
+                results[entered_timestamp[0].timestamp] = 0
 
     # We don't support breakdowns atm - make this support breakdowns
     [loop_prop_val(prop_val) for prop_val in prop_vals]
-    print(f"[{','.join(results)}]")  # noqa: T201
+    result_strings = [f"({k}, {v})" for k, v in results.items()]
+    print(f"[{','.join(result_strings)}]")  # noqa: T201
 
 
 if __name__ == "__main__":

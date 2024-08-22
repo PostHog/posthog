@@ -3,6 +3,7 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.funnels import FunnelTrends
+from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
 
@@ -74,7 +75,7 @@ class FunnelTrendsUDF(FunnelTrends):
                             '{breakdown_attribution_string}',
                             '{self.context.funnelsFilter.funnelOrderType}',
                             {prop_vals},
-                            arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
+                            arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), toInt({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
                         )
                     FROM {{inner_event_query}}
                     GROUP BY aggregation_target{breakdown_prop}
