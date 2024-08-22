@@ -8,6 +8,7 @@ import {
     isHogClosure,
     isHogError,
     isHogUpValue,
+    newHogCallable,
     newHogClosure,
     ThrowFrame,
 } from './objects'
@@ -151,13 +152,14 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             ip: 1,
             stackStart: 0,
             argCount: 0,
-            closure: newHogClosure({
-                __hogCallable__: 'main',
-                name: '',
-                argCount: 0,
-                upvalueCount: 0,
-                ip: 1,
-            }),
+            closure: newHogClosure(
+                newHogCallable('main', {
+                    name: '',
+                    argCount: 0,
+                    upvalueCount: 0,
+                    ip: 1,
+                })
+            ),
         } satisfies CallFrame)
     }
 
@@ -376,32 +378,36 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     options.asyncFunctions[chain[0]]
                 ) {
                     pushStack(
-                        newHogClosure({
-                            __hogCallable__: 'async',
-                            name: chain[0],
-                            argCount: 0, // TODO
-                            upvalueCount: 0,
-                            ip: -1,
-                        } satisfies HogCallable)
+                        newHogClosure(
+                            newHogCallable('async', {
+                                name: chain[0],
+                                argCount: 0, // TODO
+                                upvalueCount: 0,
+                                ip: -1,
+                            })
+                        )
                     )
                 } else if (chain.length == 1 && chain[0] in ASYNC_STL && Object.hasOwn(ASYNC_STL, chain[0])) {
                     pushStack(
-                        newHogClosure({
-                            __hogCallable__: 'async',
-                            argCount: 0, // TODO
-                            upvalueCount: 0,
-                            ip: -1,
-                        } satisfies HogCallable)
+                        newHogClosure(
+                            newHogCallable('async', {
+                                name: chain[0],
+                                argCount: 0, // TODO
+                                upvalueCount: 0,
+                                ip: -1,
+                            })
+                        )
                     )
                 } else if (chain.length == 1 && chain[0] in STL && Object.hasOwn(STL, chain[0])) {
                     pushStack(
-                        newHogClosure({
-                            __hogCallable__: 'stl',
-                            argCount: 0, // TODO
-                            upvalueCount: 0,
-                            ip: -1,
-                            name: chain[0],
-                        } satisfies HogCallable)
+                        newHogClosure(
+                            newHogCallable('stl', {
+                                name: chain[0],
+                                argCount: 0, // TODO
+                                upvalueCount: 0,
+                                ip: -1,
+                            })
+                        )
                     )
                 } else {
                     throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
@@ -503,10 +509,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 const bodyLength = next()
                 const callable = {
                     __hogCallable__: 'local',
+                    name,
                     argCount,
                     upvalueCount,
                     ip: frame.ip + 1,
-                    name,
                 } satisfies HogCallable
                 pushStack(callable)
                 frame.ip += bodyLength
@@ -587,10 +593,10 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         argCount: argLen,
                         closure: newHogClosure({
                             __hogCallable__: 'stl',
+                            name: name,
                             argCount: argLen,
                             upvalueCount: 0,
                             ip: -1,
-                            name: name,
                         } satisfies HogCallable),
                     } satisfies CallFrame
                     callStack.push(frame)

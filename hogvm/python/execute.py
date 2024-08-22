@@ -6,7 +6,7 @@ from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.debugger import debugger, color_bytecode
-from hogvm.python.objects import is_hog_error, new_hog_closure, CallFrame, ThrowFrame
+from hogvm.python.objects import is_hog_error, new_hog_closure, CallFrame, ThrowFrame, new_hog_callable
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
@@ -66,13 +66,13 @@ def execute_bytecode(
                 stack_start=0,
                 arg_len=0,
                 closure=new_hog_closure(
-                    {
-                        "__hogCallable__": "main",
-                        "argCount": 0,
-                        "upvalueCount": 0,
-                        "ip": 1,
-                        "name": "",
-                    }
+                    new_hog_callable(
+                        type="main",
+                        arg_count=0,
+                        upvalue_count=0,
+                        ip=1,
+                        name="",
+                    )
                 ),
             )
         )
@@ -222,24 +222,25 @@ def execute_bytecode(
                 elif functions and chain[0] in functions:
                     push_stack(
                         new_hog_closure(
-                            {
-                                "__hogCallable__": "stl",
-                                "argCount": 0,
-                                "upvalueCount": 0,
-                                "ip": -1,
-                                "name": chain[0],
-                            }
+                            new_hog_callable(
+                                type="stl",
+                                name=chain[0],
+                                arg_count=0,
+                                upvalue_count=0,
+                                ip=-1,
+                            )
                         )
                     )
                 elif chain[0] in STL and len(chain) == 1:
                     push_stack(
                         new_hog_closure(
-                            {
-                                "__hogCallable__": "stl",
-                                "argCount": STL[chain[0]].maxArgs,
-                                "ip": -1,
-                                "name": chain[0],
-                            }
+                            new_hog_callable(
+                                type="stl",
+                                name=chain[0],
+                                arg_count=STL[chain[0]].maxArgs,
+                                upvalue_count=0,
+                                ip=-1,
+                            )
                         )
                     )
                 else:
@@ -335,13 +336,13 @@ def execute_bytecode(
                 upvalue_count = next_token()
                 body_length = next_token()
                 push_stack(
-                    {
-                        "__hogCallable__": "local",
-                        "argCount": arg_count,
-                        "upvalueCount": upvalue_count,
-                        "ip": frame.ip + 1,
-                        "name": name,
-                    }
+                    new_hog_callable(
+                        type="local",
+                        name=name,
+                        arg_count=arg_count,
+                        upvalue_count=upvalue_count,
+                        ip=frame.ip + 1,
+                    )
                 )
                 frame.ip += body_length
             case Operation.CLOSURE:
@@ -400,13 +401,13 @@ def execute_bytecode(
                         stack_start=len(stack) - arg_len,
                         arg_len=arg_len,
                         closure=new_hog_closure(
-                            {
-                                "__hogCallable__": "stl",
-                                "argCount": arg_len,
-                                "upvalueCount": 0,
-                                "ip": -1,
-                                "name": name,
-                            }
+                            new_hog_callable(
+                                type="stl",
+                                name=name,
+                                arg_count=arg_len,
+                                upvalue_count=0,
+                                ip=-1,
+                            )
                         ),
                     )
                     call_stack.append(frame)

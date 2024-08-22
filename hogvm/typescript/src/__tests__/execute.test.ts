@@ -533,10 +533,10 @@ describe('hogvm execute', () => {
                             __hogClosure__: true,
                             callable: {
                                 __hogCallable__: 'main',
-                                argCount: 0,
-                                ip: 1,
                                 name: '',
+                                argCount: 0,
                                 upvalueCount: 0,
+                                ip: 1,
                             },
                             upvalues: [],
                         },

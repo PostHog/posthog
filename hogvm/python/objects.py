@@ -52,3 +52,13 @@ def new_hog_closure(callable: dict, upvalues: Optional[dict] = None) -> dict:
         "callable": callable,
         "upvalues": upvalues or [],
     }
+
+
+def new_hog_callable(type: str, arg_count: int, upvalue_count: int, ip: int, name: str) -> dict:
+    return {
+        "__hogCallable__": type,
+        "name": name,
+        "argCount": arg_count,
+        "upvalueCount": upvalue_count,
+        "ip": ip,
+    }
