@@ -4313,7 +4313,7 @@
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+                        JSONExtract(person.properties, '$some_prop', 'Nullable(String)') AS `properties___$some_prop`
                  FROM person
                  WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                   (SELECT person.id AS id, max(person.version) AS version
@@ -4377,7 +4377,7 @@
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+                        JSONExtract(person.properties, '$some_prop', 'Nullable(String)') AS `properties___$some_prop`
                  FROM person
                  WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                   (SELECT person.id AS id, max(person.version) AS version
@@ -4414,7 +4414,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT plus(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'x'), ''), 'null'), '^"|"$', ''), 'Float64')), 1000) AS total,
+       (SELECT plus(avg(accurateCastOrNull(JSONExtract(e.properties, 'x', 'Nullable(String)'), 'Float64')), 1000) AS total,
                toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4580,7 +4580,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
+                     ifNull(nullIf(toString(JSONExtract(e.properties, '$some_property', 'Nullable(String)')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
               FROM events AS e SAMPLE 1
               LEFT JOIN
@@ -4635,7 +4635,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
+                     ifNull(nullIf(toString(JSONExtract(e.properties, '$some_property', 'Nullable(String)')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events AS e SAMPLE 1
               LEFT JOIN
@@ -4690,7 +4690,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+                     ifNull(nullIf(toString(JSONExtract(e.properties, '$some_property', 'Nullable(String)')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
               FROM events AS e SAMPLE 1
               LEFT JOIN
@@ -4745,7 +4745,7 @@
                   day_start AS day_start
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
+                     ifNull(nullIf(toString(JSONExtract(e.properties, '$some_property', 'Nullable(String)')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
               FROM events AS e SAMPLE 1
               LEFT JOIN
@@ -5056,7 +5056,7 @@
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+                        JSONExtract(person.properties, 'name', 'Nullable(String)') AS properties___name
                  FROM person
                  WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                   (SELECT person.id AS id, max(person.version) AS version

@@ -6,9 +6,9 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
-         JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
+         any(JSONExtract(events.properties, '$exception_message', 'Nullable(String)')) AS description,
+         any(JSONExtract(events.properties, '$exception_type', 'Nullable(String)')) AS exception_type,
+         JSONExtract(ifNull(JSONExtract(events.properties, '$exception_fingerprint', 'Nullable(String)'), '[]'), 'Array(String)') AS fingerprint
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
@@ -20,7 +20,7 @@
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+            JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -47,8 +47,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
+         any(JSONExtract(events.properties, '$exception_message', 'Nullable(String)')) AS description,
+         any(JSONExtract(events.properties, '$exception_type', 'Nullable(String)')) AS exception_type
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
@@ -60,7 +60,7 @@
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+            JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -68,7 +68,7 @@
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__pdi__person.properties___email, '%@posthog.com%'), 1), has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
+  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__pdi__person.properties___email, '%@posthog.com%'), 1), has([['SyntaxError']], JSONExtract(ifNull(JSONExtract(events.properties, '$exception_fingerprint', 'Nullable(String)'), '[]'), 'Array(String)')))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -86,8 +86,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
+         any(JSONExtract(events.properties, '$exception_message', 'Nullable(String)')) AS description,
+         any(JSONExtract(events.properties, '$exception_type', 'Nullable(String)')) AS exception_type,
          groupArray(tuple(events.uuid, events.distinct_id, events.distinct_id)) AS events
   FROM events
   INNER JOIN
@@ -100,7 +100,7 @@
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+            JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -108,7 +108,7 @@
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__pdi__person.properties___email, '%@posthog.com%'), 1), has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
+  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__pdi__person.properties___email, '%@posthog.com%'), 1), has([['SyntaxError']], JSONExtract(ifNull(JSONExtract(events.properties, '$exception_fingerprint', 'Nullable(String)'), '[]'), 'Array(String)')))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -126,10 +126,10 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
+         any(JSONExtract(events.properties, '$exception_message', 'Nullable(String)')) AS description,
+         any(JSONExtract(events.properties, '$exception_type', 'Nullable(String)')) AS exception_type
   FROM events
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), 1, has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
+  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), 1, has([['SyntaxError']], JSONExtract(ifNull(JSONExtract(events.properties, '$exception_fingerprint', 'Nullable(String)'), '[]'), 'Array(String)')))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -147,9 +147,9 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
-         JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
+         any(JSONExtract(events.properties, '$exception_message', 'Nullable(String)')) AS description,
+         any(JSONExtract(events.properties, '$exception_type', 'Nullable(String)')) AS exception_type,
+         JSONExtract(ifNull(JSONExtract(events.properties, '$exception_fingerprint', 'Nullable(String)'), '[]'), 'Array(String)') AS fingerprint
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
@@ -161,7 +161,7 @@
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+            JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -188,8 +188,8 @@
          count(DISTINCT events.distinct_id) AS users,
          max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
          min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
+         any(JSONExtract(events.properties, '$exception_message', 'Nullable(String)')) AS description,
+         any(JSONExtract(events.properties, '$exception_type', 'Nullable(String)')) AS exception_type,
          groupArray(tuple(events.uuid, events.distinct_id, events.distinct_id)) AS events
   FROM events
   INNER JOIN
@@ -202,7 +202,7 @@
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+            JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -210,7 +210,7 @@
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__pdi__person.properties___email, '%@posthog.com%'), 1), has([['PersonError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
+  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__pdi__person.properties___email, '%@posthog.com%'), 1), has([['PersonError']], JSONExtract(ifNull(JSONExtract(events.properties, '$exception_fingerprint', 'Nullable(String)'), '[]'), 'Array(String)')))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
