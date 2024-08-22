@@ -194,7 +194,7 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
         hf = deepcopy(dataclasses.asdict(template))
 
         host = obj.config.get("host", "track.customer.io")
-        events = obj.config.get("eventsToSend", "").split(",") or [None]
+        events_to_send = obj.config.get("eventsToSend")
         token = obj.config.get("customerioToken", "")
         customerio_site_id = obj.config.get("customerioSiteId", "")
         anon_option = obj.config.get("sendEventsFromAnonymousUsers", "Send all events")
@@ -224,9 +224,11 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
                 }
             ]
 
-        hf["filters"]["events"] = [
-            {"id": event, "name": event or "All events", "type": "events", "order": 0} for event in events
-        ]
+        if events_to_send:
+            hf["filters"]["events"] = [
+                {"id": event.strip(), "name": event.strip() or "All events", "type": "events", "order": 0}
+                for event in events_to_send.split(",")
+            ]
 
         hf["inputs"] = {
             "action": {"value": "automatic"},
