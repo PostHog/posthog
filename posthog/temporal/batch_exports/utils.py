@@ -2,7 +2,6 @@ import asyncio
 import collections.abc
 import contextlib
 import functools
-import json
 import typing
 import uuid
 
@@ -131,11 +130,14 @@ class JsonScalar(pa.ExtensionScalar):
 
             try:
                 return orjson.loads(value.encode("utf-8"))
-            except:
-                # Fallback if it's something orjson can't handle
+            except orjson.JSONEncodeError:
+                if isinstance(value, str) and len(value) > 0:
+                    # Handles `"$set": "Something"`
+                    value = f'"{value}"'
+
                 try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
+                    return orjson.loads(value.encode("utf-8", "replace"))
+                except orjson.JSONDecodeError:
                     logger.exception("Failed to decode: %s", value)
                     raise
 
