@@ -13,7 +13,9 @@ describe('API helper', () => {
         fakeFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve(FAKE_FETCH_RESULT) })
         window.fetch = fakeFetch
 
-        jest.spyOn(posthog, 'capture').mockImplementation(() => {})
+        jest.spyOn(posthog, 'capture').mockImplementation(() => {
+            return undefined
+        })
         jest.spyOn(posthog, 'get_session_id').mockReturnValue('fake-session-id')
     })
 

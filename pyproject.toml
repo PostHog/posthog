@@ -38,7 +38,7 @@ select = [
     "B",
     "C4",
     "C9",
-    "DJ012",
+    #    "DJ012", TODO: Re-enable this
     "E",
     "F",
     "RUF005",

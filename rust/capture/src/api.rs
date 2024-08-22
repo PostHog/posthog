@@ -15,6 +15,9 @@ pub enum CaptureResponseCode {
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct CaptureResponse {
     pub status: CaptureResponseCode,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>,
 }
 
 #[derive(Error, Debug)]
@@ -32,6 +35,14 @@ pub enum CaptureError {
     EmptyDistinctId,
     #[error("event submitted without a distinct_id")]
     MissingDistinctId,
+    #[error("replay event submitted without snapshot data")]
+    MissingSnapshotData,
+    #[error("replay event submitted without session id")]
+    MissingSessionId,
+    #[error("replay event submitted without window id")]
+    MissingWindowId,
+    #[error("replay event has invalid session id")]
+    InvalidSessionId,
 
     #[error("event submitted without an api_key")]
     NoTokenError,
@@ -64,7 +75,11 @@ impl IntoResponse for CaptureError {
             | CaptureError::EmptyDistinctId
             | CaptureError::MissingDistinctId
             | CaptureError::EventTooBig
-            | CaptureError::NonRetryableSinkError => (StatusCode::BAD_REQUEST, self.to_string()),
+            | CaptureError::NonRetryableSinkError
+            | CaptureError::MissingSessionId
+            | CaptureError::MissingWindowId
+            | CaptureError::InvalidSessionId
+            | CaptureError::MissingSnapshotData => (StatusCode::BAD_REQUEST, self.to_string()),
 
             CaptureError::NoTokenError
             | CaptureError::MultipleTokensError
@@ -87,6 +102,7 @@ pub enum DataType {
     ClientIngestionWarning,
     HeatmapMain,
     ExceptionMain,
+    SnapshotMain,
 }
 #[derive(Clone, Debug, Serialize, Eq, PartialEq)]
 pub struct ProcessedEvent {
@@ -103,6 +119,8 @@ pub struct ProcessedEvent {
     )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
+    #[serde(skip_serializing)]
+    pub session_id: Option<String>,
 }
 
 impl ProcessedEvent {
