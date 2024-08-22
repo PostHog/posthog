@@ -4,7 +4,7 @@ from typing import Optional
 from freezegun import freeze_time
 
 from posthog.hogql_queries.web_analytics.web_goals import WebGoalsQueryRunner
-from posthog.models import Action
+from posthog.models import Action, Person, Element
 from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
@@ -45,54 +45,38 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _create_pageviews(self, distinct_id: str, list_path_time_scroll: list[tuple[str, str, float]]):
-        person_time = list_path_time_scroll[0][1]
-        with freeze_time(person_time):
-            person_result = _create_person(
-                team_id=self.team.pk,
-                distinct_ids=[distinct_id],
-                properties={
-                    "name": distinct_id,
-                    **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
-                },
-            )
-            session_id = str(uuid7(person_time))
-            prev_path_time_scroll = None
-            for path_time_scroll in list_path_time_scroll:
-                pathname, time, scroll = path_time_scroll
-                prev_pathname, _, prev_scroll = prev_path_time_scroll or (None, None, None)
-                _create_event(
-                    team=self.team,
-                    event="$pageview",
-                    distinct_id=distinct_id,
-                    timestamp=time,
-                    properties={
-                        "$session_id": session_id,
-                        "$pathname": pathname,
-                        "$current_url": "http://www.example.com" + pathname,
-                        "$prev_pageview_pathname": prev_pathname,
-                        "$prev_pageview_max_scroll_percentage": prev_scroll,
-                        "$prev_pageview_max_content_percentage": prev_scroll,
-                    },
-                )
-                prev_path_time_scroll = path_time_scroll
-            if prev_path_time_scroll:
-                prev_pathname, _, prev_scroll = prev_path_time_scroll
-                _create_event(
-                    team=self.team,
-                    event="$pageleave",
-                    distinct_id=distinct_id,
-                    timestamp=prev_path_time_scroll[1],
-                    properties={
-                        "$session_id": session_id,
-                        "$pathname": prev_pathname,
-                        "$current_url": "http://www.example.com" + pathname,
-                        "$prev_pageview_pathname": prev_pathname,
-                        "$prev_pageview_max_scroll_percentage": prev_scroll,
-                        "$prev_pageview_max_content_percentage": prev_scroll,
-                    },
-                )
-        return person_result
+    def _create_person(self):
+        distinct_id = str(uuid7())
+        return _create_person(
+            uuid=distinct_id,
+            team_id=self.team.pk,
+            distinct_ids=[distinct_id],
+            properties={
+                "name": distinct_id,
+                **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
+            },
+        )
+
+    def _visit_web_analytics(self, person: Person, session_id: Optional[str] = None):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=person.uuid,
+            properties={
+                "$pathname": "/project/2/web",
+                "$current_url": "https://us.posthog.com/project/2/web",
+                "$session_id": session_id or person.uuid,
+            },
+        )
+
+    def _click_pay(self, person: Person, session_id: Optional[str] = None):
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=person.uuid,
+            elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
+            properties={"$session_id": session_id or person.uuid},
+        )
 
     def _create_actions(self):
         Action.objects.create(
@@ -120,8 +104,14 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         Action.objects.create(
             team=self.team,
-            name="Visited Login",
-            steps_json=[{"event": "$pageview", "url": "login", "url_matching": "contains"}],
+            name="Visited Web Analytics",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://(app|eu|us)\\.posthog\\.com/project/\\d+/web.*",
+                    "url_matching": "regex",
+                }
+            ],
         )
 
     def _run_web_goals_query(
@@ -146,10 +136,81 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return runner.calculate()
 
     def test_no_crash_when_no_data_or_actions(self):
-        results = self._run_web_goals_query("2023-12-08", "2023-12-15").results
+        results = self._run_web_goals_query("all", None).results
         assert results == []
 
     def test_no_crash_when_no_data_and_some_actions(self):
         self._create_actions()
-        results = self._run_web_goals_query("2023-12-08", "2023-12-15").results
-        assert results == [["Contacted Sales", 0, 0, None], ["Visited Login", 0, 0, None], ["Clicked Pay", 0, 0, None]]
+        results = self._run_web_goals_query("all", None).results
+        assert results == [
+            ["Contacted Sales", 0, 0, None],
+            ["Visited Web Analytics", 0, 0, None],
+            ["Clicked Pay", 0, 0, None],
+        ]
+
+    def test_one_user_one_action(self):
+        self._create_actions()
+        p1 = self._create_person()
+        self._visit_web_analytics(p1)
+        results = self._run_web_goals_query("all", None).results
+        assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 1, 1, 1], ["Clicked Pay", 0, 0, 0]]
+
+    def test_one_user_two_similar_actions_across_sessions(self):
+        self._create_actions()
+        p1 = self._create_person()
+        self._visit_web_analytics(p1)
+        s2 = str(uuid7())
+        self._visit_web_analytics(p1, s2)
+        results = self._run_web_goals_query("all", None).results
+        assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 2, 1, 1], ["Clicked Pay", 0, 0, 0]]
+
+    def test_one_user_two_different_actions(self):
+        self._create_actions()
+        p1 = self._create_person()
+        self._visit_web_analytics(p1)
+        self._click_pay(p1)
+        results = self._run_web_goals_query("all", None).results
+        assert results == [["Contacted Sales", 0, 0, 0], ["Visited Web Analytics", 1, 1, 1], ["Clicked Pay", 1, 1, 1]]
+
+    def test_one_users_one_action_each(self):
+        self._create_actions()
+        p1 = self._create_person()
+        p2 = self._create_person()
+        self._visit_web_analytics(p1)
+        self._click_pay(p2)
+        results = self._run_web_goals_query("all", None).results
+        assert results == [
+            ["Contacted Sales", 0, 0, 0],
+            ["Visited Web Analytics", 1, 1, 0.5],
+            ["Clicked Pay", 1, 1, 0.5],
+        ]
+
+    def test_many_users_and_actions(self):
+        self._create_actions()
+        # create some users who visited web analytics
+        for _ in range(8):
+            p = self._create_person()
+            self._visit_web_analytics(p)
+        # create some users who clicked pay
+        for _ in range(4):
+            p = self._create_person()
+            self._click_pay(p)
+        # create some users who did both
+        for _ in range(2):
+            p = self._create_person()
+            self._visit_web_analytics(p)
+            self._click_pay(p)
+        # create one user who did both twice
+        for _ in range(1):
+            p = self._create_person()
+            self._visit_web_analytics(p)
+            self._visit_web_analytics(p)
+            self._click_pay(p)
+            self._click_pay(p)
+
+        results = self._run_web_goals_query("all", None).results
+        assert results == [
+            ["Contacted Sales", 0, 0, 0],
+            ["Visited Web Analytics", 12, 11, 11 / 15],
+            ["Clicked Pay", 8, 7, 7 / 15],
+        ]
