@@ -104,11 +104,16 @@ def schedule_warming_for_teams_task():
         zip(teams_with_recently_viewed_shared, [True] * len(teams_with_recently_viewed_shared)),
     )
 
+    # Use a fixed expiration time since tasks in the chain are executed sequentially
+    expire_after = datetime.now(UTC) + timedelta(minutes=50)
+
     for team, shared_only in all_teams:
         insight_tuples = priority_insights(team, shared_only=shared_only)
 
         # We chain the task execution to prevent queries *for a single team* running at the same time
-        chain(*(warm_insight_cache_task.si(*insight_tuple) for insight_tuple in insight_tuples))()
+        chain(
+            *(warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after) for insight_tuple in insight_tuples)
+        )()
 
 
 @shared_task(
