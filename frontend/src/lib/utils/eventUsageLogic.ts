@@ -71,7 +71,9 @@ import type { eventUsageLogicType } from './eventUsageLogicType'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
-    DashboardHeader = 'dashboard_header',
+    DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
+    DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
+    DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',

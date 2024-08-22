@@ -128,10 +128,14 @@ class Insight(models.Model):
         except Exception as e:
             capture_exception(e)
 
-    def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
+    def dashboard_filters(
+        self, dashboard: Optional[Dashboard] = None, dashboard_filters_override: Optional[dict] = None
+    ):
         # query date range is set in a different function, see dashboard_query
         if dashboard and not self.query:
-            dashboard_filters = {**dashboard.filters}
+            dashboard_filters = {
+                **(dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters)
+            }
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
             insight_date_from = self.filters.get("date_from", None)
             insight_date_to = self.filters.get("date_to", None)
@@ -181,13 +185,19 @@ class Insight(models.Model):
         else:
             return self.filters
 
-    def get_effective_query(self, *, dashboard: Optional[Dashboard]) -> Optional[dict]:
+    def get_effective_query(
+        self, *, dashboard: Optional[Dashboard], dashboard_filters_override: Optional[dict] = None
+    ) -> Optional[dict]:
         from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 
         if not dashboard or not self.query:
             return self.query
 
-        return apply_dashboard_filters_to_dict(self.query, dashboard.filters, self.team)
+        return apply_dashboard_filters_to_dict(
+            self.query,
+            dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters,
+            self.team,
+        )
 
     @property
     def url(self):

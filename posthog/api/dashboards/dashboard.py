@@ -18,6 +18,7 @@ from posthog.api.dashboards.dashboard_template_json_schema_parser import (
 )
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
+from posthog.api.monitoring import monitor, Feature
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -29,7 +30,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.api.monitoring import monitor, Feature
+from posthog.utils import filters_override_requested_by_client
 
 logger = structlog.get_logger(__name__)
 
@@ -124,6 +125,7 @@ class DashboardBasicSerializer(
 
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
+    filters = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
@@ -172,7 +174,15 @@ class DashboardSerializer(DashboardBasicSerializer):
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        dashboard = Dashboard.objects.create(team_id=team_id, **validated_data)
+
+        request_filters = request.data.get("filters")
+        if request_filters:
+            if not isinstance(request_filters, dict):
+                raise serializers.ValidationError("Filters must be a dictionary")
+            filters = request_filters
+        else:
+            filters = {}
+        dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
         if use_template:
             try:
@@ -281,6 +291,12 @@ class DashboardSerializer(DashboardBasicSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
 
+        request_filters = initial_data.get("filters")
+        if request_filters:
+            if not isinstance(request_filters, dict):
+                raise serializers.ValidationError("Filters must be a dictionary")
+            instance.filters = request_filters
+
         instance = super().update(instance, validated_data)
 
         user = cast(User, self.context["request"].user)
@@ -379,6 +395,16 @@ class DashboardSerializer(DashboardBasicSerializer):
             serialized_tiles.append(tile_data)
 
         return serialized_tiles
+
+    def get_filters(self, dashboard: Dashboard) -> dict:
+        request = self.context.get("request")
+        if request:
+            filters_override = filters_override_requested_by_client(request)
+
+            if filters_override is not None:
+                return filters_override
+
+        return dashboard.filters
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
