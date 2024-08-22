@@ -119,7 +119,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 let upperBound = dayjs().tz(teamLogic.values.timezone)
                 let period = '1 hour'
 
-                if (values.batchExportConfig) {
+                if (values.batchExportConfig && end_at) {
                     if (values.batchExportConfig.interval == 'hour') {
                         upperBound = upperBound.add(1, 'hour')
                     } else if (values.batchExportConfig.interval == 'day') {
