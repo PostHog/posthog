@@ -4780,7 +4780,7 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
-        UNION ALL SELECT plus(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'x'), ''), 'null'), '^"|"$', ''), 'Int64')), 1000) AS total,
+        UNION ALL SELECT plus(avg(accurateCastOrNull(JSONExtract(properties, 'x', 'Nullable(String)'), 'Int64')), 1000) AS total,
                          toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) AS date
         FROM events e
         WHERE team_id = 2
