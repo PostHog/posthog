@@ -203,7 +203,7 @@ def make_retryable_with_exponential_backoff(
             except retryable_exceptions as err:
                 attempt += 1
 
-                if is_exception_retryable(err) is False or attempt > max_attempts:
+                if is_exception_retryable(err) is False or attempt >= max_attempts:
                     raise
 
                 await asyncio.sleep(
