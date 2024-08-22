@@ -60,7 +60,7 @@ class TestBytecode(BaseTest):
         )
         self.assertEqual(
             to_bytecode("concat('arg', 'another')"),
-            [_H, op.STRING, "another", op.STRING, "arg", op.CALL, "concat", 2],
+            [_H, op.STRING, "another", op.STRING, "arg", op.CALL_GLOBAL, "concat", 2],
         )
         self.assertEqual(
             to_bytecode("ifNull(properties.email, false)"),
@@ -120,15 +120,15 @@ class TestBytecode(BaseTest):
         )
         self.assertEqual(
             to_bytecode("match('test', 'e.*')"),
-            [_H, op.STRING, "e.*", op.STRING, "test", op.CALL, "match", 2],
+            [_H, op.STRING, "e.*", op.STRING, "test", op.CALL_GLOBAL, "match", 2],
         )
         self.assertEqual(
             to_bytecode("match('test', '^e.*')"),
-            [_H, op.STRING, "^e.*", op.STRING, "test", op.CALL, "match", 2],
+            [_H, op.STRING, "^e.*", op.STRING, "test", op.CALL_GLOBAL, "match", 2],
         )
         self.assertEqual(
             to_bytecode("match('test', 'x.*')"),
-            [_H, op.STRING, "x.*", op.STRING, "test", op.CALL, "match", 2],
+            [_H, op.STRING, "x.*", op.STRING, "test", op.CALL_GLOBAL, "match", 2],
         )
         self.assertEqual(to_bytecode("not('test')"), [_H, op.STRING, "test", op.NOT])
         self.assertEqual(to_bytecode("not 'test'"), [_H, op.STRING, "test", op.NOT])

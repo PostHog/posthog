@@ -298,7 +298,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 "properties",
                 op.GET_GLOBAL,
                 2,
-                op.CALL,
+                op.CALL_GLOBAL,
                 "toInt",
                 1,
                 op.GT,
