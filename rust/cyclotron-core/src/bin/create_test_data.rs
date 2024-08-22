@@ -1,9 +1,5 @@
 use chrono::{Duration, Utc};
-use cyclotron_core::{
-    base_ops::JobInit,
-    manager::{ManagerConfig, QueueManager},
-    PoolConfig,
-};
+use cyclotron_core::{JobInit, ManagerConfig, PoolConfig, QueueManager};
 use uuid::Uuid;
 
 // Just inserts jobs as fast as it can, choosing randomly between hog and fetch workers, and between different priorities.

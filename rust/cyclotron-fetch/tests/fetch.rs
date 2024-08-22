@@ -1,7 +1,7 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use chrono::Duration;
-use cyclotron_core::{manager::QueueManager, worker::Worker};
+use cyclotron_core::{QueueManager, Worker};
 use cyclotron_fetch::fetch::{tick, FetchResult, HttpMethod};
 use httpmock::{Method, MockServer};
 use serde_json::json;

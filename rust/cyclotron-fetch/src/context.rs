@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cyclotron_core::{worker::Worker, PoolConfig};
+use cyclotron_core::{PoolConfig, Worker};
 use health::HealthHandle;
 use tokio::sync::Semaphore;
 

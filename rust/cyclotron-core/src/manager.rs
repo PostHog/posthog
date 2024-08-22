@@ -1,29 +1,17 @@
 use std::sync::atomic::AtomicUsize;
 
 use chrono::{DateTime, Duration, Utc};
-use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 
 use crate::{
-    base_ops::{bulk_create_jobs, count_total_waiting_jobs, create_job, JobInit},
-    error::QueueError,
-    PoolConfig,
+    config::{DEFAULT_QUEUE_DEPTH_LIMIT, DEFAULT_SHARD_HEALTH_CHECK_INTERVAL},
+    ops::{
+        manager::{bulk_create_jobs, create_job},
+        meta::count_total_waiting_jobs,
+    },
+    BulkInsertResult, JobInit, ManagerConfig, QueueError,
 };
-
-pub const DEFAULT_QUEUE_DEPTH_LIMIT: u64 = 10_000;
-pub const DEFAULT_SHARD_HEALTH_CHECK_INTERVAL: u64 = 10;
-
-// TODO - right now, a lot of this sharding stuff will be hollow, but later we'll add logic like
-// e.g. routing work to alive shards if one is down, or reporting shard failure, etc.
-// TODO - here's also where queue management commands will go, like "downgrade the priority of this function"
-// or "pause jobs for this team", but we're going to add those ad-hoc as they're needed, not up front
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ManagerConfig {
-    pub shards: Vec<PoolConfig>,
-    pub shard_depth_limit: Option<u64>, // Defaults to 10_000 available jobs per shard
-    pub shard_depth_check_interval_seconds: Option<u64>, // Defaults to 10 seconds - checking shard capacity
-}
 
 pub struct Shard {
     pub pool: PgPool,
@@ -35,12 +23,6 @@ pub struct Shard {
 pub struct QueueManager {
     shards: RwLock<Vec<Shard>>,
     next_shard: AtomicUsize,
-}
-
-// Bulk inserts across multiple shards can partially succeed, so we need to track failures
-// and hand back failed job inits to the caller.
-pub struct BulkInsertResult {
-    pub failures: Vec<(QueueError, Vec<JobInit>)>,
 }
 
 impl QueueManager {
@@ -65,7 +47,7 @@ impl QueueManager {
         })
     }
 
-    // Designed mostly to be used for testing, but safe enough to expose publicly
+    #[doc(hidden)] // Mostly for testing, but safe to expose
     pub fn from_pool(pool: PgPool) -> Self {
         Self {
             shards: RwLock::new(vec![Shard::new(
@@ -188,6 +170,7 @@ impl Shard {
         create_job(&self.pool, init).await
     }
 
+    // As above, with the same caveats about what "capacity" means
     pub async fn bulk_create_jobs_blocking(
         &self,
         inits: &[JobInit],
@@ -238,25 +221,5 @@ impl Shard {
             *last_healthy = Utc::now();
         }
         Ok(is_full)
-    }
-}
-
-impl BulkInsertResult {
-    pub fn new() -> Self {
-        Self { failures: vec![] }
-    }
-
-    pub fn add_failure(&mut self, err: QueueError, jobs: Vec<JobInit>) {
-        self.failures.push((err, jobs));
-    }
-
-    pub fn all_succeeded(&self) -> bool {
-        self.failures.is_empty()
-    }
-}
-
-impl Default for BulkInsertResult {
-    fn default() -> Self {
-        Self::new()
     }
 }
