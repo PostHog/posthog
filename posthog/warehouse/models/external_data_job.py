@@ -16,21 +16,15 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         COMPLETED = "Completed", "Completed"
         CANCELLED = "Cancelled", "Cancelled"
 
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    pipeline: models.ForeignKey = models.ForeignKey(
-        "posthog.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE
-    )
-    schema: models.ForeignKey = models.ForeignKey(
-        "posthog.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True
-    )
-    status: models.CharField = models.CharField(max_length=400)
-    rows_synced: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
-    latest_error: models.TextField = models.TextField(
-        null=True, help_text="The latest error that occurred during this run."
-    )
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    pipeline = models.ForeignKey("posthog.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
+    schema = models.ForeignKey("posthog.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True)
+    status = models.CharField(max_length=400)
+    rows_synced = models.BigIntegerField(null=True, blank=True)
+    latest_error = models.TextField(null=True, help_text="The latest error that occurred during this run.")
 
-    workflow_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    workflow_run_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
 
     __repr__ = sane_repr("id")
 

@@ -27,33 +27,33 @@ class SessionRecording(UUIDModel):
     # https://github.com/PostHog/posthog-js/blob/e0dc2c005cfb5dd62b7c876676bcffe1654417a7/src/utils.ts#L457-L458
     # We create recording objects with both UUIDT and a unique session_id field to remain backwards compatible.
     # All other models related to the session recording model uses this unique `session_id` to create the link.
-    session_id: models.CharField = models.CharField(unique=True, max_length=200)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
-    object_storage_path: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    session_id = models.CharField(unique=True, max_length=200)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    deleted = models.BooleanField(null=True, blank=True)
+    object_storage_path = models.CharField(max_length=200, null=True, blank=True)
 
-    distinct_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    distinct_id = models.CharField(max_length=400, null=True, blank=True)
 
-    duration: models.IntegerField = models.IntegerField(blank=True, null=True)
-    active_seconds: models.IntegerField = models.IntegerField(blank=True, null=True)
-    inactive_seconds: models.IntegerField = models.IntegerField(blank=True, null=True)
-    start_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
-    end_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+    duration = models.IntegerField(blank=True, null=True)
+    active_seconds = models.IntegerField(blank=True, null=True)
+    inactive_seconds = models.IntegerField(blank=True, null=True)
+    start_time = models.DateTimeField(blank=True, null=True)
+    end_time = models.DateTimeField(blank=True, null=True)
 
-    click_count: models.IntegerField = models.IntegerField(blank=True, null=True)
-    keypress_count: models.IntegerField = models.IntegerField(blank=True, null=True)
-    mouse_activity_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    click_count = models.IntegerField(blank=True, null=True)
+    keypress_count = models.IntegerField(blank=True, null=True)
+    mouse_activity_count = models.IntegerField(blank=True, null=True)
 
-    console_log_count: models.IntegerField = models.IntegerField(blank=True, null=True)
-    console_warn_count: models.IntegerField = models.IntegerField(blank=True, null=True)
-    console_error_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    console_log_count = models.IntegerField(blank=True, null=True)
+    console_warn_count = models.IntegerField(blank=True, null=True)
+    console_error_count = models.IntegerField(blank=True, null=True)
 
-    start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
+    start_url = models.CharField(blank=True, null=True, max_length=512)
 
     # we can't store storage version in the stored content
     # as we might need to know the version before knowing how to load the data
-    storage_version: models.CharField = models.CharField(blank=True, null=True, max_length=20)
+    storage_version = models.CharField(blank=True, null=True, max_length=20)
 
     # DYNAMIC FIELDS
 
