@@ -559,9 +559,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                     return value
                                 }
 
-                                const multiplier = column.settings.formatting?.style === 'percent' ? 100 : 1
+                                const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
 
-                                if (column.settings.formatting?.decimalPlaces) {
+                                if (column.settings?.formatting?.decimalPlaces) {
                                     return formatDataWithSettings(
                                         parseFloat(
                                             (parseFloat(value) * multiplier).toFixed(
