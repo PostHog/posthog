@@ -74,6 +74,10 @@ def create_bytecode(
             function_expr = parse_program(INLINE_STL[field])
             if isinstance(expr, ast.Program):
                 expr = ast.Program(declarations=[*function_expr.declarations, *expr.declarations])
+            elif isinstance(expr, ast.ExprStatement):
+                expr = ast.Program(declarations=[*function_expr.declarations, ast.ReturnStatement(expr=expr.expr)])
+            elif isinstance(expr, ast.Statement):
+                expr = ast.Program(declarations=[*function_expr.declarations, expr])
             else:
                 expr = ast.Program(declarations=[*function_expr.declarations, ast.ReturnStatement(expr=expr)])
 
@@ -656,6 +660,7 @@ class BytecodeBuilder(Visitor):
             ]
 
         if isinstance(node.left, ast.Field) and len(node.left.chain) >= 1:
+            ops: list
             chain = node.left.chain
             name = chain[0]
             for index, local in reversed(list(enumerate(self.locals))):
@@ -665,7 +670,7 @@ class BytecodeBuilder(Visitor):
                         return [*self.visit(cast(AST, node.right)), Operation.SET_LOCAL, index]
 
                     # else set a property on a local object
-                    ops: list = [Operation.GET_LOCAL, index]
+                    ops = [Operation.GET_LOCAL, index]
                     for element in chain[1:-1]:
                         if isinstance(element, int):
                             ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
@@ -685,7 +690,7 @@ class BytecodeBuilder(Visitor):
                     return [*self.visit(cast(AST, node.right)), Operation.SET_UPVALUE, upvalue_index]
 
                 # else set a property on an upvalue object
-                ops: list = [Operation.GET_UPVALUE, upvalue_index]
+                ops = [Operation.GET_UPVALUE, upvalue_index]
                 for element in chain[1:-1]:
                     if isinstance(element, int):
                         ops.extend([Operation.INTEGER, element, Operation.GET_PROPERTY])
@@ -812,7 +817,7 @@ class FieldFinder(TraversingVisitor):
 
     def visit_field(self, node: ast.Field):
         if len(node.chain) == 1:
-            self.fields.add(node.chain[0])
+            self.fields.add(str(node.chain[0]))
 
     def visit_call(self, node: ast.Call):
         self.fields.add(node.name)

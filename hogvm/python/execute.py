@@ -334,25 +334,26 @@ def execute_bytecode(
                 arg_count = next_token()
                 upvalue_count = next_token()
                 body_length = next_token()
-                callable = {
-                    "__hogCallable__": "local",
-                    "argCount": arg_count,
-                    "upvalueCount": upvalue_count,
-                    "ip": frame.ip + 1,
-                    "name": name,
-                }
-                push_stack(callable)
+                push_stack(
+                    {
+                        "__hogCallable__": "local",
+                        "argCount": arg_count,
+                        "upvalueCount": upvalue_count,
+                        "ip": frame.ip + 1,
+                        "name": name,
+                    }
+                )
                 frame.ip += body_length
             case Operation.CLOSURE:
-                callable = pop_stack()
-                closure = new_hog_closure(callable)
+                closure_callable = pop_stack()
+                closure = new_hog_closure(closure_callable)
                 stack_start = frame.stack_start
                 upvalue_count = next_token()
-                if upvalue_count != callable["upvalueCount"]:
+                if upvalue_count != closure_callable["upvalueCount"]:
                     raise HogVMException(
-                        f"Invalid upvalue count. Expected {callable['upvalueCount']}, got {upvalue_count}"
+                        f"Invalid upvalue count. Expected {closure_callable['upvalueCount']}, got {upvalue_count}"
                     )
-                for _ in range(callable["upvalueCount"]):
+                for _ in range(closure_callable["upvalueCount"]):
                     is_local, index = next_token(), next_token()
                     if is_local:
                         closure["upvalues"].append(capture_upvalue(stack_start + index))

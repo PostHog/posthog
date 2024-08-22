@@ -175,30 +175,33 @@ def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional
 
 
 def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
-        if args[1] is None:
-            args[1] = " "
-        if len(args[1]) > 1:
+        if char is None:
+            char = " "
+        if len(char) > 1:
             return ""
-    return args[0].strip(args[1] if len(args) > 1 else None)
+    return args[0].strip(char)
 
 
 def trimLeft(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
-        if args[1] is None:
-            args[1] = " "
-        if len(args[1]) > 1:
+        if char is None:
+            char = " "
+        if len(char) > 1:
             return ""
-    return args[0].lstrip(args[1] if len(args) > 1 else None)
+    return args[0].lstrip(char)
 
 
 def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
-        if args[1] is None:
-            args[1] = " "
-        if len(args[1]) > 1:
+        if char is None:
+            char = " "
+        if len(char) > 1:
             return ""
-    return args[0].rstrip(args[1] if len(args) > 1 else None)
+    return args[0].rstrip(char)
 
 
 def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
