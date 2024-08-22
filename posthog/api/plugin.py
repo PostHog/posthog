@@ -275,8 +275,12 @@ class PluginSerializer(serializers.ModelSerializer):
             "capabilities",
             "metrics",
             "public_jobs",
+            "hog_function_migration_available",
         ]
-        read_only_fields = ["id", "latest_tag"]
+        read_only_fields = ["id", "latest_tag", "hog_function_migration_available"]
+
+    def get_hog_function_migration_available(self, plugin: Plugin):
+        return HOG_FUNCTION_MIGRATORS.get(plugin.url) is not None
 
     def get_url(self, plugin: Plugin) -> Optional[str]:
         # remove ?private_token=... from url
@@ -916,11 +920,18 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not migrater:
             raise ValidationError("No migration available for this plugin")
 
-        hog_function_serializer = HogFunctionSerializer(
-            data=migrater.migrate(obj), context=self.get_serializer_context()
-        )
+        hog_function_data = migrater.migrate(obj)
+
+        if obj.enabled:
+            hog_function_data["enabled"] = True
+
+        hog_function_serializer = HogFunctionSerializer(data=hog_function_data, context=self.get_serializer_context())
         hog_function_serializer.is_valid(raise_exception=True)
         hog_function_serializer.save()
+
+        if obj.enabled:
+            obj.enabled = False
+            obj.save()
 
         return Response(hog_function_serializer.data)
 

@@ -162,6 +162,7 @@ export function PipelinePluginConfiguration({
                         onClick: () =>
                             LemonDialog.open({
                                 title: 'Upgrade destination',
+                                width: '30rem',
                                 description:
                                     'This will create a new Destination in the upgraded system. The old destination will be disabled and can later be deleted. In addition there may be slight differences in the configuration options that you can choose to modify.',
                                 secondaryButton: {
