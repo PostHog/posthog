@@ -1134,7 +1134,6 @@ dependencies = [
  "axum-client-ip",
  "bytes",
  "envconfig",
- "lazy_static",
  "maxminddb",
  "once_cell",
  "rand",
