@@ -7,7 +7,3 @@ secondExecFunction
 secondExecFunctionNested
 secondExecFunction
 secondExecFunction
---------
-{'__hogClosure__': true, 'callable': {'__hogCallable__': 'local', 'argCount': 1, 'upvalueCount': 0, 'ip': 136, 'name': 'lambda'}, 'upvalues': []}
-4
-16

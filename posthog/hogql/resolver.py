@@ -518,6 +518,9 @@ class Resolver(CloningVisitor):
         )
         return node
 
+    def visit_expr_call(self, node: ast.ExprCall):
+        raise QueryError("Cannot call an expression directly. Use a function instead.")
+
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
 

@@ -29,9 +29,3 @@ secondExecFunction()
 secondExecFunctionNested()
 secondExecFunction()
 
-print('--------')
-
-let b := x -> x * 2
-print(b)
-print(b(2))
-print(b(8))

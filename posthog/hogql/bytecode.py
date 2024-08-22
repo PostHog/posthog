@@ -320,15 +320,28 @@ class BytecodeBuilder(Visitor):
             if local.name == node.name:
                 found_local_with_name = True
 
+        if node.params is not None:
+            raise QueryError("Function parameters are not yet supported")
+
         if found_local_with_name:
             field = self.visit(ast.Field(chain=[node.name]))
-            return [*response, *field, Operation.CALL_LOCAL, len(node.args)]
+            response.extend([*field, Operation.CALL_LOCAL, len(node.args)])
+        else:
+            upvalue = self._resolve_upvalue(node.name)
+            if upvalue != -1:
+                response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(node.args)])
+            else:
+                response.extend([Operation.CALL_GLOBAL, node.name, len(node.args)])
 
-        upvalue = self._resolve_upvalue(node.name)
-        if upvalue != -1:
-            return [*response, Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(node.args)]
+        return response
 
-        return [*response, Operation.CALL_GLOBAL, node.name, len(node.args)]
+    def visit_expr_call(self, node: ast.ExprCall):
+        response = []
+        for expr in reversed(node.args):
+            response.extend(self.visit(expr))
+        response.extend(self.visit(node.expr))
+        response.extend([Operation.CALL_LOCAL, len(node.args)])
+        return response
 
     def visit_program(self, node: ast.Program):
         response = []

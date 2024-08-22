@@ -719,6 +719,12 @@ class Call(Expr):
 
 
 @dataclass(kw_only=True)
+class ExprCall(Expr):
+    expr: Expr
+    args: list[Expr]
+
+
+@dataclass(kw_only=True)
 class JoinConstraint(Expr):
     expr: Expr
     constraint_type: Literal["ON", "USING"]

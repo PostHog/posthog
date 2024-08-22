@@ -2159,13 +2159,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprNot) { RETURN_NEW_AST_NODE("Not", "{s:N}", "expr", visitAsPyObject(ctx->columnExpr())); }
 
   VISIT(ColumnExprWinFunctionTarget) {
-    auto column_expr_list_ctx = ctx->columnExprList();
+    auto column_expr_list_ctx = ctx->columnExprs;
     string name = visitAsString(ctx->identifier(0));
     string over_identifier = visitAsString(ctx->identifier(1));
     PyObject* exprs = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
     PyObject* args;
     try {
-      args = visitAsPyObjectOrEmptyList(ctx->columnArgList());
+      args = visitAsPyObjectOrEmptyList(ctx->columnArgList);
     } catch (...) {
       Py_DECREF(exprs);
       throw;
@@ -2178,11 +2178,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprWinFunction) {
     string identifier = visitAsString(ctx->identifier());
-    auto column_expr_list_ctx = ctx->columnExprList();
+    auto column_expr_list_ctx = ctx->columnExprs;
     PyObject* exprs = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
     PyObject* args;
     try {
-      args = visitAsPyObjectOrEmptyList(ctx->columnArgList());
+      args = visitAsPyObjectOrEmptyList(ctx->columnArgList);
     } catch (...) {
       Py_DECREF(exprs);
       throw;
@@ -2205,10 +2205,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprFunction) {
     string name = visitAsString(ctx->identifier());
-    PyObject* params = visitAsPyObjectOrNone(ctx->columnExprList());
+    PyObject* params = visitAsPyObjectOrNone(ctx->columnExprs);
     PyObject* args;
     try {
-      args = visitAsPyObjectOrEmptyList(ctx->columnArgList());
+      args = visitAsPyObjectOrEmptyList(ctx->columnArgList);
     } catch (...) {
       Py_DECREF(params);
       throw;
@@ -2230,8 +2230,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
-
-  VISIT(ColumnArgList) { return visitPyListOfObjects(ctx->columnArgExpr()); }
 
   VISIT(ColumnLambdaExpr) {
     PyObject* expr = visitAsPyObject(ctx->columnExpr());
@@ -2581,6 +2579,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE("Call", "{s:s, s:[NN]}", "name", "ifNull", "args", value, fallback);
+  }
+
+  VISIT(ColumnExprCall) {
+    PyObject* expr = visitAsPyObject(ctx->columnExpr());
+    PyObject* args;
+    try {
+      args = visitAsPyObjectOrEmptyList(ctx->columnExprList());
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("ExprCall", "{s:N, s:N}", "expr", expr, "args", args);
   }
 
   VISIT(ColumnExprTemplateString) { return visit(ctx->templateString()); }
