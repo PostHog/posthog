@@ -1,3 +1,16 @@
+export interface CallFrame {
+    closure: HogClosure
+    ip: number
+    stackStart: number
+    argCount: number
+}
+
+export interface ThrowFrame {
+    callStackLen: number
+    stackLen: number
+    catchIp: number
+}
+
 export interface HogDate {
     __hogDate__: true
     year: number
@@ -38,19 +51,6 @@ export interface HogClosure {
     __hogClosure__: true
     callable: HogCallable
     upvalues: HogUpValue[]
-}
-
-export interface CallFrame {
-    closure: HogClosure
-    ip: number
-    stackStart: number
-    argCount: number
-}
-
-export interface ThrowFrame {
-    callStackLen: number
-    stackLen: number
-    catchIp: number
 }
 
 export function isHogDate(obj: any): obj is HogDate {
@@ -97,10 +97,6 @@ export function newHogClosure(callable: HogCallable, upvalues?: any[]): HogClosu
     }
 }
 
-export function isHogUpValue(obj: any): obj is HogUpValue {
-    return obj && typeof obj === 'object' && '__hogUpValue__' in obj && 'location' in obj
-}
-
 export function newHogCallable(
     type: HogCallable['__hogCallable__'],
     {
@@ -122,4 +118,15 @@ export function newHogCallable(
         upvalueCount,
         ip,
     } satisfies HogCallable
+}
+
+export function isHogUpValue(obj: any): obj is HogUpValue {
+    return (
+        obj &&
+        typeof obj === 'object' &&
+        '__hogUpValue__' in obj &&
+        'location' in obj &&
+        'closed' in obj &&
+        'value' in obj
+    )
 }

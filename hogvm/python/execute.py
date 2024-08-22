@@ -6,7 +6,7 @@ from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.debugger import debugger, color_bytecode
-from hogvm.python.objects import is_hog_error, new_hog_closure, CallFrame, ThrowFrame, new_hog_callable
+from hogvm.python.objects import is_hog_error, new_hog_closure, CallFrame, ThrowFrame, new_hog_callable, is_hog_upvalue
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.stl import STL
 from dataclasses import dataclass
@@ -367,7 +367,7 @@ def execute_bytecode(
                 if index >= len(closure["upvalues"]):
                     raise HogVMException(f"Invalid upvalue index: {index}")
                 upvalue = closure["upvalues"][index]
-                if not isinstance(upvalue, dict) or upvalue.get("__hogUpValue__") is None:
+                if not is_hog_upvalue(upvalue):
                     raise HogVMException(f"Invalid upvalue: {upvalue}")
                 if upvalue["closed"]:
                     push_stack(upvalue["value"])
@@ -379,7 +379,7 @@ def execute_bytecode(
                 if index >= len(closure["upvalues"]):
                     raise HogVMException(f"Invalid upvalue index: {index}")
                 upvalue = closure["upvalues"][index]
-                if not isinstance(upvalue, dict) or upvalue.get("__hogUpValue__") is None:
+                if not is_hog_upvalue(upvalue):
                     raise HogVMException(f"Invalid upvalue: {upvalue}")
                 if upvalue["closed"]:
                     upvalue["value"] = pop_stack()
