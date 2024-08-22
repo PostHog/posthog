@@ -281,7 +281,7 @@ class PluginSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "latest_tag", "hog_function_migration_available"]
 
     def get_hog_function_migration_available(self, plugin: Plugin):
-        return HOG_FUNCTION_MIGRATORS.get(plugin.url) is not None
+        return HOG_FUNCTION_MIGRATORS.get(plugin.url) is not None if plugin.url else False
 
     def get_url(self, plugin: Plugin) -> Optional[str]:
         # remove ?private_token=... from url
