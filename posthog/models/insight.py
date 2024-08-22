@@ -96,7 +96,7 @@ class Insight(models.Model):
     __repr__ = sane_repr("team_id", "id", "short_id", "name")
 
     objects = InsightManager()
-    objects_including_soft_deleted = models.Manager()
+    objects_including_soft_deleted: models.Manager["Insight"] = models.Manager()
 
     class Meta:
         db_table = "posthog_dashboarditem"
@@ -205,16 +205,16 @@ class Insight(models.Model):
 
 
 class InsightViewed(models.Model):
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed")]
-        indexes = [models.Index(fields=["team_id", "user_id", "-last_viewed_at"])]
-
     # To track views from shared insights, team and user can be null
     team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
     user = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
 
     insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
     last_viewed_at: models.DateTimeField = models.DateTimeField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed")]
+        indexes = [models.Index(fields=["team_id", "user_id", "-last_viewed_at"])]
 
 
 @timed("generate_insight_cache_key")
