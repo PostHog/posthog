@@ -387,10 +387,14 @@ def execute_bytecode(
             case Operation.CALL_GLOBAL:
                 check_timeout()
                 name = next_token()
+                arg_count = next_token()
+                # This is for backwards compatibility. We use a closure on the stack with local functions now.
                 if name in declared_functions:
-                    # This is for backwards compatibility. We use a closure on the stack with local functions now.
                     func_ip, arg_len = declared_functions[name]
                     frame.ip += 1  # advance for when we return
+                    if arg_len > arg_count:
+                        for _ in range(arg_len - arg_count):
+                            push_stack(None)
                     frame = CallFrame(
                         ip=func_ip,
                         stack_start=len(stack) - arg_len,
@@ -409,7 +413,7 @@ def execute_bytecode(
                     continue  # resume the loop without incrementing frame.ip
                 else:
                     # Shortcut for calling STL functions (can also be done with an STL function closure)
-                    args = [pop_stack() for _ in range(next_token())]
+                    args = [pop_stack() for _ in range(arg_count)]
                     if functions is not None and name in functions:
                         push_stack(functions[name](*args))
                     elif name in STL:

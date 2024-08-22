@@ -571,10 +571,16 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             case Operation.CALL_GLOBAL: {
                 checkTimeout()
                 const name = next()
+                temp = next() // args.length
                 if (name in declaredFunctions && name !== 'toString') {
                     // This is for backwards compatibility. We use a closure on the stack with local functions now.
                     const [funcIp, argLen] = declaredFunctions[name]
                     frame.ip += 1 // advance for when we return
+                    if (argLen > temp) {
+                        for (let i = temp; i < argLen; i++) {
+                            pushStack(null)
+                        }
+                    }
                     frame = {
                         ip: funcIp,
                         stackStart: stack.length - argLen,
@@ -591,7 +597,6 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     continue // resume the loop without incrementing frame.ip
                 } else {
                     // Shortcut for calling STL functions (can also be done with an STL function closure)
-                    temp = next() // args.length
                     if (temp > stack.length) {
                         throw new HogVMException('Not enough arguments on the stack')
                     }
