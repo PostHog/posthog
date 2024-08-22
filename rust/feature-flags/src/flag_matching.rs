@@ -148,7 +148,7 @@ impl FeatureFlagMatcher {
     async fn get_target_properties(
         &mut self,
         feature_flag: &FeatureFlag,
-        properties: &Vec<PropertyFilter>,
+        properties: &[PropertyFilter],
     ) -> HashMap<String, Value> {
         self.get_person_properties(feature_flag.team_id, properties)
             .await
