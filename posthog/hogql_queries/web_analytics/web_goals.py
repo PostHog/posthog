@@ -15,6 +15,10 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import WebGoalsQueryResponse, WebGoalsQuery, CachedWebGoalsQueryResponse
 
 
+class NoActionsError(Exception):
+    pass
+
+
 class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
     query: WebGoalsQuery
     response: WebGoalsQueryResponse
@@ -26,46 +30,98 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
             end = self.query_date_range.date_to_as_hogql()
 
         actions = Action.objects.filter(team=self.team).order_by("pinned_at", "-last_calculated_at")[:5]
-        action = actions[0]
+        if not actions:
+            raise NoActionsError("No actions found")
 
-        return parse_select(
+        inner_aliases: list[ast.Expr] = []
+        outer_aliases: list[ast.Expr] = []
+        action_exprs: list[ast.Expr] = []
+        for n, action in enumerate(actions):
+            expr = action_to_expr(action)
+            action_exprs.append(expr)
+            inner_aliases.append(ast.Alias(alias=f"action_count_{n}", expr=ast.Call(name="countIf", args=[expr])))
+            inner_aliases.append(
+                ast.Alias(
+                    alias=f"action_person_id_{n}",
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Field(chain=[f"action_count_{n}"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Field(chain=["person_id"]),
+                            ast.Constant(value=None),
+                        ],
+                    ),
+                )
+            )
+            outer_aliases.append(ast.Alias(alias=f"action_name_{n}", expr=ast.Constant(value=action.name)))
+            outer_aliases.append(
+                ast.Alias(
+                    alias=f"action_total_{n}", expr=ast.Call(name="sum", args=[ast.Field(chain=[f"action_count_{n}"])])
+                ),
+            )
+            outer_aliases.append(
+                ast.Alias(
+                    alias=f"action_uniques_{n}",
+                    expr=ast.Call(name="uniq", args=[ast.Field(chain=[f"action_person_id_{n}"])]),
+                ),
+            )
+
+        inner_select = parse_select(
             """
 SELECT
-    sum(action_count) as count,
-    uniq(person_id) as total_people,
-    uniq(action_person_id) as uniques,
-    uniques/total_people as rate
-FROM (
-    SELECT
-        any(events.person_id) as person_id,
-        session.session_id as session_id,
-        countIf({action_where}) as action_count,
-        if (action_count > 0, person_id, NULL) as action_person_id,
-    FROM events
-    WHERE and(
-        events.`$session_id` IS NOT NULL,
-        event = '$pageview' OR {action_where},
-        timestamp >= {start},
-        timestamp < {end},
-        {event_properties},
-        {session_properties}
-    )
-    GROUP BY session_id
+    any(events.person_id) as person_id
+FROM events
+WHERE and(
+    events.`$session_id` IS NOT NULL,
+    event = '$pageview' OR {action_where},
+    timestamp >= {start},
+    timestamp < {end},
+    {event_properties},
+    {session_properties}
 )
-    """,
+GROUP BY events.`$session_id`
+        """,
             placeholders={
                 "start": start,
                 "end": end,
                 "event_properties": self.event_properties(),
                 "session_properties": self.session_properties(),
-                "action_where": action_to_expr(action),
+                "action_where": ast.Or(exprs=action_exprs),
             },
         )
+        assert isinstance(inner_select, ast.SelectQuery)
+        for alias in inner_aliases:
+            inner_select.select.append(alias)
+
+        outer_select = parse_select(
+            """
+SELECT
+    uniq(person_id) as total_people
+FROM {inner_select}
+    """,
+            placeholders={
+                "inner_select": inner_select,
+            },
+        )
+        assert isinstance(outer_select, ast.SelectQuery)
+        for alias in outer_aliases:
+            outer_select.select.append(alias)
+
+        return outer_select
 
     def calculate(self):
+        try:
+            query = self.to_query()
+        except NoActionsError:
+            return WebGoalsQueryResponse(results=[], samplingRate=self._sample_rate, modifiers=self.modifiers)
+
         response = execute_hogql_query(
             query_type="web_goals_query",
-            query=self.to_query(),
+            query=query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
@@ -74,11 +130,19 @@ FROM (
         assert response.results
 
         row = response.results[0]
+        num_visitors = row[0]
+        num_actions = (len(row) - 1) // 3
+
+        results = []
+        for i in range(num_actions):
+            action_name = row[(i * 3) + 1]
+            action_total = row[(i * 3) + 2]
+            action_unique = row[(i * 3) + 3]
+            action_rate = action_unique / num_visitors if num_visitors else None
+            results.append([action_name, action_total, action_unique, action_rate])
 
         return WebGoalsQueryResponse(
-            results=[
-                [row[0], row[1], row[2], row[3]],
-            ],
+            results=results,
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,
         )
