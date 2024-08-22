@@ -36,6 +36,12 @@ export interface STLFunction {
     maxArgs?: number
 }
 
+export interface AsyncSTLFunction {
+    fn: (args: any[], name: string, timeout: number) => Promise<any>
+    minArgs?: number
+    maxArgs?: number
+}
+
 export const STL: Record<string, STLFunction> = {
     concat: {
         fn: (args) => {
@@ -595,8 +601,12 @@ export const STL: Record<string, STLFunction> = {
     },
 }
 
-export const ASYNC_STL: Record<string, (args: any[], name: string, timeout: number) => Promise<any>> = {
-    sleep: async (args) => {
-        await new Promise((resolve) => setTimeout(resolve, args[0] * 1000))
+export const ASYNC_STL: Record<string, AsyncSTLFunction> = {
+    sleep: {
+        fn: async (args) => {
+            await new Promise((resolve) => setTimeout(resolve, args[0] * 1000))
+        },
+        minArgs: 1,
+        maxArgs: 1,
     },
 }

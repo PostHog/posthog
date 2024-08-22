@@ -65,4 +65,6 @@ def new_hog_callable(type: str, arg_count: int, upvalue_count: int, ip: int, nam
 
 
 def is_hog_upvalue(obj: Any) -> bool:
-    return isinstance(obj, dict) and "__hogUpvalue__" in obj and "index" in obj and "closed" in obj and "value" in obj
+    return (
+        isinstance(obj, dict) and "__hogUpValue__" in obj and "location" in obj and "closed" in obj and "value" in obj
+    )

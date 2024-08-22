@@ -2,7 +2,6 @@ import RE2 from 're2'
 
 import {
     CallFrame,
-    HogCallable,
     HogUpValue,
     isHogCallable,
     isHogClosure,
@@ -97,7 +96,7 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
                 )
                 vmState.stack.push(convertJSToHog(result))
             } else if (response.asyncFunctionName in ASYNC_STL) {
-                const result = await ASYNC_STL[response.asyncFunctionName](
+                const result = await ASYNC_STL[response.asyncFunctionName].fn(
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
                     options?.timeout ?? DEFAULT_TIMEOUT_MS
@@ -393,7 +392,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         newHogClosure(
                             newHogCallable('async', {
                                 name: chain[0],
-                                argCount: 0, // TODO
+                                argCount: ASYNC_STL[chain[0]].maxArgs ?? 0,
                                 upvalueCount: 0,
                                 ip: -1,
                             })
@@ -404,7 +403,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         newHogClosure(
                             newHogCallable('stl', {
                                 name: chain[0],
-                                argCount: 0, // TODO
+                                argCount: STL[chain[0]].maxArgs ?? 0,
                                 upvalueCount: 0,
                                 ip: -1,
                             })
@@ -626,7 +625,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
                         }
 
-                        frame.ip += 1 // so we resume at the next address
+                        frame.ip += 1 // resume at the next address after async returns
 
                         return {
                             result: undefined,
