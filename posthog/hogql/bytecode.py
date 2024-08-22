@@ -784,5 +784,9 @@ def execute_hog(
         if not source_code.endswith(";"):
             source_code = f"{source_code};"
     program = parse_program(source_code)
-    bytecode = create_bytecode(program, supported_functions=set(functions.keys()), context=HogQLContext(team.id))
+    bytecode = create_bytecode(
+        program,
+        supported_functions=set(functions.keys()) if functions is not None else set(),
+        context=HogQLContext(team_id=team.id if team else None),
+    )
     return execute_bytecode(bytecode, globals=globals, functions=functions, timeout=timeout, team=team)
