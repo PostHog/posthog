@@ -69,7 +69,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   context: ./rust/
-                  file: ./rust/Dockerfile.migrate
+                  file: ./rust/Dockerfile.migrate-cyclotron
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
