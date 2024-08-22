@@ -1,7 +1,7 @@
 use crate::{
     api::FlagError,
     database::Client as DatabaseClient,
-    flag_definitions::{FeatureFlag, FlagGroupType},
+    flag_definitions::{FeatureFlag, FlagGroupType, PropertyFilter},
     property_matching::match_property,
 };
 use serde_json::Value;
@@ -37,7 +37,13 @@ pub struct FeatureFlagMatcher {
     // pub flags: Vec<FeatureFlag>,
     pub distinct_id: String,
     pub database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+    // TODO do I need cached_properties, or do I get them from the request?
+    // like, in python I get them from the request.  Hmm.  Let me try that.
+    // OH, or is this the FlagMatcherCache.  Yeah, so this is the flag matcher cache
     cached_properties: Option<HashMap<String, Value>>,
+    person_property_overrides: Option<HashMap<String, Value>>,
+    // TODO handle group properties
+    // group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
@@ -46,12 +52,16 @@ impl FeatureFlagMatcher {
     pub fn new(
         distinct_id: String,
         database_client: Option<Arc<dyn DatabaseClient + Send + Sync>>,
+        person_property_overrides: Option<HashMap<String, Value>>,
+        // group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     ) -> Self {
         FeatureFlagMatcher {
             // flags,
             distinct_id,
             database_client,
             cached_properties: None,
+            person_property_overrides,
+            // group_property_overrides,
         }
     }
 
@@ -101,6 +111,16 @@ impl FeatureFlagMatcher {
         }
     }
 
+    fn check_rollout(&self, feature_flag: &FeatureFlag, rollout_percentage: f64) -> (bool, String) {
+        if rollout_percentage == 100.0 {
+            (true, "CONDITION_MATCH".to_string())
+        } else if self.get_hash(feature_flag, "") <= (rollout_percentage / 100.0) {
+            (true, "CONDITION_MATCH".to_string())
+        } else {
+            (false, "OUT_OF_ROLLOUT_BOUND".to_string())
+        }
+    }
+
     // TODO: Making all this mutable just to store a cached value is annoying. Can I refactor this to be non-mutable?
     // Leaning a bit more towards a separate cache store for this.
     pub async fn is_condition_match(
@@ -110,37 +130,69 @@ impl FeatureFlagMatcher {
         _index: usize,
     ) -> (bool, String) {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
-        let mut condition_match = true;
-
-        if let Some(ref properties) = condition.properties {
+        if let Some(properties) = &condition.properties {
             if properties.is_empty() {
-                condition_match = true;
-            } else {
-                // TODO: First handle given override properties before going to db
-                let target_properties = self
-                    .get_person_properties(feature_flag.team_id, self.distinct_id.clone())
-                    .await
-                    .unwrap_or_default();
-                // TODO: Handle db issues / person not found
-
-                condition_match = properties.iter().all(|property| {
-                    match_property(property, &target_properties, false).unwrap_or(false)
-                });
+                return self.check_rollout(feature_flag, rollout_percentage);
             }
-        };
 
-        if !condition_match {
-            return (false, "NO_CONDITION_MATCH".to_string());
-        } else if rollout_percentage == 100.0 {
-            // TODO: Check floating point schenanigans if any
-            return (true, "CONDITION_MATCH".to_string());
+            let target_properties = self.get_target_properties(feature_flag, properties).await;
+
+            if !self.all_properties_match(properties, &target_properties) {
+                return (false, "NO_CONDITION_MATCH".to_string());
+            }
         }
 
-        if self.get_hash(feature_flag, "") > (rollout_percentage / 100.0) {
-            return (false, "OUT_OF_ROLLOUT_BOUND".to_string());
+        self.check_rollout(feature_flag, rollout_percentage)
+    }
+
+    async fn get_target_properties(
+        &mut self,
+        feature_flag: &FeatureFlag,
+        properties: &Vec<PropertyFilter>,
+    ) -> HashMap<String, Value> {
+        self.get_person_properties(feature_flag.team_id, properties)
+            .await
+        // TODO handle group properties, will go something like this
+        // if let Some(group_index) = feature_flag.get_group_type_index() {
+        //     self.get_group_properties(feature_flag.team_id, group_index, properties)
+        // } else {
+        //     self.get_person_properties(feature_flag.team_id, properties)
+        //         .await
+        // }
+    }
+
+    async fn get_person_properties(
+        &mut self,
+        team_id: i32,
+        properties: &Vec<PropertyFilter>,
+    ) -> HashMap<String, Value> {
+        if let Some(person_overrides) = &self.person_property_overrides {
+            // Check if all required properties are present in the overrides
+            // and none of them are of type "cohort"
+            let all_properties_valid = properties
+                .iter()
+                .all(|prop| person_overrides.contains_key(&prop.key) && prop.prop_type != "cohort");
+
+            if all_properties_valid {
+                return person_overrides.clone();
+            }
         }
 
-        (true, "CONDITION_MATCH".to_string())
+        // If overrides are not present, don't contain all required properties,
+        // or contain a cohort property, fall back to getting properties from cache or DB
+        self.get_person_properties_from_cache_or_db(team_id, self.distinct_id.clone())
+            .await
+            .unwrap_or_default()
+    }
+
+    fn all_properties_match(
+        &self,
+        condition_properties: &[PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+    ) -> bool {
+        condition_properties
+            .iter()
+            .all(|property| match_property(property, target_properties, false).unwrap_or(false))
     }
 
     pub fn hashed_identifier(&self, feature_flag: &FeatureFlag) -> Option<String> {
@@ -190,7 +242,7 @@ impl FeatureFlagMatcher {
         None
     }
 
-    pub async fn get_person_properties(
+    pub async fn get_person_properties_from_cache_or_db(
         &mut self,
         team_id: i32,
         distinct_id: String,
@@ -199,6 +251,7 @@ impl FeatureFlagMatcher {
         // Depends on how often we're calling this function
         // to match all flags for a single person
 
+        // TODO which of these properties do we need to cache?
         if let Some(cached_props) = self.cached_properties.clone() {
             // TODO: Maybe we don't want to copy around all user properties, this will by far be the largest chunk
             // of data we're copying around. Can we work with references here?
@@ -243,6 +296,15 @@ impl FeatureFlagMatcher {
 
         Ok(props)
     }
+
+    // async fn get_group_properties_from_cache_or_db(
+    //     &self,
+    //     team_id: i32,
+    //     group_index: usize,
+    //     properties: &Vec<PropertyFilter>,
+    // ) -> HashMap<String, Value> {
+    //     todo!()
+    // }
 }
 
 #[cfg(test)]
@@ -300,20 +362,21 @@ mod tests {
         ))
         .unwrap();
 
-        let mut matcher = FeatureFlagMatcher::new(distinct_id, Some(client.clone()));
+        let mut matcher = FeatureFlagMatcher::new(distinct_id, Some(client.clone()), None);
         let match_result = matcher.get_match(&flag).await;
         assert_eq!(match_result.matches, true);
         assert_eq!(match_result.variant, None);
 
         // property value is different
-        let mut matcher = FeatureFlagMatcher::new(not_matching_distinct_id, Some(client.clone()));
+        let mut matcher =
+            FeatureFlagMatcher::new(not_matching_distinct_id, Some(client.clone()), None);
         let match_result = matcher.get_match(&flag).await;
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
 
         // person does not exist
         let mut matcher =
-            FeatureFlagMatcher::new("other_distinct_id".to_string(), Some(client.clone()));
+            FeatureFlagMatcher::new("other_distinct_id".to_string(), Some(client.clone()), None);
         let match_result = matcher.get_match(&flag).await;
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);

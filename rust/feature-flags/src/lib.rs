@@ -3,14 +3,15 @@ pub mod config;
 pub mod database;
 pub mod flag_definitions;
 pub mod flag_matching;
-pub mod geo_ip;
+pub mod flag_request;
+pub mod geoip;
 pub mod property_matching;
 pub mod redis;
+pub mod request_handler;
 pub mod router;
 pub mod server;
 pub mod team;
 pub mod v0_endpoint;
-pub mod v0_request;
 
 // Test modules don't need to be compiled with main binary
 // #[cfg(test)]

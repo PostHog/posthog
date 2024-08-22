@@ -10,32 +10,6 @@ use crate::{
     redis::Client as RedisClient, team::Team,
 };
 
-#[derive(Deserialize, Default)]
-pub enum Compression {
-    #[default]
-    Unsupported,
-
-    #[serde(rename = "gzip", alias = "gzip-js")]
-    Gzip,
-    // TODO do we want to support this at all? It's not in the spec
-    // #[serde(rename = "base64")]
-    // Base64,
-}
-
-#[derive(Deserialize, Default)]
-pub struct FlagsQueryParams {
-    #[serde(alias = "v")]
-    pub version: Option<String>,
-
-    pub compression: Option<Compression>,
-
-    #[serde(alias = "ver")]
-    pub lib_version: Option<String>,
-
-    #[serde(alias = "_")]
-    pub sent_at: Option<i64>,
-}
-
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct FlagRequest {
     #[serde(
@@ -53,9 +27,10 @@ pub struct FlagRequest {
     pub groups: Option<HashMap<String, Value>>,
     // TODO: better type this since we know its going to be a nested json
     #[serde(default)]
-    pub group_properties: Option<HashMap<String, Value>>,
+    pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
     #[serde(alias = "$anon_distinct_id", skip_serializing_if = "Option::is_none")]
     pub anon_distinct_id: Option<String>,
+    pub ip_address: Option<String>,
 }
 
 impl FlagRequest {
@@ -138,6 +113,14 @@ impl FlagRequest {
         }
     }
 
+    pub fn extract_properties(&self) -> HashMap<String, Value> {
+        let mut properties = HashMap::new();
+        if let Some(person_properties) = &self.person_properties {
+            properties.extend(person_properties.clone());
+        }
+        properties
+    }
+
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: i32,
@@ -167,8 +150,8 @@ impl FlagRequest {
 #[cfg(test)]
 mod tests {
     use crate::api::FlagError;
+    use crate::flag_request::FlagRequest;
     use crate::test_utils::{insert_new_team_in_redis, setup_pg_client, setup_redis_client};
-    use crate::v0_request::FlagRequest;
     use bytes::Bytes;
     use serde_json::json;
 
