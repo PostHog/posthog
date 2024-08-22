@@ -3,7 +3,7 @@ This module contains serializers that are used across other serializers for nest
 """
 
 import copy
-from typing import Optional
+from typing import Any, Optional
 
 from rest_framework import serializers
 
@@ -122,15 +122,17 @@ class ProjectBasicSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         """
-        Object instance -> Dict of primitive datatypes.
+        Object instance -> Dict of primitive datatypes. Basically copied from Serializer.to_representation
         """
-        ret = {}
+        ret: dict[str, Any] = {}
         fields = self._readable_fields
 
         for field in fields:
+            assert field.field_name is not None
             try:
                 attribute_source = instance
                 if field.field_name in self.Meta.team_passthrough_fields:
+                    # This branch is the only material change from the original method
                     attribute_source = instance.passthrough_team
                 attribute = field.get_attribute(attribute_source)
             except SkipField:

@@ -9,7 +9,7 @@ from loginas.utils import is_impersonated_session
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.utils import action
-from rest_framework import exceptions, request, response, serializers, viewsets, views
+from rest_framework import exceptions, request, response, serializers, viewsets
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -534,13 +534,16 @@ class RootTeamViewSet(TeamViewSet):
     hide_api_docs = True
 
 
-def validate_team_attrs(attrs: dict[str, Any], view: views.View, request: request.Request, instance) -> dict[str, Any]:
+def validate_team_attrs(
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance
+) -> dict[str, Any]:
     attrs["organization_id"] = view.organization_id
 
     if "primary_dashboard" in attrs and attrs["primary_dashboard"].team_id != instance.id:
         raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
 
     if "access_control" in attrs:
+        assert isinstance(request.user, User)
         # Only organization-wide admins and above should be allowed to switch the project between open and private
         # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
         org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
