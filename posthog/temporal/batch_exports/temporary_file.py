@@ -1,6 +1,7 @@
 """This module contains a temporary file to stage data in batch exports."""
 
 import abc
+import asyncio
 import collections.abc
 import contextlib
 import csv
@@ -86,6 +87,15 @@ class BatchExportTemporaryFile:
     def __exit__(self, exc, value, tb):
         """Context-manager protocol exit method."""
         return self._file.__exit__(exc, value, tb)
+
+    async def __aenter__(self):
+        """Context-manager protocol enter method."""
+        await asyncio.to_thread(self._file.__enter__)
+        return self
+
+    async def __aexit__(self, exc, value, tb):
+        """Context-manager protocol exit method."""
+        return await asyncio.to_thread(self._file.__exit__, exc, value, tb)
 
     def __iter__(self):
         yield from self._file
@@ -329,7 +339,7 @@ class BatchExportWriter(abc.ABC):
         self.reset_writer_tracking()
         self.flush_counter = current_flush_counter
 
-        with BatchExportTemporaryFile(**self.file_kwargs) as temp_file:
+        async with BatchExportTemporaryFile(**self.file_kwargs) as temp_file:
             self._batch_export_file = temp_file
 
             try:
@@ -387,7 +397,7 @@ class BatchExportWriter(abc.ABC):
         column_names = record_batch.column_names
         column_names.pop(column_names.index("_inserted_at"))
 
-        self._write_record_batch(record_batch.select(column_names))
+        await asyncio.to_thread(self._write_record_batch, record_batch.select(column_names))
 
         self.last_inserted_at = last_inserted_at
         self.track_records_written(record_batch)
@@ -404,7 +414,7 @@ class BatchExportWriter(abc.ABC):
         if is_last is True and self.batch_export_file.compression == "brotli":
             self.batch_export_file.finish_brotli_compressor()
 
-        self.batch_export_file.seek(0)
+        await asyncio.to_thread(self.batch_export_file.seek, 0)
 
         await self.flush_callable(
             self.batch_export_file,
@@ -415,7 +425,7 @@ class BatchExportWriter(abc.ABC):
             is_last,
             self.error,
         )
-        self.batch_export_file.reset()
+        await asyncio.to_thread(self.batch_export_file.reset)
 
         self.records_since_last_flush = 0
         self.bytes_since_last_flush = 0
@@ -445,7 +455,7 @@ class JSONLBatchExportWriter(BatchExportWriter):
 
         self.default = default
 
-    def write(self, content: bytes) -> int:
+    def write_dict(self, content: dict[str, typing.Any]) -> int:
         """Write a single row of JSONL."""
         try:
             n = self.batch_export_file.write(orjson.dumps(content, default=str) + b"\n")
@@ -459,7 +469,10 @@ class JSONLBatchExportWriter(BatchExportWriter):
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as JSONL."""
         for record in record_batch.to_pylist():
-            self.write(record)
+            if not record:
+                continue
+
+            self.write_dict(record)
 
 
 class CSVBatchExportWriter(BatchExportWriter):
@@ -574,3 +587,36 @@ class ParquetBatchExportWriter(BatchExportWriter):
         """Write records to a temporary file as Parquet."""
 
         self.parquet_writer.write_batch(record_batch.select(self.parquet_writer.schema.names))
+
+
+class KafkaMessageBatchExportWriter(BatchExportWriter):
+    """A `BatchExportWriter` for Kafka messages in a queue."""
+
+    def __init__(
+        self,
+        max_bytes: int,
+        flush_callable: FlushCallable,
+        compression: str | None = None,
+    ):
+        super().__init__(
+            max_bytes=max_bytes,
+            flush_callable=flush_callable,
+            file_kwargs={"compression": compression},
+        )
+
+    def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
+        """Write records to a temporary file as Parquet."""
+        pass
+
+    async def write_record(self, consumed_record) -> None:
+        record = consumed_record.record
+        await asyncio.to_thread(self._batch_export_file._file.write, record.value)
+
+        self.last_inserted_at = record.value["_timestamp"]
+        self.records_total += 1
+        self.records_since_last_flush += 1
+        self.bytes_total = len(record.value)
+        self.bytes_since_last_flush = len(record.value)
+
+        if self.bytes_since_last_flush >= self.max_bytes:
+            await self.flush(self.last_inserted_at)
