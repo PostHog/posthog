@@ -4,8 +4,7 @@ import { urls } from 'scenes/urls'
 
 import { HogFunctionFiltersType, PipelineStage } from '~/types'
 
-import { PipelineBackend } from '../types'
-import { DestinationsTable } from './Destinations'
+import { HogFunctionsList } from '../hogfunctions/list/HogFunctionsList'
 
 export type ConnectedDestinationsProps = {
     filters: HogFunctionFiltersType
@@ -19,14 +18,9 @@ export function ConnectedDestinations({ filters }: ConnectedDestinationsProps): 
     }
 
     return (
-        <DestinationsTable
-            defaultFilters={{
-                onlyActive: true,
-            }}
-            forceFilters={{
-                kind: PipelineBackend.HogFunction,
-                filters,
-            }}
+        <HogFunctionsList
+            defaultFilters={{ onlyActive: true }}
+            forceFilters={{ filters }}
             extraControls={
                 <>
                     <LemonButton
