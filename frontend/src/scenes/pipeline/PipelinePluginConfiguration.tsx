@@ -139,7 +139,7 @@ export function PipelinePluginConfiguration({
         <div className="space-y-3">
             <PageHeader buttons={buttons} />
 
-            {stage === PipelineStage.Destination && (
+            {stage === PipelineStage.Destination && !plugin?.hog_function_migration_available && (
                 <FlaggedFeature flag="hog-functions">
                     <LemonBanner
                         type="warning"
@@ -154,7 +154,7 @@ export function PipelinePluginConfiguration({
                 </FlaggedFeature>
             )}
 
-            {pluginConfig?.hog_function_migration_available ? (
+            {plugin?.hog_function_migration_available ? (
                 <LemonBanner
                     type="error"
                     action={{

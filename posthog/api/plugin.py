@@ -256,6 +256,7 @@ class PluginsAccessLevelPermission(BasePermission):
 class PluginSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
     organization_name = serializers.SerializerMethodField()
+    hog_function_migration_available = serializers.SerializerMethodField()
 
     class Meta:
         model = Plugin
@@ -593,7 +594,6 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
     plugin_info = serializers.SerializerMethodField()
-    hog_function_migration_available = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
 
@@ -616,7 +616,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "deleted",
-            "hog_function_migration_available",
         ]
         read_only_fields = [
             "id",
@@ -625,7 +624,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "error",
             "delivery_rate_24h",
             "created_at",
-            "hog_function_migration_available",
         ]
 
     def get_config(self, plugin_config: PluginConfig):
@@ -673,11 +671,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             return PluginSerializer(instance=plugin_config.plugin).data
         else:
             return None
-
-    def get_hog_function_migration_available(self, plugin_config: PluginConfig):
-        if plugin_config.plugin:
-            return HOG_FUNCTION_MIGRATORS.get(plugin_config.plugin.url) is not None
-        return None
 
     def get_delivery_rate_24h(self, plugin_config: PluginConfig):
         if "delivery_rates_1d" in self.context:
