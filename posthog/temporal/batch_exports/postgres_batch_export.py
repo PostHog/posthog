@@ -1,4 +1,3 @@
-import asyncio
 import collections.abc
 import contextlib
 import csv
@@ -41,6 +40,7 @@ from posthog.temporal.batch_exports.utils import (
     JsonType,
     apeek_first_and_rewind,
     cast_record_batch_json_columns,
+    make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 from posthog.temporal.common.clickhouse import get_client
@@ -113,10 +113,6 @@ class PostgreSQLClient:
     @contextlib.asynccontextmanager
     async def connect(
         self,
-        max_attempts: int = 5,
-        initial_retry_delay: float | int = 2,
-        max_retry_delay: float | int = 32,
-        exponential_backoff_coefficient: int = 2,
     ) -> typing.AsyncIterator[typing.Self]:
         """Manage a PostgreSQL connection.
 
@@ -127,29 +123,20 @@ class PostgreSQLClient:
             # Disable certificate verification for self-signed certificates.
             kwargs["sslrootcert"] = None
 
-        connection: psycopg.AsyncConnection | None = None
-        attempt = 0
+        connect = make_retryable_with_exponential_backoff(
+            psycopg.AsyncConnection.connect,
+            retryable_exceptions=(psycopg.OperationalError,),
+        )
 
-        while connection is None:
-            try:
-                connection = await psycopg.AsyncConnection.connect(
-                    user=self.user,
-                    password=self.password,
-                    dbname=self.database,
-                    host=self.host,
-                    port=self.port,
-                    sslmode="prefer" if settings.TEST else "require",
-                    **kwargs,
-                )
-            except psycopg.OperationalError:
-                attempt += 1
-
-                if attempt >= max_attempts:
-                    raise
-
-                await asyncio.sleep(
-                    min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
-                )
+        connection: psycopg.AsyncConnection = await connect(
+            user=self.user,
+            password=self.password,
+            dbname=self.database,
+            host=self.host,
+            port=self.port,
+            sslmode="prefer" if settings.TEST else "require",
+            **kwargs,
+        )
 
         async with connection as connection:
             self._connection = connection
