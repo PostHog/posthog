@@ -12,8 +12,8 @@ class InstanceSetting(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["key"], name="unique key")]
 
-    key: models.CharField = models.CharField(max_length=128, null=False, blank=False)
-    raw_value: models.CharField = models.CharField(max_length=1024, null=False, blank=True)
+    key = models.CharField(max_length=128, null=False, blank=False)
+    raw_value = models.CharField(max_length=1024, null=False, blank=True)
 
     @property
     def value(self):

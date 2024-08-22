@@ -24,7 +24,6 @@ import {
     BaseMathType,
     ChartDisplayType,
     FilterLogicalOperator,
-    FilterType,
     HogFunctionConfigurationType,
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
@@ -33,8 +32,6 @@ import {
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
-    PluginConfigFilters,
-    PluginConfigTypeNew,
     PropertyFilterType,
     PropertyGroupFilter,
 } from '~/types'
@@ -56,39 +53,6 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     inputs_schema: [],
     hog: "print('Hello, world!');",
     status: 'stable',
-}
-
-function sanitizeFilters(filters?: FilterType): PluginConfigTypeNew['filters'] {
-    if (!filters) {
-        return null
-    }
-    const sanitized: PluginConfigFilters = {}
-
-    if (filters.events) {
-        sanitized.events = filters.events.map((f) => ({
-            id: f.id,
-            type: 'events',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.actions) {
-        sanitized.actions = filters.actions.map((f) => ({
-            id: f.id,
-            type: 'actions',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    if (filters.filter_test_accounts) {
-        sanitized.filter_test_accounts = filters.filter_test_accounts
-    }
-
-    return Object.keys(sanitized).length > 0 ? sanitized : undefined
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -123,9 +87,10 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
     const payload: HogFunctionConfigurationType = {
         ...data,
-        filters: data.filters ? sanitizeFilters(data.filters) : null,
+        filters: data.filters,
         inputs: sanitizedInputs,
-        icon_url: data.icon_url?.replace('&temp=true', ''), // Remove temp=true so it doesn't try and suggest new options next time
+        masking: data.masking?.hash ? data.masking : null,
+        icon_url: data.icon_url,
     }
 
     return payload
@@ -522,6 +487,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             { resultEqualityCheck: equal },
         ],
+
+        templateHasChanged: [
+            (s) => [s.hogFunction, s.configuration],
+            (hogFunction, configuration) => {
+                return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -618,8 +590,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     name: values.configuration.name,
                     description: values.configuration.description,
                     inputs,
-                    enabled: false,
                 })
+
+                lemonToast.success('Template updates applied but not saved.')
             }
         },
         setConfigurationValue: () => {

@@ -27,23 +27,21 @@ class AsyncDeletion(models.Model):
         ]
         indexes = [models.Index(name="delete_verified_at index", fields=["delete_verified_at"])]
 
-    id: models.BigAutoField = models.BigAutoField(primary_key=True)
+    id = models.BigAutoField(primary_key=True)
     # Should be one of the DeletionType enum
-    deletion_type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        null=False, blank=False, choices=DeletionType.choices
-    )
+    deletion_type = models.PositiveSmallIntegerField(null=False, blank=False, choices=DeletionType.choices)
 
     # Team whose data shall be deleted. This is not a foreign key, because we still need this value
     # when the team is gone (we are talking about _async_ deletions after all)
-    team_id: models.IntegerField = models.IntegerField()
+    team_id = models.IntegerField()
 
     # id for team (same as team_id column), uuid for person, key for group
-    key: models.CharField = models.CharField(max_length=400, null=False, blank=False)
+    key = models.CharField(max_length=400, null=False, blank=False)
     # Only populated for group deletions
-    group_type_index: models.IntegerField = models.IntegerField(null=True, blank=False)
+    group_type_index = models.IntegerField(null=True, blank=False)
 
-    created_by: models.ForeignKey = models.ForeignKey("User", null=True, on_delete=models.SET_NULL)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey("User", null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     # When was the data verified to be deleted - we can skip it in the next round
-    delete_verified_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    delete_verified_at = models.DateTimeField(null=True, blank=True)

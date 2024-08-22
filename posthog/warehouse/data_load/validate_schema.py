@@ -72,7 +72,7 @@ async def validate_schema_and_update_table(
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
     row_count: int,
-    use_delta_wrapper: bool,
+    table_format: DataWarehouseTable.TableFormat,
 ) -> None:
     """
 
@@ -85,7 +85,6 @@ async def validate_schema_and_update_table(
         schema_id: The schema for which the data job relates to
         table_schema: The DLT schema from the data load stage
         table_row_counts: The count of synced rows from DLT
-        use_delta_wrapper: Whether we wanna use the S3 wrapper for Delta tables
     """
 
     logger = await bind_temporal_worker_logger(team_id=team_id)
@@ -119,9 +118,7 @@ async def validate_schema_and_update_table(
         table_params = {
             "credential": credential,
             "name": table_name,
-            "format": DataWarehouseTable.TableFormat.DeltaS3Wrapper
-            if use_delta_wrapper
-            else DataWarehouseTable.TableFormat.Delta,
+            "format": table_format,
             "url_pattern": new_url_pattern,
             "team_id": team_id,
             "row_count": row_count,
@@ -143,6 +140,21 @@ async def validate_schema_and_update_table(
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **table_params)
 
         assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+
+        # Temp fix #2 for Delta tables without table_format
+        try:
+            await sync_to_async(table_created.get_columns)()
+        except Exception as e:
+            if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
+                logger.exception("get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e)
+
+                table_created.format = DataWarehouseTable.TableFormat.Delta
+                await sync_to_async(table_created.get_columns)()
+                await asave_datawarehousetable(table_created)
+
+                logger.info("Delta format worked - updating table to use Delta")
+            else:
+                raise
 
         for schema in table_schema.values():
             if schema.get("resource") == _schema_name:

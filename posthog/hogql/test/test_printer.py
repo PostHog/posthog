@@ -13,8 +13,14 @@ from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsOnEventsMode
-from posthog.test.base import BaseTest
+from posthog.schema import (
+    HogQLQueryModifiers,
+    MaterializationMode,
+    PersonsArgMaxVersion,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
+)
+from posthog.test.base import BaseTest, cleanup_materialized_columns
 
 
 class TestPrinter(BaseTest):
@@ -321,6 +327,35 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties['$browser%%%#@!@']"),
             "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
+        )
+
+    def test_property_groups(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.ENABLED,
+            ),
+        )
+
+        cleanup_materialized_columns()
+
+        self.assertEqual(
+            self._expr("properties['foo']", context),
+            "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null",
+        )
+        self.assertEqual(context.values["hogql_val_0"], "foo")
+
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            return
+
+        # Properties that are materialized as columns should take precedence over the values in the group's map column.
+        materialize("events", "foo")
+        self.assertEqual(
+            self._expr("properties['foo']", context),
+            "nullIf(nullIf(events.mat_foo, ''), 'null')",
         )
 
     def test_methods(self):

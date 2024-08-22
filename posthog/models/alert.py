@@ -12,9 +12,9 @@ def are_alerts_supported_for_insight(insight: Insight) -> bool:
 
 
 class Alert(models.Model):
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
-    name: models.CharField = models.CharField(max_length=100)
-    target_value: models.TextField = models.TextField()
-    anomaly_condition: models.JSONField = models.JSONField(default=dict)
+    name = models.CharField(max_length=100)
+    target_value = models.TextField()
+    anomaly_condition = models.JSONField(default=dict)

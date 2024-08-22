@@ -146,7 +146,7 @@ export function SecondaryMetricsTable({
                         }
                         return (
                             <div className="flex items-center py-2">
-                                <VariantTag variantKey={item.variant} />
+                                <VariantTag experimentId={experimentId} variantKey={item.variant} />
                             </div>
                         )
                     },

@@ -219,23 +219,28 @@ class TestS3Table(BaseTest):
         res = build_function_call("http://url.com", DataWarehouseTable.TableFormat.Delta, "key", "secret", None, None)
         assert res == "deltaLake('http://url.com', 'key', 'secret')"
 
-    # def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format(self):
-    #     res = build_function_call(
-    #         "http://url.com", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
-    #     )
-    #     assert res == "s3('http://url.com/*.zstd.parquet', 'key', 'secret', 'Parquet')"
+    def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format(self):
+        res = build_function_call(
+            "http://url.com/folder", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
+        )
+        assert res == "s3('http://url.com/folder__query/*.parquet', 'key', 'secret', 'Parquet')"
 
-    # def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format_with_slash(self):
-    #     res = build_function_call(
-    #         "http://url.com/", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
-    #     )
-    #     assert res == "s3('http://url.com/*.zstd.parquet', 'key', 'secret', 'Parquet')"
+    def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format_with_slash(self):
+        res = build_function_call(
+            "http://url.com/folder/", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
+        )
+        assert res == "s3('http://url.com/folder__query/*.parquet', 'key', 'secret', 'Parquet')"
 
-    # def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format_with_structure(self):
-    #     res = build_function_call(
-    #         "http://url.com/", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", "some structure", None
-    #     )
-    #     assert res == "s3('http://url.com/*.zstd.parquet', 'key', 'secret', 'Parquet', 'some structure')"
+    def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format_with_structure(self):
+        res = build_function_call(
+            "http://url.com/folder",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "key",
+            "secret",
+            "some structure",
+            None,
+        )
+        assert res == "s3('http://url.com/folder__query/*.parquet', 'key', 'secret', 'Parquet', 'some structure')"
 
     def test_s3_build_function_call_without_context_and_delta_format_and_with_structure(self):
         res = build_function_call(

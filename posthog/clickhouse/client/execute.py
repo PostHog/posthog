@@ -10,7 +10,6 @@ from collections.abc import Sequence
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
-from statshog.defaults.django import statsd
 
 from posthog.clickhouse.client.connection import Workload, get_pool
 from posthog.clickhouse.client.escape import substitute_params
@@ -18,6 +17,19 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
+from prometheus_client import Counter, Gauge
+
+QUERY_ERROR_COUNTER = Counter(
+    "clickhouse_query_failure",
+    "Query execution failure signal is dispatched when a query fails.",
+    labelnames=["exception_type"],
+)
+
+QUERY_EXECUTION_TIME_GAUGE = Gauge(
+    "clickhouse_query_execution_time",
+    "Clickhouse query execution time",
+    labelnames=["query_type"],
+)
 
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = dict[str, Any]
@@ -128,16 +140,15 @@ def sync_execute(
             )
         except Exception as e:
             err = wrap_query_error(e)
-            statsd.incr(
-                "clickhouse_sync_execution_failure",
-                tags={"failed": True, "reason": type(err).__name__},
-            )
+            QUERY_ERROR_COUNTER.labels(exception_type=type(err).__name__).inc()
 
             raise err from e
         finally:
             execution_time = perf_counter() - start_time
 
-            statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
+            query_type = tags.get("query_type", "Other")
+
+            QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
 
             if query_counter := getattr(thread_local_storage, "query_counter", None):
                 query_counter.total_query_time += execution_time

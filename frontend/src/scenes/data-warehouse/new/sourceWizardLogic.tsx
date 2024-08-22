@@ -41,7 +41,6 @@ const Caption = (): JSX.Element => (
 )
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
-export const getSalesforceRedirectUri = (): string => `${window.location.origin}/data-warehouse/salesforce/redirect`
 
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
@@ -424,6 +423,18 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
+    Salesforce: {
+        name: 'Salesforce',
+        fields: [
+            {
+                name: 'integration_id',
+                label: 'Salesforce account',
+                type: 'oauth',
+                required: true,
+            },
+        ],
+        caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
+    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (
@@ -750,27 +761,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             },
         ],
-        addToSalesforceButtonUrl: [
-            (s) => [s.preflight],
-            (preflight) => {
-                return (subdomain: string) => {
-                    const clientId = preflight?.data_warehouse_integrations?.salesforce.client_id
-
-                    if (!clientId) {
-                        return null
-                    }
-
-                    const params = new URLSearchParams()
-                    params.set('client_id', clientId)
-                    params.set('redirect_uri', `${window.location.origin}/data-warehouse/salesforce/redirect`)
-                    params.set('response_type', 'code')
-                    params.set('scope', 'refresh_token api')
-                    params.set('state', subdomain)
-
-                    return `https://${subdomain}.my.salesforce.com/services/oauth2/authorize?${params.toString()}`
-                }
-            },
-        ],
         modalTitle: [
             (s) => [s.currentStep],
             (currentStep) => {
@@ -908,6 +898,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     })
                     return
                 }
+                case 'salesforce': {
+                    actions.updateSource({
+                        source_type: 'Salesforce',
+                    })
+                    break
+                }
                 default:
                     lemonToast.error(`Something went wrong.`)
             }
@@ -951,8 +947,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             if (kind === 'salesforce') {
                 router.actions.push(urls.dataWarehouseTable(), {
                     kind,
-                    code: searchParams.code,
-                    subdomain: searchParams.state,
                 })
             }
         },
@@ -964,21 +958,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setStep(2)
             }
+            if (searchParams.kind == 'salesforce') {
+                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
+                actions.handleRedirect(searchParams.kind, {})
+                actions.setStep(2)
+            }
         },
     })),
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                if (
-                    values.selectedConnector &&
-                    SOURCE_DETAILS[values.selectedConnector?.name].oauthPayload &&
-                    SOURCE_DETAILS[values.selectedConnector.name].oauthPayload?.every(
-                        (element) => values.source.payload[element]
-                    )
-                ) {
-                    return {}
-                }
                 return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
             },
             submit: async (sourceValues) => {
