@@ -40,29 +40,29 @@ class Integration(models.Model):
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
 
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    # The integration type identifier
+    kind = models.CharField(max_length=10, choices=IntegrationKind.choices)
+    # The ID of the integration in the external system
+    integration_id = models.TextField(null=True, blank=True)
+    # Any config that COULD be passed to the frontend
+    config = models.JSONField(default=dict)
+    # Any sensitive config that SHOULD NOT be passed to the frontend
+    sensitive_config = models.JSONField(default=dict)
+
+    errors = models.TextField()
+
+    # Meta
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
             )
         ]
-
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-
-    # The integration type identifier
-    kind: models.CharField = models.CharField(max_length=10, choices=IntegrationKind.choices)
-    # The ID of the integration in the external system
-    integration_id: models.TextField = models.TextField(null=True, blank=True)
-    # Any config that COULD be passed to the frontend
-    config: models.JSONField = models.JSONField(default=dict)
-    # Any sensitive config that SHOULD NOT be passed to the frontend
-    sensitive_config: models.JSONField = models.JSONField(default=dict)
-
-    errors: models.TextField = models.TextField()
-
-    # Meta
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
     @property
     def display_name(self) -> str:

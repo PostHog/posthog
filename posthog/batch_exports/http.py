@@ -390,6 +390,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
         batch_export = self.get_object()
+
+        if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
+            raise ValidationError(
+                f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
+            )
+
         temporal = sync_connect()
         try:
             backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)

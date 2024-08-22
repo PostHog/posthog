@@ -117,26 +117,26 @@ class OrganizationDomainManager(models.Manager):
 class OrganizationDomain(UUIDModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
 
-    organization: models.ForeignKey = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")
-    domain: models.CharField = models.CharField(max_length=128, unique=True)
-    verification_challenge: models.CharField = models.CharField(max_length=128, default=generate_verification_challenge)
-    verified_at: models.DateTimeField = models.DateTimeField(
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")
+    domain = models.CharField(max_length=128, unique=True)
+    verification_challenge = models.CharField(max_length=128, default=generate_verification_challenge)
+    verified_at = models.DateTimeField(
         null=True, blank=True, default=None
     )  # verification (through DNS) is only used for PostHog Cloud; on self-hosted we take all domains as verified
-    last_verification_retry: models.DateTimeField = models.DateTimeField(null=True, blank=True, default=None)
-    jit_provisioning_enabled: models.BooleanField = models.BooleanField(
+    last_verification_retry = models.DateTimeField(null=True, blank=True, default=None)
+    jit_provisioning_enabled = models.BooleanField(
         default=False
     )  # Just-in-time automatic provisioning (user accounts are created on the respective org when logging in with any SSO provider)
-    sso_enforcement: models.CharField = models.CharField(
+    sso_enforcement = models.CharField(
         max_length=28, blank=True
     )  # currently only used for PostHog Cloud; SSO enforcement on self-hosted is set by env var
 
     # ---- SAML attributes ----
     # Normally not good practice to have `null=True` in `CharField` (as you have to nil states now), but creating non-nullable
     # attributes locks up tables when migrating. Remove `null=True` on next major release.
-    saml_entity_id: models.CharField = models.CharField(max_length=512, blank=True, null=True)
-    saml_acs_url: models.CharField = models.CharField(max_length=512, blank=True, null=True)
-    saml_x509_cert: models.TextField = models.TextField(blank=True, null=True)
+    saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
+    saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
+    saml_x509_cert = models.TextField(blank=True, null=True)
 
     class Meta:
         verbose_name = "domain"

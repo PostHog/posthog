@@ -1,6 +1,4 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -46,8 +44,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             insightLogic,
@@ -87,11 +83,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     selectors({
-        useQueryDashboardCards: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.QUERY_BASED_DASHBOARD_CARDS],
-        ],
-
         query: [
             (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
             (propsQuery, insight, internalQuery, filterTestAccountsDefault, isDataWarehouseQuery): Node | null =>

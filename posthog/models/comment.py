@@ -9,12 +9,12 @@ from posthog.models.utils import UUIDModel
 
 
 class Comment(UUIDModel):
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    content: models.TextField = models.TextField(blank=True, null=True)
-    version: models.IntegerField = models.IntegerField(default=0)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(null=True, blank=True, default=False)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    content = models.TextField(blank=True, null=True)
+    version = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted = models.BooleanField(null=True, blank=True, default=False)
 
     # Loose relationship modelling to other PostHog resources
     item_id = models.CharField(max_length=72, null=True)
@@ -22,7 +22,7 @@ class Comment(UUIDModel):
     scope = models.CharField(max_length=79, null=False)
 
     # Threads/replies are simply comments with a source_comment_id
-    source_comment: models.ForeignKey = models.ForeignKey("Comment", on_delete=models.CASCADE, null=True, blank=True)
+    source_comment = models.ForeignKey("Comment", on_delete=models.CASCADE, null=True, blank=True)
 
     class Meta:
         indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
