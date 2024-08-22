@@ -444,7 +444,7 @@ class TestPrinter(BaseTest):
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "no viable alternative at input '('")
-        self._assert_expr_error("())", "no viable alternative at input '()'")
+        self._assert_expr_error("())", "mismatched input ')' expecting '->'")
         self._assert_expr_error("(3 57", "no viable alternative at input '(3 57'")
         self._assert_expr_error("select query from events", "mismatched input 'query' expecting <EOF>")
         self._assert_expr_error("this makes little sense", "mismatched input 'makes' expecting <EOF>")
