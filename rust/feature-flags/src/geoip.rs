@@ -7,8 +7,8 @@ use std::{collections::HashMap, path::Path};
 use tracing::log::{error, info};
 
 static GEOIP: Lazy<Option<Reader<Vec<u8>>>> = Lazy::new(|| {
-    // TODO this feels hacky, and should be configurable.  Maybe not worth doing?
-    // Let's test it in CI
+    // TODO this feels hacky, maybe port this to the config later.  Worked in CI though so ¯\_(ツ)_/¯
+    // Not sure this will work in production...
     let geoip_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
