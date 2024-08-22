@@ -4,6 +4,7 @@ from typing import Any, Optional, cast, TYPE_CHECKING
 from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, BytecodeResult
+from hogvm.python.stl import STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.inline_stl import INLINE_STL
@@ -356,6 +357,19 @@ class BytecodeBuilder(Visitor):
             if upvalue != -1:
                 response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(node.args)])
             else:
+                if self.context.globals and node.name in self.context.globals:
+                    self.context.notices.append(
+                        HogQLNotice(start=node.start, end=node.end, message="Global variable: " + str(node.name))
+                    )
+                elif node.name in self.supported_functions or node.name in INLINE_STL or node.name in STL:
+                    pass
+                else:
+                    self.context.errors.append(
+                        HogQLNotice(
+                            start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
+                        )
+                    )
+
                 response.extend([Operation.CALL_GLOBAL, node.name, len(node.args)])
 
         return response
