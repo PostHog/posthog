@@ -212,7 +212,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               productAndAddonTiers,
                               billing?.discount_percent
                           )
-                        : convertAmountToUsage(`${customLimitUsd}`, productAndAddonTiers, billing?.discount_percent)
+                        : convertAmountToUsage(
+                              customLimitUsd ? `${customLimitUsd}` : '',
+                              productAndAddonTiers,
+                              billing?.discount_percent
+                          )
                     : 0
             },
         ],
