@@ -12,23 +12,21 @@ class ExplicitTeamMembership(UUIDModel):
         MEMBER = 1, "member"
         ADMIN = 8, "administrator"
 
-    team: models.ForeignKey = models.ForeignKey(
+    team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="explicit_memberships",
         related_query_name="explicit_membership",
     )
-    parent_membership: models.ForeignKey = models.ForeignKey(
+    parent_membership = models.ForeignKey(
         "posthog.OrganizationMembership",
         on_delete=models.CASCADE,
         related_name="explicit_team_memberships",
         related_query_name="explicit_team_membership",
     )
-    level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=Level.MEMBER, choices=Level.choices
-    )
-    joined_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
