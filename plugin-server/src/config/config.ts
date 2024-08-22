@@ -187,9 +187,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
+        CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
+
+        // Cyclotron
+        CYCLOTRON_DATABASE_URL: '',
     }
 }
 

@@ -1,4 +1,4 @@
-import { highestVersion, lowestVersion, parseVersion, versionToString } from './semver'
+import { createVersionChecker, highestVersion, lowestVersion, parseVersion, versionToString } from './semver'
 
 describe('semver', () => {
     describe('parseVersion', () => {
@@ -50,6 +50,16 @@ describe('semver', () => {
             expect(versionToString({ major: 1, minor: 2, patch: 3 })).toEqual('1.2.3')
             expect(versionToString({ major: 1, minor: 2 })).toEqual('1.2')
             expect(versionToString({ major: 1 })).toEqual('1')
+        })
+    })
+    describe('createVersionChecker', () => {
+        it('should create a version checker that checks that a version is above or equal to a specified version', () => {
+            const isSupportedVersion = createVersionChecker('4.5.6')
+            expect(isSupportedVersion('1.2.3')).toEqual(false)
+            expect(isSupportedVersion('4.5.6')).toEqual(true)
+            expect(isSupportedVersion('4.5.7')).toEqual(true)
+            expect(isSupportedVersion('7.8.9')).toEqual(true)
+            expect(isSupportedVersion('4.5.6-alpha')).toEqual(false)
         })
     })
 })

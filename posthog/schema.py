@@ -1156,6 +1156,7 @@ class TaxonomicFilterGroupType(StrEnum):
     SESSION_PROPERTIES = "session_properties"
     HOGQL_EXPRESSION = "hogql_expression"
     NOTEBOOKS = "notebooks"
+    LOG_ENTRIES = "log_entries"
     REPLAY = "replay"
 
 

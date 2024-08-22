@@ -403,7 +403,6 @@ function SavedInsightsGrid(): JSX.Element {
                                     callback: loadInsights,
                                     options: {
                                         writeAsQuery: queryBasedInsightSaving,
-                                        readAsQuery: true,
                                     },
                                 })
                             }
@@ -551,7 +550,6 @@ export function SavedInsights(): JSX.Element {
                                             callback: loadInsights,
                                             options: {
                                                 writeAsQuery: queryBasedInsightSaving,
-                                                readAsQuery: true,
                                             },
                                         })
                                     }

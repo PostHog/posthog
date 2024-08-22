@@ -18,7 +18,7 @@ class PropertyMixin(BaseParamMixin):
     def property_groups(self) -> PropertyGroup:
         return self._parse_data(key=PROPERTIES)
 
-    def _parse_data(self, key: str, operator: PropertyOperatorType = PropertyOperatorType.AND) -> PropertyGroup:
+    def _parse_data(self, key: str) -> PropertyGroup:
         _props = self._data.get(key)
 
         if isinstance(_props, str):
@@ -32,7 +32,7 @@ class PropertyMixin(BaseParamMixin):
         # if grouped properties
         if isinstance(loaded_props, dict) and "type" in loaded_props and "values" in loaded_props:
             try:
-                return self._parse_property_group(loaded_props, operator)
+                return self._parse_property_group(loaded_props)
             except ValidationError:
                 raise
             except ValueError as e:
@@ -42,7 +42,7 @@ class PropertyMixin(BaseParamMixin):
             return loaded_props
 
         # old properties
-        return PropertyGroup(type=operator, values=self.old_properties(key=key))
+        return PropertyGroup(type=PropertyOperatorType.AND, values=self.old_properties(key=key))
 
     def old_properties(self, key: str) -> list[Property]:
         _props = self._data.get(key)

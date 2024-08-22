@@ -129,7 +129,7 @@ class ActivityLog(UUIDModel):
     # e.g. FeatureFlags - this will often be the name of a model class
     scope = models.fields.CharField(max_length=79, null=False)
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=timezone.now)
 
 
 common_field_exclusions = [

@@ -81,29 +81,23 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         Delta = "Delta", "Delta"
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
-    name: models.CharField = models.CharField(max_length=128)
-    format: models.CharField = models.CharField(max_length=128, choices=TableFormat.choices)
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    name = models.CharField(max_length=128)
+    format = models.CharField(max_length=128, choices=TableFormat.choices)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
-    url_pattern: models.CharField = models.CharField(max_length=500)
-    credential: models.ForeignKey = models.ForeignKey(
-        DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True
-    )
+    url_pattern = models.CharField(max_length=500)
+    credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
-    external_data_source: models.ForeignKey = models.ForeignKey(
-        "ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True
-    )
+    external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
 
-    columns: models.JSONField = models.JSONField(
+    columns = models.JSONField(
         default=dict,
         null=True,
         blank=True,
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
-    row_count: models.IntegerField = models.IntegerField(
-        null=True, help_text="How many rows are currently synced in this table"
-    )
+    row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
 
     __repr__ = sane_repr("name")
 

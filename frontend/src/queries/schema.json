@@ -9135,6 +9135,7 @@
                 "session_properties",
                 "hogql_expression",
                 "notebooks",
+                "log_entries",
                 "replay"
             ],
             "type": "string"

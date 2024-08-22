@@ -1,6 +1,7 @@
 import asyncio
 import collections.abc
 import contextlib
+import functools
 import json
 import typing
 import uuid
@@ -121,11 +122,16 @@ class JsonScalar(pa.ExtensionScalar):
 
     def as_py(self) -> dict | None:
         if self.value:
+            value = self.value.as_py()
+
+            if not value:
+                return None
+
             try:
-                return orjson.loads(self.value.as_py().encode("utf-8"))
+                return orjson.loads(value.encode("utf-8"))
             except:
                 # Fallback if it's something orjson can't handle
-                return json.loads(self.value.as_py())
+                return json.loads(value)
         else:
             return None
 
@@ -171,3 +177,45 @@ def cast_record_batch_json_columns(
         record_batch.select(remaining_column_names).columns + casted_arrays,
         names=remaining_column_names + list(intersection),
     )
+
+
+_Result = typing.TypeVar("_Result")
+FutureLike = (
+    asyncio.Future[_Result] | collections.abc.Coroutine[None, typing.Any, _Result] | collections.abc.Awaitable[_Result]
+)
+
+
+def make_retryable_with_exponential_backoff(
+    func: typing.Callable[..., collections.abc.Awaitable[_Result]],
+    timeout: float | int | None = None,
+    max_attempts: int = 5,
+    initial_retry_delay: float | int = 2,
+    max_retry_delay: float | int = 32,
+    exponential_backoff_coefficient: int = 2,
+    retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
+    is_exception_retryable: typing.Callable[[Exception], bool] = lambda _: True,
+) -> typing.Callable[..., collections.abc.Awaitable[_Result]]:
+    """Retry the provided async `func` until `max_attempts` is reached."""
+    functools.wraps(func)
+
+    async def inner(*args, **kwargs):
+        attempt = 0
+
+        while True:
+            try:
+                result = await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
+
+            except retryable_exceptions as err:
+                attempt += 1
+
+                if is_exception_retryable(err) is False or attempt >= max_attempts:
+                    raise
+
+                await asyncio.sleep(
+                    min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                )
+
+            else:
+                return result
+
+    return inner

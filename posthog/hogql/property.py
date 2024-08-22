@@ -368,12 +368,12 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
+        elif property.type in ["recording", "data_warehouse", "log_entry"]:
+            chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
-        elif property.type in ["recording", "data_warehouse", "log_entry"]:
-            chain = []
         else:
             chain = ["properties"]
 
