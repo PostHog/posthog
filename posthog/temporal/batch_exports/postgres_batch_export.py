@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import csv
@@ -110,7 +111,13 @@ class PostgreSQLClient:
         return self._connection
 
     @contextlib.asynccontextmanager
-    async def connect(self) -> typing.AsyncIterator[typing.Self]:
+    async def connect(
+        self,
+        max_attempts: int = 5,
+        initial_retry_delay: float | int = 2,
+        max_retry_delay: float | int = 32,
+        exponential_backoff_coefficient: int = 2,
+    ) -> typing.AsyncIterator[typing.Self]:
         """Manage a PostgreSQL connection.
 
         By using a context manager Pyscopg will take care of closing the connection.
@@ -120,15 +127,30 @@ class PostgreSQLClient:
             # Disable certificate verification for self-signed certificates.
             kwargs["sslrootcert"] = None
 
-        connection = await psycopg.AsyncConnection.connect(
-            user=self.user,
-            password=self.password,
-            dbname=self.database,
-            host=self.host,
-            port=self.port,
-            sslmode="prefer" if settings.TEST else "require",
-            **kwargs,
-        )
+        connection: psycopg.AsyncConnection | None = None
+        attempt = 0
+
+        while connection is None:
+            try:
+                connection = await psycopg.AsyncConnection.connect(
+                    user=self.user,
+                    password=self.password,
+                    dbname=self.database,
+                    host=self.host,
+                    port=self.port,
+                    sslmode="prefer" if settings.TEST else "require",
+                    **kwargs,
+                )
+            except psycopg.OperationalError:
+                attempt += 1
+
+                if attempt >= max_attempts:
+                    raise
+
+                await asyncio.sleep(
+                    min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                )
+
         async with connection as connection:
             self._connection = connection
             yield self
