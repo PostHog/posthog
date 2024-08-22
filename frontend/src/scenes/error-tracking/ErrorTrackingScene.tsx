@@ -1,11 +1,21 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconPerson } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, ProfilePicture } from '@posthog/lemon-ui'
+import { IconBell, IconPerson } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonModal,
+    LemonSegmentedButton,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { DestinationsTable } from 'scenes/pipeline/destinations/Destinations'
+import { PipelineBackend } from 'scenes/pipeline/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,7 +23,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingGroup } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, PipelineStage } from '~/types'
 
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import ErrorTrackingFilters from './ErrorTrackingFilters'
@@ -27,6 +37,33 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
+    return (
+        <>
+            <Header />
+            <MainContent />
+        </>
+    )
+}
+
+const Header = (): JSX.Element => {
+    const { setAlertConfigurationModalVisible } = useActions(errorTrackingSceneLogic)
+
+    return (
+        <PageHeader
+            buttons={
+                <LemonButton
+                    type="secondary"
+                    icon={<IconBell />}
+                    onClick={() => setAlertConfigurationModalVisible(true)}
+                >
+                    Configure alerts
+                </LemonButton>
+            }
+        />
+    )
+}
+
+const MainContent = (): JSX.Element => {
     const { query, selectedRowIndexes } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
@@ -50,6 +87,7 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+            <AlertConfigrationModal />
             <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
@@ -172,5 +210,49 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
                 />
             )}
         </MemberSelect>
+    )
+}
+
+const AlertConfigrationModal = (): JSX.Element => {
+    const { alertConfigurationModalVisible } = useValues(errorTrackingSceneLogic)
+    const { setAlertConfigurationModalVisible } = useActions(errorTrackingSceneLogic)
+
+    return (
+        <LemonModal
+            isOpen={alertConfigurationModalVisible}
+            title="Configure alerts"
+            onClose={() => setAlertConfigurationModalVisible(false)}
+        >
+            <div className="space-y-2">
+                <DestinationsTable
+                    forceFilters={{
+                        kind: PipelineBackend.HogFunction,
+                        filters: { actions: [{ id: 123456 }] },
+                        onlyActive: true,
+                    }}
+                />
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    className="inline-flex"
+                    to={
+                        urls.pipelineNodeNew(PipelineStage.Destination) +
+                        `?kind=hog_function#configuration=${JSON.stringify({
+                            filters: {
+                                actions: [
+                                    {
+                                        id: 12345,
+                                        name: `Action name`,
+                                        type: 'actions',
+                                    },
+                                ],
+                            },
+                        })}`
+                    }
+                >
+                    Add alert
+                </LemonButton>
+            </div>
+        </LemonModal>
     )
 }

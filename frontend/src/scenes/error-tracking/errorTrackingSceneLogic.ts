@@ -17,6 +17,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     actions({
         setOrder: (order: ErrorTrackingQuery['order']) => ({ order }),
         setSelectedRowIndexes: (ids: number[]) => ({ ids }),
+        setAlertConfigurationModalVisible: (visible: boolean) => ({ visible }),
     }),
     reducers({
         order: [
@@ -30,6 +31,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             [] as number[],
             {
                 setSelectedRowIndexes: (_, { ids }) => ids,
+            },
+        ],
+        alertConfigurationModalVisible: [
+            false as boolean,
+            {
+                setAlertConfigurationModalVisible: (_, { visible }) => visible,
             },
         ],
     }),
