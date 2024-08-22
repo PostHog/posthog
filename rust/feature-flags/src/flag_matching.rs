@@ -313,7 +313,33 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test_utils::{insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_client};
+    use crate::{
+        flag_definitions::{FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant},
+        test_utils::{insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_client},
+    };
+
+    fn create_test_flag(team_id: i32, properties: Vec<PropertyFilter>) -> FeatureFlag {
+        FeatureFlag {
+            id: 1,
+            team_id,
+            name: Some("Test Flag".to_string()),
+            key: "test_flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(properties),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+        }
+    }
 
     #[tokio::test]
     async fn test_fetch_properties_from_pg_to_match() {
@@ -380,5 +406,108 @@ mod tests {
         let match_result = matcher.get_match(&flag).await;
         assert_eq!(match_result.matches, false);
         assert_eq!(match_result.variant, None);
+    }
+
+    #[tokio::test]
+    async fn test_person_property_overrides() {
+        let client = setup_pg_client(None).await;
+        let team = insert_new_team_in_pg(client.clone()).await.unwrap();
+
+        let flag = create_test_flag(
+            team.id,
+            vec![PropertyFilter {
+                key: "email".to_string(),
+                value: json!("override@example.com"),
+                operator: None,
+                prop_type: "email".to_string(),
+                group_type_index: None,
+            }],
+        );
+
+        let overrides = HashMap::from([("email".to_string(), json!("override@example.com"))]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            Some(client.clone()),
+            Some(overrides),
+        );
+
+        let match_result = matcher.get_match(&flag).await;
+        assert_eq!(match_result.matches, true);
+    }
+
+    #[test]
+    fn test_hashed_identifier() {
+        let flag = create_test_flag(1, vec![]);
+
+        let matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None);
+        assert_eq!(
+            matcher.hashed_identifier(&flag),
+            Some("test_user".to_string())
+        );
+
+        // Test with a group type index (this part of the functionality is not implemented yet)
+        // let mut group_flag = flag.clone();
+        // group_flag.filters.aggregation_group_type_index = Some(1);
+        // assert_eq!(matcher.hashed_identifier(&group_flag), Some("".to_string()));
+    }
+
+    #[test]
+    fn test_get_matching_variant() {
+        let flag = FeatureFlag {
+            id: 1,
+            team_id: 1,
+            name: Some("Test Flag".to_string()),
+            key: "test_flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            name: Some("Control".to_string()),
+                            key: "control".to_string(),
+                            rollout_percentage: 33.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Test".to_string()),
+                            key: "test".to_string(),
+                            rollout_percentage: 33.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Test2".to_string()),
+                            key: "test2".to_string(),
+                            rollout_percentage: 34.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+        };
+
+        let matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None);
+        let variant = matcher.get_matching_variant(&flag);
+        assert!(variant.is_some());
+        assert!(["control", "test", "test2"].contains(&variant.unwrap().as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_is_condition_match_empty_properties() {
+        let flag = create_test_flag(1, vec![]);
+
+        let condition = FlagGroupType {
+            variant: None,
+            properties: Some(vec![]),
+            rollout_percentage: Some(100.0),
+        };
+
+        let mut matcher = FeatureFlagMatcher::new("test_user".to_string(), None, None);
+        let (is_match, reason) = matcher.is_condition_match(&flag, &condition, 0).await;
+        assert_eq!(is_match, true);
+        assert_eq!(reason, "CONDITION_MATCH");
     }
 }

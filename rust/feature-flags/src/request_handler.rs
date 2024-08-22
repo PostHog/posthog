@@ -199,3 +199,105 @@ pub async fn evaluate_feature_flags(
         feature_flags,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        flag_definitions::{FeatureFlag, FlagFilters, FlagGroupType, OperatorType, PropertyFilter},
+        test_utils::setup_pg_client,
+    };
+
+    use super::*;
+    use axum::http::HeaderMap;
+    use serde_json::json;
+
+    #[test]
+    fn test_extend_person_properties() {
+        let mut person_props = HashMap::new();
+        person_props.insert("existing_prop".to_string(), json!("value"));
+
+        let extended_props = extend_person_properties(Some(person_props.clone()), "1.1.1.1", false);
+
+        assert!(extended_props.is_some());
+        let extended_props = extended_props.unwrap();
+        assert!(extended_props.contains_key("existing_prop"));
+        // Since geoip is disabled, the length should be exactly 1
+        assert_eq!(extended_props.len(), 1);
+
+        // Test with geoip enabled
+        let extended_props = extend_person_properties(Some(person_props), "13.106.122.3", true);
+        assert!(extended_props.is_some());
+        let extended_props = extended_props.unwrap();
+        // The length should be greater than 1 if geoip properties were added
+        assert!(extended_props.len() > 1);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags() {
+        let pg_client = setup_pg_client(None).await;
+        let flag = FeatureFlag {
+            name: Some("Test Flag".to_string()),
+            id: 1,
+            key: "test_flag".to_string(),
+            active: true,
+            deleted: false,
+            team_id: 1,
+            filters: FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "country".to_string(),
+                        value: json!("US"),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                    }]),
+                    rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            },
+            ensure_experience_continuity: false,
+        };
+
+        let feature_flag_list = FeatureFlagList { flags: vec![flag] };
+
+        let mut person_properties = HashMap::new();
+        person_properties.insert("country".to_string(), json!("US"));
+
+        let result = evaluate_feature_flags(
+            "user123".to_string(),
+            feature_flag_list,
+            Some(pg_client),
+            Some(person_properties),
+        )
+        .await;
+
+        assert!(!result.error_while_computing_flags);
+        assert!(result.feature_flags.contains_key("test_flag"));
+        assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+    }
+
+    #[test]
+    fn test_decode_request() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
+
+        let result = decode_request(&headers, body);
+
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+    }
+
+    #[test]
+    fn test_compression_as_str() {
+        assert_eq!(Compression::Gzip.as_str(), "gzip");
+        assert_eq!(Compression::Unsupported.as_str(), "unsupported");
+    }
+}
