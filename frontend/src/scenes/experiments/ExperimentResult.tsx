@@ -1,7 +1,7 @@
 import './Experiment.scss'
 
-import { IconArchive, IconInfo } from '@posthog/icons'
-import { LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { IconArchive } from '@posthog/icons'
+import { LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
@@ -31,7 +31,6 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
         secondaryMetricResultsLoading,
         conversionRateForVariant,
         getIndexForVariant,
-        areTrendResultsConfusing,
         sortedExperimentResultVariants,
         experimentMathAggregationForTrends,
     } = useValues(experimentLogic)
@@ -166,15 +165,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                                             </span>
                                                         </div>
                                                     </b>{' '}
-                                                    {countDataForVariant(targetResults, variant)}{' '}
-                                                    {areTrendResultsConfusing && idx === 0 && (
-                                                        <Tooltip
-                                                            placement="right"
-                                                            title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                                                        >
-                                                            <IconInfo className="py-1 px-0.5" />
-                                                        </Tooltip>
-                                                    )}
+                                                    {countDataForVariant(targetResults, variant)}
                                                 </div>
                                                 <div className="flex">
                                                     <b className="pr-1">Exposure:</b>{' '}
