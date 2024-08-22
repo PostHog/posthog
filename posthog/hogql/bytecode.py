@@ -698,10 +698,10 @@ class BytecodeBuilder(Visitor):
         elif not isinstance(node.body, ast.ReturnStatement):
             body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
 
+        self._declare_local(node.name)
         compiler = BytecodeBuilder(self.supported_functions, node.params, self.context, self)
         bytecode = compiler.visit(body)
 
-        self._declare_local(node.name)
         ops = [
             Operation.CALLABLE,
             node.name,
