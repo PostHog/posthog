@@ -63,9 +63,9 @@
                               e__pdi.person_id AS aggregation_target,
                               if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
+                              if(and(equals(e.event, 'buy'), ifNull(equals(JSONExtract(e.properties, '$version', 'Nullable(String)'), 'xyz'), 0)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              [ifNull(toString(JSONExtract(e.properties, '$browser', 'Nullable(String)')), '')] AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM events AS e
@@ -161,9 +161,9 @@
                               e__pdi.person_id AS aggregation_target,
                               if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
+                              if(and(equals(e.event, 'buy'), ifNull(equals(JSONExtract(e.properties, '$version', 'Nullable(String)'), 'xyz'), 0)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              [ifNull(toString(JSONExtract(e.properties, '$browser', 'Nullable(String)')), '')] AS prop_basic,
                               if(ifNull(equals(step_0, 1), 0), prop_basic, []) AS prop_0,
                               if(ifNull(equals(step_1, 1), 0), prop_basic, []) AS prop_1,
                               prop_1 AS prop,

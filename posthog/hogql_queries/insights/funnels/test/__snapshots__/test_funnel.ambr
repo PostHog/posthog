@@ -465,9 +465,9 @@
                               e__pdi.person_id AS aggregation_target,
                               if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                              if(and(equals(e.event, '$pageview'), ifNull(equals(JSONExtract(e.properties, '$current_url', 'Nullable(String)'), 'aloha.com'), 0)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                              if(and(equals(e.event, '$pageview'), ifNull(equals(JSONExtract(e.properties, '$current_url', 'Nullable(String)'), 'aloha2.com'), 0)), 1, 0) AS step_2,
                               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
                        FROM events AS e
                        INNER JOIN
@@ -480,8 +480,8 @@
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
+                                 JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email,
+                                 JSONExtract(person.properties, 'age', 'Nullable(String)') AS properties___age
                           FROM person
                           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                            (SELECT person.id AS id, max(person.version) AS version
@@ -573,9 +573,9 @@
                                  e__pdi.person_id AS aggregation_target,
                                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                                  if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                                 if(and(equals(e.event, '$pageview'), ifNull(equals(JSONExtract(e.properties, '$current_url', 'Nullable(String)'), 'aloha.com'), 0)), 1, 0) AS step_1,
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                                 if(and(equals(e.event, '$pageview'), ifNull(equals(JSONExtract(e.properties, '$current_url', 'Nullable(String)'), 'aloha2.com'), 0)), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
                           FROM events AS e
                           INNER JOIN
@@ -588,8 +588,8 @@
                              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                           LEFT JOIN
                             (SELECT person.id AS id,
-                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
+                                    JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email,
+                                    JSONExtract(person.properties, 'age', 'Nullable(String)') AS properties___age
                              FROM person
                              WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                               (SELECT person.id AS id, max(person.version) AS version
@@ -692,9 +692,9 @@
                                  e__pdi.person_id AS aggregation_target,
                                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                                  if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                                 if(and(equals(e.event, '$pageview'), ifNull(equals(JSONExtract(e.properties, '$current_url', 'Nullable(String)'), 'aloha.com'), 0)), 1, 0) AS step_1,
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                                 if(and(equals(e.event, '$pageview'), ifNull(equals(JSONExtract(e.properties, '$current_url', 'Nullable(String)'), 'aloha2.com'), 0)), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
                           FROM events AS e
                           INNER JOIN
@@ -707,8 +707,8 @@
                              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                           LEFT JOIN
                             (SELECT person.id AS id,
-                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
+                                    JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email,
+                                    JSONExtract(person.properties, 'age', 'Nullable(String)') AS properties___age
                              FROM person
                              WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                               (SELECT person.id AS id, max(person.version) AS version
@@ -811,9 +811,9 @@
                                  e__pdi.person_id AS aggregation_target,
                                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                                  if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                                 if(and(equals(e.event, '$pageview'), ifNull(equals(JSONExtract(e.properties, '$current_url', 'Nullable(String)'), 'aloha.com'), 0)), 1, 0) AS step_1,
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                                 if(and(equals(e.event, '$pageview'), ifNull(equals(JSONExtract(e.properties, '$current_url', 'Nullable(String)'), 'aloha2.com'), 0)), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
                           FROM events AS e
                           INNER JOIN
@@ -826,8 +826,8 @@
                              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                           LEFT JOIN
                             (SELECT person.id AS id,
-                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
+                                    JSONExtract(person.properties, 'email', 'Nullable(String)') AS properties___email,
+                                    JSONExtract(person.properties, 'age', 'Nullable(String)') AS properties___age
                              FROM person
                              WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                               (SELECT person.id AS id, max(person.version) AS version
@@ -1270,7 +1270,7 @@
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                               if(equals(e.event, 'buy'), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              [ifNull(toString(JSONExtract(e.properties, '$browser', 'Nullable(String)')), ''), ifNull(toString(JSONExtract(e.properties, '$version', 'Nullable(String)')), '')] AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM events AS e
@@ -1412,7 +1412,7 @@
                                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                              FROM events AS e
                              LEFT JOIN
-                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                               (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
                                        groups.group_key AS key
                                 FROM groups
@@ -1550,7 +1550,7 @@
                                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                              FROM events AS e
                              LEFT JOIN
-                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                               (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
                                        groups.group_key AS key
                                 FROM groups
@@ -1695,7 +1695,7 @@
                                 GROUP BY person_distinct_id2.distinct_id
                                 HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                              LEFT JOIN
-                               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                               (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
                                        groups.group_key AS key
                                 FROM groups

@@ -548,7 +548,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
+                                 JSONExtract(person.properties, 'foo', 'Nullable(String)') AS properties___foo
                           FROM person
                           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                            (SELECT person.id AS id, max(person.version) AS version
@@ -598,7 +598,7 @@
                                                                         GROUP BY person_distinct_id2.distinct_id
                                                                         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                                                                      LEFT JOIN
-                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
+                                                                       (SELECT person.id AS id, JSONExtract(person.properties, 'foo', 'Nullable(String)') AS properties___foo
                                                                         FROM person
                                                                         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -740,7 +740,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
+                                 JSONExtract(person.properties, 'foo', 'Nullable(String)') AS properties___foo
                           FROM person
                           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                            (SELECT person.id AS id, max(person.version) AS version
@@ -790,7 +790,7 @@
                                                                         GROUP BY person_distinct_id2.distinct_id
                                                                         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                                                                      LEFT JOIN
-                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
+                                                                       (SELECT person.id AS id, JSONExtract(person.properties, 'foo', 'Nullable(String)') AS properties___foo
                                                                         FROM person
                                                                         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -932,7 +932,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
+                                 JSONExtract(person.properties, 'foo', 'Nullable(String)') AS properties___foo
                           FROM person
                           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                            (SELECT person.id AS id, max(person.version) AS version
@@ -982,7 +982,7 @@
                                                                         GROUP BY person_distinct_id2.distinct_id
                                                                         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                                                                      LEFT JOIN
-                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
+                                                                       (SELECT person.id AS id, JSONExtract(person.properties, 'foo', 'Nullable(String)') AS properties___foo
                                                                         FROM person
                                                                         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                                                                          (SELECT person.id AS id, max(person.version) AS version

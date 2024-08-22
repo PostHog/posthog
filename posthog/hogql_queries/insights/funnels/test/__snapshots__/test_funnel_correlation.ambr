@@ -54,9 +54,9 @@
                  FROM
                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                            e__pdi.person_id AS aggregation_target,
-                           if(and(equals(e.event, 'user signed up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_0,
+                           if(and(equals(e.event, 'user signed up'), ifNull(equals(JSONExtract(e.properties, 'key', 'Nullable(String)'), 'val'), 0)), 1, 0) AS step_0,
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                           if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1,
+                           if(and(equals(e.event, 'paid'), ifNull(equals(JSONExtract(e.properties, 'key', 'Nullable(String)'), 'val'), 0)), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     INNER JOIN
@@ -123,9 +123,9 @@
                  FROM
                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                            e__pdi.person_id AS aggregation_target,
-                           if(and(equals(e.event, 'user signed up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_0,
+                           if(and(equals(e.event, 'user signed up'), ifNull(equals(JSONExtract(e.properties, 'key', 'Nullable(String)'), 'val'), 0)), 1, 0) AS step_0,
                            if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                           if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1,
+                           if(and(equals(e.event, 'paid'), ifNull(equals(JSONExtract(e.properties, 'key', 'Nullable(String)'), 'val'), 0)), 1, 0) AS step_1,
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     INNER JOIN
@@ -411,7 +411,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                 JSONExtract(person.properties, '$browser', 'Nullable(String)') AS `properties___$browser`
                           FROM person
                           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                            (SELECT person.id AS id, max(person.version) AS version
@@ -461,7 +461,7 @@
                                                                         GROUP BY person_distinct_id2.distinct_id
                                                                         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                                                                      LEFT JOIN
-                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                                                       (SELECT person.id AS id, JSONExtract(person.properties, '$browser', 'Nullable(String)') AS `properties___$browser`
                                                                         FROM person
                                                                         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -603,7 +603,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                 JSONExtract(person.properties, '$browser', 'Nullable(String)') AS `properties___$browser`
                           FROM person
                           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                            (SELECT person.id AS id, max(person.version) AS version
@@ -653,7 +653,7 @@
                                                                         GROUP BY person_distinct_id2.distinct_id
                                                                         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                                                                      LEFT JOIN
-                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                                                       (SELECT person.id AS id, JSONExtract(person.properties, '$browser', 'Nullable(String)') AS `properties___$browser`
                                                                         FROM person
                                                                         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -795,7 +795,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                 JSONExtract(person.properties, '$browser', 'Nullable(String)') AS `properties___$browser`
                           FROM person
                           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                            (SELECT person.id AS id, max(person.version) AS version
@@ -845,7 +845,7 @@
                                                                         GROUP BY person_distinct_id2.distinct_id
                                                                         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                                                                      LEFT JOIN
-                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                                                       (SELECT person.id AS id, JSONExtract(person.properties, '$browser', 'Nullable(String)') AS `properties___$browser`
                                                                         FROM person
                                                                         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -987,7 +987,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                 JSONExtract(person.properties, '$browser', 'Nullable(String)') AS `properties___$browser`
                           FROM person
                           WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                            (SELECT person.id AS id, max(person.version) AS version
@@ -1037,7 +1037,7 @@
                                                                         GROUP BY person_distinct_id2.distinct_id
                                                                         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
                                                                      LEFT JOIN
-                                                                       (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                                                                       (SELECT person.id AS id, JSONExtract(person.properties, '$browser', 'Nullable(String)') AS `properties___$browser`
                                                                         FROM person
                                                                         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
                                                                                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -2934,7 +2934,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                      (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3004,7 +3004,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                      (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3904,7 +3904,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                      (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -3974,7 +3974,7 @@
                            if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
                     FROM events AS e
                     LEFT JOIN
-                      (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                      (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
@@ -4461,7 +4461,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4583,7 +4583,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4705,7 +4705,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -4827,7 +4827,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5243,7 +5243,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5365,7 +5365,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5487,7 +5487,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -5609,7 +5609,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6025,7 +6025,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6147,7 +6147,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6269,7 +6269,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6391,7 +6391,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6807,7 +6807,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -6929,7 +6929,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7051,7 +7051,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7173,7 +7173,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7589,7 +7589,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7711,7 +7711,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7833,7 +7833,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
@@ -7955,7 +7955,7 @@
                               if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT JOIN
-                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                         (SELECT argMax(JSONExtract(groups.group_properties, 'industry', 'Nullable(String)'), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
