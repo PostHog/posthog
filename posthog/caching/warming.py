@@ -7,7 +7,7 @@ import structlog
 from celery import shared_task
 from celery.canvas import chain
 from django.db.models import Q
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from sentry_sdk import capture_exception
 
 from posthog.api.services.query import process_query_dict
@@ -22,8 +22,8 @@ from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
-STALE_INSIGHTS_COUNTER = Counter(
-    "posthog_cache_warming_stale_insights",
+STALE_INSIGHTS_GAUGE = Gauge(
+    "posthog_cache_warming_stale_insights_gauge",
     "Number of stale insights present",
     ["team_id"],
 )
@@ -48,7 +48,7 @@ def priority_insights(team: Team, shared_only: bool = False) -> Generator[tuple[
     QueryCacheManager.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
     combos = QueryCacheManager.get_stale_insights(team_id=team.pk, limit=500)
 
-    STALE_INSIGHTS_COUNTER.labels(team_id=team.pk).inc(len(combos))
+    STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
     dashboard_q_filter = Q()
     insight_ids_single = set()
