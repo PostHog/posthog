@@ -121,11 +121,16 @@ class JsonScalar(pa.ExtensionScalar):
 
     def as_py(self) -> dict | None:
         if self.value:
+            value = self.value.as_py()
+
+            if not value:
+                return None
+
             try:
-                return orjson.loads(self.value.as_py().encode("utf-8"))
+                return orjson.loads(value.encode("utf-8"))
             except:
                 # Fallback if it's something orjson can't handle
-                return json.loads(self.value.as_py())
+                return json.loads(value)
         else:
             return None
 
