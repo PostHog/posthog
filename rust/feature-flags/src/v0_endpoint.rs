@@ -71,7 +71,7 @@ pub async fn flags(
     tracing::Span::current().record("method", method.as_str());
     tracing::Span::current().record("path", path.as_str().trim_end_matches('/'));
     tracing::Span::current().record("ip", ip.to_string());
-    tracing::Span::current().record("sent_at", &sent_at.to_string());
+    tracing::Span::current().record("sent_at", sent_at.to_string());
 
     tracing::debug!("request headers: {:?}", headers);
 
