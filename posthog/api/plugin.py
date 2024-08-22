@@ -936,7 +936,7 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"
 
 
 class PipelineTransformationsViewSet(PluginViewSet):

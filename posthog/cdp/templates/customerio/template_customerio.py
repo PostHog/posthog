@@ -28,7 +28,7 @@ if (not hasIdentifier) {
 }
 
 if (action == 'automatic') {
-    if (event.name == '$identify') {
+    if (event.name in ('$identify', '$set')) {
         action := 'identify'
         name := null
     } else if (event.name == '$pageview') {

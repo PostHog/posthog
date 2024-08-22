@@ -11,14 +11,14 @@ import { insightLogic } from '../insightLogic'
 import { FunnelsCue } from '../views/Trends/FunnelsCue'
 
 export function InsightsNav(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const { activeView, tabs } = useValues(insightNavLogic(insightProps))
     const { setActiveView } = useActions(insightNavLogic(insightProps))
 
     return (
         <>
             <FunnelsCue />
-            <AlertDeletionWarning />
+            {insight.short_id && <AlertDeletionWarning />}
             <LemonTabs
                 activeKey={activeView}
                 onChange={(newKey) => setActiveView(newKey)}

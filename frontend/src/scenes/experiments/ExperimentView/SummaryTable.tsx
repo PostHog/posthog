@@ -5,6 +5,7 @@ import { LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { humanFriendlyNumber } from 'lib/utils'
 
 import {
     _FunnelExperimentResults,
@@ -19,6 +20,7 @@ import { VariantTag } from './components'
 
 export function SummaryTable(): JSX.Element {
     const {
+        experimentId,
         experimentResults,
         tabularExperimentResults,
         experimentInsightType,
@@ -26,7 +28,6 @@ export function SummaryTable(): JSX.Element {
         conversionRateForVariant,
         experimentMathAggregationForTrends,
         countDataForVariant,
-        areTrendResultsConfusing,
         getHighestProbabilityVariant,
     } = useValues(experimentLogic)
 
@@ -43,7 +44,7 @@ export function SummaryTable(): JSX.Element {
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="flex items-center">
-                        <VariantTag variantKey={item.key} />
+                        <VariantTag experimentId={experimentId} variantKey={item.key} />
                     </div>
                 )
             },
@@ -63,27 +64,25 @@ export function SummaryTable(): JSX.Element {
                     </span>
                 </div>
             ),
-            render: function Key(_, item, index): JSX.Element {
-                return (
-                    <div className="flex">
-                        {countDataForVariant(experimentResults, item.key)}{' '}
-                        {areTrendResultsConfusing && index === 0 && (
-                            <Tooltip
-                                placement="right"
-                                title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                            >
-                                <IconInfo className="py-1 px-0.5 text-lg" />
-                            </Tooltip>
-                        )}
-                    </div>
-                )
+            render: function Key(_, variant): JSX.Element {
+                const count = countDataForVariant(experimentResults, variant.key)
+                if (!count) {
+                    return <>—</>
+                }
+
+                return <div className="flex">{humanFriendlyNumber(count)}</div>
             },
         })
         columns.push({
             key: 'exposure',
             title: 'Exposure',
             render: function Key(_, variant): JSX.Element {
-                return <div>{exposureCountDataForVariant(experimentResults, variant.key)}</div>
+                const exposure = exposureCountDataForVariant(experimentResults, variant.key)
+                if (!exposure) {
+                    return <>—</>
+                }
+
+                return <div>{humanFriendlyNumber(exposure)}</div>
             },
         })
         columns.push({

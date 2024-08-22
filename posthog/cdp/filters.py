@@ -28,8 +28,14 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
         exprs.extend(common_filters_expr)
 
         # Events
-        if filter.get("type") == "events" and filter.get("name"):
-            exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=filter["name"])}))
+        if filter.get("type") == "events" and filter.get("id"):
+            event_name = filter["id"]
+
+            if event_name is None:
+                # all events
+                exprs.append(ast.Constant(value=1))
+            else:
+                exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=event_name)}))
 
         # Actions
         if filter.get("type") == "actions":

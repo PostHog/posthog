@@ -65,17 +65,16 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
         # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
         # Read more here: https://github.com/python/mypy/issues/2420.
         # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
+        parsed = dt.datetime.fromisoformat(date_input)
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
 
     if parsed.tzinfo is None:
-        if team:
-            parsed = parsed.replace(tzinfo=team.timezone_info).astimezone(dt.UTC)
-        else:
-            parsed = parsed.replace(tzinfo=dt.UTC)
+        raise ValidationError(f"Input {date_input} is naive.")
+
     else:
-        parsed = parsed.astimezone(dt.UTC)
+        if team is not None:
+            parsed = parsed.astimezone(team.timezone_info)
 
     return parsed
 
@@ -128,6 +127,26 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
         return queryset
+
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
+    def retry(self, *args, **kwargs) -> response.Response:
+        """Retry a batch export run.
+
+        We use the same underlying mechanism as when backfilling a batch export, as retrying
+        a run is the same as backfilling one run.
+        """
+        batch_export_run = self.get_object()
+
+        temporal = sync_connect()
+        backfill_id = backfill_export(
+            temporal,
+            str(batch_export_run.batch_export.id),
+            self.team_id,
+            batch_export_run.data_interval_start,
+            batch_export_run.data_interval_end,
+        )
+
+        return response.Response({"backfill_id": backfill_id})
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
@@ -358,27 +377,28 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Trigger a backfill for a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
-            raise NotAuthenticated()
-
         start_at_input = request.data.get("start_at", None)
         end_at_input = request.data.get("end_at", None)
 
         if start_at_input is None or end_at_input is None:
             raise ValidationError("Both 'start_at' and 'end_at' must be specified")
 
-        start_at = validate_date_input(start_at_input, request.user.current_team)
-        end_at = validate_date_input(end_at_input, request.user.current_team)
+        start_at = validate_date_input(start_at_input, self.team)
+        end_at = validate_date_input(end_at_input, self.team)
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
-        team_id = request.user.current_team.id
-
         batch_export = self.get_object()
+
+        if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
+            raise ValidationError(
+                f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
+            )
+
         temporal = sync_connect()
         try:
-            backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
+            backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
         except BatchExportWithNoEndNotAllowedError:
             raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
 
