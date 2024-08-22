@@ -115,7 +115,7 @@ enum TimingGuardLabels<'a> {
 }
 
 impl<'a> TimingGuard<'a> {
-    // This consumes the guard, making "label this span and then immediately repor the timing"
+    // This consumes the guard, making "label this span and then immediately report the timing"
     // a one-liner (simple don't re-bind the return value), but also it's a bit of a footgun.
     pub fn label(mut self, key: &str, value: &str) -> Self {
         self.labels.push_label(key, value);
