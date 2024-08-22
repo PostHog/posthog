@@ -250,7 +250,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                         },
                                                         options: {
                                                             writeAsQuery: queryBasedInsightSaving,
-                                                            readAsQuery: true,
                                                         },
                                                     })
                                                 }

@@ -21,6 +21,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
+from rest_framework.request import Request
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -102,6 +103,7 @@ from posthog.utils import (
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
+    filters_override_requested_by_client,
 )
 from posthog.api.monitoring import monitor, Feature
 
@@ -370,7 +372,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         return insight
 
     @transaction.atomic()
-    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
+    @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
         dashboards_before_change: list[Union[str, dict]] = []
         try:
@@ -550,6 +552,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
+        request: Optional[Request] = self.context.get("request")
+        dashboard_filters_override = filters_override_requested_by_client(request) if request else None
+
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
         ):
@@ -559,12 +564,20 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
             query = instance.query or instance.query_from_filters
             if dashboard:
-                query = apply_dashboard_filters_to_dict(query, dashboard.filters, instance.team)
+                query = apply_dashboard_filters_to_dict(
+                    query,
+                    dashboard_filters_override if dashboard_filters_override is not None else dashboard.filters,
+                    instance.team,
+                )
             representation["filters"] = {}
             representation["query"] = query
         else:
-            representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
-            representation["query"] = instance.get_effective_query(dashboard=dashboard)
+            representation["filters"] = instance.dashboard_filters(
+                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
+            )
+            representation["query"] = instance.get_effective_query(
+                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
+            )
 
             if "insight" not in representation["filters"] and not representation["query"]:
                 representation["filters"]["insight"] = "TRENDS"
@@ -583,6 +596,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
+                filters_override = filters_override_requested_by_client(self.context["request"])
 
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
@@ -592,6 +606,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     dashboard=dashboard,
                     execution_mode=execution_mode,
                     user=self.context["request"].user,
+                    filters_override=filters_override,
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))

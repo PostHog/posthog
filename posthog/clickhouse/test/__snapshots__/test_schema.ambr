@@ -1758,11 +1758,12 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
-      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -1833,10 +1834,12 @@
       uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
       sumIf(1, event='$screen') as screen_count,
       uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
-      uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
   
       -- replay
-      false as maybe_has_session_replay
+      false as maybe_has_session_replay,
+  
+      -- perf
+      uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
   FROM posthog_test.sharded_events
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
   GROUP BY
@@ -2422,11 +2425,12 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
-      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
@@ -2723,11 +2727,12 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
-      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -3533,11 +3538,12 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
-      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- replay
-      maybe_has_session_replay SimpleAggregateFunction(max, Bool) -- will be written False to by the events table mv and True to by the replay table mv
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
