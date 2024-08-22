@@ -137,7 +137,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
 
                     if (end_at > upperBound) {
                         lemonToast.error(
-                            `Requested backfill end date lies too far into the future and there is no data available to backfill yet. Use an end date that is no more than ${period} from now`
+                            `Requested backfill end date lies too far into the future. Use an end date that is no more than ${period} from now (in your project's timezone)`
                         )
                         return
                     }
