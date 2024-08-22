@@ -9,7 +9,7 @@ import {
     IconShare,
     IconTrash,
 } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -28,7 +28,6 @@ import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic
 import { NotebookNodeType } from '~/types'
 
 import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 
@@ -167,10 +166,8 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
 
 const MenuActions = (): JSX.Element => {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { showMouseTail } = useValues(playerSettingsLogic)
     const { exportRecordingToFile, openExplorer, deleteRecording, setIsFullScreen } =
         useActions(sessionRecordingPlayerLogic)
-    const { setShowMouseTail } = useActions(playerSettingsLogic)
     const { fetchSimilarRecordings } = useActions(sessionRecordingDataLogic(logicProps))
 
     const hasMobileExport = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
@@ -193,17 +190,6 @@ const MenuActions = (): JSX.Element => {
     }
 
     const items: LemonMenuItems = [
-        {
-            label: 'Configure player',
-            items: [
-                {
-                    label: () => (
-                        <LemonSwitch checked={showMouseTail} onChange={setShowMouseTail} label="Show mouse tail" />
-                    ),
-                    custom: true,
-                },
-            ],
-        },
         {
             label: 'Export to file',
             onClick: () => exportRecordingToFile(false),
