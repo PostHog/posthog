@@ -4,7 +4,7 @@ from posthog.cdp.templates.customerio.template_customerio import (
     TemplateCustomerioMigrator,
     template as template_customerio,
 )
-from posthog.models.plugin import Plugin, PluginConfig
+from posthog.models.plugin import PluginConfig
 from posthog.test.base import BaseTest
 
 
