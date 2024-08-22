@@ -1,5 +1,6 @@
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from rest_framework import (
     exceptions,
     mixins,
@@ -11,7 +12,6 @@ from rest_framework import (
 )
 from rest_framework.decorators import action
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.email import is_email_available
@@ -61,6 +61,12 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         team_error = "Team does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None
+
+        if not settings.EE_AVAILABLE:
+            return private_project_access
+
+        from ee.models.explicit_team_membership import ExplicitTeamMembership
+
         for item in private_project_access:
             # if the project is private, if user is not an admin of the team, they can't invite to it
             organization: Organization = Organization.objects.get(id=self.context["organization_id"])

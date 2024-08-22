@@ -24,7 +24,6 @@ from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
 
-from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
@@ -340,7 +339,7 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     if not settings.EE_AVAILABLE:
         return EventsOverQuotaResult(events, False, False)
 
-    from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
+    from ee.billing.quota_limiting import QuotaResource, QuotaLimitingCaches, list_limited_team_attributes
 
     results = []
     limited_tokens_events = list_limited_team_attributes(

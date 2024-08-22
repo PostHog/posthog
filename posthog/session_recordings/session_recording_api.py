@@ -47,9 +47,10 @@ from posthog.session_recordings.queries.session_recording_properties import (
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
-from ee.session_recordings.session_summary.summarize_session import summarize_recording
-from ee.session_recordings.ai.similar_recordings import similar_recordings
-from ee.session_recordings.ai.error_clustering import error_clustering
+if settings.EE_AVAILABLE:
+    from ee.session_recordings.session_summary.summarize_session import summarize_recording
+    from ee.session_recordings.ai.similar_recordings import similar_recordings
+    from ee.session_recordings.ai.error_clustering import error_clustering
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
 from posthog.storage import object_storage
 from prometheus_client import Counter

@@ -2,11 +2,13 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
 import structlog
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from rest_framework import exceptions
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+if settings.EE_AVAILABLE:
+    from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.models.organization import OrganizationMembership

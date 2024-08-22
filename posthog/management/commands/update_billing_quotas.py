@@ -2,8 +2,6 @@ import pprint
 
 from django.core.management.base import BaseCommand
 
-from ee.billing.quota_limiting import update_all_org_billing_quotas
-
 
 class Command(BaseCommand):
     help = "Update billing rate limiting for all organizations"
@@ -13,6 +11,8 @@ class Command(BaseCommand):
         parser.add_argument("--print-reports", type=bool, help="Print the reports in full")
 
     def handle(self, *args, **options):
+        from ee.billing.quota_limiting import update_all_org_billing_quotas
+
         dry_run = options["dry_run"]
 
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas(dry_run)
