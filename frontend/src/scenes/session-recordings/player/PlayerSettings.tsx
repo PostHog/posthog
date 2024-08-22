@@ -1,5 +1,5 @@
 import { IconEllipsis, IconFastForward } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
@@ -7,25 +7,41 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { PLAYBACK_SPEEDS } from './sessionRecordingPlayerLogic'
 
 export const PlayerSettings = (): JSX.Element => {
-    const { speed, skipInactivitySetting, showMouseTail } = useValues(playerSettingsLogic)
-    const { setSpeed, setSkipInactivitySetting, setShowMouseTail } = useActions(playerSettingsLogic)
-
-    // <LemonMenu
-    //                         data-attr="session-recording-speed-select"
-    //                         items={PLAYBACK_SPEEDS.map((speedToggle) => ({
-    //                             label: `${speedToggle}x`,
-    //                             onClick: () => setSpeed(speedToggle),
-    //                         }))}
-    //                     >
-    //                         <LemonButton size="small" tooltip="Playback speed" sideIcon={null}>
-    //                             {speed}x
-    //                         </LemonButton>
-    //                     </LemonMenu>
+    const { speed, autoplayDirection, skipInactivitySetting, showMouseTail } = useValues(playerSettingsLogic)
+    const { setSpeed, setAutoplayDirection, setSkipInactivitySetting, setShowMouseTail } =
+        useActions(playerSettingsLogic)
 
     return (
         <LemonMenu
             closeOnClickInside={false}
             items={[
+                {
+                    custom: true,
+                    label: () => (
+                        <div className="flex flex-row items-center justify-between space-x-2 p-1 min-w-64">
+                            <span className="text-black font-medium">Autoplay</span>
+
+                            <LemonSelect
+                                tooltip={
+                                    <div className="text-center">
+                                        Autoplay next recording
+                                        <br />({!autoplayDirection ? 'off' : autoplayDirection})
+                                    </div>
+                                }
+                                value={autoplayDirection}
+                                aria-label="Autoplay next recording"
+                                onChange={setAutoplayDirection}
+                                dropdownMatchSelectWidth={false}
+                                options={[
+                                    { value: null, label: 'off' },
+                                    { value: 'newer', label: 'newer recordings' },
+                                    { value: 'older', label: 'older recordings' },
+                                ]}
+                                size="small"
+                            />
+                        </div>
+                    ),
+                },
                 {
                     custom: true,
                     label: () => (
