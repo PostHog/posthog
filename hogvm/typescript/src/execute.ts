@@ -34,11 +34,13 @@ export interface VMState {
     bytecode: any[]
     /** Stack of the VM */
     stack: any[]
+    /** Values hoisted from the stack */
+    upvalues: HogUpValue[]
     /** Call stack of the VM */
     callStack: CallFrame[] // [number, number, number][]
     /** Throw stack of the VM */
     throwStack: ThrowFrame[]
-    /** Declared functions of the VM */
+    /** Declared functions of the VM (deprecated) */
     declaredFunctions: Record<string, [number, number]>
     /** How many sync ops have been performed */
     ops: number
@@ -132,6 +134,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     const asyncSteps = vmState ? vmState.asyncSteps : 0
     const syncDuration = vmState ? vmState.syncDuration : 0
     const stack: any[] = vmState ? vmState.stack : []
+    const upvalues: HogUpValue[] = vmState ? vmState.upvalues : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: CallFrame[] = vmState ? vmState.callStack : []
     const throwStack: ThrowFrame[] = vmState ? vmState.throwStack : []
@@ -183,6 +186,16 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return stack.splice(start, deleteCount)
     }
     function spliceStack1(start: number): any[] {
+        for (let i = upvalues.length - 1; i >= 0; i--) {
+            if (upvalues[i].location >= start) {
+                if (!upvalues[i].closed) {
+                    upvalues[i].closed = true
+                    upvalues[i].value = stack[upvalues[i].location]
+                }
+            } else {
+                break
+            }
+        }
         memUsed -= memStack.splice(start).reduce((acc, val) => acc + val, 0)
         return stack.splice(start)
     }
@@ -203,6 +216,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         return {
             bytecode: [],
             stack: [],
+            upvalues: [],
             callStack: [],
             throwStack: [],
             declaredFunctions: {},
@@ -211,6 +225,25 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             syncDuration: syncDuration + (Date.now() - startTime),
             maxMemUsed,
         }
+    }
+    function captureUpValue(index: number): HogUpValue {
+        for (let i = upvalues.length - 1; i >= 0; i--) {
+            if (upvalues[i].location < index) {
+                break
+            }
+            if (upvalues[i].location === index) {
+                return upvalues[i]
+            }
+        }
+        const createdUpvalue = {
+            __hogUpValue__: true,
+            location: index,
+            closed: false,
+            value: null,
+        } satisfies HogUpValue
+        upvalues.push(createdUpvalue)
+        upvalues.sort((a, b) => a.location - b.location)
+        return createdUpvalue
     }
 
     while (frame.ip < bytecode.length) {
@@ -378,21 +411,21 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             case Operation.POP:
                 popStack()
                 break
-            case Operation.RETURN:
-                if (callStack.length > 1) {
-                    const stackStart = callStack.pop()!.stackStart
-                    const response = popStack()
-                    spliceStack1(stackStart)
-                    pushStack(response)
-                    frame = callStack[callStack.length - 1]
-                    continue // resume the loop without incrementing frame.ip
-                } else {
-                    return {
-                        result: popStack(),
-                        finished: true,
-                        state: getFinishedState(),
-                    } satisfies ExecResult
+            case Operation.CLOSE_UPVALUE:
+                spliceStack1(stack.length - 1)
+                break
+            case Operation.RETURN: {
+                const result = popStack()
+                const lastCallFrame = callStack.pop()
+                if (callStack.length === 0 || !lastCallFrame) {
+                    return { result, finished: true, state: getFinishedState() } satisfies ExecResult
                 }
+                const stackStart = lastCallFrame.stackStart
+                spliceStack1(stackStart)
+                pushStack(result)
+                frame = callStack[callStack.length - 1]
+                continue // resume the loop without incrementing frame.ip
+            }
             case Operation.GET_LOCAL:
                 temp = callStack.length > 0 ? callStack[callStack.length - 1].stackStart : 0
                 pushStack(stack[next() + temp])
@@ -495,10 +528,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < callable.upvalueCount; i++) {
                     const [isLocal, index] = [next(), next()]
                     if (isLocal) {
-                        upvalues.push({
-                            __hogUpValue__: true,
-                            index: stackStart + index,
-                        } satisfies HogUpValue)
+                        upvalues.push(captureUpValue(stackStart + index))
                     } else {
                         upvalues.push(frame.closure.upvalues[index])
                     }
@@ -515,7 +545,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (!isHogUpValue(upvalue)) {
                     throw new HogVMException(`Invalid upvalue: ${upvalue}`)
                 }
-                pushStack(stack[upvalue.index])
+                if (upvalue.closed) {
+                    pushStack(upvalue.value)
+                } else {
+                    pushStack(stack[upvalue.location])
+                }
                 break
             }
             case Operation.SET_UPVALUE: {
@@ -527,7 +561,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 if (!isHogUpValue(upvalue)) {
                     throw new HogVMException(`Invalid upvalue: ${upvalue}`)
                 }
-                stack[upvalue.index] = popStack()
+                if (upvalue.closed) {
+                    upvalue.value = popStack()
+                } else {
+                    stack[upvalue.location] = popStack()
+                }
                 break
             }
             case Operation.CALL_GLOBAL: {
@@ -587,6 +625,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                             state: {
                                 bytecode,
                                 stack,
+                                upvalues,
                                 callStack,
                                 throwStack,
                                 declaredFunctions,
@@ -678,6 +717,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         state: {
                             bytecode,
                             stack,
+                            upvalues,
                             callStack,
                             throwStack,
                             declaredFunctions,

@@ -29,7 +29,9 @@ export interface HogCallable {
 
 export interface HogUpValue {
     __hogUpValue__: true
-    index: number
+    location: number
+    closed: boolean
+    value: any
 }
 
 export interface HogClosure {
@@ -95,5 +97,5 @@ export function newHogClosure(callable: HogCallable, upvalues?: any[]): HogClosu
 }
 
 export function isHogUpValue(obj: any): obj is HogUpValue {
-    return obj && typeof obj === 'object' && '__hogUpValue__' in obj && 'index' in obj
+    return obj && typeof obj === 'object' && '__hogUpValue__' in obj && 'location' in obj
 }

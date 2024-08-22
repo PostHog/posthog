@@ -145,6 +145,8 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 return f"GET_UPVALUE({bytecode[ip+1]})"
             case Operation.SET_UPVALUE:
                 return f"SET_UPVALUE({bytecode[ip + 1]})"
+            case Operation.CLOSE_UPVALUE:
+                return "CLOSE_UPVALUE"
             case Operation.GET_PROPERTY:
                 return f"GET_PROPERTY({stack[-2]}, {stack[-1]})"
             case Operation.GET_PROPERTY_NULLISH:
@@ -268,6 +270,8 @@ def color_bytecode(bytecode: list) -> list:
                 add = ["op.GET_UPVALUE", f"index: {bytecode[ip+1]}"]
             case Operation.SET_UPVALUE:
                 add = ["op.SET_UPVALUE", f"index: {bytecode[ip+1]}"]
+            case Operation.CLOSE_UPVALUE:
+                add = ["op.CLOSE_UPVALUE"]
             case Operation.GET_PROPERTY:
                 add = ["op.GET_PROPERTY"]
             case Operation.GET_PROPERTY_NULLISH:

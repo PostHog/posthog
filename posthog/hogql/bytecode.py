@@ -73,6 +73,7 @@ def create_bytecode(
 class Local:
     name: str
     depth: int
+    is_captured: bool
 
 
 @dataclasses.dataclass
@@ -120,7 +121,10 @@ class BytecodeBuilder(Visitor):
             if local.depth <= self.scope_depth:
                 break
             self.locals.pop()
-            response.append(Operation.POP)
+            if local.is_captured:
+                response.append(Operation.CLOSE_UPVALUE)
+            else:
+                response.append(Operation.POP)
         return response
 
     def _declare_local(self, name: str) -> int:
@@ -130,7 +134,7 @@ class BytecodeBuilder(Visitor):
             if local.name == name:
                 raise QueryError(f"Variable `{name}` already declared in this scope")
 
-        self.locals.append(Local(name, self.scope_depth))
+        self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
         return len(self.locals) - 1
 
     def visit_and(self, node: ast.And):
@@ -178,6 +182,7 @@ class BytecodeBuilder(Visitor):
 
         for index, local in reversed(list(enumerate(self.enclosing.locals))):
             if local.name == name:
+                local.is_captured = True
                 return self._add_upvalue(index, True)
 
         upvalue = self.enclosing._resolve_upvalue(name)
@@ -680,8 +685,6 @@ class BytecodeBuilder(Visitor):
                     ops.extend([Operation.STRING, str(chain[-1]), *self.visit(node.right), Operation.SET_PROPERTY])
 
                 return ops
-            # print(arg)
-            # #
             raise QueryError(f'Variable "{name}" not declared in this scope. Can not assign to globals.')
 
         raise QueryError(f"Can not assign to this type of expression")

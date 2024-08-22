@@ -46,6 +46,7 @@ def execute_bytecode(
     start_time = time.time()
     last_op = len(bytecode) - 1
     stack: list = []
+    upvalues: list[dict] = []
     mem_stack: list = []
     call_stack: list[CallFrame] = []
     throw_stack: list[ThrowFrame] = []
@@ -77,6 +78,19 @@ def execute_bytecode(
         )
 
     frame = call_stack[-1]
+
+    def splice_stack_1(start: int):
+        nonlocal stack, mem_stack, mem_used
+        for upvalue in reversed(upvalues):
+            if upvalue["location"] >= start:
+                if not upvalue["closed"]:
+                    upvalue["closed"] = True
+                    upvalue["value"] = stack[upvalue["location"]]
+            else:
+                break
+        stack = stack[0:start]
+        mem_used -= sum(mem_stack[start:])
+        mem_stack = mem_stack[0:start]
 
     def next_token():
         nonlocal frame
@@ -111,6 +125,18 @@ def execute_bytecode(
     def check_timeout():
         if time.time() - start_time > timeout.total_seconds() and not debug:
             raise HogVMException(f"Execution timed out after {timeout.total_seconds()} seconds. Performed {ops} ops.")
+
+    def capture_upvalue(index):
+        nonlocal upvalues
+        for upvalue in reversed(upvalues):
+            if upvalue["location"] < index:
+                break
+            if upvalue["location"] == index:
+                return upvalue
+        created_upvalue = {"__hogUpValue__": True, "location": index, "closed": False, "value": None}
+        upvalues.append(created_upvalue)
+        upvalues.sort(key=lambda x: x["location"])
+        return created_upvalue
 
     symbol: Any = None
     while frame.ip <= last_op:
@@ -220,18 +246,19 @@ def execute_bytecode(
                     raise HogVMException(f"Global variable not found: {chain[0]}")
             case Operation.POP:
                 pop_stack()
+            case Operation.CLOSE_UPVALUE:
+                splice_stack_1(len(stack) - 1)
             case Operation.RETURN:
-                if len(call_stack) > 1:
-                    stack_start = call_stack.pop().stack_start
-                    response = pop_stack()
-                    stack = stack[0:stack_start]
-                    mem_used -= sum(mem_stack[stack_start:])
-                    mem_stack = mem_stack[0:stack_start]
-                    push_stack(response)
-                    frame = call_stack[-1]
-                    continue
-                else:
-                    return BytecodeResult(result=pop_stack(), stdout=stdout, bytecode=bytecode)
+                result = pop_stack()
+                last_call_frame = call_stack.pop()
+                if len(call_stack) == 0 or last_call_frame is None:
+                    return BytecodeResult(result=result, stdout=stdout, bytecode=bytecode)
+                stack_start = last_call_frame.stack_start
+                splice_stack_1(stack_start)
+                push_stack(result)
+                frame = call_stack[-1]
+                continue  # resume the loop without incrementing frame.ip
+
             case Operation.GET_LOCAL:
                 stack_start = 0 if not call_stack else call_stack[-1].stack_start
                 push_stack(stack[next_token() + stack_start])
@@ -328,17 +355,6 @@ def execute_bytecode(
                 for _ in range(callable["upvalueCount"]):
                     is_local, index = next_token(), next_token()
                     if is_local:
-
-                        def new_upvalue(index):
-                            return {
-                                "__hogUpvalue__": True,
-                                "location": index,
-                            }
-
-                        def capture_upvalue(index):
-                            upvalue = new_upvalue(index)
-                            return upvalue
-
                         closure["upvalues"].append(capture_upvalue(stack_start + index))
                     else:
                         closure["upvalues"].append(frame.closure["upvalues"][index])
@@ -349,18 +365,24 @@ def execute_bytecode(
                 if index >= len(closure["upvalues"]):
                     raise HogVMException(f"Invalid upvalue index: {index}")
                 upvalue = closure["upvalues"][index]
-                if not isinstance(upvalue, dict) or upvalue.get("__hogUpvalue__") is None:
+                if not isinstance(upvalue, dict) or upvalue.get("__hogUpValue__") is None:
                     raise HogVMException(f"Invalid upvalue: {upvalue}")
-                push_stack(stack[upvalue["location"]])
+                if upvalue["closed"]:
+                    push_stack(upvalue["value"])
+                else:
+                    push_stack(stack[upvalue["location"]])
             case Operation.SET_UPVALUE:
                 index = next_token()
                 closure = frame.closure
                 if index >= len(closure["upvalues"]):
                     raise HogVMException(f"Invalid upvalue index: {index}")
                 upvalue = closure["upvalues"][index]
-                if not isinstance(upvalue, dict) or upvalue.get("__hogUpvalue__") is None:
+                if not isinstance(upvalue, dict) or upvalue.get("__hogUpValue__") is None:
                     raise HogVMException(f"Invalid upvalue: {upvalue}")
-                stack[upvalue["location"]] = pop_stack()
+                if upvalue["closed"]:
+                    upvalue["value"] = pop_stack()
+                else:
+                    stack[upvalue["location"]] = pop_stack()
             case Operation.CALL_GLOBAL:
                 check_timeout()
                 name = next_token()
@@ -467,9 +489,7 @@ def execute_bytecode(
                         last_throw.stack_len,
                         last_throw.catch_ip,
                     )
-                    stack = stack[0:stack_len]
-                    mem_used -= sum(mem_stack[stack_len:])
-                    mem_stack = mem_stack[0:stack_len]
+                    splice_stack_1(stack_len)
                     call_stack = call_stack[0:call_stack_len]
                     push_stack(exception)
                     frame = call_stack[-1]

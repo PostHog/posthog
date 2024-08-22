@@ -56,4 +56,5 @@ export const enum Operation {
     CALL_LOCAL = 54,
     GET_UPVALUE = 55,
     SET_UPVALUE = 56,
+    CLOSE_UPVALUE = 57,
 }
