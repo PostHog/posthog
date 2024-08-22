@@ -28,19 +28,19 @@ class Project(models.Model):
     `Project` is part of the environemnts feature, which is a work in progress.
     """
 
-    id: models.BigIntegerField = models.BigIntegerField(primary_key=True, verbose_name="ID")
-    organization: models.ForeignKey = models.ForeignKey(
+    id = models.BigIntegerField(primary_key=True, verbose_name="ID")
+    organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="projects",
         related_query_name="project",
     )
-    name: models.CharField = models.CharField(
+    name = models.CharField(
         max_length=200,
         default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     objects: ProjectManager = ProjectManager()
 

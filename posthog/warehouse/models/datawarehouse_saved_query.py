@@ -37,18 +37,16 @@ def validate_saved_query_name(value):
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
-    name: models.CharField = models.CharField(max_length=128, validators=[validate_saved_query_name])
-    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    columns: models.JSONField = models.JSONField(
+    name = models.CharField(max_length=128, validators=[validate_saved_query_name])
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    columns = models.JSONField(
         default=dict,
         null=True,
         blank=True,
         help_text="Dict of all columns with ClickHouse type (including Nullable())",
     )
-    external_tables: models.JSONField = models.JSONField(
-        default=list, null=True, blank=True, help_text="List of all external tables"
-    )
-    query: models.JSONField = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
+    external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
+    query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
 
     class Meta:
         constraints = [

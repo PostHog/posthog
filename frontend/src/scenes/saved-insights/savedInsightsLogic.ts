@@ -112,7 +112,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const insight = await insightsApi.getByNumericId(Number(filters.search), { readAsQuery: true })
+                        const insight = await insightsApi.getByNumericId(Number(filters.search))
                         return {
                             ...response,
                             count: response.count + 1,
@@ -146,7 +146,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     {
                         favorited,
                     },
-                    { writeAsQuery: values.queryBasedInsightSaving, readAsQuery: true }
+                    { writeAsQuery: values.queryBasedInsightSaving }
                 )
                 const updatedInsights = values.insights.results.map((i) =>
                     i.short_id === insight.short_id ? response : i
@@ -289,7 +289,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         duplicateInsight: async ({ insight, redirectToInsight }) => {
             const newInsight = await insightsApi.duplicate(insight, {
                 writeAsQuery: values.queryBasedInsightSaving,
-                readAsQuery: true,
             })
             actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
@@ -355,7 +354,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 // `fromItem` for legacy /insights url redirect support
                 const insightNumericId = parseInt(hashParams.fromItem)
                 try {
-                    const insight = await insightsApi.getByNumericId(insightNumericId, { readAsQuery: true })
+                    const insight = await insightsApi.getByNumericId(insightNumericId)
                     if (!insight?.short_id) {
                         throw new Error('Could not find insight or missing short_id')
                     }
