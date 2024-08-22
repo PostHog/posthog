@@ -9,7 +9,7 @@ program: declaration* EOF;
 
 declaration: varDecl | statement ;
 
-expression: columnExpr | columnLambdaExpr;
+expression: columnExpr;
 
 varDecl: LET identifier ( COLON EQ_SINGLE expression )? ;
 identifierList: identifier (COMMA identifier)* COMMA?;
@@ -215,8 +215,9 @@ columnExpr
 columnLambdaExpr:
     ( LPAREN identifier (COMMA identifier)* COMMA? RPAREN
     |        identifier (COMMA identifier)* COMMA?
+    | LPAREN RPAREN
     )
-    ARROW columnExpr
+    ARROW (columnExpr | block)
     ;
 
 

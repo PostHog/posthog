@@ -13,3 +13,19 @@ print(arr[1](2))
 print((x -> x * 2)(2))
 
 print('--------')
+
+let withArg := x -> {
+    print(x)
+    print('moo')
+    print('cow')
+}
+withArg(2)
+
+print('--------')
+
+let noArg := () -> {
+    print('moo')
+    print('cow')
+}
+noArg()
+

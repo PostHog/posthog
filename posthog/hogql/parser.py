@@ -942,7 +942,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
         return ast.Lambda(
             args=[self.visit(identifier) for identifier in ctx.identifier()],
-            expr=self.visit(ctx.columnExpr()),
+            expr=self.visit(ctx.columnExpr() or ctx.block()),
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):

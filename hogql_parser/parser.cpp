@@ -335,15 +335,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(Expression) {
-    auto column_expr_ctx = ctx->columnExpr();
-    if (column_expr_ctx) {
-      return visit(column_expr_ctx);
-    }
-    auto column_lambda_expr_ctx = ctx->columnLambdaExpr();
-    if (column_lambda_expr_ctx) {
-      return visit(column_lambda_expr_ctx);
-    }
-    throw ParsingError("Expression must be either a columnExpr or a columnLambdaExpr");
+    return visit(ctx->columnExpr());
   }
 
   VISIT(VarDecl) {
@@ -2232,7 +2224,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
 
   VISIT(ColumnLambdaExpr) {
-    PyObject* expr = visitAsPyObject(ctx->columnExpr());
+    PyObject* expr;
+    auto column_expr_ctx = ctx->columnExpr();
+    auto block_ctx = ctx->block();
+    if (!column_expr_ctx && !block_ctx) {
+      throw ParsingError("ColumnLambdaExpr must have either a columnExpr or a block");
+    }
+    if (column_expr_ctx) {
+      expr = visitAsPyObject(column_expr_ctx);
+    } else {
+      expr = visitAsPyObject(block_ctx);
+    }
     PyObject* args;
     try {
       args = X_PyList_FromStrings(visitAsVectorOfStrings(ctx->identifier()));
