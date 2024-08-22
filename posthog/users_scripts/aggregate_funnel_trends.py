@@ -128,7 +128,7 @@ def parse_user_aggregation_with_conversion_window_and_breakdown(
 
     # We don't support breakdowns atm - make this support breakdowns
     [loop_prop_val(prop_val) for prop_val in prop_vals]
-    result_strings = [f"({k}, {v})" for k, v in results.items()]
+    result_strings = [f"('{k}', {v})" for k, v in results.items()]
     print(f"[{','.join(result_strings)}]")  # noqa: T201
 
 

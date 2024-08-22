@@ -66,6 +66,7 @@ class FunnelTrendsUDF(FunnelTrends):
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
         # debugging for development
+        '''
         inner_select = parse_select(
             f"""
                     SELECT
@@ -83,98 +84,40 @@ class FunnelTrendsUDF(FunnelTrends):
             {"inner_event_query": inner_event_query},
         )
         return inner_select
+        '''
 
         inner_select = parse_select(
             f"""
-            SELECT
-                arrayJoin({fn}(
-                    {self.context.max_steps},
-                    {self.conversion_window_limit()},
-                    '{breakdown_attribution_string}',
-                    '{self.context.funnelsFilter.funnelOrderType}',
-                    {prop_vals},
-                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
-                )) as af_tuple,
-                af_tuple.1 as af,
-                af_tuple.2 as breakdown,
-                af_tuple.3 as timings
-            FROM {{inner_event_query}}
-            GROUP BY aggregation_target{breakdown_prop}
-            HAVING af >= 0
-        """,
+                            SELECT
+                                arrayJoin({fn}(
+                                    {self.context.max_steps},
+                                    {self.conversion_window_limit()},
+                                    '{breakdown_attribution_string}',
+                                    '{self.context.funnelsFilter.funnelOrderType}',
+                                    {prop_vals},
+                                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
+                                )) as af_tuple,
+                                af_tuple.1 as interval_start,
+                                af_tuple.2 as success_bool
+                            FROM {{inner_event_query}}
+                            GROUP BY aggregation_target{breakdown_prop}
+                        """,
             {"inner_event_query": inner_event_query},
         )
 
-        step_results = ",".join(
-            [f"countIf(ifNull(equals(af, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)]
-        )
-        step_results2 = ",".join([f"sum(step_{i+1}) AS step_{i+1}" for i in range(self.context.max_steps)])
-
-        conversion_time_arrays = ",".join(
-            [
-                f"groupArrayIf(timings[{i}], timings[{i}] > 0) AS step_{i}_conversion_times"
-                for i in range(1, self.context.max_steps)
-            ]
-        )
-
-        order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
-
-        other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
-
-        use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
-            BreakdownType.PERSON,
-            BreakdownType.EVENT,
-            BreakdownType.GROUP,
-        ]
-
-        final_prop = (
-            f"if(row_number < {self.get_breakdown_limit()}, breakdown, {other_aggregation})"
-            if use_breakdown_limit
-            else "breakdown"
-        )
-
         s = parse_select(
             f"""
             SELECT
-                {step_results},
-                {conversion_time_arrays},
-                rowNumberInBlock() as row_number,
-                {final_prop} as final_prop
+                interval_start as entrance_period_start,
+                count() as reached_from_step_count,
+                sum(success_bool) as reached_to_step_count,
+                reached_to_step_count / reached_from_step_count as conversion_rate
             FROM
                 {{inner_select}}
-            GROUP BY breakdown
-            ORDER BY {order_by}
+            GROUP BY interval_start
+            ORDER BY interval_start
         """,
             {"inner_select": inner_select},
-        )
-
-        mean_conversion_times = ",".join(
-            [
-                f"arrayMap(x -> if(isNaN(x), NULL, x), [avgArray(step_{i}_conversion_times)])[1] AS step_{i}_average_conversion_time"
-                for i in range(1, self.context.max_steps)
-            ]
-        )
-        median_conversion_times = ",".join(
-            [
-                f"arrayMap(x -> if(isNaN(x), NULL, x), [medianArray(step_{i}_conversion_times)])[1] AS step_{i}_median_conversion_time"
-                for i in range(1, self.context.max_steps)
-            ]
-        )
-
-        # Weird: unless you reference row_number in this outer block, it doesn't work correctly
-        s = parse_select(
-            f"""
-            SELECT
-                {step_results2},
-                {mean_conversion_times},
-                {median_conversion_times},
-                groupArray(row_number) as row_number,
-                final_prop
-            FROM
-                {{s}}
-            GROUP BY final_prop
-        """,
-            {"s": s},
         )
 
         return cast(ast.SelectQuery, s)
