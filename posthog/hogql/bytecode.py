@@ -69,17 +69,21 @@ def create_bytecode(
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
 
     # Find all accessed inline STL functions and inline them at the start of the function
-    for field in find_fields(expr):
+    stl_functions: list[ast.Declaration] = []
+    for field in sorted(find_fields(expr)):
         if field in INLINE_STL and field not in supported_functions:
-            function_expr = parse_program(INLINE_STL[field])
-            if isinstance(expr, ast.Program):
-                expr = ast.Program(declarations=[*function_expr.declarations, *expr.declarations])
-            elif isinstance(expr, ast.ExprStatement):
-                expr = ast.Program(declarations=[*function_expr.declarations, ast.ReturnStatement(expr=expr.expr)])
-            elif isinstance(expr, ast.Statement):
-                expr = ast.Program(declarations=[*function_expr.declarations, expr])
-            else:
-                expr = ast.Program(declarations=[*function_expr.declarations, ast.ReturnStatement(expr=expr)])
+            function_program = parse_program(INLINE_STL[field])
+            stl_functions.extend(function_program.declarations)
+
+    if stl_functions:
+        if isinstance(expr, ast.Program):
+            expr = ast.Program(declarations=[*stl_functions, *expr.declarations])
+        elif isinstance(expr, ast.ExprStatement):
+            expr = ast.Program(declarations=[*stl_functions, ast.ReturnStatement(expr=expr.expr)])
+        elif isinstance(expr, ast.Statement):
+            expr = ast.Program(declarations=[*stl_functions, expr])
+        else:
+            expr = ast.Program(declarations=[*stl_functions, ast.ReturnStatement(expr=expr)])
 
     bytecode.extend(BytecodeBuilder(supported_functions, args, context, enclosing).visit(expr))
     return bytecode
