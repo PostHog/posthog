@@ -226,7 +226,7 @@ urlpatterns = [
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
-    path("logout", authentication.logout, name="login"),
+    opt_slash_path("logout", authentication.logout, name="logout"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
