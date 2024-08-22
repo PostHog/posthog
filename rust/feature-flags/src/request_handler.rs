@@ -92,7 +92,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     )
     .await;
 
-    return Ok(flags_response);
+    Ok(flags_response)
 }
 
 fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagError> {

@@ -112,9 +112,9 @@ impl FeatureFlagMatcher {
     }
 
     fn check_rollout(&self, feature_flag: &FeatureFlag, rollout_percentage: f64) -> (bool, String) {
-        if rollout_percentage == 100.0 {
-            (true, "CONDITION_MATCH".to_string())
-        } else if self.get_hash(feature_flag, "") <= (rollout_percentage / 100.0) {
+        if rollout_percentage == 100.0
+            || self.get_hash(feature_flag, "") <= (rollout_percentage / 100.0)
+        {
             (true, "CONDITION_MATCH".to_string())
         } else {
             (false, "OUT_OF_ROLLOUT_BOUND".to_string())
@@ -164,7 +164,7 @@ impl FeatureFlagMatcher {
     async fn get_person_properties(
         &mut self,
         team_id: i32,
-        properties: &Vec<PropertyFilter>,
+        properties: &[PropertyFilter],
     ) -> HashMap<String, Value> {
         if let Some(person_overrides) = &self.person_property_overrides {
             // Check if all required properties are present in the overrides
