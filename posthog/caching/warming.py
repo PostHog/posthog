@@ -97,7 +97,7 @@ def schedule_warming_for_teams_task():
             | Q(sharingconfiguration__insight__insightviewed__last_viewed_at__gte=threshold)
         ),
         sharingconfiguration__enabled=True,
-    )
+    ).difference(prio_teams)
 
     all_teams = itertools.chain(
         zip(prio_teams, [False] * len(prio_teams)),
