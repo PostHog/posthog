@@ -409,7 +409,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             playerSettingsLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
+            ['showOnlyMatching', 'showSeekbarPageviews', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -832,10 +832,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         seekbarItems: [
-            (s) => [s.allItems, s.showOnlyMatching, s.showMatchingEventsFilter],
-            (allItems, showOnlyMatching, showMatchingEventsFilter): InspectorListItemEvent[] => {
+            (s) => [s.allItems, s.showOnlyMatching, s.showSeekbarPageviews, s.showMatchingEventsFilter],
+            (allItems, showOnlyMatching, showSeekbarPageviews, showMatchingEventsFilter): InspectorListItemEvent[] => {
                 let items = allItems.filter((item) => {
                     if (item.type !== SessionRecordingPlayerTab.EVENTS) {
+                        return false
+                    }
+
+                    if (!showSeekbarPageviews && item.data.event == '$pageview') {
                         return false
                     }
 

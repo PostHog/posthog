@@ -204,6 +204,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPreferredInspectorStacking: (stacking: InspectorStacking) => ({ stacking }),
         setPlaybackViewMode: (mode: PlaybackViewMode) => ({ mode }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
+        setShowSeekbarPageviews: (show: boolean) => ({ show }),
     }),
     connect({
         values: [teamLogic, ['currentTeam']],
@@ -295,6 +296,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setShowMouseTail: (_, { showMouseTail }) => showMouseTail,
+            },
+        ],
+        showSeekbarPageviews: [
+            true,
+            { persist: true },
+            {
+                setShowSeekbarPageviews: (_, { show }) => show,
             },
         ],
 

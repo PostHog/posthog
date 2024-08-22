@@ -7,8 +7,9 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { PLAYBACK_SPEEDS } from './sessionRecordingPlayerLogic'
 
 export const PlayerSettings = (): JSX.Element => {
-    const { speed, autoplayDirection, skipInactivitySetting, showMouseTail } = useValues(playerSettingsLogic)
-    const { setSpeed, setAutoplayDirection, setSkipInactivitySetting, setShowMouseTail } =
+    const { speed, autoplayDirection, skipInactivitySetting, showMouseTail, showSeekbarPageviews } =
+        useValues(playerSettingsLogic)
+    const { setSpeed, setAutoplayDirection, setSkipInactivitySetting, setShowMouseTail, setShowSeekbarPageviews } =
         useActions(playerSettingsLogic)
 
     return (
@@ -35,9 +36,9 @@ export const PlayerSettings = (): JSX.Element => {
                                     dropdownPlacement="bottom-end"
                                     dropdownMatchSelectWidth={false}
                                     options={[
-                                        { value: null, label: 'off' },
-                                        { value: 'newer', label: 'newer recordings' },
-                                        { value: 'older', label: 'older recordings' },
+                                        { value: null, label: 'Off' },
+                                        { value: 'newer', label: 'Newer recordings' },
+                                        { value: 'older', label: 'Older recordings' },
                                     ]}
                                     size="small"
                                 />
@@ -52,6 +53,18 @@ export const PlayerSettings = (): JSX.Element => {
                                 checked={showMouseTail}
                                 onChange={setShowMouseTail}
                                 label="Show mouse tail"
+                                fullWidth
+                            />
+                        ),
+                    },
+                    {
+                        custom: true,
+                        label: () => (
+                            <LemonSwitch
+                                className="px-2 py-1"
+                                checked={showSeekbarPageviews}
+                                onChange={setShowSeekbarPageviews}
+                                label="Seekbar pageviews"
                                 fullWidth
                             />
                         ),
