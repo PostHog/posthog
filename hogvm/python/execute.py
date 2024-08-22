@@ -249,13 +249,13 @@ def execute_bytecode(
             case Operation.CLOSE_UPVALUE:
                 splice_stack_1(len(stack) - 1)
             case Operation.RETURN:
-                result = pop_stack()
+                response = pop_stack()
                 last_call_frame = call_stack.pop()
                 if len(call_stack) == 0 or last_call_frame is None:
-                    return BytecodeResult(result=result, stdout=stdout, bytecode=bytecode)
+                    return BytecodeResult(result=response, stdout=stdout, bytecode=bytecode)
                 stack_start = last_call_frame.stack_start
                 splice_stack_1(stack_start)
-                push_stack(result)
+                push_stack(response)
                 frame = call_stack[-1]
                 continue  # resume the loop without incrementing frame.ip
 
