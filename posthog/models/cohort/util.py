@@ -311,7 +311,7 @@ def recalculate_cohortpeople(
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", team_id=cohort.team_id, query_type="CohortQuery")
+    tag_queries(kind="cohort_calculation", team_id=cohort.team_id, query_type="CohortsQuery")
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
 
