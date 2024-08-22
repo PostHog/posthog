@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use common::create_new_job;
-use cyclotron_core::manager::Shard;
+use cyclotron_core::test_support::Shard;
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 

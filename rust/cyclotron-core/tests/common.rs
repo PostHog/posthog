@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use cyclotron_core::base_ops::{Job, JobInit};
+use cyclotron_core::{Job, JobInit};
 use uuid::Uuid;
 
 #[allow(dead_code)]
